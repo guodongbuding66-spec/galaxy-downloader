@@ -323,6 +323,20 @@ function maxStreamBytes(runtime: XhsResolverRuntime): number {
   return positiveInteger(runtime.XHS_MAX_STREAM_BYTES, DEFAULT_MAX_STREAM_BYTES);
 }
 
+export function limitStreamBytes(body: ReadableStream<Uint8Array>, limit: number): ReadableStream<Uint8Array> {
+  let streamedBytes = 0;
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      streamedBytes += chunk.byteLength;
+      if (streamedBytes > limit) {
+        controller.error(new Error(`XHS media exceeded the ${limit} byte stream limit`));
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  }));
+}
+
 async function fetchXhsMedia(
   mediaUrl: string,
   sourceUrl: string,
@@ -390,10 +404,11 @@ export async function xhsDownloadResponse(
       throw new XhsResolverError(`XHS media upstream returned HTTP ${status}`, 502);
     }
 
+    const streamLimit = maxStreamBytes(runtime);
     const contentLength = Number.parseInt(upstream.headers.get('content-length') || '', 10);
-    if (Number.isFinite(contentLength) && contentLength > maxStreamBytes(runtime)) {
+    if (Number.isFinite(contentLength) && contentLength > streamLimit) {
       void upstream.body?.cancel();
-      throw new XhsResolverError(`XHS media exceeds the ${maxStreamBytes(runtime)} byte stream limit`, 413);
+      throw new XhsResolverError(`XHS media exceeds the ${streamLimit} byte stream limit`, 413);
     }
 
     const headers = new Headers();
@@ -406,8 +421,10 @@ export async function xhsDownloadResponse(
     headers.set('Cache-Control', 'private, no-store');
     headers.set('X-Request-Id', requestId);
     headers.set('X-Galaxy-Provider', 'xhs-resolver');
+    headers.set('X-Max-Stream-Bytes', String(streamLimit));
 
-    return new Response(upstream.body, {
+    const body = upstream.body ? limitStreamBytes(upstream.body, streamLimit) : null;
+    return new Response(body, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers,
