@@ -3,21 +3,22 @@ from __future__ import annotations
 import json
 import os
 import sys
-import urllib.parse
+import tempfile
+from pathlib import Path
 from typing import Any
 
-from curl_cffi import requests
-
 from app.main import (
+    common_yt_dlp_args,
     format_has_audio,
     format_has_video,
     parse_with_ytdlp,
     platform_id,
+    run_process,
     validate_public_source_url,
 )
 
-PROBE_BYTES = int(os.getenv("GALAXY_SMOKE_PROBE_BYTES", str(64 * 1024)))
-PROBE_TIMEOUT = int(os.getenv("GALAXY_SMOKE_PROBE_TIMEOUT", "30"))
+PROBE_TIMEOUT = int(os.getenv("GALAXY_SMOKE_PROBE_TIMEOUT", "75"))
+PROBE_SECONDS = float(os.getenv("GALAXY_SMOKE_PROBE_SECONDS", "1.0"))
 
 
 def score_video(fmt: dict[str, Any]) -> tuple[int, int, float, int]:
@@ -62,49 +63,64 @@ def compact_format(fmt: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
-def probe_format(fmt: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not fmt or not isinstance(fmt.get("url"), str):
+def probe_download(source_url: str, fmt: dict[str, Any] | None, label: str) -> dict[str, Any] | None:
+    if not fmt:
         return None
 
-    headers = {
-        str(key): str(value)
-        for key, value in (fmt.get("http_headers") or {}).items()
-        if isinstance(key, str) and isinstance(value, str) and value
-    }
-    headers["Range"] = f"bytes=0-{max(0, PROBE_BYTES - 1)}"
-    impersonate = os.getenv("YTDLP_IMPERSONATE", "chrome")
+    format_id = str(fmt.get("format_id") or "").strip()
+    selector = format_id or ("bestvideo/best" if label == "video" else "bestaudio/best")
 
-    try:
-        with requests.get(
-            fmt["url"],
-            headers=headers,
-            timeout=PROBE_TIMEOUT,
-            stream=True,
-            impersonate=impersonate,
-            allow_redirects=True,
-        ) as response:
-            received = 0
-            for chunk in response.iter_content(chunk_size=min(32 * 1024, PROBE_BYTES)):
-                if not chunk:
-                    continue
-                received += min(len(chunk), PROBE_BYTES - received)
-                if received >= PROBE_BYTES:
-                    break
-
-            content_type = response.headers.get("content-type", "")
-            final_host = urllib.parse.urlsplit(str(response.url)).hostname
-            looks_error = content_type.lower().startswith(("text/html", "application/json", "text/plain")) and response.status_code >= 400
+    with tempfile.TemporaryDirectory(prefix=f"galaxy-smoke-{label}-") as directory:
+        output = Path(directory) / "probe.%(ext)s"
+        command = common_yt_dlp_args() + [
+            "--quiet",
+            "--no-progress",
+            "--force-overwrites",
+            "--no-part",
+            "--format",
+            selector,
+            "--download-sections",
+            f"*0-{PROBE_SECONDS:g}",
+            "--output",
+            str(output),
+            source_url,
+        ]
+        try:
+            completed = run_process(command, PROBE_TIMEOUT)
+        except Exception as exc:
             return {
-                "ok": 200 <= response.status_code < 400 and received > 0 and not looks_error,
-                "status": response.status_code,
-                "bytes": received,
-                "contentType": content_type,
-                "finalHost": final_host,
+                "ok": False,
+                "method": "yt-dlp-section",
+                "formatId": format_id or None,
+                "error": f"{type(exc).__name__}: {exc}",
             }
-    except Exception as exc:
+
+        files = [path for path in Path(directory).iterdir() if path.is_file()]
+        total_bytes = sum(path.stat().st_size for path in files)
+        if completed.returncode != 0 or total_bytes <= 0:
+            diagnostic = (completed.stderr or completed.stdout or "yt-dlp probe failed")[-3500:].strip()
+            return {
+                "ok": False,
+                "method": "yt-dlp-section",
+                "formatId": format_id or None,
+                "exitCode": completed.returncode,
+                "bytes": total_bytes,
+                "error": diagnostic,
+            }
+
         return {
-            "ok": False,
-            "error": f"{type(exc).__name__}: {exc}",
+            "ok": True,
+            "method": "yt-dlp-section",
+            "formatId": format_id or None,
+            "bytes": total_bytes,
+            "files": [
+                {
+                    "name": path.name,
+                    "bytes": path.stat().st_size,
+                    "suffix": path.suffix.lower(),
+                }
+                for path in files
+            ],
         }
 
 
@@ -123,11 +139,22 @@ def run(url: str) -> dict[str, Any]:
         }
 
     video, audio = choose_formats(info)
-    video_probe = probe_format(video)
-    if audio is video:
+    video_probe = probe_download(source_url, video, "video")
+
+    same_format = bool(
+        video
+        and audio
+        and str(video.get("format_id") or "") == str(audio.get("format_id") or "")
+    )
+    if same_format:
         audio_probe = video_probe
+    elif video_probe and video_probe.get("ok"):
+        # One successful real media download is enough to prove that this
+        # platform's extraction + authenticated media path works. Avoid a
+        # second network-heavy probe unless video failed or the item is audio-only.
+        audio_probe = None
     else:
-        audio_probe = probe_format(audio)
+        audio_probe = probe_download(source_url, audio, "audio")
 
     has_media = bool(video_probe and video_probe.get("ok")) or bool(audio_probe and audio_probe.get("ok"))
     status = "PASS" if has_media else "MEDIA_FAIL"
