@@ -13,6 +13,7 @@ import { ScrollText } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import changelogData from '@/lib/changelog.json'
 import latestChangelogData from '@/lib/changelog-latest.json'
+import workbenchChangelogData from '@/lib/changelog-workbench.json'
 import { useAppLocale, useDictionary } from '@/i18n/client'
 import { cn } from '@/lib/utils'
 
@@ -38,7 +39,11 @@ export function ChangelogDialog({
     }
 
     const title = dict.changelog.title
-    const versions = [...latestChangelogData.versions, ...changelogData.versions]
+    const versions = [
+        ...workbenchChangelogData.versions,
+        ...latestChangelogData.versions,
+        ...changelogData.versions,
+    ]
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>

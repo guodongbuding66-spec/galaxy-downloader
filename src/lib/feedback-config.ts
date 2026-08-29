@@ -2,6 +2,9 @@ import { API_ENDPOINTS } from './config'
 
 // 反馈API配置
 export const FEEDBACK_CONFIG = {
+  // 对外反馈邮箱
+  supportEmail: 'guodongbuding66@gmail.com',
+
   // API端点
   apiUrl: API_ENDPOINTS.feedback,
 
