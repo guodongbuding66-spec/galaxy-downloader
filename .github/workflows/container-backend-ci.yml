@@ -3,7 +3,7 @@ name: Container Backend CI
 on:
   push:
     branches:
-      - 'feature/platform-download-health'
+      - 'main'
     paths:
       - 'container-backend/**'
       - '.github/workflows/container-backend-ci.yml'
