@@ -59,7 +59,10 @@ function normalizeQualityEntry(value: unknown): VideoQualityOption | null {
 
     if (!quality) return null;
 
-    const formatLabel = getFirstString(value, ['label', 'formatNote', 'format_note', 'format']);
+    // Preserve an explicit user-facing label exactly as returned by the parser.
+    // Only synthesize a richer label when the backend did not provide one.
+    const explicitLabel = getFirstString(value, ['label']);
+    const formatLabel = getFirstString(value, ['formatNote', 'format_note', 'format']);
     const labelParts = [
         formatLabel,
         height ? `${height}p${fps && fps > 30 ? Math.round(fps) : ''}` : undefined,
@@ -68,7 +71,7 @@ function normalizeQualityEntry(value: unknown): VideoQualityOption | null {
 
     return {
         quality,
-        label: labelParts.join(' · ') || quality,
+        label: explicitLabel || labelParts.join(' · ') || quality,
         width,
         height,
         fps,
@@ -167,10 +170,10 @@ function dedupeSubtitles(tracks: SubtitleTrack[]): SubtitleTrack[] {
 }
 
 /**
- * The public parser has evolved over time and compatible backends sometimes
- * expose yt-dlp-like `formats`, `subtitles`, or `automatic_captions` fields.
- * Normalize those optional shapes into the stable frontend model without
- * requiring a backend-specific UI implementation.
+ * Compatible parser deployments may expose yt-dlp-like `formats`,
+ * `subtitles`, or `automatic_captions` fields. Normalize those optional
+ * shapes into the stable frontend model without requiring a backend-specific
+ * UI implementation.
  */
 export function normalizeParserCapabilities<T extends UnknownRecord>(data: T): T & {
     qualityOptions?: VideoQualityOption[];
