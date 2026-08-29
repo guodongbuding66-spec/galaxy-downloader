@@ -44,7 +44,7 @@ export function CollectionItemActions({
     const downloadActionCount = Number(canDownloadVideo) + Number(canDownloadAudio);
 
     return (
-        <div className="w-full space-y-2 md:min-w-[11rem] md:shrink-0">
+        <div className="w-full space-y-2 sm:min-w-[12rem] md:w-auto md:shrink-0">
             {previewActionCount > 0 && (
                 <div className={`grid ${getActionRowClass(previewActionCount)} gap-2`}>
                     {canPlayVideo && (
@@ -53,7 +53,7 @@ export function CollectionItemActions({
                             text={dict.result.playVideo}
                             icon={Play}
                             variant="secondary"
-                            size="xs"
+                            size="sm"
                             className="w-full"
                             onClick={() => onPlay('video')}
                         />
@@ -64,7 +64,7 @@ export function CollectionItemActions({
                             text={dict.result.playAudio}
                             icon={Headphones}
                             variant="secondary"
-                            size="xs"
+                            size="sm"
                             className="w-full"
                             onClick={() => onPlay('audio')}
                         />
@@ -79,7 +79,7 @@ export function CollectionItemActions({
                             text={dict.result.downloadVideo}
                             icon={VideoDownloadIcon}
                             variant="default"
-                            size="xs"
+                            size="sm"
                             className="w-full"
                             disabled={videoLoading}
                             loading={videoLoading}
@@ -92,7 +92,7 @@ export function CollectionItemActions({
                             text={dict.result.downloadAudio}
                             icon={AudioDownloadIcon}
                             variant="default"
-                            size="xs"
+                            size="sm"
                             className="w-full"
                             disabled={audioLoading}
                             loading={audioLoading}
