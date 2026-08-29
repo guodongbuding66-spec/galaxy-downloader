@@ -1,7 +1,16 @@
 import { Container, getRandom } from '@cloudflare/containers';
 import { env as runtimeEnv } from 'cloudflare:workers';
 
-interface RuntimeSecrets {
+import {
+  isXhsSourceUrl,
+  xhsDownloadResponse,
+  xhsParseResponse,
+  xhsResolverConfigured,
+  xhsResolverMode,
+  type XhsResolverRuntime,
+} from './xhs-resolver';
+
+interface RuntimeSecrets extends XhsResolverRuntime {
   YTDLP_COOKIES_B64?: string;
   YTDLP_COOKIE_POLICY?: string;
   YTDLP_TWITCH_ALLOW_COOKIES?: string;
@@ -74,7 +83,7 @@ function corsHeaders(request: Request): HeadersInit {
     'Access-Control-Allow-Origin': allowed.has(origin) ? origin : allowedOrigins[0],
     'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Range,X-Request-Id',
-    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Content-Disposition,Accept-Ranges,X-Request-Id',
+    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Content-Disposition,Accept-Ranges,X-Request-Id,X-Galaxy-Provider',
     Vary: 'Origin',
   };
 }
@@ -89,6 +98,51 @@ function withCors(response: Response, request: Request): Response {
     statusText: response.statusText,
     headers,
   });
+}
+
+function sourceUrlFromRequest(url: URL): string | null {
+  const value = url.searchParams.get('url')?.trim();
+  return value || null;
+}
+
+async function containerResponse(request: Request, env: Env): Promise<Response> {
+  // Stateless media work is spread across a small pool. Each Container is a
+  // durable-object-backed instance and sleeps automatically when idle.
+  const container = await getRandom(env.MEDIA_CONTAINER, 3);
+  return container.fetch(request);
+}
+
+async function parseResponseSucceeded(response: Response): Promise<boolean> {
+  if (!response.ok) return false;
+  const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+  if (!contentType.includes('json')) return false;
+  try {
+    const payload = await response.clone().json() as { success?: unknown };
+    return payload.success !== false;
+  } catch {
+    return false;
+  }
+}
+
+async function augmentHealth(response: Response): Promise<Response> {
+  const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+  if (!contentType.includes('json')) return response;
+
+  try {
+    const payload = await response.clone().json() as Record<string, unknown>;
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    return Response.json({
+      ...payload,
+      xhsResolverConfigured: xhsResolverConfigured(runtimeSecrets),
+      xhsResolverMode: xhsResolverMode(runtimeSecrets),
+    }, {
+      status: response.status,
+      headers,
+    });
+  } catch {
+    return response;
+  }
 }
 
 export default {
@@ -116,12 +170,49 @@ export default {
     if (!headers.has('x-request-id')) {
       headers.set('x-request-id', crypto.randomUUID());
     }
+    const requestId = headers.get('x-request-id') || 'unknown';
     const forwarded = new Request(request, { headers });
 
-    // Stateless media work is spread across a small pool. Each Container is a
-    // durable-object-backed instance and sleeps automatically when idle.
-    const container = await getRandom(env.MEDIA_CONTAINER, 3);
-    const response = await container.fetch(forwarded);
+    if (url.pathname === '/health') {
+      const response = await augmentHealth(await containerResponse(forwarded, env));
+      return withCors(response, request);
+    }
+
+    const sourceUrl = sourceUrlFromRequest(url);
+    const useXhsResolver = Boolean(
+      sourceUrl
+      && isXhsSourceUrl(sourceUrl)
+      && xhsResolverConfigured(runtimeSecrets),
+    );
+
+    if (useXhsResolver && sourceUrl && url.pathname === '/api/parse') {
+      if (xhsResolverMode(runtimeSecrets) === 'prefer') {
+        const specialized = await xhsParseResponse(request, sourceUrl, runtimeSecrets, requestId);
+        if (specialized.ok) return withCors(specialized, request);
+
+        const fallback = await containerResponse(forwarded, env);
+        return withCors(await parseResponseSucceeded(fallback) ? fallback : specialized, request);
+      }
+
+      const primary = await containerResponse(forwarded, env);
+      if (await parseResponseSucceeded(primary)) return withCors(primary, request);
+
+      const specialized = await xhsParseResponse(request, sourceUrl, runtimeSecrets, requestId);
+      return withCors(specialized.ok ? specialized : primary, request);
+    }
+
+    if (useXhsResolver && sourceUrl && url.pathname === '/api/download') {
+      const specialized = await xhsDownloadResponse(request, sourceUrl, runtimeSecrets, requestId);
+      if (specialized?.ok || specialized?.status === 206) {
+        return withCors(specialized, request);
+      }
+
+      const fallback = await containerResponse(forwarded, env);
+      if (fallback.ok || fallback.status === 206) return withCors(fallback, request);
+      return withCors(specialized || fallback, request);
+    }
+
+    const response = await containerResponse(forwarded, env);
     return withCors(response, request);
   },
 };
