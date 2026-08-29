@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
     detectXhsDetailSchema,
+    getXhsResolverCircuitState,
     isAllowedXhsMediaUrl,
     isXhsSourceUrl,
     limitStreamBytes,
     normalizeXhsDetail,
+    resetXhsResolverCircuitState,
     xhsDownloadResponse,
     xhsParseResponse,
     xhsResolverMode,
@@ -67,6 +69,7 @@ function legacyVideoResolverPayload() {
 
 afterEach(() => {
     vi.restoreAllMocks();
+    resetXhsResolverCircuitState();
 });
 
 describe('XHS resolver provider', () => {
@@ -327,6 +330,46 @@ describe('XHS resolver provider', () => {
             details: { provider: 'xhs-resolver' },
         }));
         expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('opens the resolver circuit after repeated infrastructure failures', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValue(Response.json({ message: 'upstream unavailable' }, { status: 503 }));
+        const runtime = {
+            XHS_RESOLVER_URL: 'https://resolver.example.com',
+            XHS_RESOLVER_FAILURE_THRESHOLD: '2',
+            XHS_RESOLVER_COOLDOWN_MS: '60000',
+        };
+        const request = new Request(`https://media.example.com/api/parse?url=${encodeURIComponent(sourceUrl)}`);
+
+        const first = await xhsParseResponse(request, sourceUrl, runtime, 'breaker-1');
+        const second = await xhsParseResponse(request, sourceUrl, runtime, 'breaker-2');
+        expect(first.status).toBe(502);
+        expect(second.status).toBe(502);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(getXhsResolverCircuitState(runtime)).toEqual(expect.objectContaining({
+            state: 'open',
+            consecutiveFailures: 2,
+        }));
+
+        const third = await xhsParseResponse(request, sourceUrl, runtime, 'breaker-3');
+        expect(third.status).toBe(503);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not trip the resolver circuit on client/content errors', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValue(Response.json({ message: 'not found' }, { status: 404 }));
+        const runtime = {
+            XHS_RESOLVER_URL: 'https://resolver.example.com',
+            XHS_RESOLVER_FAILURE_THRESHOLD: '1',
+        };
+        const request = new Request(`https://media.example.com/api/parse?url=${encodeURIComponent(sourceUrl)}`);
+
+        const response = await xhsParseResponse(request, sourceUrl, runtime, 'client-error');
+        expect(response.status).toBe(404);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(getXhsResolverCircuitState(runtime).state).toBe('closed');
     });
 
     it('defaults to fallback mode and only accepts explicit prefer mode', () => {
