@@ -32,18 +32,22 @@ export function MediaActionIconButton({
             type="button"
             variant={variant}
             size={size}
-            className={cn('min-w-0 justify-center gap-1.5', className)}
+            className={cn(
+                'min-h-10 min-w-0 justify-center gap-1.5 whitespace-normal px-3 text-center leading-tight',
+                className,
+            )}
             disabled={disabled}
             onClick={onClick}
             aria-label={label}
+            aria-busy={loading || undefined}
             title={label}
         >
             {loading ? (
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
             ) : (
-                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
             )}
-            <span className="truncate">{text ?? label}</span>
+            <span className="line-clamp-2">{text ?? label}</span>
         </Button>
     );
 }
