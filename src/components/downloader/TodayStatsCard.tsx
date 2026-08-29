@@ -19,6 +19,10 @@ function prefersReducedMotion(): boolean {
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
+function resolveTotalCount(stats: TodayParseStats): number {
+    return stats.totalCount ?? stats.count;
+}
+
 interface TodayStatsCardProps {
     dict: Pick<Dictionary, 'todayStats'>;
 }
@@ -44,7 +48,7 @@ export function TodayStatsCard({ dict }: TodayStatsCardProps) {
                 .then((result) => {
                     if (!disposed && !controller.signal.aborted && requestId === latestRequestId) {
                         if (result && displayedCountsRef.current === null) {
-                            const initialCounts = { today: result.count, total: result.totalCount };
+                            const initialCounts = { today: result.count, total: resolveTotalCount(result) };
                             displayedCountsRef.current = initialCounts;
                             setDisplayCounts(initialCounts);
                         }
@@ -78,7 +82,7 @@ export function TodayStatsCard({ dict }: TodayStatsCardProps) {
             return;
         }
 
-        const targetCounts = { today: stats.count, total: stats.totalCount };
+        const targetCounts = { today: stats.count, total: resolveTotalCount(stats) };
 
         const previousCounts = displayedCountsRef.current;
         const shouldAnimateToday = previousCounts !== null && targetCounts.today > previousCounts.today;
