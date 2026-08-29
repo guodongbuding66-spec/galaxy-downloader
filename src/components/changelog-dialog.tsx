@@ -12,6 +12,7 @@ import {
 import { ScrollText } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import changelogData from '@/lib/changelog.json'
+import latestChangelogData from '@/lib/changelog-latest.json'
 import { useAppLocale, useDictionary } from '@/i18n/client'
 import { cn } from '@/lib/utils'
 
@@ -32,12 +33,12 @@ export function ChangelogDialog({
     const dict = useDictionary()
     const [open, setOpen] = useState(defaultOpen)
 
-    // 获取当前语言的更新内容，如果没有则回退到英文
     const getChanges = (changes: Record<string, string[]>) => {
         return changes[locale] || changes['en'] || []
     }
 
     const title = dict.changelog.title
+    const versions = [...latestChangelogData.versions, ...changelogData.versions]
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -59,7 +60,7 @@ export function ChangelogDialog({
                 </DialogHeader>
                 <ScrollArea className="max-h-[60vh] pr-2">
                     <div className="space-y-6">
-                        {changelogData.versions.map((version) => (
+                        {versions.map((version) => (
                             <div key={version.version} className="border-b border-border pb-4 last:border-b-0 last:pb-0">
                                 <div className="flex items-center justify-between mb-3">
                                     <span className="font-semibold">v{version.version}</span>
