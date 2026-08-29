@@ -4,6 +4,7 @@ import {
   buildFinalMediaFfmpegArgs,
   inferJoinedHlsExtension,
   isHlsMediaResponse,
+  shouldStreamCopyAudio,
 } from '../src/lib/final-media-export.ts';
 
 describe('final media export', () => {
@@ -22,6 +23,7 @@ describe('final media export', () => {
     expect(args).toContain('copy');
     expect(args).toContain('-c:a');
     expect(args).toContain('aac');
+    expect(args).toContain('320k');
     expect(args).toContain('-c:s');
     expect(args).toContain('mov_text');
     expect(args).toContain('-c:v:1');
@@ -30,6 +32,21 @@ describe('final media export', () => {
     expect(args).toContain('attached_pic');
     expect(args).toContain('language=zho');
     expect(args).toContain('final-output.mp4');
+  });
+
+  it('can preserve a compatible selected audio bitstream without recompression', () => {
+    const args = buildFinalMediaFfmpegArgs({
+      videoInput: 'video.mp4',
+      audioInput: 'best-audio.m4a',
+      audioCodec: 'copy',
+    });
+
+    const codecIndex = args.indexOf('-c:a');
+    expect(args[codecIndex + 1]).toBe('copy');
+    expect(args).not.toContain('-b:a');
+    expect(shouldStreamCopyAudio(new File([new Uint8Array([1])], 'best.m4a', { type: 'audio/mp4' }))).toBe(true);
+    expect(shouldStreamCopyAudio(new File([new Uint8Array([1])], 'best.aac', { type: 'audio/aac' }))).toBe(true);
+    expect(shouldStreamCopyAudio(new File([new Uint8Array([1])], 'best.webm', { type: 'audio/webm' }))).toBe(false);
   });
 
   it('falls back to audio already inside the video when no separate audio URL exists', () => {
