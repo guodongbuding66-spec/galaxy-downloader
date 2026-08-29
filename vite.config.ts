@@ -56,6 +56,10 @@ export default defineConfig(({ command, mode }) => {
     },
     resolve: {
       alias: {
+        // Keep the public import stable while routing the production UI through
+        // the browser-local OPFS/WORKERFS facade. The facade imports the mature
+        // implementation relatively for HLS compatibility fallback.
+        "@/lib/final-media-export": fileURLToPath(new URL("./src/lib/final-media-export-local.ts", import.meta.url)),
         "next-intl/config": fileURLToPath(new URL("./src/i18n/request.ts", import.meta.url)),
       },
     },
