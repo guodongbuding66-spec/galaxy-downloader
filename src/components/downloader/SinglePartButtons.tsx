@@ -6,8 +6,12 @@ import type { HlsDownloadDialogRequest } from '@/components/hls-download-dialog'
 import type { MediaPreviewRequest } from '@/components/downloader/media-preview';
 import { Button } from '@/components/ui/button';
 import { useDictionary } from '@/i18n/client';
+import { toast } from '@/lib/deferred-toast';
 import { isHlsPlaylistUrl } from '@/lib/hls-playback';
-import { buildSourceMediaDownloadUrl } from '@/lib/media-download-options';
+import {
+    buildSourceMediaDownloadUrl,
+    resolveSourceMediaDownloadUrl,
+} from '@/lib/media-download-options';
 import type { UnifiedParseResult } from '@/lib/types';
 import { downloadFile, getProxiedDownloadUrl } from '@/lib/utils';
 
@@ -66,12 +70,12 @@ export function SinglePartButtons({
     const audioDownloadUrl = rawAudioDownloadUrl
         ? getProxiedDownloadUrl(rawAudioDownloadUrl)
         : null;
-    const bestVideoDownloadUrl = previewSourceUrl
+    const bestVideoDownloadRequest = previewSourceUrl
         ? buildSourceMediaDownloadUrl({ sourceUrl: previewSourceUrl, type: 'video', quality: 'best' })
-        : videoDownloadUrl;
-    const bestAudioDownloadUrl = previewSourceUrl
+        : null;
+    const bestAudioDownloadRequest = previewSourceUrl
         ? buildSourceMediaDownloadUrl({ sourceUrl: previewSourceUrl, type: 'audio', quality: 'best' })
-        : audioDownloadUrl;
+        : null;
     const showVideoDownload = videoAction === 'direct-download' || videoAction === 'merge-then-download';
     const showBrowserHlsDownload = videoAction === 'browser-hls-download' || (videoAction === 'hide' && isHlsPlaylistUrl(result.originDownloadVideoUrl));
     const showAudioDownload = audioAction !== 'hide';
@@ -86,10 +90,33 @@ export function SinglePartButtons({
         && result.originDownloadAudioUrl.length > 0
         && result.originDownloadAudioUrl !== rawAudioDownloadUrl;
 
-    const handleDownload = (url: string, setLoading: (value: boolean) => void) => {
+    const handleDirectDownload = (url: string, setLoading: (value: boolean) => void) => {
         setLoading(true);
         downloadFile(url);
         setTimeout(() => setLoading(false), 1500);
+    };
+
+    const handleSourceDownload = async (
+        requestUrl: string,
+        fallbackUrl: string | null,
+        setLoading: (value: boolean) => void
+    ) => {
+        setLoading(true);
+        try {
+            const resolvedUrl = await resolveSourceMediaDownloadUrl(requestUrl);
+            downloadFile(resolvedUrl);
+        } catch (error) {
+            console.error('Failed to resolve source-aware media download:', error);
+            if (fallbackUrl) {
+                // Preserve the previous direct-download behavior as a final
+                // compatibility fallback instead of leaving the button dead.
+                downloadFile(fallbackUrl);
+            } else {
+                toast.error(error instanceof Error ? error.message : 'Download failed');
+            }
+        } finally {
+            setLoading(false);
+        }
     };
 
     const openBrowserHlsDownload = () => {
@@ -177,8 +204,17 @@ export function SinglePartButtons({
                                         return;
                                     }
 
-                                    if (bestVideoDownloadUrl) {
-                                        handleDownload(bestVideoDownloadUrl, setVideoLoading);
+                                    if (bestVideoDownloadRequest) {
+                                        void handleSourceDownload(
+                                            bestVideoDownloadRequest,
+                                            videoDownloadUrl,
+                                            setVideoLoading
+                                        );
+                                        return;
+                                    }
+
+                                    if (videoDownloadUrl) {
+                                        handleDirectDownload(videoDownloadUrl, setVideoLoading);
                                     }
                                 }}
                             />
@@ -208,8 +244,17 @@ export function SinglePartButtons({
                                         return;
                                     }
 
-                                    if (bestAudioDownloadUrl) {
-                                        handleDownload(bestAudioDownloadUrl, setAudioLoading);
+                                    if (bestAudioDownloadRequest) {
+                                        void handleSourceDownload(
+                                            bestAudioDownloadRequest,
+                                            audioDownloadUrl,
+                                            setAudioLoading
+                                        );
+                                        return;
+                                    }
+
+                                    if (audioDownloadUrl) {
+                                        handleDirectDownload(audioDownloadUrl, setAudioLoading);
                                     }
                                 }}
                             />
