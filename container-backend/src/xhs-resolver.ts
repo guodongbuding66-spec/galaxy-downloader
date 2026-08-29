@@ -18,6 +18,8 @@ type XhsMediaItem = {
   previewUrl: string | null;
 };
 
+export type XhsDetailSchema = 'media-v1' | 'download-address-v1' | 'unknown';
+
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_STREAM_BYTES = 6 * 1024 * 1024 * 1024;
 const MAX_RESOLVER_RESPONSE_CHARS = 2 * 1024 * 1024;
@@ -45,9 +47,30 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function stringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(stringValue).filter((item) => item && item.toLowerCase() !== 'nan');
+  }
+  const single = stringValue(value);
+  if (!single) return [];
+  return single.split(/\s+/).map((item) => item.trim()).filter((item) => item && item.toLowerCase() !== 'nan');
+}
+
 function positiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value || '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function suffixFromUrl(value: string, fallback: string): string {
+  try {
+    const pathname = new URL(value).pathname;
+    const match = pathname.match(/\.([a-zA-Z0-9]{2,8})$/);
+    if (match) return match[1].toLowerCase();
+  } catch {
+    // The URL itself is validated before streaming. Schema normalization only
+    // needs a safe extension hint for the UI.
+  }
+  return fallback;
 }
 
 function resolverEndpoint(runtime: XhsResolverRuntime): string | null {
@@ -120,7 +143,13 @@ export function isAllowedXhsMediaUrl(value: string, runtime: XhsResolverRuntime 
   }
 }
 
-function parseMedia(detail: JsonObject): XhsMediaItem[] {
+export function detectXhsDetailSchema(detail: JsonObject): XhsDetailSchema {
+  if (Array.isArray(detail['媒体'])) return 'media-v1';
+  if (Array.isArray(detail['下载地址']) || stringValue(detail['下载地址'])) return 'download-address-v1';
+  return 'unknown';
+}
+
+function parseStructuredMedia(detail: JsonObject): XhsMediaItem[] {
   const rawMedia = Array.isArray(detail['媒体']) ? detail['媒体'] : [];
   const output: XhsMediaItem[] = [];
 
@@ -134,7 +163,9 @@ function parseMedia(detail: JsonObject): XhsMediaItem[] {
     const rawIndex = typeof item['序号'] === 'number' ? item['序号'] : Number(item['序号']);
     const index = Number.isFinite(rawIndex) && rawIndex > 0 ? Math.trunc(rawIndex) : position + 1;
     const rawSuffix = stringValue(item['扩展名']).toLowerCase().replace(/^\./, '');
-    const suffix = /^[a-z0-9]{2,8}$/.test(rawSuffix) ? rawSuffix : (kind === '视频' ? 'mp4' : 'jpg');
+    const suffix = /^[a-z0-9]{2,8}$/.test(rawSuffix)
+      ? rawSuffix
+      : suffixFromUrl(url, kind === '视频' ? 'mp4' : 'jpg');
 
     output.push({
       index,
@@ -146,6 +177,26 @@ function parseMedia(detail: JsonObject): XhsMediaItem[] {
   }
 
   return output;
+}
+
+function parseDownloadAddressMedia(detail: JsonObject): XhsMediaItem[] {
+  const urls = stringArray(detail['下载地址']);
+  if (!urls.length) return [];
+
+  const workType = stringValue(detail['作品类型']);
+  const isVideo = workType === '视频';
+  return urls.map((url, position) => ({
+    index: position + 1,
+    kind: isVideo ? '视频' : '图片',
+    url,
+    suffix: suffixFromUrl(url, isVideo ? 'mp4' : 'jpg'),
+    previewUrl: null,
+  }));
+}
+
+function parseMedia(detail: JsonObject): XhsMediaItem[] {
+  const structured = parseStructuredMedia(detail);
+  return structured.length ? structured : parseDownloadAddressMedia(detail);
 }
 
 async function readResolverJson(response: Response): Promise<JsonObject> {
@@ -231,7 +282,7 @@ export function normalizeXhsDetail(detail: JsonObject, sourceUrl: string, origin
   const description = stringValue(detail['作品描述']);
   const cover = firstVideo?.previewUrl || firstImage?.url || null;
   const author = asObject(detail['作者']);
-  const authorName = author ? stringValue(author['作者昵称']) : '';
+  const authorName = (author ? stringValue(author['作者昵称']) : '') || stringValue(detail['作者昵称']);
   const videoDownloadUrl = firstVideo ? sourceDownloadUrl(origin, sourceUrl, 'video') : null;
 
   const common: JsonObject = {
@@ -244,6 +295,7 @@ export function normalizeXhsDetail(detail: JsonObject, sourceUrl: string, origin
     author: authorName || undefined,
     originDownloadAudioUrl: null,
     subtitles: [],
+    resolverSchema: detectXhsDetailSchema(detail),
   };
 
   if (firstVideo && (stringValue(detail['作品类型']) === '视频' || images.length === 0)) {
@@ -300,7 +352,7 @@ export async function xhsParseResponse(
     const detail = await fetchXhsDetail(sourceUrl, runtime);
     const data = normalizeXhsDetail(detail, sourceUrl, new URL(request.url).origin);
     return Response.json(
-      { success: true, data, requestId, details: { provider: 'xhs-resolver' } },
+      { success: true, data, requestId, details: { provider: 'xhs-resolver', schema: detectXhsDetailSchema(detail) } },
       { headers: { 'X-Request-Id': requestId } },
     );
   } catch (error) {
