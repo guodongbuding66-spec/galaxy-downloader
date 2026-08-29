@@ -39,7 +39,7 @@ jobs:
       - name: Probe production parser and downloads
         env:
           PLATFORM_SMOKE_API_BASE: https://downloader-api.bhwa233.com
-          PLATFORM_SMOKE_WORKERS: '4'
+          PLATFORM_SMOKE_WORKERS: '2'
           PLATFORM_SMOKE_TIMEOUT: '30'
           PLATFORM_SMOKE_FIXTURES_JSON: ${{ secrets.PLATFORM_SMOKE_FIXTURES_JSON }}
         run: python scripts/platform-smoke.py --output-dir platform-smoke-artifacts
