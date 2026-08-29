@@ -20,6 +20,12 @@ type XhsMediaItem = {
   previewUrl: string | null;
 };
 
+type PublicXhsError = {
+  status: number;
+  message: string;
+  retryAfterSeconds?: number;
+};
+
 export type XhsDetailSchema = 'media-v1' | 'download-address-v1' | 'unknown';
 export type XhsResolverCircuitState = 'closed' | 'open' | 'half-open';
 
@@ -151,6 +157,51 @@ function markResolverInfrastructureFailure(runtime: XhsResolverRuntime): void {
 
 function isInfrastructureFailure(status: number): boolean {
   return status === 429 || status >= 500;
+}
+
+function publicXhsError(
+  error: unknown,
+  runtime: XhsResolverRuntime,
+  operation: 'parsing' | 'download',
+): PublicXhsError {
+  const status = error instanceof XhsResolverError ? error.status : 502;
+
+  if (status === 400) return { status, message: 'XHS provider rejected the request.' };
+  if (status === 401 || status === 403) return { status, message: 'XHS provider authorization failed.' };
+  if (status === 404) return { status, message: 'XHS media was not found.' };
+  if (status === 413) return { status, message: 'XHS media exceeds the configured size limit.' };
+  if (status === 429) {
+    return {
+      status,
+      message: 'XHS provider is rate limited. Please retry later.',
+      retryAfterSeconds: 60,
+    };
+  }
+  if (status === 503) {
+    const circuit = getXhsResolverCircuitState(runtime);
+    const retryAfterSeconds = circuit.state === 'open'
+      ? Math.max(1, Math.ceil(circuit.retryAfterMs / 1000))
+      : 10;
+    return {
+      status,
+      message: 'XHS provider is temporarily unavailable.',
+      retryAfterSeconds,
+    };
+  }
+  if (status === 504) return { status, message: 'XHS provider timed out.' };
+  if (status >= 500) return { status, message: `XHS provider ${operation} failed upstream.` };
+  return { status, message: 'XHS provider request failed.' };
+}
+
+function xhsErrorHeaders(requestId: string, publicError: PublicXhsError): Headers {
+  const headers = new Headers({
+    'Cache-Control': 'no-store',
+    'X-Request-Id': requestId,
+  });
+  if (publicError.retryAfterSeconds !== undefined) {
+    headers.set('Retry-After', String(publicError.retryAfterSeconds));
+  }
+  return headers;
 }
 
 function resolverEndpoint(runtime: XhsResolverRuntime): string | null {
@@ -450,17 +501,20 @@ export async function xhsParseResponse(
       { headers: { 'X-Request-Id': requestId } },
     );
   } catch (error) {
-    const status = error instanceof XhsResolverError ? error.status : 502;
+    const publicError = publicXhsError(error, runtime, 'parsing');
     return Response.json(
       {
         success: false,
         code: 'PARSE_FAILED',
-        status,
-        error: error instanceof Error ? error.message : String(error),
+        status: publicError.status,
+        error: publicError.message,
         requestId,
         details: { provider: 'xhs-resolver' },
       },
-      { status, headers: { 'X-Request-Id': requestId } },
+      {
+        status: publicError.status,
+        headers: xhsErrorHeaders(requestId, publicError),
+      },
     );
   }
 }
@@ -576,17 +630,20 @@ export async function xhsDownloadResponse(
       headers,
     });
   } catch (error) {
-    const status = error instanceof XhsResolverError ? error.status : 502;
+    const publicError = publicXhsError(error, runtime, 'download');
     return Response.json(
       {
         success: false,
         code: 'UPSTREAM_ERROR',
-        status,
-        error: error instanceof Error ? error.message : String(error),
+        status: publicError.status,
+        error: publicError.message,
         requestId,
         details: { provider: 'xhs-resolver' },
       },
-      { status, headers: { 'X-Request-Id': requestId } },
+      {
+        status: publicError.status,
+        headers: xhsErrorHeaders(requestId, publicError),
+      },
     );
   }
 }
