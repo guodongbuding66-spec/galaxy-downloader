@@ -2,7 +2,6 @@ export const GALAXY_LOCAL_ENGINE_PROTOCOL_VERSION = 1 as const
 
 export type GalaxyLocalEngineMethod =
   | 'engine.status'
-  | 'engine.cookies'
   | 'media.parse'
   | 'media.download'
   | 'media.cancel'
