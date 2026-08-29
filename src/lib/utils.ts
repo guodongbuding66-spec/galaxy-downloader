@@ -1,10 +1,38 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
-import { API_ENDPOINTS } from "@/lib/config"
+import { API_ENDPOINT_CANDIDATES, API_ENDPOINTS } from "@/lib/config"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+function rewriteSourceAwareDownloadToFirstParty(sourceUrl: string, baseUrl: string): string | null {
+  const endpoints = API_ENDPOINT_CANDIDATES.unified.download
+  if (endpoints.length < 2) return null
+
+  try {
+    const primary = new URL(endpoints[0], baseUrl)
+    const firstParty = new URL(endpoints[endpoints.length - 1], baseUrl)
+    const candidate = new URL(sourceUrl)
+
+    if (
+      candidate.origin !== primary.origin
+      || candidate.pathname !== primary.pathname
+      || !candidate.searchParams.has('url')
+    ) {
+      return null
+    }
+
+    // Preserve the original source URL and every quality/format selector while
+    // switching only the backend host/path. This is especially important for
+    // temporary CDN links that are valid only from the parser/downloader's
+    // network identity.
+    firstParty.search = candidate.search
+    return firstParty.toString()
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -13,11 +41,13 @@ export function cn(...inputs: ClassValue[]) {
  * Some upstream CDNs (notably YouTube/googlevideo) return short-lived URLs
  * that are bound to the parser server's network identity. Opening those URLs
  * directly in the end user's browser can therefore return HTTP 403 even
- * though parsing succeeded. The API already exposes /api/download for this
- * purpose, so keep all regular HTTP(S) media downloads on that stable path.
+ * though parsing succeeded.
  *
- * Already-proxied URLs are left unchanged. blob:, data:, and relative URLs
- * stay local and are not proxied.
+ * When NEXT_PUBLIC_CONTAINER_API_BASE_URL is configured, source-aware
+ * `/api/download?url=<original page>` links returned by the shared parser are
+ * transparently rerouted to the first-party Container backend. This keeps
+ * extraction and download on the same backend without changing every UI
+ * caller. Plain CDN URLs still use the existing primary download proxy.
  */
 export function getProxiedDownloadUrl(url: string): string {
   const sourceUrl = url.trim()
@@ -29,6 +59,11 @@ export function getProxiedDownloadUrl(url: string): string {
 
   try {
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+    const firstPartyRewrite = rewriteSourceAwareDownloadToFirstParty(sourceUrl, baseUrl)
+    if (firstPartyRewrite) {
+      return firstPartyRewrite
+    }
+
     const proxyUrl = new URL(proxyEndpoint, baseUrl)
     const candidateUrl = new URL(sourceUrl)
 
@@ -38,6 +73,19 @@ export function getProxiedDownloadUrl(url: string): string {
       && candidateUrl.searchParams.has('url')
     ) {
       return sourceUrl
+    }
+
+    // A URL already pointing at any configured download backend should never
+    // be nested inside another /api/download request.
+    for (const endpoint of API_ENDPOINT_CANDIDATES.unified.download) {
+      const endpointUrl = new URL(endpoint, baseUrl)
+      if (
+        candidateUrl.origin === endpointUrl.origin
+        && candidateUrl.pathname === endpointUrl.pathname
+        && candidateUrl.searchParams.has('url')
+      ) {
+        return sourceUrl
+      }
     }
   } catch {
     // Fall through and build a proxy URL below.
