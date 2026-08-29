@@ -1,6 +1,7 @@
 from app.yt_dlp_wrapper import (
     find_source_url,
     platform_hint,
+    platform_proxy,
     replace_proxy,
     should_retry_with_cookies,
     strip_cookie_args,
@@ -33,6 +34,17 @@ def test_replace_proxy_is_platform_override_safe() -> None:
         "http://rumble:2",
         "https://rumble.com/v1",
     ]
+
+
+def test_platform_proxy_uses_isolated_environment_variables(monkeypatch) -> None:
+    monkeypatch.setenv("YTDLP_YOUTUBE_PROXY", "http://youtube-proxy:8080")
+    monkeypatch.setenv("YTDLP_XHS_PROXY", "http://xhs-proxy:8080")
+    monkeypatch.setenv("YTDLP_RUMBLE_PROXY", "http://rumble-proxy:8080")
+    assert platform_proxy("youtube") == "http://youtube-proxy:8080"
+    assert platform_proxy("xiaohongshu") == "http://xhs-proxy:8080"
+    assert platform_proxy("rumble") == "http://rumble-proxy:8080"
+    assert platform_proxy("twitch") == ""
+    assert platform_proxy("generic") == ""
 
 
 def test_xiaohongshu_no_formats_can_retry_with_cookies() -> None:
