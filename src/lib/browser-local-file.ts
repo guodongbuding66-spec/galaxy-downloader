@@ -30,6 +30,12 @@ function randomToken(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+function copyBytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return buffer
+}
+
 async function streamResponseToOpfs(
   response: Response,
   filename: string,
@@ -74,13 +80,13 @@ async function streamResponseToOpfs(
 
     await writable.close()
     const stored = await handle.getFile()
-    const file = new File([stored], filename, {
-      type: response.headers.get('content-type') || stored.type || undefined,
-      lastModified: stored.lastModified,
-    })
 
     return {
-      file,
+      // Keep the OPFS-backed File directly. Its generated prefix does not
+      // matter to ffmpeg and retaining it avoids wrapping the large file in a
+      // second Blob/File object. The original filename (and extension) remains
+      // at the end of storageName.
+      file: stored,
       storage: 'opfs',
       cleanup: async () => {
         await directory.removeEntry(storageName).catch(() => undefined)
@@ -101,12 +107,12 @@ async function streamResponseToMemory(
   onProgress?: (progress: BrowserLocalDownloadProgress) => void,
 ): Promise<BrowserLocalFile> {
   const total = Number(response.headers.get('content-length') || '0')
-  const chunks: Uint8Array[] = []
+  const chunks: ArrayBuffer[] = []
   let loaded = 0
 
   if (!response.body) {
     const bytes = new Uint8Array(await response.arrayBuffer())
-    chunks.push(bytes)
+    chunks.push(copyBytesToArrayBuffer(bytes))
     loaded = bytes.byteLength
   } else {
     const reader = response.body.getReader()
@@ -119,7 +125,7 @@ async function streamResponseToMemory(
         const { done, value } = await reader.read()
         if (done) break
         if (!value) continue
-        chunks.push(value)
+        chunks.push(copyBytesToArrayBuffer(value))
         loaded += value.byteLength
         onProgress?.({ loaded, total })
       }
@@ -168,8 +174,6 @@ export async function downloadToBrowserLocalFile({
     }
   }
 
-  // A Response body cannot be consumed twice. If OPFS failed after consuming
-  // bytes, retry the same URL for the memory fallback.
   if (response.bodyUsed) {
     const retry = await fetch(url, {
       method: 'GET',
