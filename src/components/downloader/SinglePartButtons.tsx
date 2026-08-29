@@ -1,39 +1,21 @@
-import { useState } from 'react';
-import { Download, ExternalLink, MonitorPlay, Headphones } from 'lucide-react';
+import { Download, Headphones, MonitorPlay } from 'lucide-react';
 
 import type { AudioExtractTask } from '@/components/audio-tool/types';
 import type { HlsDownloadDialogRequest } from '@/components/hls-download-dialog';
 import type { MediaPreviewRequest } from '@/components/downloader/media-preview';
-import { Button } from '@/components/ui/button';
-import { useDictionary } from '@/i18n/client';
-import { toast } from '@/lib/deferred-toast';
 import { isHlsPlaylistUrl } from '@/lib/hls-playback';
-import {
-    buildSourceMediaDownloadUrl,
-    resolveSourceMediaDownloadUrl,
-} from '@/lib/media-download-options';
 import type { UnifiedParseResult } from '@/lib/types';
-import { downloadFile, getProxiedDownloadUrl } from '@/lib/utils';
+import { getProxiedDownloadUrl } from '@/lib/utils';
 
 import { AdvancedDownloadOptions } from './AdvancedDownloadOptions';
 import { MediaActionIconButton } from './MediaActionIconButton';
 import { canPreviewResultAudio, canPreviewResultVideo } from './media-preview';
 import { getResultMediaActions } from './result-card-visibility';
-import { VideoDownloadIcon, AudioDownloadIcon } from './CustomIcons';
+import { AudioDownloadIcon } from './CustomIcons';
 
 function getActionRowClass(actionCount: number) {
-    if (actionCount >= 4) {
-        return 'grid-cols-4';
-    }
-
-    if (actionCount === 3) {
-        return 'grid-cols-3';
-    }
-
-    if (actionCount === 2) {
-        return 'grid-cols-2';
-    }
-
+    if (actionCount >= 3) return 'grid-cols-3';
+    if (actionCount === 2) return 'grid-cols-2';
     return 'grid-cols-1';
 }
 
@@ -50,9 +32,6 @@ export function SinglePartButtons({
     onOpenHlsDownload: (request: HlsDownloadDialogRequest) => void;
     onRequestPreview: (request: MediaPreviewRequest) => void;
 }) {
-    const dict = useDictionary();
-    const [videoLoading, setVideoLoading] = useState(false);
-    const [audioLoading, setAudioLoading] = useState(false);
     const previewSourceUrl = typeof result.url === 'string' ? result.url.trim() : '';
     const rawVideoDownloadUrl = result.downloadVideoUrl || result.originDownloadVideoUrl;
     const rawAudioDownloadUrl = result.downloadAudioUrl || result.originDownloadAudioUrl || null;
@@ -64,244 +43,111 @@ export function SinglePartButtons({
         originDownloadVideoUrl: result.originDownloadVideoUrl,
         originDownloadAudioUrl: result.originDownloadAudioUrl,
     });
-    const videoDownloadUrl = rawVideoDownloadUrl
-        ? getProxiedDownloadUrl(rawVideoDownloadUrl)
-        : null;
-    const audioDownloadUrl = rawAudioDownloadUrl
-        ? getProxiedDownloadUrl(rawAudioDownloadUrl)
-        : null;
-    const bestVideoDownloadRequest = previewSourceUrl
-        ? buildSourceMediaDownloadUrl({ sourceUrl: previewSourceUrl, type: 'video', quality: 'best' })
-        : null;
-    const bestAudioDownloadRequest = previewSourceUrl
-        ? buildSourceMediaDownloadUrl({ sourceUrl: previewSourceUrl, type: 'audio', quality: 'best' })
-        : null;
-    const showVideoDownload = videoAction === 'direct-download' || videoAction === 'merge-then-download';
-    const showBrowserHlsDownload = videoAction === 'browser-hls-download' || (videoAction === 'hide' && isHlsPlaylistUrl(result.originDownloadVideoUrl));
-    const showAudioDownload = audioAction !== 'hide';
-    const showVideoPreview = previewSourceUrl.length > 0 && canPreviewResultVideo(result);
+
+    const isAudioOnly = result.kind === 'audio'
+        || result.noteType === 'audio'
+        || result.videoAudioMode === 'pure_music';
+    const showVideoPreview = !isAudioOnly && previewSourceUrl.length > 0 && canPreviewResultVideo(result);
     const showAudioPreview = previewSourceUrl.length > 0 && canPreviewResultAudio(result);
-    const showOriginVideoLink =
-        typeof result.originDownloadVideoUrl === 'string'
-        && result.originDownloadVideoUrl.length > 0
-        && result.originDownloadVideoUrl !== rawVideoDownloadUrl;
-    const showOriginAudioLink =
-        typeof result.originDownloadAudioUrl === 'string'
-        && result.originDownloadAudioUrl.length > 0
-        && result.originDownloadAudioUrl !== rawAudioDownloadUrl;
-
-    const handleDirectDownload = (url: string, setLoading: (value: boolean) => void) => {
-        setLoading(true);
-        downloadFile(url);
-        setTimeout(() => setLoading(false), 1500);
-    };
-
-    const handleSourceDownload = async (
-        requestUrl: string,
-        fallbackUrl: string | null,
-        setLoading: (value: boolean) => void
-    ) => {
-        setLoading(true);
-        try {
-            const resolvedUrl = await resolveSourceMediaDownloadUrl(requestUrl);
-            downloadFile(resolvedUrl);
-        } catch (error) {
-            console.error('Failed to resolve source-aware media download:', error);
-            if (fallbackUrl) {
-                // Preserve the previous direct-download behavior as a final
-                // compatibility fallback instead of leaving the button dead.
-                downloadFile(fallbackUrl);
-            } else {
-                toast.error(error instanceof Error ? error.message : 'Download failed');
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
+    const showBrowserHlsDownload = !isAudioOnly && (
+        videoAction === 'browser-hls-download'
+        || (videoAction === 'hide' && isHlsPlaylistUrl(result.originDownloadVideoUrl))
+    );
+    const previewActionCount = Number(showVideoPreview) + Number(showAudioPreview);
+    const previewTitle = result.title || result.desc || 'Media';
 
     const openBrowserHlsDownload = () => {
         const workerPlaylistUrl = result.downloadVideoUrl;
-        if (!workerPlaylistUrl) {
-            return;
-        }
-
+        if (!workerPlaylistUrl) return;
         onOpenHlsDownload({
             sourceUrl: result.url || result.originDownloadVideoUrl || workerPlaylistUrl,
             resolvedPlaylistUrl: workerPlaylistUrl,
-            title: result.title || result.desc || dict.history.unknownTitle,
+            title: result.title || result.desc || 'Media',
         });
     };
 
-    const openResultTask = (action: AudioExtractTask['action']) => {
-        onOpenExtractAudio({
-            action,
-            title: result.title || result.desc || undefined,
-            sourceUrl: result.url || null,
-            audioUrl: audioDownloadUrl,
-            videoUrl: videoDownloadUrl,
-            mediaActions: result.mediaActions,
-        });
+    const handleAudioOnlyAction = () => {
+        if (audioAction === 'extract-audio' && rawVideoDownloadUrl) {
+            onOpenExtractAudio({
+                action: 'extract-audio',
+                title: result.title || result.desc || undefined,
+                sourceUrl: result.url || null,
+                videoUrl: getProxiedDownloadUrl(rawVideoDownloadUrl),
+                audioUrl: rawAudioDownloadUrl ? getProxiedDownloadUrl(rawAudioDownloadUrl) : null,
+                mediaActions: result.mediaActions,
+            });
+            return;
+        }
+
+        if (rawAudioDownloadUrl) {
+            const anchor = document.createElement('a');
+            anchor.href = getProxiedDownloadUrl(rawAudioDownloadUrl);
+            anchor.download = '';
+            anchor.style.display = 'none';
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+        }
     };
-    const previewTitle = result.title || result.desc || dict.result.title;
-    const previewActionCount = Number(showVideoPreview) + Number(showAudioPreview);
-    const downloadActionCount = Number(showVideoDownload)
-        + Number(showBrowserHlsDownload)
-        + Number(showAudioDownload);
-    const actionButtonClass = 'w-full min-w-0';
 
     return (
-        <>
-            <div className="space-y-2">
-                {previewActionCount > 0 && (
-                    <div className={`grid ${getActionRowClass(previewActionCount)} gap-2`}>
-                        {showVideoPreview && (
-                            <MediaActionIconButton
-                                label={dict.result.playVideo}
-                                icon={MonitorPlay}
-                                variant="secondary"
-                                className={actionButtonClass}
-                                onClick={() => onRequestPreview({
-                                    mediaType: 'video',
-                                    sourceUrl: previewSourceUrl,
-                                    title: previewTitle,
-                                    item: previewItem,
-                                    autoplay: true,
-                                })}
-                            />
-                        )}
-                        {showAudioPreview && (
-                            <MediaActionIconButton
-                                label={dict.result.playAudio}
-                                icon={Headphones}
-                                variant="secondary"
-                                className={actionButtonClass}
-                                onClick={() => onRequestPreview({
-                                    mediaType: 'audio',
-                                    sourceUrl: previewSourceUrl,
-                                    title: previewTitle,
-                                    item: previewItem,
-                                    autoplay: true,
-                                })}
-                            />
-                        )}
-                    </div>
-                )}
-                {downloadActionCount > 0 && (
-                    <div className={`grid ${getActionRowClass(downloadActionCount)} gap-2`}>
-                        {showVideoDownload && (
-                            <MediaActionIconButton
-                                label={videoAction === 'merge-then-download'
-                                    ? dict.result.mergeDownloadVideo
-                                    : dict.result.downloadVideo}
-                                icon={VideoDownloadIcon}
-                                variant="default"
-                                className={actionButtonClass}
-                                disabled={videoLoading}
-                                loading={videoLoading}
-                                onClick={() => {
-                                    if (videoAction === 'merge-then-download') {
-                                        openResultTask('merge-video');
-                                        return;
-                                    }
-
-                                    if (bestVideoDownloadRequest) {
-                                        void handleSourceDownload(
-                                            bestVideoDownloadRequest,
-                                            videoDownloadUrl,
-                                            setVideoLoading
-                                        );
-                                        return;
-                                    }
-
-                                    if (videoDownloadUrl) {
-                                        handleDirectDownload(videoDownloadUrl, setVideoLoading);
-                                    }
-                                }}
-                            />
-                        )}
-                        {showBrowserHlsDownload && (
-                            <MediaActionIconButton
-                                label={dict.result.browserDownloadVideo}
-                                icon={Download}
-                                variant="outline"
-                                className={actionButtonClass}
-                                onClick={openBrowserHlsDownload}
-                            />
-                        )}
-                        {showAudioDownload && (
-                            <MediaActionIconButton
-                                label={audioAction === 'direct-download'
-                                    ? dict.result.downloadAudio
-                                    : dict.extractAudio.button}
-                                icon={AudioDownloadIcon}
-                                variant="default"
-                                className={actionButtonClass}
-                                disabled={audioLoading}
-                                loading={audioLoading && audioAction === 'direct-download'}
-                                onClick={() => {
-                                    if (audioAction === 'extract-audio') {
-                                        openResultTask('extract-audio');
-                                        return;
-                                    }
-
-                                    if (bestAudioDownloadRequest) {
-                                        void handleSourceDownload(
-                                            bestAudioDownloadRequest,
-                                            audioDownloadUrl,
-                                            setAudioLoading
-                                        );
-                                        return;
-                                    }
-
-                                    if (audioDownloadUrl) {
-                                        handleDirectDownload(audioDownloadUrl, setAudioLoading);
-                                    }
-                                }}
-                            />
-                        )}
-                    </div>
-                )}
-            </div>
-            {videoAction === 'merge-then-download' && (
-                <p className="text-xs text-muted-foreground">
-                    {dict.result.mergeDownloadVideoHint}
-                </p>
-            )}
-            {result.noteType === 'audio' && (
-                <p className="text-xs text-muted-foreground">
-                    {dict.result.pureMusicHint}
-                </p>
-            )}
-            {(showOriginVideoLink || showOriginAudioLink) && (
-                <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
-                    {showOriginVideoLink && (
-                        <Button variant="link" size="sm" className="h-auto px-0 py-0 text-xs" asChild>
-                            <a
-                                href={getProxiedDownloadUrl(result.originDownloadVideoUrl!)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                                {dict.result.originDownloadVideo}
-                            </a>
-                        </Button>
+        <div className="space-y-3">
+            {previewActionCount > 0 && (
+                <div className={`grid ${getActionRowClass(previewActionCount)} gap-2`}>
+                    {showVideoPreview && (
+                        <MediaActionIconButton
+                            label="播放视频"
+                            icon={MonitorPlay}
+                            variant="secondary"
+                            className="w-full min-w-0"
+                            onClick={() => onRequestPreview({
+                                mediaType: 'video',
+                                sourceUrl: previewSourceUrl,
+                                title: previewTitle,
+                                item: previewItem,
+                                autoplay: true,
+                            })}
+                        />
                     )}
-                    {showOriginAudioLink && (
-                        <Button variant="link" size="sm" className="h-auto px-0 py-0 text-xs" asChild>
-                            <a
-                                href={getProxiedDownloadUrl(result.originDownloadAudioUrl!)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                                {dict.result.originDownloadAudio}
-                            </a>
-                        </Button>
+                    {showAudioPreview && (
+                        <MediaActionIconButton
+                            label="播放音频"
+                            icon={Headphones}
+                            variant="secondary"
+                            className="w-full min-w-0"
+                            onClick={() => onRequestPreview({
+                                mediaType: 'audio',
+                                sourceUrl: previewSourceUrl,
+                                title: previewTitle,
+                                item: previewItem,
+                                autoplay: true,
+                            })}
+                        />
                     )}
                 </div>
             )}
 
-            <AdvancedDownloadOptions result={result} />
-        </>
+            {showBrowserHlsDownload && (
+                <MediaActionIconButton
+                    label="HLS 浏览器下载（兼容模式）"
+                    icon={Download}
+                    variant="outline"
+                    className="w-full min-w-0"
+                    onClick={openBrowserHlsDownload}
+                />
+            )}
+
+            {isAudioOnly && audioAction !== 'hide' && (
+                <MediaActionIconButton
+                    label={audioAction === 'extract-audio' ? '提取音频' : '下载音频'}
+                    icon={AudioDownloadIcon}
+                    variant="default"
+                    className="w-full min-w-0"
+                    onClick={handleAudioOnlyAction}
+                />
+            )}
+
+            {!isAudioOnly && <AdvancedDownloadOptions result={result} />}
+        </div>
     );
 }
