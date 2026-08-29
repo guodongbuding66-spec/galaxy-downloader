@@ -1,20 +1,22 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
     Captions,
-    Clipboard,
-    Download,
-    FileJson,
+    Check,
+    Film,
     Image as ImageIcon,
     Loader2,
     Music,
-    SlidersHorizontal,
+    PackageCheck,
+    ShieldCheck,
     Video,
+    X,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import {
     Select,
     SelectContent,
@@ -26,172 +28,180 @@ import { toast } from '@/lib/deferred-toast';
 import {
     AUDIO_QUALITY_PRESETS,
     buildSourceMediaDownloadUrl,
-    createMediaMetadata,
     getSubtitleDisplayName,
-    inferExtension,
     normalizeQualityOptions,
     resolveSourceMediaDownloadUrl,
     resolveSubtitleUrl,
+    type QualityChoice,
 } from '@/lib/media-download-options';
+import {
+    createFinalMediaFile,
+    type FinalMediaProgress,
+    type FinalMediaStage,
+} from '@/lib/final-media-export';
 import type { SubtitleTrack, UnifiedParseResult, VideoQualityOption } from '@/lib/types';
-import { downloadFile, formatBytes, sanitizeFilename } from '@/lib/utils';
+import { formatBytes, sanitizeFilename } from '@/lib/utils';
 
 type ResultData = NonNullable<UnifiedParseResult['data']>;
-
 const EMPTY_SUBTITLES: SubtitleTrack[] = [];
 
 type Copy = {
     title: string;
-    quality: string;
-    qualityHint: string;
-    parserFormats: string;
-    genericPresets: string;
-    downloadVideo: string;
+    intro: string;
+    videoQuality: string;
     audioQuality: string;
-    downloadAudio: string;
-    extras: string;
-    cover: string;
-    subtitles: string;
-    noSubtitles: string;
-    metadata: string;
-    copySource: string;
-    copied: string;
     best: string;
-    downloadFailed: string;
+    includeAudio: string;
+    includeSubtitle: string;
+    subtitleTrack: string;
+    noSubtitle: string;
+    includeCover: string;
+    coverUnavailable: string;
+    output: string;
+    outputValue: string;
+    outputHint: string;
+    start: string;
+    cancel: string;
+    completed: string;
+    failed: string;
+    fallback: string;
+    currentPlan: string;
+    planVideo: string;
+    planAudio: string;
+    planSubtitle: string;
+    planCover: string;
+    finalOnly: string;
+    stages: Record<FinalMediaStage, string>;
 };
 
 const COPY: Record<string, Copy> = {
     zh: {
-        title: '高级下载选项',
-        quality: '视频清晰度',
-        qualityHint: '按所选清晰度重新向解析后端请求媒体，不再复用可能偏低清晰度的临时 CDN 流。若平台没有该档位，后端应回退到最接近或最佳可用画质。',
-        parserFormats: '解析器返回的可用格式',
-        genericPresets: '通用画质预设',
-        downloadVideo: '下载所选画质',
+        title: '成品下载',
+        intro: '一次选择，一次处理，只输出一个最终 MP4。系统会自动获取所选画质与音质，并按需把字幕和封面写入同一个视频文件。',
+        videoQuality: '视频画质',
         audioQuality: '音频质量',
-        downloadAudio: '下载所选音质',
-        extras: '附加资源',
-        cover: '下载封面',
-        subtitles: '下载字幕',
-        noSubtitles: '当前解析结果未返回可下载的字幕轨道',
-        metadata: '下载媒体信息 JSON',
-        copySource: '复制原始链接',
-        copied: '原始链接已复制',
         best: '最佳可用',
-        downloadFailed: '下载请求失败',
+        includeAudio: '合并最佳音频',
+        includeSubtitle: '内嵌字幕',
+        subtitleTrack: '字幕轨道',
+        noSubtitle: '当前解析结果没有可用字幕',
+        includeCover: '内嵌封面',
+        coverUnavailable: '当前解析结果没有封面',
+        output: '输出格式',
+        outputValue: 'MP4 · 单一成品文件',
+        outputHint: '视频默认流复制，不二次压缩；音频统一封装为 AAC；字幕作为可开关字幕轨；封面作为视频封面写入文件。',
+        start: '生成并下载成品',
+        cancel: '取消处理',
+        completed: '成品已生成并开始下载',
+        failed: '成品生成失败',
+        fallback: '所选质量接口不可用，已自动尝试解析结果中的可用媒体流。',
+        currentPlan: '当前成品方案',
+        planVideo: '视频',
+        planAudio: '音频',
+        planSubtitle: '字幕',
+        planCover: '封面',
+        finalOnly: '不会分别下载视频、音频、字幕或封面；这些资源只用于生成最终成品。',
+        stages: {
+            resolving: '正在解析所选媒体流',
+            'downloading-video': '正在获取视频轨',
+            'downloading-audio': '正在获取音频轨',
+            'downloading-subtitle': '正在获取字幕',
+            'downloading-cover': '正在获取封面',
+            'loading-ffmpeg': '正在启动合成引擎',
+            assembling: '正在封装成单一 MP4',
+            saving: '正在生成最终文件',
+            completed: '处理完成',
+        },
     },
     'zh-tw': {
-        title: '進階下載選項',
-        quality: '影片畫質',
-        qualityHint: '依所選畫質重新向解析後端請求媒體，不再重複使用可能偏低畫質的臨時 CDN 串流。若平台沒有該畫質，後端應回退至最接近或最佳可用畫質。',
-        parserFormats: '解析器回傳的可用格式',
-        genericPresets: '通用畫質預設',
-        downloadVideo: '下載所選畫質',
+        title: '成品下載',
+        intro: '一次選擇、一次處理，只輸出一個最終 MP4。系統會自動取得所選畫質與音質，並依需要把字幕與封面寫入同一個影片檔。',
+        videoQuality: '影片畫質',
         audioQuality: '音訊品質',
-        downloadAudio: '下載所選音質',
-        extras: '附加資源',
-        cover: '下載封面',
-        subtitles: '下載字幕',
-        noSubtitles: '目前解析結果未回傳可下載的字幕軌道',
-        metadata: '下載媒體資訊 JSON',
-        copySource: '複製原始連結',
-        copied: '原始連結已複製',
         best: '最佳可用',
-        downloadFailed: '下載請求失敗',
+        includeAudio: '合併最佳音訊',
+        includeSubtitle: '內嵌字幕',
+        subtitleTrack: '字幕軌道',
+        noSubtitle: '目前沒有可用字幕',
+        includeCover: '內嵌封面',
+        coverUnavailable: '目前沒有封面',
+        output: '輸出格式',
+        outputValue: 'MP4 · 單一成品檔案',
+        outputHint: '影片預設直接複製串流、不二次壓縮；音訊封裝為 AAC；字幕為可切換字幕軌；封面寫入影片檔。',
+        start: '產生並下載成品',
+        cancel: '取消處理',
+        completed: '成品已產生並開始下載',
+        failed: '成品產生失敗',
+        fallback: '所選品質介面不可用，已自動嘗試解析結果中的可用媒體串流。',
+        currentPlan: '目前成品方案',
+        planVideo: '影片',
+        planAudio: '音訊',
+        planSubtitle: '字幕',
+        planCover: '封面',
+        finalOnly: '不會分別下載影片、音訊、字幕或封面；這些資源只用來產生最終成品。',
+        stages: {
+            resolving: '正在解析所選媒體串流',
+            'downloading-video': '正在取得影片軌',
+            'downloading-audio': '正在取得音訊軌',
+            'downloading-subtitle': '正在取得字幕',
+            'downloading-cover': '正在取得封面',
+            'loading-ffmpeg': '正在啟動合成引擎',
+            assembling: '正在封裝成單一 MP4',
+            saving: '正在產生最終檔案',
+            completed: '處理完成',
+        },
     },
     en: {
-        title: 'Advanced download options',
-        quality: 'Video quality',
-        qualityHint: 'Requests a fresh stream for the selected quality instead of reusing a possibly low-resolution temporary CDN URL. If unavailable, the backend should fall back to the nearest/best quality.',
-        parserFormats: 'Formats reported by parser',
-        genericPresets: 'Generic quality presets',
-        downloadVideo: 'Download selected quality',
+        title: 'Finished video download',
+        intro: 'Choose once and receive one final MP4. The app automatically fetches the selected video/audio quality and optionally embeds subtitles and a cover into the same file.',
+        videoQuality: 'Video quality',
         audioQuality: 'Audio quality',
-        downloadAudio: 'Download selected audio',
-        extras: 'Extra resources',
-        cover: 'Download cover',
-        subtitles: 'Download subtitles',
-        noSubtitles: 'No downloadable subtitle tracks were returned by the parser',
-        metadata: 'Download media info JSON',
-        copySource: 'Copy source URL',
-        copied: 'Source URL copied',
         best: 'Best available',
-        downloadFailed: 'Download request failed',
-    },
-    ja: {
-        title: '詳細ダウンロード設定',
-        quality: '動画画質',
-        qualityHint: '低画質の一時 CDN URL を再利用せず、選択した画質で解析バックエンドへ再リクエストします。利用できない場合は最も近い／最良の画質へフォールバックします。',
-        parserFormats: '解析結果の利用可能フォーマット',
-        genericPresets: '共通画質プリセット',
-        downloadVideo: '選択画質でダウンロード',
-        audioQuality: '音声品質',
-        downloadAudio: '選択音質でダウンロード',
-        extras: '追加リソース',
-        cover: 'サムネイルを保存',
-        subtitles: '字幕を保存',
-        noSubtitles: '解析結果にダウンロード可能な字幕トラックがありません',
-        metadata: 'メディア情報 JSON を保存',
-        copySource: '元 URL をコピー',
-        copied: '元 URL をコピーしました',
-        best: '最高品質',
-        downloadFailed: 'ダウンロード要求に失敗しました',
-    },
-    es: {
-        title: 'Opciones avanzadas de descarga',
-        quality: 'Calidad de vídeo',
-        qualityHint: 'Solicita un flujo nuevo con la calidad elegida en vez de reutilizar una URL CDN temporal de baja resolución. Si no existe, el servidor usará la calidad más cercana o la mejor disponible.',
-        parserFormats: 'Formatos informados por el analizador',
-        genericPresets: 'Preajustes genéricos',
-        downloadVideo: 'Descargar calidad elegida',
-        audioQuality: 'Calidad de audio',
-        downloadAudio: 'Descargar audio elegido',
-        extras: 'Recursos adicionales',
-        cover: 'Descargar portada',
-        subtitles: 'Descargar subtítulos',
-        noSubtitles: 'El analizador no devolvió pistas de subtítulos descargables',
-        metadata: 'Descargar información JSON',
-        copySource: 'Copiar URL original',
-        copied: 'URL original copiada',
-        best: 'Mejor disponible',
-        downloadFailed: 'La solicitud de descarga falló',
-    },
-    ru: {
-        title: 'Расширенные параметры загрузки',
-        quality: 'Качество видео',
-        qualityHint: 'Запрашивает новый поток выбранного качества вместо временной CDN-ссылки низкого разрешения. Если качество недоступно, сервер выберет ближайшее или лучшее доступное.',
-        parserFormats: 'Форматы от парсера',
-        genericPresets: 'Универсальные пресеты',
-        downloadVideo: 'Скачать выбранное качество',
-        audioQuality: 'Качество аудио',
-        downloadAudio: 'Скачать выбранное аудио',
-        extras: 'Дополнительные ресурсы',
-        cover: 'Скачать обложку',
-        subtitles: 'Скачать субтитры',
-        noSubtitles: 'Парсер не вернул доступных дорожек субтитров',
-        metadata: 'Скачать сведения JSON',
-        copySource: 'Копировать исходную ссылку',
-        copied: 'Исходная ссылка скопирована',
-        best: 'Лучшее доступное',
-        downloadFailed: 'Не удалось выполнить запрос загрузки',
+        includeAudio: 'Merge best audio',
+        includeSubtitle: 'Embed subtitles',
+        subtitleTrack: 'Subtitle track',
+        noSubtitle: 'No subtitle track is available',
+        includeCover: 'Embed cover',
+        coverUnavailable: 'No cover is available',
+        output: 'Output',
+        outputValue: 'MP4 · one finished file',
+        outputHint: 'Video is stream-copied without re-encoding; audio is normalized to AAC; subtitles remain selectable; the cover is stored as an attached picture.',
+        start: 'Build and download final video',
+        cancel: 'Cancel processing',
+        completed: 'Final video created and download started',
+        failed: 'Failed to build final video',
+        fallback: 'The selected-quality endpoint was unavailable, so available parsed media streams were tried automatically.',
+        currentPlan: 'Final output plan',
+        planVideo: 'Video',
+        planAudio: 'Audio',
+        planSubtitle: 'Subtitles',
+        planCover: 'Cover',
+        finalOnly: 'Video, audio, subtitle and cover assets are not downloaded separately; they are used only to build the final file.',
+        stages: {
+            resolving: 'Resolving selected media streams',
+            'downloading-video': 'Fetching video track',
+            'downloading-audio': 'Fetching audio track',
+            'downloading-subtitle': 'Fetching subtitles',
+            'downloading-cover': 'Fetching cover',
+            'loading-ffmpeg': 'Starting media engine',
+            assembling: 'Muxing one MP4 file',
+            saving: 'Preparing final file',
+            completed: 'Completed',
+        },
     },
 };
 
-function resolveCopy(pathname: string | null): Copy {
+function copyFor(pathname: string | null): Copy {
     const locale = pathname?.split('/').filter(Boolean)[0] || 'en';
     return COPY[locale] || COPY.en;
-}
-
-function saveJsonFile(filename: string, value: unknown) {
-    const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json;charset=utf-8' });
-    const objectUrl = URL.createObjectURL(blob);
-    downloadFile(objectUrl, filename);
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
 }
 
 function resolveScopedCapabilities(result: ResultData): {
     qualityOptions?: VideoQualityOption[];
     subtitles?: SubtitleTrack[];
+    videoUrl?: string | null;
+    audioUrl?: string | null;
+    cover?: string | null;
 } {
     const currentPage = result.pages?.find((page) => page.page === result.currentPage);
     const currentVideo = result.videos?.find((video) => video.id === result.currentItemId);
@@ -207,6 +217,17 @@ function resolveScopedCapabilities(result: ResultData): {
             : currentPage?.subtitles?.length
                 ? currentPage.subtitles
                 : result.subtitles,
+        videoUrl: currentVideo?.downloadVideoUrl
+            || currentVideo?.originDownloadVideoUrl
+            || currentPage?.downloadVideoUrl
+            || result.downloadVideoUrl
+            || result.originDownloadVideoUrl,
+        audioUrl: currentVideo?.downloadAudioUrl
+            || currentVideo?.originDownloadAudioUrl
+            || currentPage?.downloadAudioUrl
+            || result.downloadAudioUrl
+            || result.originDownloadAudioUrl,
+        cover: currentVideo?.cover || result.cover,
     };
 }
 
@@ -227,302 +248,333 @@ function resolveScopedSourceUrl(result: ResultData): string {
     return sourceUrl;
 }
 
+function subtitleKey(track: SubtitleTrack, index: number): string {
+    return track.id || `${track.language}-${index}`;
+}
+
+function CheckboxRow({
+    checked,
+    disabled,
+    label,
+    hint,
+    onChange,
+}: {
+    checked: boolean;
+    disabled?: boolean;
+    label: string;
+    hint?: string;
+    onChange: (checked: boolean) => void;
+}) {
+    return (
+        <label className={`flex min-h-11 items-center gap-3 rounded-md border px-3 py-2 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-muted/40'}`}>
+            <input
+                type="checkbox"
+                checked={checked}
+                disabled={disabled}
+                onChange={(event) => onChange(event.target.checked)}
+                className="h-4 w-4 accent-primary"
+            />
+            <span className="min-w-0">
+                <span className="block text-sm font-medium">{label}</span>
+                {hint && <span className="block text-[11px] leading-4 text-muted-foreground">{hint}</span>}
+            </span>
+        </label>
+    );
+}
+
+function qualityLabel(option: QualityChoice): string {
+    return [
+        option.label || option.quality,
+        option.filesize ? formatBytes(option.filesize) : null,
+    ].filter(Boolean).join(' · ');
+}
+
 export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
     const pathname = usePathname();
-    const copy = resolveCopy(pathname);
+    const copy = copyFor(pathname);
     const capabilities = resolveScopedCapabilities(result);
     const qualityOptions = useMemo(
         () => normalizeQualityOptions(capabilities.qualityOptions),
-        [capabilities.qualityOptions]
+        [capabilities.qualityOptions],
     );
-    const parserProvidedFormats = Boolean(capabilities.qualityOptions?.length);
+    const parserBest = qualityOptions.find((option) => option.source === 'parser') || null;
     const subtitles = capabilities.subtitles ?? EMPTY_SUBTITLES;
+    const firstSubtitleKey = subtitles[0] ? subtitleKey(subtitles[0], 0) : '';
+    const sourceUrl = resolveScopedSourceUrl(result);
+
     const [videoQuality, setVideoQuality] = useState('best');
     const [audioQuality, setAudioQuality] = useState('best');
-    const [subtitleId, setSubtitleId] = useState('');
-    const [videoLoading, setVideoLoading] = useState(false);
-    const [audioLoading, setAudioLoading] = useState(false);
-    const sourceUrl = resolveScopedSourceUrl(result);
-    const safeTitle = sanitizeFilename(result.title || 'media').slice(0, 120) || 'media';
-    const showVideoControls = result.kind !== 'audio'
+    const [includeAudio, setIncludeAudio] = useState(true);
+    const [includeSubtitle, setIncludeSubtitle] = useState(subtitles.length > 0);
+    const [subtitleId, setSubtitleId] = useState(firstSubtitleKey);
+    const [includeCover, setIncludeCover] = useState(Boolean(capabilities.cover));
+    const [progress, setProgress] = useState<FinalMediaProgress | null>(null);
+    const [running, setRunning] = useState(false);
+    const abortRef = useRef<AbortController | null>(null);
+
+    const selectedQuality = qualityOptions.find((option) => option.quality === videoQuality) || qualityOptions[0];
+    const effectiveVideoQuality = videoQuality === 'best' && parserBest ? parserBest : selectedQuality;
+    const effectiveSubtitleId = subtitles.some((track, index) => subtitleKey(track, index) === subtitleId)
+        ? subtitleId
+        : firstSubtitleKey;
+    const selectedSubtitle = subtitles.find((track, index) => subtitleKey(track, index) === effectiveSubtitleId) || null;
+    const canComposeVideo = result.kind !== 'audio'
         && result.noteType !== 'audio'
         && result.noteType !== 'image'
         && result.videoAudioMode !== 'pure_music';
-    const showAudioControls = result.noteType !== 'image';
 
-    const selectedQuality = qualityOptions.find((option) => option.quality === videoQuality) || qualityOptions[0];
-    const firstSubtitleId = subtitles[0]
-        ? subtitles[0].id || `${subtitles[0].language}-0`
-        : '';
-    const effectiveSubtitleId = subtitles.some(
-        (track, index) => (track.id || `${track.language}-${index}`) === subtitleId
-    ) ? subtitleId : firstSubtitleId;
+    if (!sourceUrl || !canComposeVideo) return null;
 
-    const handleVideoDownload = async () => {
-        if (!sourceUrl || !selectedQuality || videoLoading) return;
-        setVideoLoading(true);
+    const resolveVideoUrl = async (): Promise<{ url: string; usedFallback: boolean }> => {
+        if (effectiveVideoQuality?.downloadUrl) {
+            return { url: effectiveVideoQuality.downloadUrl, usedFallback: false };
+        }
+
         try {
             const requestUrl = buildSourceMediaDownloadUrl({
                 sourceUrl,
                 type: 'video',
-                quality: selectedQuality.quality,
-                formatId: selectedQuality.formatId,
+                quality: effectiveVideoQuality?.quality || 'best',
+                formatId: effectiveVideoQuality?.formatId,
             });
-            const resolvedUrl = await resolveSourceMediaDownloadUrl(requestUrl);
-            downloadFile(resolvedUrl);
+            return { url: await resolveSourceMediaDownloadUrl(requestUrl), usedFallback: false };
         } catch (error) {
-            console.error('Failed to download selected video quality:', error);
-            toast.error(copy.downloadFailed, {
-                description: error instanceof Error ? error.message : undefined,
-            });
-        } finally {
-            setVideoLoading(false);
+            if (capabilities.videoUrl) {
+                console.warn('Falling back to parsed video URL:', error);
+                return { url: capabilities.videoUrl, usedFallback: true };
+            }
+            throw error;
         }
     };
 
-    const handleAudioDownload = async () => {
-        if (!sourceUrl || audioLoading) return;
-        setAudioLoading(true);
+    const resolveAudioUrl = async (): Promise<{ url: string | null; usedFallback: boolean }> => {
+        if (!includeAudio) return { url: null, usedFallback: false };
         try {
             const requestUrl = buildSourceMediaDownloadUrl({
                 sourceUrl,
                 type: 'audio',
                 quality: audioQuality,
             });
-            const resolvedUrl = await resolveSourceMediaDownloadUrl(requestUrl);
-            downloadFile(resolvedUrl);
+            return { url: await resolveSourceMediaDownloadUrl(requestUrl), usedFallback: false };
         } catch (error) {
-            console.error('Failed to download selected audio quality:', error);
-            toast.error(copy.downloadFailed, {
-                description: error instanceof Error ? error.message : undefined,
+            if (capabilities.audioUrl) {
+                console.warn('Falling back to parsed audio URL:', error);
+                return { url: capabilities.audioUrl, usedFallback: true };
+            }
+            // A muxed source may already contain audio. The composer preserves
+            // that audio if a dedicated audio track is unavailable.
+            console.warn('No separate audio stream available; preserving video audio if present:', error);
+            return { url: null, usedFallback: true };
+        }
+    };
+
+    const startFinalExport = async () => {
+        if (running) return;
+        const controller = new AbortController();
+        abortRef.current = controller;
+        setRunning(true);
+        setProgress({ stage: 'resolving', progress: 1 });
+
+        try {
+            const [video, audio] = await Promise.all([
+                resolveVideoUrl(),
+                resolveAudioUrl(),
+            ]);
+            const usedFallback = video.usedFallback || audio.usedFallback;
+            if (usedFallback) toast.message(copy.fallback);
+
+            const subtitleUrl = includeSubtitle && selectedSubtitle
+                ? resolveSubtitleUrl(selectedSubtitle)
+                : null;
+            const coverUrl = includeCover ? capabilities.cover || null : null;
+
+            await createFinalMediaFile({
+                title: sanitizeFilename(result.title || 'media'),
+                videoUrl: video.url,
+                audioUrl: audio.url,
+                subtitleUrl,
+                subtitleLanguage: selectedSubtitle?.language || null,
+                subtitleFormat: selectedSubtitle?.format || null,
+                coverUrl,
+                sourceUrl,
+                signal: controller.signal,
+                onProgress: setProgress,
+            });
+            toast.success(copy.completed);
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                return;
+            }
+            console.error('Final media export failed:', error);
+            toast.error(copy.failed, {
+                description: error instanceof Error ? error.message : String(error),
             });
         } finally {
-            setAudioLoading(false);
+            abortRef.current = null;
+            setRunning(false);
         }
     };
 
-    const handleCoverDownload = () => {
-        if (!result.cover) return;
-        const extension = inferExtension(result.cover, 'jpg');
-        downloadFile(result.cover, `${safeTitle}-cover.${extension}`);
+    const cancel = () => {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setRunning(false);
+        setProgress(null);
     };
 
-    const handleSubtitleDownload = () => {
-        const index = subtitles.findIndex(
-            (track, trackIndex) => (track.id || `${track.language}-${trackIndex}`) === effectiveSubtitleId
-        );
-        if (index < 0) return;
-        const track = subtitles[index];
-        const url = resolveSubtitleUrl(track);
-        if (!url) return;
-        const extension = track.format || inferExtension(url, 'vtt');
-        const language = sanitizeFilename(track.language || `subtitle-${index + 1}`);
-        downloadFile(url, `${safeTitle}-${language}.${extension}`);
-    };
-
-    const handleMetadataDownload = () => {
-        saveJsonFile(`${safeTitle}-info.json`, createMediaMetadata({
-            ...result,
-            url: sourceUrl,
-            qualityOptions: capabilities.qualityOptions,
-            subtitles: capabilities.subtitles,
-        }));
-    };
-
-    const handleCopySource = async () => {
-        if (!sourceUrl) return;
-        try {
-            await navigator.clipboard.writeText(sourceUrl);
-        } catch {
-            const input = document.createElement('textarea');
-            input.value = sourceUrl;
-            input.style.position = 'fixed';
-            input.style.opacity = '0';
-            document.body.appendChild(input);
-            input.select();
-            document.execCommand('copy');
-            document.body.removeChild(input);
-        }
-        toast.success(copy.copied);
-    };
-
-    if (!sourceUrl) return null;
+    const subtitleText = includeSubtitle && selectedSubtitle
+        ? getSubtitleDisplayName(selectedSubtitle)
+        : '—';
+    const selectedAudioLabel = AUDIO_QUALITY_PRESETS.find((item) => item.quality === audioQuality)?.label || audioQuality;
 
     return (
-        <div className="space-y-3 rounded-lg border border-border/80 bg-muted/20 p-3">
-            <div className="flex items-center gap-2">
-                <SlidersHorizontal className="h-4 w-4" />
-                <div className="text-sm font-medium">{copy.title}</div>
+        <section className="space-y-4 rounded-xl border border-border/90 bg-card/70 p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+                <div className="mt-0.5 rounded-md border bg-muted/50 p-2">
+                    <PackageCheck className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold">{copy.title}</h3>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{copy.intro}</p>
+                </div>
             </div>
 
-            {(showVideoControls || showAudioControls) && (
-                <div className={`grid gap-3 ${showVideoControls && showAudioControls ? 'lg:grid-cols-2' : ''}`}>
-                    {showVideoControls && (
-                        <div className="space-y-2 rounded-md border bg-background/70 p-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1.5 text-xs font-medium">
-                                    <Video className="h-3.5 w-3.5" />
-                                    {copy.quality}
-                                </div>
-                                <span className="text-[10px] text-muted-foreground">
-                                    {parserProvidedFormats ? copy.parserFormats : copy.genericPresets}
-                                </span>
-                            </div>
-                            <Select
-                                value={selectedQuality?.quality || 'best'}
-                                onValueChange={setVideoQuality}
-                                disabled={videoLoading}
-                            >
-                                <SelectTrigger className="h-9">
-                                    <SelectValue placeholder={copy.best} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {qualityOptions.map((option) => {
-                                        const details = [
-                                            option.label || option.quality,
-                                            option.filesize ? formatBytes(option.filesize) : null,
-                                        ].filter(Boolean).join(' · ');
-                                        return (
-                                            <SelectItem key={option.quality} value={option.quality}>
-                                                {details}
-                                            </SelectItem>
-                                        );
-                                    })}
-                                </SelectContent>
-                            </Select>
-                            <Button
-                                type="button"
-                                className="w-full"
-                                disabled={videoLoading}
-                                onClick={() => void handleVideoDownload()}
-                            >
-                                {videoLoading ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Download className="h-4 w-4" />
-                                )}
-                                {copy.downloadVideo}
-                            </Button>
-                            <p className="text-[11px] leading-relaxed text-muted-foreground">
-                                {copy.qualityHint}
-                            </p>
-                        </div>
-                    )}
+            <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-medium">
+                        <Video className="h-3.5 w-3.5" />
+                        {copy.videoQuality}
+                    </div>
+                    <Select value={videoQuality} onValueChange={setVideoQuality} disabled={running}>
+                        <SelectTrigger className="h-10">
+                            <SelectValue placeholder={copy.best} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {qualityOptions.map((option) => (
+                                <SelectItem key={option.quality} value={option.quality}>
+                                    {qualityLabel(option)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
 
-                    {showAudioControls && (
-                        <div className="space-y-2 rounded-md border bg-background/70 p-2.5">
-                            <div className="flex items-center gap-1.5 text-xs font-medium">
-                                <Music className="h-3.5 w-3.5" />
-                                {copy.audioQuality}
-                            </div>
-                            <Select
-                                value={audioQuality}
-                                onValueChange={setAudioQuality}
-                                disabled={audioLoading}
-                            >
-                                <SelectTrigger className="h-9">
-                                    <SelectValue placeholder={copy.best} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {AUDIO_QUALITY_PRESETS.map((option) => (
-                                        <SelectItem key={option.quality} value={option.quality}>
-                                            {option.quality === 'best' ? copy.best : option.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                className="w-full"
-                                disabled={audioLoading}
-                                onClick={() => void handleAudioDownload()}
-                            >
-                                {audioLoading ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Download className="h-4 w-4" />
-                                )}
-                                {copy.downloadAudio}
-                            </Button>
+                <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-medium">
+                        <Music className="h-3.5 w-3.5" />
+                        {copy.audioQuality}
+                    </div>
+                    <Select value={audioQuality} onValueChange={setAudioQuality} disabled={running || !includeAudio}>
+                        <SelectTrigger className="h-10">
+                            <SelectValue placeholder={copy.best} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {AUDIO_QUALITY_PRESETS.map((option) => (
+                                <SelectItem key={option.quality} value={option.quality}>
+                                    {option.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-3">
+                <CheckboxRow
+                    checked={includeAudio}
+                    disabled={running}
+                    onChange={setIncludeAudio}
+                    label={copy.includeAudio}
+                    hint={selectedAudioLabel}
+                />
+                <CheckboxRow
+                    checked={includeSubtitle && subtitles.length > 0}
+                    disabled={running || subtitles.length === 0}
+                    onChange={setIncludeSubtitle}
+                    label={copy.includeSubtitle}
+                    hint={subtitles.length ? subtitleText : copy.noSubtitle}
+                />
+                <CheckboxRow
+                    checked={includeCover && Boolean(capabilities.cover)}
+                    disabled={running || !capabilities.cover}
+                    onChange={setIncludeCover}
+                    label={copy.includeCover}
+                    hint={capabilities.cover ? undefined : copy.coverUnavailable}
+                />
+            </div>
+
+            {includeSubtitle && subtitles.length > 0 && (
+                <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-medium">
+                        <Captions className="h-3.5 w-3.5" />
+                        {copy.subtitleTrack}
+                    </div>
+                    <Select value={effectiveSubtitleId} onValueChange={setSubtitleId} disabled={running}>
+                        <SelectTrigger className="h-10">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {subtitles.map((track, index) => (
+                                <SelectItem key={subtitleKey(track, index)} value={subtitleKey(track, index)}>
+                                    {getSubtitleDisplayName(track)}{track.format ? ` · ${track.format.toUpperCase()}` : ''}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
+
+            <div className="rounded-lg border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
+                    <Film className="h-3.5 w-3.5" />
+                    {copy.currentPlan}
+                </div>
+                <div className="grid gap-x-5 gap-y-2 text-xs sm:grid-cols-2">
+                    <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{copy.planVideo}</span><span className="truncate font-medium">{qualityLabel(effectiveVideoQuality || qualityOptions[0])}</span></div>
+                    <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{copy.planAudio}</span><span className="font-medium">{includeAudio ? selectedAudioLabel : '—'}</span></div>
+                    <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{copy.planSubtitle}</span><span className="truncate font-medium">{includeSubtitle ? subtitleText : '—'}</span></div>
+                    <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{copy.planCover}</span><span className="font-medium">{includeCover && capabilities.cover ? <Check className="inline h-3.5 w-3.5" /> : '—'}</span></div>
+                </div>
+                <div className="mt-3 flex items-start gap-2 border-t pt-3 text-[11px] leading-4 text-muted-foreground">
+                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{copy.outputHint}</span>
+                </div>
+            </div>
+
+            {progress && (
+                <div className="space-y-2 rounded-lg border bg-background/70 p-3">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="flex items-center gap-2 font-medium">
+                            {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                            {copy.stages[progress.stage]}
+                        </span>
+                        <span className="tabular-nums text-muted-foreground">{Math.round(progress.progress)}%</span>
+                    </div>
+                    <Progress value={progress.progress} />
+                    {progress.loaded && progress.total ? (
+                        <div className="text-[11px] text-muted-foreground">
+                            {formatBytes(progress.loaded)} / {formatBytes(progress.total)}
                         </div>
-                    )}
+                    ) : null}
                 </div>
             )}
 
             <div className="space-y-2">
-                <div className="text-xs font-medium">{copy.extras}</div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={!result.cover}
-                        onClick={handleCoverDownload}
-                    >
-                        <ImageIcon className="h-4 w-4" aria-hidden="true" />
-                        {copy.cover}
+                {running ? (
+                    <Button type="button" variant="destructive" className="w-full" onClick={cancel}>
+                        <X className="h-4 w-4" />
+                        {copy.cancel}
                     </Button>
-
-                    {subtitles.length > 0 ? (
-                        <div className="flex min-w-0 gap-1">
-                            <Select value={effectiveSubtitleId} onValueChange={setSubtitleId}>
-                                <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
-                                    <SelectValue placeholder={copy.subtitles} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {subtitles.map((track, index) => {
-                                        const value = track.id || `${track.language}-${index}`;
-                                        return (
-                                            <SelectItem
-                                                key={value}
-                                                value={value}
-                                                disabled={!resolveSubtitleUrl(track)}
-                                            >
-                                                {getSubtitleDisplayName(track)}
-                                            </SelectItem>
-                                        );
-                                    })}
-                                </SelectContent>
-                            </Select>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-8 w-8 shrink-0"
-                                onClick={handleSubtitleDownload}
-                            >
-                                <Captions className="h-4 w-4" />
-                                <span className="sr-only">{copy.subtitles}</span>
-                            </Button>
-                        </div>
-                    ) : (
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled
-                            title={copy.noSubtitles}
-                        >
-                            <Captions className="h-4 w-4" />
-                            {copy.subtitles}
-                        </Button>
-                    )}
-
-                    <Button type="button" variant="outline" size="sm" onClick={handleMetadataDownload}>
-                        <FileJson className="h-4 w-4" />
-                        {copy.metadata}
+                ) : (
+                    <Button type="button" className="w-full" onClick={startFinalExport}>
+                        <PackageCheck className="h-4 w-4" />
+                        {copy.start}
                     </Button>
-
-                    <Button type="button" variant="outline" size="sm" onClick={() => void handleCopySource()}>
-                        <Clipboard className="h-4 w-4" />
-                        {copy.copySource}
-                    </Button>
-                </div>
-                {subtitles.length === 0 && (
-                    <p className="text-[11px] text-muted-foreground">{copy.noSubtitles}</p>
                 )}
+                <div className="text-center text-[11px] leading-4 text-muted-foreground">
+                    {copy.outputValue} · {copy.finalOnly}
+                </div>
             </div>
-        </div>
+        </section>
     );
 }
