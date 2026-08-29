@@ -41,7 +41,7 @@ Current policies:
 
 ## XHS specialized resolver
 
-Galaxy supports an optional XHS-specific HTTP resolver without embedding Chromium or a second parser stack into the primary media Container. The integration depends only on a small resolver contract compatible with `xhs-downloader`'s `POST /xhs/detail` endpoint:
+Galaxy supports an optional XHS-specific HTTP resolver without embedding Chromium or a second parser stack into the primary media Container. The integration depends only on a small `POST /xhs/detail` HTTP contract:
 
 ```json
 {
@@ -50,7 +50,12 @@ Galaxy supports an optional XHS-specific HTTP resolver without embedding Chromiu
 }
 ```
 
-The resolver returns work metadata and media URLs. Galaxy converts that payload into its own frontend result shape; the frontend never needs to understand the resolver's schema.
+The Worker automatically recognizes both resolver response families currently used by the supported service implementations:
+
+1. structured media schema (`媒体[]`, `地址`, `扩展名`, `预览地址`);
+2. legacy/server schema (`下载地址[]`, `动图地址[]`, `作者昵称`).
+
+The frontend never needs to understand either resolver schema. Galaxy normalizes both into the same first-party result model.
 
 The default mode is `fallback`:
 
@@ -66,18 +71,60 @@ The tunnel enforces `XHS_MAX_STREAM_BYTES` twice: first against `Content-Length`
 
 Image notes keep the existing Galaxy image-download path and image proxy behavior.
 
+### Resolver circuit breaker
+
+The Worker keeps a lightweight per-isolate circuit breaker around the external resolver so an outage cannot add the full resolver timeout to every XHS request indefinitely.
+
+Default behavior:
+
+- consecutive network, `5xx`, or `429` failures count as resolver infrastructure failures;
+- after 3 consecutive infrastructure failures, the circuit opens for 30 seconds;
+- after the cooldown, one half-open probe is allowed;
+- a successful probe closes the circuit and resets the failure count;
+- ordinary content/client failures such as `400`, `401`, `403`, or `404` do not open the circuit.
+
+This state is intentionally isolate-local. It is only a latency/failure-containment optimization and is not used as durable global health state.
+
 ### XHS resolver variables
 
+Sensitive Worker secrets:
+
 - `XHS_RESOLVER_URL` — resolver base URL or full `/xhs/detail` URL. If unset, the specialized provider is disabled and existing yt-dlp behavior is unchanged.
+- `XHS_RESOLVER_TOKEN` — optional Bearer token for a protected resolver. The production deployment template requires one.
+
+Non-sensitive Worker vars:
+
 - `XHS_RESOLVER_MODE` — `fallback` (default) or `prefer`.
-- `XHS_RESOLVER_TOKEN` — optional Bearer token for a protected resolver. Store as a Cloudflare secret.
 - `XHS_RESOLVER_TIMEOUT_MS` — resolver request timeout; default `20000`.
+- `XHS_RESOLVER_FAILURE_THRESHOLD` — consecutive infrastructure failures before opening the circuit; default `3`.
+- `XHS_RESOLVER_COOLDOWN_MS` — circuit-open cooldown; default `30000`.
 - `XHS_MEDIA_HOST_SUFFIXES` — comma-separated CDN host suffix allowlist. Defaults to `xhscdn.com,xiaohongshu.com`.
 - `XHS_MAX_STREAM_BYTES` — maximum bytes returned by one XHS tunnel request; default `6442450944` (6 GiB).
+
+These non-sensitive defaults are committed in `wrangler.jsonc`, so a normal deploy receives the safe baseline automatically. Override them only when production evidence requires it.
 
 The XHS resolver should manage its own Xiaohongshu login/browser state. Do not reuse a YouTube cookie file as the resolver's account state.
 
 `GET /health` reports `xhsResolverConfigured` and `xhsResolverMode` but never returns the resolver URL or token.
+
+### Resolver deployment template
+
+A production-oriented standalone Docker stack is available at:
+
+```text
+deploy/xhs-resolver/
+```
+
+It:
+
+- builds a pinned upstream resolver commit rather than an unpinned `main` branch;
+- persists resolver state in its own Docker volume;
+- exposes the resolver only through Caddy;
+- terminates HTTPS automatically;
+- requires `Authorization: Bearer <token>` for resolver API requests;
+- exposes only a minimal unauthenticated `/healthz` endpoint.
+
+See `deploy/xhs-resolver/README.md` for server/NAS deployment and upgrade instructions.
 
 ## Local Docker test
 
@@ -124,7 +171,44 @@ npx wrangler secret put XHS_RESOLVER_URL
 npx wrangler secret put XHS_RESOLVER_TOKEN
 ```
 
-Non-sensitive settings such as `XHS_RESOLVER_MODE`, timeouts and host suffixes may be stored as Worker vars instead of secrets.
+Do not commit resolver URLs containing credentials, tokens, cookies, or authenticated proxy strings.
+
+## Real XHS resolver smoke test
+
+The repository contains a dedicated workflow:
+
+```text
+.github/workflows/xhs-resolver-live-smoke.yml
+```
+
+It uses `scripts/xhs-resolver-live-smoke.py` and can validate a real deployed resolver without adding resolver code or account state to CI.
+
+Configure these GitHub Actions secrets to enable the live test:
+
+- `XHS_RESOLVER_URL` — deployed HTTPS resolver base URL;
+- `XHS_RESOLVER_TOKEN` — matching Bearer token;
+- `XHS_SMOKE_URL` — a stable Xiaohongshu test work URL that the resolver can access.
+
+When all three are available, the workflow:
+
+1. calls `/xhs/detail` with `download=false`;
+2. verifies a recognized resolver schema;
+3. verifies at least one downloadable media item;
+4. checks every returned media hostname against `xhscdn.com,xiaohongshu.com`;
+5. performs a small `Range: bytes=0-1023` media probe rather than downloading the full file;
+6. uploads a JSON smoke report without storing the token or returned media URLs.
+
+If `XHS_RESOLVER_URL` or `XHS_SMOKE_URL` has not been provisioned, the workflow emits an explicit `status: skipped` report and exits successfully. This keeps unconfigured forks green without pretending the real resolver was tested.
+
+The same probe can be run locally:
+
+```bash
+XHS_RESOLVER_URL='https://xhs-resolver.example.com' \
+XHS_RESOLVER_TOKEN='...' \
+XHS_SMOKE_URL='https://www.xiaohongshu.com/explore/...' \
+XHS_SMOKE_FETCH_MEDIA=1 \
+python scripts/xhs-resolver-live-smoke.py
+```
 
 ## Rumble / Cloudflare challenge note
 
@@ -154,8 +238,8 @@ The current pool uses three `standard-1` instances at most. Idle instances sleep
 4. Container boot and `/health` response.
 5. Node.js, FFmpeg, yt-dlp, `curl_cffi` and PO-token plugin availability inside the production image.
 
-The root Vitest suite also contains XHS provider contract tests for URL recognition, upstream response normalization, CDN allowlisting and byte-level streaming limits.
+The root Vitest suite also contains XHS provider contract tests for URL recognition, both resolver response schemas, CDN allowlisting, redirect isolation, byte-level streaming limits, HTTP contract behavior, and circuit-breaker failure handling.
 
 `Container Live Smoke` additionally proves that yt-dlp loaded `/etc/yt-dlp.conf`, sees the bgutil PO-token provider, enables the `mweb` client, and reports a supported Node runtime rather than `JS runtimes: none` before running live platform probes.
 
-Real platform tests are maintained separately because public fixture URLs and anti-bot policies can change independently of the code. A real XHS resolver is not assumed in CI unless `XHS_RESOLVER_URL` is explicitly provisioned; therefore the live probe continues to expose upstream yt-dlp XHS failures rather than falsely treating the optional adapter as configured.
+Real platform tests are maintained separately because public fixture URLs and anti-bot policies can change independently of the code. A real XHS resolver is not assumed in the generic Container smoke suite; the dedicated XHS Resolver Live Smoke workflow is the production readiness signal once resolver secrets are provisioned.
