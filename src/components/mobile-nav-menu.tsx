@@ -41,7 +41,7 @@ export function MobileNavMenu({
                 <div className="space-y-2">
                     <Button variant="outline" className="w-full justify-start" asChild>
                         <a
-                            href="https://github.com/lxw15337674/galaxy-downloader"
+                            href="https://github.com/guodongbuding66-spec/galaxy-downloader"
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={() => setOpen(false)}
