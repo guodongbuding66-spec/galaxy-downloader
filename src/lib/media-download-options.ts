@@ -74,16 +74,18 @@ export function normalizeQualityOptions(options?: VideoQualityOption[] | null): 
             label: buildQualityLabel(option),
             source: 'parser' as const,
         }))
-        .filter((option) => {
-            const key = `${option.quality}|${option.formatId ?? ''}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        })
         .sort((a, b) => {
             const heightDiff = parseHeight(b) - parseHeight(a);
             if (heightDiff !== 0) return heightDiff;
             return (b.fps || 0) - (a.fps || 0);
+        })
+        .filter((option) => {
+            // Radix Select values must be unique. If a parser exposes multiple
+            // codecs for the same quality, retain the highest-ranked entry.
+            const key = option.quality.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
         });
 
     const hasBest = normalized.some((option) => option.quality.toLowerCase() === 'best');
