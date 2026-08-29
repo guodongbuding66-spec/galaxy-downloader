@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json.schemastore.org/chrome-manifest.json",
+  "manifest_version": 3,
+  "name": "Galaxy Downloader Companion",
+  "description": "Local yt-dlp companion for Galaxy Downloader. Media processing stays on your device.",
+  "version": "0.1.0",
+  "permissions": [
+    "cookies",
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "host_permissions": [
+    "https://galaxy-downloader.guodongbuding66.workers.dev/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://galaxy-downloader.guodongbuding66.workers.dev/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "action": {
+    "default_title": "Galaxy Downloader Companion"
+  }
+}
