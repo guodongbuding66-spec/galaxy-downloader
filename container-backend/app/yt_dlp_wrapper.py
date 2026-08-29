@@ -24,6 +24,12 @@ AUTH_RETRY_MARKERS = (
     "http error 403",
 )
 
+PLATFORM_PROXY_ENV = {
+    "youtube": "YTDLP_YOUTUBE_PROXY",
+    "xiaohongshu": "YTDLP_XHS_PROXY",
+    "rumble": "YTDLP_RUMBLE_PROXY",
+}
+
 
 def find_source_url(args: Sequence[str]) -> str:
     for value in reversed(args):
@@ -46,6 +52,13 @@ def platform_hint(source_url: str) -> str:
     if host.endswith(".rumble.com") or host == "rumble.com":
         return "rumble"
     return "generic"
+
+
+def platform_proxy(platform: str) -> str:
+    variable = PLATFORM_PROXY_ENV.get(platform)
+    if not variable:
+        return ""
+    return os.getenv(variable, "").strip()
 
 
 def has_cookie_args(args: Sequence[str]) -> bool:
@@ -121,12 +134,11 @@ def main() -> int:
     source_url = find_source_url(args)
     platform = platform_hint(source_url)
 
-    # Rumble's current failures are Cloudflare/TLS-fingerprint related. Keep a dedicated
-    # route so an anti-bot proxy/mitm layer can be enabled without sending all traffic there.
-    if platform == "rumble":
-        rumble_proxy = os.getenv("YTDLP_RUMBLE_PROXY", "").strip()
-        if rumble_proxy:
-            args = replace_proxy(args, rumble_proxy)
+    # Keep expensive/fragile egress routes platform-local. A clean YouTube IP, an XHS
+    # regional route and a Rumble challenge proxy should never affect unrelated sites.
+    proxy_override = platform_proxy(platform)
+    if proxy_override:
+        args = replace_proxy(args, proxy_override)
 
     cookies_present = has_cookie_args(args)
     anonymous_args = strip_cookie_args(args)
