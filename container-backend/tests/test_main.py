@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 import socket
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import main as backend
@@ -76,6 +80,7 @@ def test_normalize_twitch_clip_with_muxed_formats():
     assert result["downloadVideoUrl"].startswith("https://backend.example/api/download?")
     assert result["downloadAudioUrl"].startswith("https://backend.example/api/download?")
     assert [item["quality"] for item in result["qualityOptions"]] == ["best", "720", "480"]
+    assert result["maxDownloadBytes"] == backend.MAX_DOWNLOAD_BYTES
 
 
 def test_separate_video_audio_detection():
@@ -126,6 +131,85 @@ def test_common_ytdlp_args_enable_supported_runtime_and_impersonation():
     impersonate_index = args.index("--impersonate")
     assert args[runtime_index + 1] == "node"
     assert args[impersonate_index + 1]
+
+
+def test_parse_retries_a_transient_full_process_failure(monkeypatch):
+    monkeypatch.setattr(backend, "PARSE_ATTEMPTS", 2)
+    monkeypatch.setattr(backend, "PARSE_RETRY_DELAY_SECONDS", 0)
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], _timeout: int):
+        calls.append(command)
+        if len(calls) == 1:
+            return backend.subprocess.CompletedProcess(command, 1, "", "temporary upstream 502")
+        return backend.subprocess.CompletedProcess(
+            command,
+            0,
+            json.dumps({"extractor_key": "Weibo", "title": "Recovered", "formats": []}),
+            "",
+        )
+
+    monkeypatch.setattr(backend, "run_process", fake_run)
+    result = backend.parse_with_ytdlp("https://weibo.com/example")
+
+    assert result["title"] == "Recovered"
+    assert len(calls) == 2
+
+
+def test_parse_skips_full_retry_for_deterministic_bot_challenge(monkeypatch):
+    monkeypatch.setattr(backend, "PARSE_ATTEMPTS", 3)
+    monkeypatch.setattr(backend, "PARSE_RETRY_DELAY_SECONDS", 0)
+    calls = 0
+
+    def fake_run(command: list[str], _timeout: int):
+        nonlocal calls
+        calls += 1
+        return backend.subprocess.CompletedProcess(
+            command,
+            1,
+            "",
+            "ERROR: Sign in to confirm you're not a bot.",
+        )
+
+    monkeypatch.setattr(backend, "run_process", fake_run)
+    with pytest.raises(HTTPException) as error:
+        backend.parse_with_ytdlp("https://www.youtube.com/watch?v=test")
+
+    assert error.value.status_code == 502
+    assert calls == 1
+
+
+def test_disk_aware_download_limit_reserves_headroom(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(backend, "MAX_DOWNLOAD_BYTES", 10_000)
+    monkeypatch.setattr(backend, "DOWNLOAD_DISK_HEADROOM_BYTES", 1_000)
+    monkeypatch.setattr(backend, "MIN_DOWNLOAD_CAPACITY_BYTES", 1)
+    monkeypatch.setattr(backend.shutil, "disk_usage", lambda _path: SimpleNamespace(free=7_000))
+
+    assert backend.available_download_limit(tmp_path) == 6_000
+
+
+def test_download_passes_effective_size_limit_to_ytdlp(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(backend, "available_download_limit", lambda _path: 12_345)
+    captured: list[str] = []
+    target = tmp_path / "media.mp4"
+    target.write_bytes(b"small-media")
+
+    def fake_run(command: list[str], _timeout: int):
+        captured[:] = command
+        return backend.subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(backend, "run_process", fake_run)
+    result = backend.download_with_ytdlp(
+        "https://example.com/video",
+        "video",
+        "best",
+        None,
+        tmp_path,
+    )
+
+    limit_index = captured.index("--max-filesize")
+    assert captured[limit_index + 1] == "12345"
+    assert result == target
 
 
 def test_parse_endpoint_returns_frontend_compatible_shape(monkeypatch):
@@ -186,6 +270,7 @@ def test_download_endpoint_streams_created_media_and_cleans_temp_dir(monkeypatch
     assert response.status_code == 200
     assert response.content == b"galaxy-media-test"
     assert response.headers["x-request-id"] == "download-test"
+    assert response.headers["x-max-download-bytes"] == str(backend.MAX_DOWNLOAD_BYTES)
     assert created_dirs and not created_dirs[0].exists()
 
 
@@ -196,3 +281,5 @@ def test_health_endpoint():
     payload = response.json()
     assert payload["ok"] is True
     assert payload["service"] == "galaxy-downloader-backend"
+    assert payload["parseAttempts"] >= 1
+    assert payload["maxDownloadBytes"] == backend.MAX_DOWNLOAD_BYTES
