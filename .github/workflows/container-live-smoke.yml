@@ -96,11 +96,16 @@ jobs:
               >/tmp/youtube-runtime-diagnostic.log 2>&1
             status=$?
             set -e
-            tail -n 120 /tmp/youtube-runtime-diagnostic.log || true
+            tail -n 140 /tmp/youtube-runtime-diagnostic.log || true
             grep -q "System config.*yt-dlp.conf" /tmp/youtube-runtime-diagnostic.log
             grep -q "youtubepot-bgutilhttp" /tmp/youtube-runtime-diagnostic.log
             grep -Eq "player[_-]client.*mweb|mweb.*player[_-]client" /tmp/youtube-runtime-diagnostic.log
-            echo "yt-dlp loaded the bundled PO-token and mweb configuration (probe exit=$status)"
+            grep -Eq "JS runtimes:.*node-[0-9]+" /tmp/youtube-runtime-diagnostic.log
+            if grep -q "JS runtimes: none" /tmp/youtube-runtime-diagnostic.log; then
+              echo "yt-dlp did not enable Node as a JS challenge runtime" >&2
+              exit 1
+            fi
+            echo "yt-dlp loaded PO-token, mweb and Node EJS runtime configuration (probe exit=$status)"
           '
 
       - name: Run real platform regressions
