@@ -4,6 +4,14 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-29",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "XHS_RESOLVER_MODE": "fallback",
+    "XHS_RESOLVER_TIMEOUT_MS": "20000",
+    "XHS_RESOLVER_FAILURE_THRESHOLD": "3",
+    "XHS_RESOLVER_COOLDOWN_MS": "30000",
+    "XHS_MEDIA_HOST_SUFFIXES": "xhscdn.com,xiaohongshu.com",
+    "XHS_MAX_STREAM_BYTES": "6442450944"
+  },
   "containers": [
     {
       "name": "galaxy-media",
