@@ -1,25 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
     isAllowedXhsMediaUrl,
     isXhsSourceUrl,
     limitStreamBytes,
     normalizeXhsDetail,
+    xhsDownloadResponse,
+    xhsParseResponse,
     xhsResolverMode,
 } from '../container-backend/src/xhs-resolver';
 
-describe('XHS resolver provider', () => {
-    it('recognizes full and short Xiaohongshu links only', () => {
-        expect(isXhsSourceUrl('https://www.xiaohongshu.com/explore/abc')).toBe(true);
-        expect(isXhsSourceUrl('https://xhslink.com/a/abc')).toBe(true);
-        expect(isXhsSourceUrl('https://sub.xhslink.com/a/abc')).toBe(true);
-        expect(isXhsSourceUrl('https://example.com/xiaohongshu.com/video')).toBe(false);
-        expect(isXhsSourceUrl('not a url')).toBe(false);
-    });
+const sourceUrl = 'https://www.xiaohongshu.com/explore/abc';
 
-    it('normalizes a resolver video into a first-party download route', () => {
-        const sourceUrl = 'https://www.xiaohongshu.com/explore/abc';
-        const result = normalizeXhsDetail({
+function videoResolverPayload() {
+    return {
+        message: '作品信息解析完成',
+        data: {
             作品ID: 'abc',
             作品标题: '测试视频',
             作品描述: '描述',
@@ -38,7 +34,27 @@ describe('XHS resolver provider', () => {
                     预览地址: 'https://sns-webpic-qc.xhscdn.com/cover.jpg',
                 },
             ],
-        }, sourceUrl, 'https://media.example.com');
+        },
+        files: [],
+        skipped: false,
+    };
+}
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
+
+describe('XHS resolver provider', () => {
+    it('recognizes full and short Xiaohongshu links only', () => {
+        expect(isXhsSourceUrl(sourceUrl)).toBe(true);
+        expect(isXhsSourceUrl('https://xhslink.com/a/abc')).toBe(true);
+        expect(isXhsSourceUrl('https://sub.xhslink.com/a/abc')).toBe(true);
+        expect(isXhsSourceUrl('https://example.com/xiaohongshu.com/video')).toBe(false);
+        expect(isXhsSourceUrl('not a url')).toBe(false);
+    });
+
+    it('normalizes a resolver video into a first-party download route', () => {
+        const result = normalizeXhsDetail(videoResolverPayload().data, sourceUrl, 'https://media.example.com');
 
         expect(result.platform).toBe('xiaohongshu');
         expect(result.noteType).toBe('video');
@@ -62,7 +78,7 @@ describe('XHS resolver provider', () => {
     });
 
     it('normalizes image notes without inventing video media', () => {
-        const sourceUrl = 'https://www.xiaohongshu.com/explore/images';
+        const imageSourceUrl = 'https://www.xiaohongshu.com/explore/images';
         const result = normalizeXhsDetail({
             作品标题: '图文笔记',
             作品类型: '图文',
@@ -80,7 +96,7 @@ describe('XHS resolver provider', () => {
                     扩展名: 'webp',
                 },
             ],
-        }, sourceUrl, 'https://media.example.com');
+        }, imageSourceUrl, 'https://media.example.com');
 
         expect(result.noteType).toBe('image');
         expect(result.kind).toBe('image');
@@ -132,6 +148,88 @@ describe('XHS resolver provider', () => {
         });
         await expect(new Response(limitStreamBytes(overLimit, 3)).arrayBuffer())
             .rejects.toThrow('XHS media exceeded the 3 byte stream limit');
+    });
+
+    it('sends the stable resolver contract and optional Bearer token', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+            Response.json(videoResolverPayload()),
+        );
+
+        const request = new Request(`https://media.example.com/api/parse?url=${encodeURIComponent(sourceUrl)}`);
+        const response = await xhsParseResponse(request, sourceUrl, {
+            XHS_RESOLVER_URL: 'https://resolver.example.com',
+            XHS_RESOLVER_TOKEN: 'secret-token',
+        }, 'req-1');
+        const payload = await response.json() as { success: boolean; data: Record<string, unknown> };
+
+        expect(response.status).toBe(200);
+        expect(payload.success).toBe(true);
+        expect(payload.data.platform).toBe('xiaohongshu');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        const [resolverUrl, init] = fetchMock.mock.calls[0];
+        expect(String(resolverUrl)).toBe('https://resolver.example.com/xhs/detail');
+        expect(init?.method).toBe('POST');
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret-token');
+        expect(JSON.parse(String(init?.body))).toEqual({ url: sourceUrl, download: false });
+    });
+
+    it('re-resolves video, forwards Range and streams only an allowlisted CDN', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(Response.json(videoResolverPayload()))
+            .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), {
+                status: 206,
+                headers: {
+                    'Content-Type': 'video/mp4',
+                    'Content-Length': '3',
+                    'Content-Range': 'bytes 0-2/100',
+                    'Accept-Ranges': 'bytes',
+                },
+            }));
+
+        const request = new Request(
+            `https://media.example.com/api/download?url=${encodeURIComponent(sourceUrl)}&type=video&quality=best`,
+            { headers: { Range: 'bytes=0-2' } },
+        );
+        const response = await xhsDownloadResponse(request, sourceUrl, {
+            XHS_RESOLVER_URL: 'https://resolver.example.com/xhs/detail',
+            XHS_MAX_STREAM_BYTES: '10',
+        }, 'req-2');
+
+        expect(response).not.toBeNull();
+        expect(response?.status).toBe(206);
+        expect(response?.headers.get('x-galaxy-provider')).toBe('xhs-resolver');
+        expect(response?.headers.get('x-max-stream-bytes')).toBe('10');
+        expect(new Uint8Array(await response!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        const [mediaUrl, mediaInit] = fetchMock.mock.calls[1];
+        expect(String(mediaUrl)).toBe('https://sns-video-bd.xhscdn.com/video.mp4');
+        expect(new Headers(mediaInit?.headers).get('range')).toBe('bytes=0-2');
+        expect(new Headers(mediaInit?.headers).get('referer')).toBe(sourceUrl);
+    });
+
+    it('blocks a redirect from an allowlisted CDN to an untrusted host', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(Response.json(videoResolverPayload()))
+            .mockResolvedValueOnce(new Response(null, {
+                status: 302,
+                headers: { Location: 'https://evil.example.com/video.mp4' },
+            }));
+
+        const request = new Request(
+            `https://media.example.com/api/download?url=${encodeURIComponent(sourceUrl)}&type=video`,
+        );
+        const response = await xhsDownloadResponse(request, sourceUrl, {
+            XHS_RESOLVER_URL: 'https://resolver.example.com',
+        }, 'req-3');
+
+        expect(response?.status).toBe(502);
+        expect(await response?.json()).toEqual(expect.objectContaining({
+            success: false,
+            details: { provider: 'xhs-resolver' },
+        }));
+        expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('defaults to fallback mode and only accepts explicit prefer mode', () => {
