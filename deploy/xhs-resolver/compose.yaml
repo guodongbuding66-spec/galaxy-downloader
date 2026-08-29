@@ -29,7 +29,6 @@ services:
     environment:
       XHS_RESOLVER_DOMAIN: ${XHS_RESOLVER_DOMAIN:?set XHS_RESOLVER_DOMAIN in .env}
       XHS_RESOLVER_TOKEN: ${XHS_RESOLVER_TOKEN:?set XHS_RESOLVER_TOKEN in .env}
-      ACME_EMAIL: ${ACME_EMAIL:-}
     ports:
       - "80:80"
       - "443:443"
