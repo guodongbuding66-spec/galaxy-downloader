@@ -58,6 +58,7 @@ const HLS_DOWNLOAD_CONCURRENCY = 6;
 const HLS_DOWNLOAD_RETRIES = 3;
 const HLS_MASTER_MAX_DEPTH = 8;
 const HLS_FINAL_EXPORT_MAX_SEGMENTS = 1200;
+const MP4_AUDIO_COPY_EXTENSIONS = new Set(['aac', 'm4a', 'm4b', 'mp4']);
 
 function extensionFromContentType(contentType: string, fallback: string): string {
   const normalized = contentType.split(';')[0]?.trim().toLowerCase() || '';
@@ -90,6 +91,24 @@ function extensionFromUrl(url: string, fallback: string): string {
   } catch {
     return fallback;
   }
+}
+
+function fileExtension(file: File): string {
+  return file.name.match(/\.([a-z0-9]{2,8})$/i)?.[1]?.toLowerCase() || '';
+}
+
+/**
+ * If an audio stream already lives in an MP4/AAC-compatible container, keep
+ * the exact selected bitstream instead of needlessly recompressing it. WebM /
+ * Opus and other containers are transcoded to high-bitrate AAC for broad MP4
+ * playback compatibility.
+ */
+export function shouldStreamCopyAudio(file: File): boolean {
+  const extension = fileExtension(file);
+  const contentType = file.type.split(';')[0]?.trim().toLowerCase() || '';
+  return MP4_AUDIO_COPY_EXTENSIONS.has(extension)
+    || contentType === 'audio/mp4'
+    || contentType === 'audio/aac';
 }
 
 function isAlreadyBackendResource(url: string): boolean {
@@ -382,7 +401,7 @@ async function fetchRemoteFile({
 }
 
 function fsFilename(prefix: string, file: File, fallbackExtension: string): string {
-  const extension = file.name.match(/\.([a-z0-9]{2,8})$/i)?.[1]?.toLowerCase() || fallbackExtension;
+  const extension = fileExtension(file) || fallbackExtension;
   return `${prefix}.${extension}`;
 }
 
@@ -417,6 +436,8 @@ export function buildFinalMediaFfmpegArgs({
   subtitleLanguage,
   title,
   sourceUrl,
+  audioCodec = 'aac',
+  audioBitrate = '320k',
   output = 'final-output.mp4',
 }: {
   videoInput: string;
@@ -426,6 +447,8 @@ export function buildFinalMediaFfmpegArgs({
   subtitleLanguage?: string | null;
   title?: string | null;
   sourceUrl?: string | null;
+  audioCodec?: 'copy' | 'aac';
+  audioBitrate?: string;
   output?: string;
 }): string[] {
   const args: string[] = ['-i', videoInput];
@@ -446,10 +469,13 @@ export function buildFinalMediaFfmpegArgs({
   if (subtitleIndex !== null) args.push('-map', `${subtitleIndex}:0`);
   if (coverIndex !== null) args.push('-map', `${coverIndex}:v:0`);
 
-  // Preserve the selected video bitstream. Audio is normalized to AAC for MP4
-  // compatibility. Subtitles are embedded as a selectable mov_text track.
+  // Never re-encode the selected video. Preserve compatible AAC/MP4 audio too;
+  // only incompatible audio is transcoded, at a high compatibility bitrate.
   args.push('-c:v:0', 'copy');
-  args.push('-c:a', 'aac', '-b:a', '256k');
+  args.push('-c:a', audioCodec);
+  if (audioCodec === 'aac') {
+    args.push('-b:a', audioBitrate);
+  }
 
   if (subtitleIndex !== null) {
     args.push('-c:s', 'mov_text');
@@ -556,6 +582,8 @@ export async function createFinalMediaFile(input: FinalMediaInput): Promise<void
 
   try {
     input.onProgress?.({ stage: 'assembling', progress: 66 });
+    const selectedAudioFile = audio?.file || video.file;
+    const audioCodec: 'copy' | 'aac' = shouldStreamCopyAudio(selectedAudioFile) ? 'copy' : 'aac';
     await ffmpeg.exec(buildFinalMediaFfmpegArgs({
       videoInput: videoName,
       audioInput: audioName,
@@ -564,6 +592,8 @@ export async function createFinalMediaFile(input: FinalMediaInput): Promise<void
       subtitleLanguage: input.subtitleLanguage,
       title: input.title,
       sourceUrl: input.sourceUrl,
+      audioCodec,
+      audioBitrate: '320k',
       output: outputName,
     }), undefined, { signal: input.signal });
 
