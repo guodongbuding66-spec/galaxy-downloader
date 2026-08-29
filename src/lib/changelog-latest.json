@@ -1,0 +1,58 @@
+{
+  "versions": [
+    {
+      "version": "6.3.0",
+      "date": "2026-08-29",
+      "changes": {
+        "zh": [
+          "新增高级下载选项：支持最佳画质、8K/4K/2K/1080p/720p 等分辨率选择，并优先使用解析器返回的真实可用格式、帧率、编码和文件大小信息",
+          "默认视频下载改为重新请求最佳可用画质，减少直接复用低清临时 CDN 流导致文件过小、清晰度偏低的问题",
+          "新增音频质量选择、封面下载、字幕/自动字幕下载、媒体信息 JSON 导出和复制原始链接",
+          "增强解析器兼容能力，可识别 formats、videoFormats、qualities、subtitles、captions、automatic_captions 等常见字段，并支持 Bilibili 多 P/合集当前项的独立画质和字幕",
+          "增强下载接口兼容性，同时支持直接媒体流和返回下载地址的 JSON 响应，改善临时签名链接、跨域和部分 403 下载场景",
+          "新增持续集成检查，自动执行测试、ESLint 和生产构建，降低功能更新后出现回归的风险"
+        ],
+        "zh-tw": [
+          "新增進階下載選項：支援最佳畫質、8K/4K/2K/1080p/720p 等解析度選擇，並優先使用解析器回傳的實際可用格式、幀率、編碼與檔案大小資訊",
+          "預設影片下載改為重新請求最佳可用畫質，減少直接重用低畫質臨時 CDN 串流造成檔案過小或畫質偏低的問題",
+          "新增音訊品質選擇、封面下載、字幕/自動字幕下載、媒體資訊 JSON 匯出與複製原始連結",
+          "強化解析器相容性，可識別 formats、videoFormats、qualities、subtitles、captions、automatic_captions 等常見欄位，並支援 Bilibili 多 P/合集目前項目的獨立畫質與字幕",
+          "強化下載介面相容性，同時支援直接媒體串流與回傳下載網址的 JSON 回應，改善臨時簽名連結、跨網域與部分 403 下載情況",
+          "新增持續整合檢查，自動執行測試、ESLint 與正式環境建置，降低更新後的回歸風險"
+        ],
+        "en": [
+          "Added advanced download controls with Best, 8K, 4K, 2K, 1080p, 720p and other quality choices, preferring real parser-reported formats, frame rates, codecs and file sizes",
+          "Primary video downloads now request the best available quality again instead of reusing a potentially low-resolution temporary CDN stream",
+          "Added audio quality selection, cover downloads, subtitle and auto-caption downloads, media-info JSON export, and source-URL copy actions",
+          "Expanded parser compatibility for common fields such as formats, videoFormats, qualities, subtitles, captions and automatic_captions, including per-item quality/subtitle data for Bilibili multi-part videos and collections",
+          "Improved download API compatibility for both direct media streams and JSON responses that return a resolved media URL, helping with signed temporary URLs, cross-origin cases and some 403 failures",
+          "Added CI validation for automated tests, ESLint and production builds to reduce regressions"
+        ],
+        "ja": [
+          "詳細ダウンロード設定を追加し、最高画質、8K、4K、2K、1080p、720p などを選択可能にしました。解析側が返す実際のフォーマット、フレームレート、コーデック、ファイルサイズを優先します",
+          "通常の動画ダウンロードは低画質の一時 CDN ストリームを再利用せず、利用可能な最高画質を再取得する方式に変更しました",
+          "音声品質の選択、カバー画像、字幕・自動字幕、メディア情報 JSON、元 URL のコピー機能を追加しました",
+          "formats、videoFormats、qualities、subtitles、captions、automatic_captions など一般的な解析結果に対応し、Bilibili の分割動画・合集では選択中の項目ごとの画質と字幕も扱えるようにしました",
+          "ダウンロード API が直接メディアを返す形式と JSON で解決済み URL を返す形式の両方に対応し、一時署名 URL、クロスオリジン、一部の 403 エラーへの互換性を改善しました",
+          "自動テスト、ESLint、本番ビルドを確認する CI を追加し、更新時の回帰リスクを減らしました"
+        ],
+        "es": [
+          "Se añadieron opciones avanzadas de descarga con calidad Mejor disponible, 8K, 4K, 2K, 1080p, 720p y otras, priorizando formatos reales del analizador con FPS, códecs y tamaño de archivo",
+          "La descarga principal de vídeo ahora vuelve a solicitar la mejor calidad disponible en lugar de reutilizar un flujo CDN temporal que podría ser de baja resolución",
+          "Se añadieron selección de calidad de audio, descarga de portada, subtítulos y subtítulos automáticos, exportación JSON de información multimedia y copia de la URL original",
+          "Se amplió la compatibilidad con campos como formats, videoFormats, qualities, subtitles, captions y automatic_captions, incluidos los datos por elemento en vídeos multiparte y colecciones de Bilibili",
+          "Se mejoró la compatibilidad de la API de descarga tanto con flujos multimedia directos como con respuestas JSON que devuelven una URL resuelta, ayudando con URLs temporales firmadas, CORS y algunos errores 403",
+          "Se añadió validación CI con pruebas automáticas, ESLint y compilación de producción para reducir regresiones"
+        ],
+        "ru": [
+          "Добавлены расширенные настройки загрузки с выбором лучшего качества, 8K, 4K, 2K, 1080p, 720p и других вариантов с приоритетом реальных форматов, FPS, кодеков и размеров файлов от парсера",
+          "Основная загрузка видео теперь повторно запрашивает лучшее доступное качество вместо использования потенциально низкокачественного временного CDN-потока",
+          "Добавлены выбор качества аудио, загрузка обложки, субтитров и автосубтитров, экспорт JSON с данными медиа и копирование исходной ссылки",
+          "Расширена совместимость с полями formats, videoFormats, qualities, subtitles, captions и automatic_captions, включая отдельные данные качества и субтитров для частей и коллекций Bilibili",
+          "Улучшена совместимость API загрузки как с прямыми медиапотоками, так и с JSON-ответами, возвращающими итоговый URL, что помогает с временными подписанными ссылками, CORS и некоторыми ошибками 403",
+          "Добавлена CI-проверка автоматических тестов, ESLint и production-сборки для снижения риска регрессий"
+        ]
+      }
+    }
+  ]
+}
