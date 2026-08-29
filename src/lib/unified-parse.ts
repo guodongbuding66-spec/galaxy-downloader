@@ -1,5 +1,5 @@
 import { ApiRequestError } from '@/lib/api-errors'
-import { API_ENDPOINTS } from '@/lib/config'
+import { API_ENDPOINT_CANDIDATES } from '@/lib/config'
 import { normalizeParserCapabilities } from '@/lib/parser-capabilities'
 import { notifyTodayParseStatsChanged } from '@/lib/parse-stats'
 import type { UnifiedParseResult } from '@/lib/types'
@@ -38,17 +38,21 @@ function maybeReloadUnifiedParsePage(): boolean {
     return false
 }
 
-export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedParseSuccessResult> {
-    if (maybeReloadUnifiedParsePage()) {
-        throw new UnifiedParseReloadError()
-    }
+async function requestParseCandidate(endpoint: string, params: URLSearchParams): Promise<UnifiedParseSuccessResult> {
+    const separator = endpoint.includes('?') ? '&' : '?'
+    const requestUrl = `${endpoint}${separator}${params.toString()}`
+    let response: Response
 
-    const params = new URLSearchParams({ url: videoUrl })
-    const requestUrl = `${API_ENDPOINTS.unified.parse}?${params.toString()}`
-    const response = await fetch(requestUrl, {
-        method: 'GET',
-        cache: 'no-store',
-    })
+    try {
+        response = await fetch(requestUrl, {
+            method: 'GET',
+            cache: 'no-store',
+        })
+    } catch (error) {
+        throw new ApiRequestError({
+            fallbackMessage: error instanceof Error ? error.message : 'Parser request failed',
+        })
+    }
 
     let payload: UnifiedParseResult | null = null
     try {
@@ -69,16 +73,32 @@ export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedPars
         })
     }
 
-    // Compatible parser deployments may expose richer yt-dlp-like capability
-    // fields. Preserve the original response while normalizing those optional
-    // formats/subtitles into the frontend's stable model.
-    payload = {
+    return {
         ...payload,
         data: normalizeParserCapabilities(
             payload.data as unknown as Record<string, unknown>
         ) as NonNullable<UnifiedParseResult['data']>,
+    } as UnifiedParseSuccessResult
+}
+
+export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedParseSuccessResult> {
+    if (maybeReloadUnifiedParsePage()) {
+        throw new UnifiedParseReloadError()
     }
 
-    notifyTodayParseStatsChanged()
-    return payload as UnifiedParseSuccessResult
+    const params = new URLSearchParams({ url: videoUrl })
+    let lastError: unknown = null
+
+    for (const endpoint of API_ENDPOINT_CANDIDATES.unified.parse) {
+        try {
+            const payload = await requestParseCandidate(endpoint, params)
+            notifyTodayParseStatsChanged()
+            return payload
+        } catch (error) {
+            lastError = error
+        }
+    }
+
+    if (lastError) throw lastError
+    throw new ApiRequestError({ fallbackMessage: 'No parser endpoint is configured' })
 }
