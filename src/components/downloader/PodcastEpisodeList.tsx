@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Headphones } from 'lucide-react';
+import { Headphones, Search } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,12 +77,13 @@ export function PodcastEpisodeList({
     }, [autoScrollEpisodeId, autoScrollKey, visibleEpisodes.length]);
 
     return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2 text-xs text-foreground/75">
-                <span className="min-w-0">
+        <div className="space-y-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-sm font-medium text-foreground/75">
                     {replaceTemplate(dict.result.videoCount, '{count}', String(filteredEpisodes.length))}
                 </span>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="relative w-full sm:w-64">
+                    <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                     <Input
                         value={searchQuery}
                         onChange={(event) => {
@@ -91,20 +92,22 @@ export function PodcastEpisodeList({
                         }}
                         placeholder={dict.result.collectionSearchPlaceholder}
                         aria-label={dict.result.collectionSearchPlaceholder}
-                        className="w-32 sm:w-56 h-8"
+                        className="min-h-11 w-full ps-9 text-base sm:text-sm"
                     />
                 </div>
             </div>
+
             <div
                 ref={containerRef}
-                className="max-h-[min(56vh,26rem)] md:max-h-[min(60vh,32rem)] overflow-y-auto overscroll-contain pr-1"
+                className="max-h-[min(58vh,32rem)] overflow-y-auto overscroll-contain pe-1 md:max-h-[min(62vh,38rem)]"
             >
-                <div className="space-y-2 pr-2">
+                <div className="space-y-2 pe-2">
                     {filteredEpisodes.length === 0 && (
-                        <p className="py-6 text-center text-sm text-muted-foreground">
+                        <p className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
                             {dict.result.collectionNoSearchResults}
                         </p>
                     )}
+
                     {visibleEpisodes.map((episode, index) => {
                         const audioUrl = episode.downloadAudioUrl || episode.originDownloadAudioUrl || null;
                         const downloadKey = `${episode.id}-audio`;
@@ -120,26 +123,24 @@ export function PodcastEpisodeList({
                                         itemRefs.current.delete(episode.id);
                                     }
                                 }}
-                                className={`flex w-full max-w-full flex-col gap-2 overflow-hidden rounded-lg border p-2 text-left transition-colors md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-2 md:p-3 ${
+                                aria-current={isCurrentItem ? 'true' : undefined}
+                                className={`flex w-full max-w-full flex-col gap-3 overflow-hidden rounded-xl border bg-background p-3 text-start transition-colors duration-150 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-3 ${
                                     isCurrentItem
-                                        ? 'border-primary bg-primary/5'
-                                        : 'border-border hover:bg-muted/50'
+                                        ? 'border-primary/50 bg-primary/5'
+                                        : 'border-border hover:bg-muted/30'
                                 }`}
                             >
-                                <div className="flex w-full items-start gap-2 min-w-0 overflow-hidden">
-                                    <span className="text-xs font-medium text-foreground/70 shrink-0">
+                                <div className="flex min-w-0 w-full items-start gap-3 overflow-hidden">
+                                    <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-lg bg-muted px-1.5 text-xs font-semibold tabular-nums text-foreground/70">
                                         {index + 1}
                                     </span>
-                                    <div className="flex w-full flex-col gap-0.5 flex-1 min-w-0 overflow-hidden">
-                                        <div
-                                            className="text-[13px] truncate min-w-0 max-w-[64vw] sm:max-w-none"
-                                            title={episode.title}
-                                        >
+                                    <div className="min-w-0 flex-1 space-y-1">
+                                        <div className="line-clamp-2 text-sm font-medium leading-5 break-words" title={episode.title}>
                                             {episode.title}
                                         </div>
-                                        <div className="flex items-center gap-2 text-xs text-foreground/60">
+                                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                             {episode.duration != null && (
-                                                <span>{formatDuration(episode.duration)}</span>
+                                                <span className="tabular-nums">{formatDuration(episode.duration)}</span>
                                             )}
                                             {episode.releaseDate && (
                                                 <span>{episode.releaseDate}</span>
@@ -147,42 +148,41 @@ export function PodcastEpisodeList({
                                         </div>
                                     </div>
                                 </div>
-                                <div className="w-full space-y-2 md:min-w-[11rem] md:shrink-0">
-                                    <div className="grid grid-cols-1 gap-2">
-                                        <MediaActionIconButton
-                                            label={`${dict.result.playAudio}: ${episode.title}`}
-                                            text={dict.result.playAudio}
-                                            icon={Headphones}
-                                            variant="secondary"
-                                            disabled={isCurrentItem}
-                                            className="w-full"
-                                            onClick={() => onSelectEpisode?.(episode.id)}
-                                        />
-                                    </div>
+
+                                <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:w-44 md:grid-cols-1">
+                                    <MediaActionIconButton
+                                        label={`${dict.result.playAudio}: ${episode.title}`}
+                                        text={dict.result.playAudio}
+                                        icon={Headphones}
+                                        variant="secondary"
+                                        disabled={isCurrentItem}
+                                        className="min-h-10 w-full"
+                                        onClick={() => onSelectEpisode?.(episode.id)}
+                                    />
                                     {audioUrl && (
-                                        <div className="grid grid-cols-1 gap-2">
-                                            <MediaActionIconButton
-                                                label={dict.result.downloadAudio}
-                                                icon={AudioDownloadIcon}
-                                                variant="default"
-                                                disabled={loadingKeys.has(downloadKey)}
-                                                loading={loadingKeys.has(downloadKey)}
-                                                className="w-full"
-                                                onClick={() => triggerDownload(audioUrl, downloadKey)}
-                                            />
-                                        </div>
+                                        <MediaActionIconButton
+                                            label={`${dict.result.downloadAudio}: ${episode.title}`}
+                                            text={dict.result.downloadAudio}
+                                            icon={AudioDownloadIcon}
+                                            variant="outline"
+                                            disabled={loadingKeys.has(downloadKey)}
+                                            loading={loadingKeys.has(downloadKey)}
+                                            className="min-h-10 w-full"
+                                            onClick={() => triggerDownload(audioUrl, downloadKey)}
+                                        />
                                     )}
                                 </div>
                             </div>
                         );
                     })}
+
                     {isMobile && (remainingCount > 0 || canCollapseMobile) && (
-                        <div className="rounded-lg border border-border/70 p-2">
+                        <div className="rounded-xl border border-border/70 p-2">
                             {remainingCount > 0 ? (
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="h-8 w-full text-xs"
+                                    className="min-h-10 w-full text-sm"
                                     onClick={loadMore}
                                 >
                                     {replaceTemplate(
@@ -195,7 +195,7 @@ export function PodcastEpisodeList({
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="h-8 w-full text-xs"
+                                    className="min-h-10 w-full text-sm"
                                     onClick={collapse}
                                 >
                                     {replaceTemplate(dict.result.collapseParts, '{count}', String(minimumVisibleCount))}
