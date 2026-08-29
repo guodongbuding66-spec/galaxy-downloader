@@ -8,6 +8,7 @@ import {
     Download,
     FileJson,
     Image as ImageIcon,
+    Loader2,
     Music,
     SlidersHorizontal,
     Video,
@@ -29,6 +30,7 @@ import {
     getSubtitleDisplayName,
     inferExtension,
     normalizeQualityOptions,
+    resolveSourceMediaDownloadUrl,
     resolveSubtitleUrl,
 } from '@/lib/media-download-options';
 import type { SubtitleTrack, UnifiedParseResult, VideoQualityOption } from '@/lib/types';
@@ -55,6 +57,7 @@ type Copy = {
     copySource: string;
     copied: string;
     best: string;
+    downloadFailed: string;
 };
 
 const COPY: Record<string, Copy> = {
@@ -75,6 +78,7 @@ const COPY: Record<string, Copy> = {
         copySource: '复制原始链接',
         copied: '原始链接已复制',
         best: '最佳可用',
+        downloadFailed: '下载请求失败',
     },
     'zh-tw': {
         title: '進階下載選項',
@@ -93,6 +97,7 @@ const COPY: Record<string, Copy> = {
         copySource: '複製原始連結',
         copied: '原始連結已複製',
         best: '最佳可用',
+        downloadFailed: '下載請求失敗',
     },
     en: {
         title: 'Advanced download options',
@@ -111,6 +116,7 @@ const COPY: Record<string, Copy> = {
         copySource: 'Copy source URL',
         copied: 'Source URL copied',
         best: 'Best available',
+        downloadFailed: 'Download request failed',
     },
     ja: {
         title: '詳細ダウンロード設定',
@@ -129,6 +135,7 @@ const COPY: Record<string, Copy> = {
         copySource: '元 URL をコピー',
         copied: '元 URL をコピーしました',
         best: '最高品質',
+        downloadFailed: 'ダウンロード要求に失敗しました',
     },
     es: {
         title: 'Opciones avanzadas de descarga',
@@ -147,6 +154,7 @@ const COPY: Record<string, Copy> = {
         copySource: 'Copiar URL original',
         copied: 'URL original copiada',
         best: 'Mejor disponible',
+        downloadFailed: 'La solicitud de descarga falló',
     },
     ru: {
         title: 'Расширенные параметры загрузки',
@@ -165,6 +173,7 @@ const COPY: Record<string, Copy> = {
         copySource: 'Копировать исходную ссылку',
         copied: 'Исходная ссылка скопирована',
         best: 'Лучшее доступное',
+        downloadFailed: 'Не удалось выполнить запрос загрузки',
     },
 };
 
@@ -231,6 +240,8 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
     const [videoQuality, setVideoQuality] = useState('best');
     const [audioQuality, setAudioQuality] = useState('best');
     const [subtitleId, setSubtitleId] = useState('');
+    const [videoLoading, setVideoLoading] = useState(false);
+    const [audioLoading, setAudioLoading] = useState(false);
     const sourceUrl = resolveScopedSourceUrl(result);
     const safeTitle = sanitizeFilename(result.title || 'media').slice(0, 120) || 'media';
     const showVideoControls = result.kind !== 'audio'
@@ -247,24 +258,47 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
         (track, index) => (track.id || `${track.language}-${index}`) === subtitleId
     ) ? subtitleId : firstSubtitleId;
 
-    const handleVideoDownload = () => {
-        if (!sourceUrl || !selectedQuality) return;
-        const url = selectedQuality.downloadUrl || buildSourceMediaDownloadUrl({
-            sourceUrl,
-            type: 'video',
-            quality: selectedQuality.quality,
-            formatId: selectedQuality.formatId,
-        });
-        downloadFile(url);
+    const handleVideoDownload = async () => {
+        if (!sourceUrl || !selectedQuality || videoLoading) return;
+        setVideoLoading(true);
+        try {
+            const requestUrl = buildSourceMediaDownloadUrl({
+                sourceUrl,
+                type: 'video',
+                quality: selectedQuality.quality,
+                formatId: selectedQuality.formatId,
+            });
+            const resolvedUrl = await resolveSourceMediaDownloadUrl(requestUrl);
+            downloadFile(resolvedUrl);
+        } catch (error) {
+            console.error('Failed to download selected video quality:', error);
+            toast.error(copy.downloadFailed, {
+                description: error instanceof Error ? error.message : undefined,
+            });
+        } finally {
+            setVideoLoading(false);
+        }
     };
 
-    const handleAudioDownload = () => {
-        if (!sourceUrl) return;
-        downloadFile(buildSourceMediaDownloadUrl({
-            sourceUrl,
-            type: 'audio',
-            quality: audioQuality,
-        }));
+    const handleAudioDownload = async () => {
+        if (!sourceUrl || audioLoading) return;
+        setAudioLoading(true);
+        try {
+            const requestUrl = buildSourceMediaDownloadUrl({
+                sourceUrl,
+                type: 'audio',
+                quality: audioQuality,
+            });
+            const resolvedUrl = await resolveSourceMediaDownloadUrl(requestUrl);
+            downloadFile(resolvedUrl);
+        } catch (error) {
+            console.error('Failed to download selected audio quality:', error);
+            toast.error(copy.downloadFailed, {
+                description: error instanceof Error ? error.message : undefined,
+            });
+        } finally {
+            setAudioLoading(false);
+        }
     };
 
     const handleCoverDownload = () => {
@@ -334,7 +368,11 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                                     {parserProvidedFormats ? copy.parserFormats : copy.genericPresets}
                                 </span>
                             </div>
-                            <Select value={selectedQuality?.quality || 'best'} onValueChange={setVideoQuality}>
+                            <Select
+                                value={selectedQuality?.quality || 'best'}
+                                onValueChange={setVideoQuality}
+                                disabled={videoLoading}
+                            >
                                 <SelectTrigger className="h-9">
                                     <SelectValue placeholder={copy.best} />
                                 </SelectTrigger>
@@ -352,8 +390,17 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                                     })}
                                 </SelectContent>
                             </Select>
-                            <Button type="button" className="w-full" onClick={handleVideoDownload}>
-                                <Download className="h-4 w-4" />
+                            <Button
+                                type="button"
+                                className="w-full"
+                                disabled={videoLoading}
+                                onClick={() => void handleVideoDownload()}
+                            >
+                                {videoLoading ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Download className="h-4 w-4" />
+                                )}
                                 {copy.downloadVideo}
                             </Button>
                             <p className="text-[11px] leading-relaxed text-muted-foreground">
@@ -368,7 +415,11 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                                 <Music className="h-3.5 w-3.5" />
                                 {copy.audioQuality}
                             </div>
-                            <Select value={audioQuality} onValueChange={setAudioQuality}>
+                            <Select
+                                value={audioQuality}
+                                onValueChange={setAudioQuality}
+                                disabled={audioLoading}
+                            >
                                 <SelectTrigger className="h-9">
                                     <SelectValue placeholder={copy.best} />
                                 </SelectTrigger>
@@ -384,9 +435,14 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                                 type="button"
                                 variant="secondary"
                                 className="w-full"
-                                onClick={handleAudioDownload}
+                                disabled={audioLoading}
+                                onClick={() => void handleAudioDownload()}
                             >
-                                <Download className="h-4 w-4" />
+                                {audioLoading ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Download className="h-4 w-4" />
+                                )}
                                 {copy.downloadAudio}
                             </Button>
                         </div>
