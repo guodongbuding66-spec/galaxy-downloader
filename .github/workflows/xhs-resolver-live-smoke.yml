@@ -7,6 +7,7 @@ on:
     paths:
       - 'deploy/xhs-resolver/**'
       - 'scripts/xhs-resolver-live-smoke.py'
+      - 'tests/test_xhs_resolver_live_smoke.py'
       - '.github/workflows/xhs-resolver-live-smoke.yml'
   workflow_dispatch:
   schedule:
@@ -59,6 +60,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Run local XHS smoke integration fixtures
+        env:
+          XHS_RESOLVER_URL: ''
+          XHS_RESOLVER_TOKEN: ''
+          XHS_SMOKE_URL: ''
+          XHS_SMOKE_FETCH_MEDIA: ''
+          XHS_SMOKE_ALLOW_MISSING: ''
+        run: python -m unittest -v tests.test_xhs_resolver_live_smoke
 
       - name: Run XHS resolver live smoke
         run: python scripts/xhs-resolver-live-smoke.py
