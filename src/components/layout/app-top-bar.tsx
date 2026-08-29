@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { History, Home, MessageSquare, Music } from 'lucide-react'
+import { Download, History, Home, MessageSquare, Music } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DeferredLanguageSwitcher } from '@/components/deferred-language-switcher'
 import { DeferredChangelogDialog } from '@/components/deferred-changelog-dialog'
@@ -20,6 +20,15 @@ interface AppTopBarProps {
     onAudioToolClick?: () => void
     showHomeButton?: boolean
     homeHref?: string
+}
+
+const SKIP_COPY: Record<string, string> = {
+    zh: '跳到主要内容',
+    'zh-tw': '跳到主要內容',
+    en: 'Skip to main content',
+    ja: 'メインコンテンツへ移動',
+    es: 'Saltar al contenido principal',
+    ru: 'Перейти к основному содержимому',
 }
 
 export function AppTopBar({
@@ -46,117 +55,126 @@ export function AppTopBar({
     const effectiveAudioToolClick = onAudioToolClick ?? actions.onAudioToolClick
 
     return (
-        <div
-            className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur-sm"
+        <header
+            className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur-xl supports-[backdrop-filter]:bg-background/75"
             style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
-            <div className="md:hidden px-3 sm:px-4">
-                <div className="max-w-7xl mx-auto h-12 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 shrink-0 min-w-0">
-                        {shouldShowHomeButton && (
-                            <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2" asChild>
-                                <Link href={resolvedHomeHref}>
-                                    <Home className="h-4 w-4" />
-                                    <span className="text-xs">{dict.common.home}</span>
-                                </Link>
-                            </Button>
-                        )}
-                        {effectiveShowHistoryShortcut && effectiveHistoryClick && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 max-w-30 gap-1.5 rounded-full px-2.5 text-[11px] font-medium"
-                                onClick={effectiveHistoryClick}
-                            >
-                                <History className="h-3.5 w-3.5" />
-                                <span className="truncate">{dict.history.title}</span>
-                            </Button>
-                        )}
-                        {effectiveShowAudioTool && effectiveAudioToolClick && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 max-w-30 gap-1.5 rounded-full px-2.5 text-[11px] font-medium"
-                                onClick={effectiveAudioToolClick}
-                            >
-                                <Music className="h-3.5 w-3.5" />
-                                <span className="truncate">{dict.audioTool.triggerButton}</span>
-                            </Button>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                            <Link href={feedbackHref} aria-label={dict.feedback.triggerButton}>
-                                <MessageSquare className="h-4 w-4" />
-                                <span className="sr-only">{dict.feedback.triggerButton}</span>
+            <a
+                href="#main-content"
+                className="sr-only fixed left-3 top-3 z-[60] rounded-lg bg-background px-3 py-2 text-sm font-medium shadow-lg ring-2 ring-ring focus:not-sr-only"
+            >
+                {SKIP_COPY[locale] || SKIP_COPY.en}
+            </a>
+
+            <div className="mx-auto flex min-h-14 w-full max-w-6xl items-center gap-2 px-3 sm:px-5 md:px-6">
+                <Link
+                    href={resolvedHomeHref}
+                    className="group flex min-w-0 shrink-0 items-center gap-2 rounded-lg py-1.5 pr-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={dict.metadata.siteName}
+                >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-transform duration-150 group-active:scale-[0.96]">
+                        <Download className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    <span className="hidden min-w-0 sm:block">
+                        <span className="block truncate text-sm font-semibold tracking-tight">Galaxy Downloader</span>
+                        <span className="hidden text-[11px] leading-4 text-muted-foreground lg:block">Local media workbench</span>
+                    </span>
+                </Link>
+
+                <nav className="ml-1 hidden min-w-0 flex-1 items-center gap-1 md:flex" aria-label="Tools">
+                    {shouldShowHomeButton && (
+                        <Button variant="ghost" size="sm" className="gap-1.5 active:scale-[0.96] transition-transform duration-150" asChild>
+                            <Link href={resolvedHomeHref}>
+                                <Home className="h-4 w-4" aria-hidden="true" />
+                                <span>{dict.common.home}</span>
                             </Link>
                         </Button>
+                    )}
+                    {effectiveShowHistoryShortcut && effectiveHistoryClick && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 active:scale-[0.96] transition-[transform,background-color] duration-150"
+                            onClick={effectiveHistoryClick}
+                        >
+                            <History className="h-4 w-4" aria-hidden="true" />
+                            <span>{dict.history.title}</span>
+                        </Button>
+                    )}
+                    {effectiveShowAudioTool && effectiveAudioToolClick && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 active:scale-[0.96] transition-[transform,background-color] duration-150"
+                            onClick={effectiveAudioToolClick}
+                        >
+                            <Music className="h-4 w-4" aria-hidden="true" />
+                            <span>{dict.audioTool.triggerButton}</span>
+                        </Button>
+                    )}
+                </nav>
+
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                    {effectiveShowHistoryShortcut && effectiveHistoryClick && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 active:scale-[0.96] transition-[transform,background-color] duration-150 md:hidden"
+                            onClick={effectiveHistoryClick}
+                            aria-label={dict.history.title}
+                        >
+                            <History className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                    )}
+                    {effectiveShowAudioTool && effectiveAudioToolClick && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 active:scale-[0.96] transition-[transform,background-color] duration-150 md:hidden"
+                            onClick={effectiveAudioToolClick}
+                            aria-label={dict.audioTool.triggerButton}
+                        >
+                            <Music className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                    )}
+
+                    <Button variant="ghost" size="icon" className="h-10 w-10 active:scale-[0.96] transition-[transform,background-color] duration-150 sm:hidden" asChild>
+                        <Link href={feedbackHref} aria-label={dict.feedback.triggerButton}>
+                            <MessageSquare className="h-4 w-4" aria-hidden="true" />
+                        </Link>
+                    </Button>
+
+                    <Button variant="ghost" size="sm" className="hidden gap-1.5 active:scale-[0.96] transition-[transform,background-color] duration-150 sm:inline-flex" asChild>
+                        <Link href={feedbackHref}>
+                            <MessageSquare className="h-4 w-4" aria-hidden="true" />
+                            <span>{dict.feedback.triggerButton}</span>
+                        </Link>
+                    </Button>
+
+                    <Button variant="ghost" size="sm" className="hidden gap-1.5 active:scale-[0.96] transition-[transform,background-color] duration-150 lg:inline-flex" asChild>
+                        <a href="https://github.com/guodongbuding66-spec/galaxy-downloader" target="_blank" rel="noopener noreferrer">
+                            <Image
+                                src="/platform-icons/github.svg"
+                                alt=""
+                                width={16}
+                                height={16}
+                                aria-hidden="true"
+                                className="dark:invert"
+                            />
+                            <span>GitHub</span>
+                        </a>
+                    </Button>
+
+                    <div className="hidden items-center gap-1 md:flex">
+                        <ThemeSwitcher />
+                        <DeferredChangelogDialog triggerIconOnly triggerClassName="h-10 w-10" />
                         <DeferredLanguageSwitcher iconOnly />
-                        <DeferredChangelogDialog triggerIconOnly triggerClassName="h-8 w-8" />
+                    </div>
+                    <div className="md:hidden">
                         <DeferredMobileNavMenu />
                     </div>
                 </div>
             </div>
-            <div className="hidden md:block px-3 sm:px-4 md:px-4">
-                <div className="max-w-7xl mx-auto py-3 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1">
-                        {shouldShowHomeButton && (
-                            <Button variant="ghost" size="sm" className="gap-1.5" asChild>
-                                <Link href={resolvedHomeHref}>
-                                    <Home className="h-4 w-4" />
-                                    <span>{dict.common.home}</span>
-                                </Link>
-                            </Button>
-                        )}
-                        {effectiveShowHistoryShortcut && effectiveHistoryClick && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="flex items-center gap-1"
-                                onClick={effectiveHistoryClick}
-                            >
-                                <History className="h-4 w-4" />
-                                <span>{dict.history.title}</span>
-                            </Button>
-                        )}
-                        {effectiveShowAudioTool && effectiveAudioToolClick && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="flex items-center gap-1"
-                                onClick={effectiveAudioToolClick}
-                            >
-                                <Music className="h-4 w-4" />
-                                <span>{dict.audioTool.triggerButton}</span>
-                            </Button>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" asChild>
-                            <a href="https://github.com/guodongbuding66-spec/galaxy-downloader" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
-                                <Image
-                                    src="/platform-icons/github.svg"
-                                    alt=""
-                                    width={16}
-                                    height={16}
-                                    aria-hidden="true"
-                                    className="dark:invert"
-                                />
-                                <span>GitHub</span>
-                            </a>
-                        </Button>
-                        <Button variant="ghost" size="sm" asChild>
-                            <Link href={feedbackHref} className="flex items-center gap-1">
-                                <MessageSquare className="h-4 w-4" />
-                                <span>{dict.feedback.triggerButton}</span>
-                            </Link>
-                        </Button>
-                        <ThemeSwitcher />
-                        <DeferredChangelogDialog />
-                        <DeferredLanguageSwitcher />
-                    </div>
-                </div>
-            </div>
-        </div>
+        </header>
     )
 }
