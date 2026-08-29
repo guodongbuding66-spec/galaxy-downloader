@@ -51,6 +51,10 @@ jobs:
         working-directory: container-backend
         run: npm install --no-audit --no-fund
 
+      - name: Validate Worker bindings
+        working-directory: container-backend
+        run: npm run cf-types
+
       - name: Typecheck Worker router
         working-directory: container-backend
         run: npm run typecheck

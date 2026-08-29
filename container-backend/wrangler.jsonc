@@ -12,6 +12,24 @@
     "XHS_MEDIA_HOST_SUFFIXES": "xhscdn.com,xiaohongshu.com",
     "XHS_MAX_STREAM_BYTES": "6442450944"
   },
+  "ratelimits": [
+    {
+      "name": "PARSE_RATE_LIMITER",
+      "namespace_id": "74129001",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    },
+    {
+      "name": "DOWNLOAD_RATE_LIMITER",
+      "namespace_id": "74129002",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    }
+  ],
   "containers": [
     {
       "name": "galaxy-media",
