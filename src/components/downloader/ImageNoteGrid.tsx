@@ -112,7 +112,6 @@ function ImageNoteGridContent({
             const zip = new JSZip();
             let successCount = 0;
 
-            // Keep packaging order stable so downloaded filenames match the visible order.
             for (let index = 0; index < images.length; index++) {
                 const state = imageStates[index];
                 const hasError = state?.error ?? false;
@@ -161,18 +160,16 @@ function ImageNoteGridContent({
     }
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-3">
             {!singleImageMode && (
-                <div className="flex items-center justify-between">
-                    <div className="text-xs text-foreground/75">
-                        <span className="inline-flex items-center gap-1">
-                            {dict.result.imageNote}
-                        </span>
-                        <span className="ml-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm text-foreground/75">
+                        <span className="font-medium">{dict.result.imageNote}</span>
+                        <span className="ms-2 text-muted-foreground">
                             {replaceTemplate(dict.result.imageCount, '{count}', String(images.length))}
                         </span>
                         {!allLoaded && (
-                            <span className="ml-2 text-xs">
+                            <span className="ms-2 text-xs text-muted-foreground" role="status" aria-live="polite">
                                 ({dict.result.imageLoadingProgress.replace('{loaded}', String(loadedCount)).replace('{total}', String(images.length))})
                             </span>
                         )}
@@ -182,23 +179,24 @@ function ImageNoteGridContent({
                         variant="outline"
                         disabled={!allLoaded || isPackaging || successCount === 0}
                         onClick={handlePackageDownload}
-                        className="h-8 shrink-0 text-xs"
+                        className="min-h-10 shrink-0 gap-1.5 px-3 text-sm"
                     >
                         {isPackaging ? (
                             <>
-                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                {dict.result.packaging} {packagingProgress}%
+                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                <span>{dict.result.packaging} {packagingProgress}%</span>
                             </>
                         ) : (
                             <>
-                                <Package className="h-3 w-3 mr-1" />
-                                {dict.result.packageDownload}
+                                <Package className="h-4 w-4" aria-hidden="true" />
+                                <span>{dict.result.packageDownload}</span>
                             </>
                         )}
                     </Button>
                 </div>
             )}
-            <div className={`${singleImageMode ? 'grid grid-cols-1' : 'grid grid-cols-2'} gap-2 max-h-[500px] overflow-y-auto pr-1`}>
+
+            <div className={`${singleImageMode ? 'grid grid-cols-1' : 'grid grid-cols-2'} max-h-[34rem] gap-3 overflow-y-auto pe-1`}>
                 {images.map((imageUrl, index) => {
                     const state = imageStates[index];
                     const isLoading = state?.loading ?? true;
@@ -208,9 +206,9 @@ function ImageNoteGridContent({
                     return (
                         <div
                             key={index}
-                            className="relative group border rounded-lg overflow-hidden bg-muted/30 hover:bg-muted/50 transition-colors"
+                            className="group relative overflow-hidden rounded-xl border bg-muted/20"
                         >
-                            <div className={`${singleImageMode ? 'aspect-video' : 'aspect-square'} relative bg-muted flex items-center justify-center`}>
+                            <div className={`${singleImageMode ? 'aspect-video' : 'aspect-square'} relative flex items-center justify-center bg-muted`}>
                                 {!hasError && (
                                     <Image
                                         src={displaySrc}
@@ -228,39 +226,40 @@ function ImageNoteGridContent({
                                     />
                                 )}
                                 {isLoading && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                                        <p className="text-xs text-muted-foreground mt-2">{dict.result.loading}</p>
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center" role="status">
+                                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
+                                        <p className="mt-2 text-xs text-muted-foreground">{dict.result.loading}</p>
                                     </div>
                                 )}
                                 {!isLoading && hasError && (
                                     <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
-                                        <div className="text-2xl">🖼️</div>
-                                        <p className="text-xs mt-2">
+                                        <div className="text-2xl" aria-hidden="true">🖼️</div>
+                                        <p className="mt-2 text-xs">
                                             {singleImageMode
                                                 ? dict.result.coverLabel
                                                 : replaceTemplate(dict.result.imageIndexLabel, '{index}', String(index + 1))}
                                         </p>
-                                        <p className="text-[10px] mt-1 opacity-60">{dict.result.loadFailed}</p>
+                                        <p className="mt-1 text-[11px] opacity-70">{dict.result.loadFailed}</p>
                                     </div>
                                 )}
                             </div>
+
                             {!isLoading && !hasError && (
-                                <div className="absolute bottom-2 right-2">
+                                <div className="absolute bottom-2 end-2">
                                     <Button
-                                        size="sm"
+                                        size="icon"
                                         variant="secondary"
-                                        className="h-8 w-8 p-0 shadow-md"
+                                        className="h-10 w-10 shadow-md"
                                         onClick={() => void handleDownload(index, imageUrl)}
-                                        title={singleImageMode ? dict.result.downloadCover : dict.result.downloadImage}
                                         aria-label={singleImageMode ? dict.result.downloadCover : dict.result.downloadImage}
                                     >
-                                        <Download className="h-4 w-4" />
+                                        <Download className="h-4 w-4" aria-hidden="true" />
                                     </Button>
                                 </div>
                             )}
+
                             {!singleImageMode && (
-                                <div className="absolute top-1 right-1 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
+                                <div className="absolute end-2 top-2 rounded-md bg-black/65 px-2 py-1 text-xs font-medium tabular-nums text-white">
                                     {index + 1}
                                 </div>
                             )}

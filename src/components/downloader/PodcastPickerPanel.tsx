@@ -119,7 +119,7 @@ export function PodcastPickerPanel({
     const displayDuration = selectedEpisode?.duration ?? result.duration;
 
     return (
-        <Card>
+        <Card className="overflow-hidden">
             <ResultCardHeader
                 title={displayTitle}
                 duration={displayDuration}
@@ -127,10 +127,10 @@ export function PodcastPickerPanel({
                 onCopyShareLink={() => void handleCopySharePlayLink()}
                 onClose={onClose}
             />
-            <CardContent className="px-3 pb-3 pt-0">
-                <div className="space-y-2">
+            <CardContent className="p-4 sm:p-5">
+                <div className="space-y-4">
                     {activePlayerUrl && effectivePreview ? (
-                        <div className="overflow-hidden rounded-lg bg-black">
+                        <div className="overflow-hidden rounded-xl bg-black ring-1 ring-border/70">
                             <audio
                                 key={activePlayerUrl}
                                 src={activePlayerUrl}
@@ -143,6 +143,7 @@ export function PodcastPickerPanel({
                     ) : coverSrc ? (
                         <ImageNoteGrid images={[coverSrc]} title={displayTitle} singleImageMode />
                     ) : null}
+
                     <SinglePartButtons
                         result={episodeAsResult}
                         previewItem={selectedEpisode?.id}
@@ -150,15 +151,18 @@ export function PodcastPickerPanel({
                         onOpenHlsDownload={() => {}}
                         onRequestPreview={onRequestPreview}
                     />
+
                     {episodes.length > 0 && (
-                        <PodcastEpisodeList
-                            key={`episodes-${result.url ?? ''}-${initialEpisodeId}`}
-                            episodes={episodes}
-                            currentEpisodeId={selectedEpisodeId}
-                            autoScrollKey={`${result.url ?? ''}-${initialEpisodeId}`}
-                            autoScrollEpisodeId={initialEpisodeId}
-                            onSelectEpisode={handleSelectEpisode}
-                        />
+                        <div className="border-t pt-4">
+                            <PodcastEpisodeList
+                                key={`episodes-${result.url ?? ''}-${initialEpisodeId}`}
+                                episodes={episodes}
+                                currentEpisodeId={selectedEpisodeId}
+                                autoScrollKey={`${result.url ?? ''}-${initialEpisodeId}`}
+                                autoScrollEpisodeId={initialEpisodeId}
+                                onSelectEpisode={handleSelectEpisode}
+                            />
+                        </div>
                     )}
                 </div>
             </CardContent>

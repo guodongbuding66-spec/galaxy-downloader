@@ -74,7 +74,7 @@ export function AudioResultPanel({
     };
 
     return (
-        <Card>
+        <Card className="overflow-hidden">
             <ResultCardHeader
                 title={result.title}
                 duration={result.duration}
@@ -82,10 +82,10 @@ export function AudioResultPanel({
                 onCopyShareLink={() => void handleCopySharePlayLink()}
                 onClose={onClose}
             />
-            <CardContent className="px-3 pb-3 pt-0">
-                <div className="space-y-2">
+            <CardContent className="p-4 sm:p-5">
+                <div className="space-y-4">
                     {playerPreview && playerUrl ? (
-                        <div className="overflow-hidden rounded-lg bg-black">
+                        <div className="overflow-hidden rounded-xl bg-black ring-1 ring-border/70">
                             <audio
                                 key={playerUrl}
                                 src={playerUrl}
