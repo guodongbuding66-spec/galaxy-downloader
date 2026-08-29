@@ -33,6 +33,8 @@ interface Env extends RuntimeSecrets {
   MEDIA_CONTAINER: DurableObjectNamespace<MediaContainer>;
 }
 
+type JsonObject = Record<string, unknown>;
+
 const runtimeSecrets = runtimeEnv as unknown as RuntimeSecrets;
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://galaxy-downloader.guodongbuding66.workers.dev',
@@ -118,6 +120,77 @@ function safeXhsSourceUrl(value: string | null): value is string {
   }
 }
 
+function asObject(value: unknown): JsonObject | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonObject
+    : null;
+}
+
+function addProviderHint(value: unknown, requestOrigin: string, provider: string): unknown {
+  if (typeof value !== 'string' || !value) return value;
+  try {
+    const parsed = new URL(value);
+    if (parsed.origin !== requestOrigin || parsed.pathname !== '/api/download') return value;
+    parsed.searchParams.set('provider', provider);
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+}
+
+async function tagProviderDownloadUrls(
+  response: Response,
+  request: Request,
+  provider: string,
+): Promise<Response> {
+  if (!response.ok) return response;
+  const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+  if (!contentType.includes('json')) return response;
+
+  try {
+    const payload = await response.clone().json() as JsonObject;
+    const data = asObject(payload.data);
+    if (!data) return response;
+
+    const origin = new URL(request.url).origin;
+    for (const key of ['downloadVideoUrl', 'downloadAudioUrl']) {
+      data[key] = addProviderHint(data[key], origin, provider);
+    }
+
+    if (Array.isArray(data.qualityOptions)) {
+      data.qualityOptions = data.qualityOptions.map((rawOption) => {
+        const option = asObject(rawOption);
+        if (!option) return rawOption;
+        return {
+          ...option,
+          downloadUrl: addProviderHint(option.downloadUrl, origin, provider),
+        };
+      });
+    }
+
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    return Response.json(payload, {
+      status: response.status,
+      headers,
+    });
+  } catch {
+    return response;
+  }
+}
+
+async function specializedXhsParseResponse(
+  request: Request,
+  sourceUrl: string,
+  requestId: string,
+): Promise<Response> {
+  return tagProviderDownloadUrls(
+    await xhsParseResponse(request, sourceUrl, runtimeSecrets, requestId),
+    request,
+    'xhs-resolver',
+  );
+}
+
 async function containerResponse(request: Request, env: Env): Promise<Response> {
   // Stateless media work is spread across a small pool. Each Container is a
   // durable-object-backed instance and sleeps automatically when idle.
@@ -164,6 +237,40 @@ async function augmentHealth(response: Response): Promise<Response> {
   }
 }
 
+async function resolverFirstDownload(
+  request: Request,
+  forwarded: Request,
+  env: Env,
+  sourceUrl: string,
+  requestId: string,
+): Promise<Response> {
+  const specialized = await xhsDownloadResponse(request, sourceUrl, runtimeSecrets, requestId);
+  if (specialized?.ok || specialized?.status === 206 || specialized?.status === 413) {
+    return specialized;
+  }
+
+  const fallback = await containerResponse(forwarded, env);
+  if (fallback.ok || fallback.status === 206) return fallback;
+  return specialized || fallback;
+}
+
+async function containerFirstDownload(
+  request: Request,
+  forwarded: Request,
+  env: Env,
+  sourceUrl: string,
+  requestId: string,
+): Promise<Response> {
+  const primary = await containerResponse(forwarded, env);
+  if (primary.ok || primary.status === 206) return primary;
+
+  const specialized = await xhsDownloadResponse(request, sourceUrl, runtimeSecrets, requestId);
+  if (specialized?.ok || specialized?.status === 206 || specialized?.status === 413) {
+    return specialized;
+  }
+  return primary;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -205,7 +312,7 @@ export default {
 
     if (useXhsResolver && sourceUrl && url.pathname === '/api/parse') {
       if (xhsResolverMode(runtimeSecrets) === 'prefer') {
-        const specialized = await xhsParseResponse(request, sourceUrl, runtimeSecrets, requestId);
+        const specialized = await specializedXhsParseResponse(request, sourceUrl, requestId);
         if (specialized.ok) return withCors(specialized, request);
 
         const fallback = await containerResponse(forwarded, env);
@@ -215,19 +322,18 @@ export default {
       const primary = await containerResponse(forwarded, env);
       if (await parseResponseSucceeded(primary)) return withCors(primary, request);
 
-      const specialized = await xhsParseResponse(request, sourceUrl, runtimeSecrets, requestId);
+      const specialized = await specializedXhsParseResponse(request, sourceUrl, requestId);
       return withCors(specialized.ok ? specialized : primary, request);
     }
 
     if (useXhsResolver && sourceUrl && url.pathname === '/api/download') {
-      const specialized = await xhsDownloadResponse(request, sourceUrl, runtimeSecrets, requestId);
-      if (specialized?.ok || specialized?.status === 206 || specialized?.status === 413) {
-        return withCors(specialized, request);
-      }
-
-      const fallback = await containerResponse(forwarded, env);
-      if (fallback.ok || fallback.status === 206) return withCors(fallback, request);
-      return withCors(specialized || fallback, request);
+      const requestedProvider = url.searchParams.get('provider')?.trim().toLowerCase();
+      const resolverFirst = requestedProvider === 'xhs-resolver'
+        || xhsResolverMode(runtimeSecrets) === 'prefer';
+      const response = resolverFirst
+        ? await resolverFirstDownload(request, forwarded, env, sourceUrl, requestId)
+        : await containerFirstDownload(request, forwarded, env, sourceUrl, requestId);
+      return withCors(response, request);
     }
 
     const response = await containerResponse(forwarded, env);
