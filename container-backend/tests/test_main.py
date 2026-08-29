@@ -248,6 +248,57 @@ def test_parse_endpoint_returns_frontend_compatible_shape(monkeypatch):
     assert "/api/download?" in payload["data"]["downloadVideoUrl"]
 
 
+def test_parse_endpoint_returns_busy_without_starting_parser(monkeypatch):
+    monkeypatch.setattr(backend, "validate_public_source_url", lambda value: value)
+    parser_called = False
+
+    async def no_capacity(_slot, _timeout):
+        return False
+
+    def parser_must_not_run(_value):
+        nonlocal parser_called
+        parser_called = True
+        raise AssertionError("parser should not run while capacity is busy")
+
+    monkeypatch.setattr(backend, "acquire_capacity", no_capacity)
+    monkeypatch.setattr(backend, "parse_with_ytdlp", parser_must_not_run)
+
+    client = TestClient(backend.app)
+    response = client.get(
+        "/api/parse",
+        params={"url": "https://example.com/video"},
+        headers={"x-request-id": "parse-busy"},
+    )
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "5"
+    assert response.json()["code"] == "BACKEND_BUSY"
+    assert response.json()["requestId"] == "parse-busy"
+    assert parser_called is False
+
+
+def test_parse_endpoint_redacts_upstream_diagnostics(monkeypatch):
+    monkeypatch.setattr(backend, "validate_public_source_url", lambda value: value)
+
+    def fail_parse(_value):
+        raise HTTPException(status_code=502, detail="upstream diagnostic token=super-secret")
+
+    monkeypatch.setattr(backend, "parse_with_ytdlp", fail_parse)
+
+    client = TestClient(backend.app)
+    response = client.get(
+        "/api/parse",
+        params={"url": "https://example.com/video"},
+        headers={"x-request-id": "parse-redaction"},
+    )
+
+    assert response.status_code == 502
+    payload = response.json()
+    assert payload["code"] == "PARSE_FAILED"
+    assert payload["error"] == "Media provider parsing failed upstream."
+    assert "super-secret" not in response.text
+
+
 def test_download_endpoint_streams_created_media_and_cleans_temp_dir(monkeypatch):
     monkeypatch.setattr(backend, "validate_public_source_url", lambda value: value)
     created_dirs: list[Path] = []
@@ -274,6 +325,94 @@ def test_download_endpoint_streams_created_media_and_cleans_temp_dir(monkeypatch
     assert created_dirs and not created_dirs[0].exists()
 
 
+def test_download_endpoint_returns_busy_without_starting_download(monkeypatch):
+    monkeypatch.setattr(backend, "validate_public_source_url", lambda value: value)
+    download_called = False
+
+    async def no_capacity(_slot, _timeout):
+        return False
+
+    def download_must_not_run(*_args):
+        nonlocal download_called
+        download_called = True
+        raise AssertionError("download should not run while capacity is busy")
+
+    monkeypatch.setattr(backend, "acquire_capacity", no_capacity)
+    monkeypatch.setattr(backend, "download_with_ytdlp", download_must_not_run)
+
+    client = TestClient(backend.app)
+    response = client.get(
+        "/api/download",
+        params={"url": "https://example.com/video", "type": "video"},
+        headers={"x-request-id": "download-busy"},
+    )
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "10"
+    assert response.json()["code"] == "BACKEND_BUSY"
+    assert response.json()["requestId"] == "download-busy"
+    assert download_called is False
+
+
+def test_download_endpoint_redacts_upstream_diagnostics(monkeypatch):
+    monkeypatch.setattr(backend, "validate_public_source_url", lambda value: value)
+
+    def fail_download(*_args):
+        raise HTTPException(status_code=502, detail="yt-dlp stderr cookie=super-secret")
+
+    monkeypatch.setattr(backend, "download_with_ytdlp", fail_download)
+
+    client = TestClient(backend.app)
+    response = client.get(
+        "/api/download",
+        params={"url": "https://example.com/video", "type": "video"},
+        headers={"x-request-id": "download-redaction"},
+    )
+
+    assert response.status_code == 502
+    payload = response.json()
+    assert payload["code"] == "DOWNLOAD_FAILED"
+    assert payload["error"] == "Media provider download failed upstream."
+    assert "super-secret" not in response.text
+
+
+def test_download_slot_is_released_when_temp_directory_creation_fails(monkeypatch):
+    monkeypatch.setattr(backend, "validate_public_source_url", lambda value: value)
+
+    class TrackingSlots:
+        def __init__(self):
+            self.acquire_calls = 0
+            self.release_calls = 0
+
+        async def acquire(self):
+            self.acquire_calls += 1
+            return True
+
+        def release(self):
+            self.release_calls += 1
+
+    slots = TrackingSlots()
+    monkeypatch.setattr(backend, "download_slots", slots)
+    monkeypatch.setattr(
+        backend.tempfile,
+        "mkdtemp",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("temporary filesystem unavailable")),
+    )
+
+    client = TestClient(backend.app)
+    response = client.get(
+        "/api/download",
+        params={"url": "https://example.com/video", "type": "video"},
+        headers={"x-request-id": "tempdir-failure"},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["code"] == "DOWNLOAD_FAILED"
+    assert response.json()["error"] == "Media download failed unexpectedly."
+    assert slots.acquire_calls == 1
+    assert slots.release_calls == 1
+
+
 def test_health_endpoint():
     client = TestClient(backend.app)
     response = client.get("/health")
@@ -282,4 +421,8 @@ def test_health_endpoint():
     assert payload["ok"] is True
     assert payload["service"] == "galaxy-downloader-backend"
     assert payload["parseAttempts"] >= 1
+    assert payload["parseConcurrency"] == backend.PARSE_CONCURRENCY
+    assert payload["downloadConcurrency"] == backend.DOWNLOAD_CONCURRENCY
+    assert payload["parseQueueTimeoutSeconds"] == backend.PARSE_QUEUE_TIMEOUT_SECONDS
+    assert payload["downloadQueueTimeoutSeconds"] == backend.DOWNLOAD_QUEUE_TIMEOUT_SECONDS
     assert payload["maxDownloadBytes"] == backend.MAX_DOWNLOAD_BYTES
