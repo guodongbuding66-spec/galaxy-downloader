@@ -3,6 +3,7 @@ import { Download, Headphones, MonitorPlay } from 'lucide-react';
 import type { AudioExtractTask } from '@/components/audio-tool/types';
 import type { HlsDownloadDialogRequest } from '@/components/hls-download-dialog';
 import type { MediaPreviewRequest } from '@/components/downloader/media-preview';
+import { useDictionary } from '@/i18n/client';
 import { isHlsPlaylistUrl } from '@/lib/hls-playback';
 import type { UnifiedParseResult } from '@/lib/types';
 import { getProxiedDownloadUrl } from '@/lib/utils';
@@ -32,6 +33,7 @@ export function SinglePartButtons({
     onOpenHlsDownload: (request: HlsDownloadDialogRequest) => void;
     onRequestPreview: (request: MediaPreviewRequest) => void;
 }) {
+    const dict = useDictionary();
     const previewSourceUrl = typeof result.url === 'string' ? result.url.trim() : '';
     const rawVideoDownloadUrl = result.downloadVideoUrl || result.originDownloadVideoUrl;
     const rawAudioDownloadUrl = result.downloadAudioUrl || result.originDownloadAudioUrl || null;
@@ -94,12 +96,12 @@ export function SinglePartButtons({
     };
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-4">
             {previewActionCount > 0 && (
                 <div className={`grid ${getActionRowClass(previewActionCount)} gap-2`}>
                     {showVideoPreview && (
                         <MediaActionIconButton
-                            label="播放视频"
+                            label={dict.result.playVideo}
                             icon={MonitorPlay}
                             variant="secondary"
                             className="w-full min-w-0"
@@ -114,7 +116,7 @@ export function SinglePartButtons({
                     )}
                     {showAudioPreview && (
                         <MediaActionIconButton
-                            label="播放音频"
+                            label={dict.result.playAudio}
                             icon={Headphones}
                             variant="secondary"
                             className="w-full min-w-0"
@@ -132,7 +134,7 @@ export function SinglePartButtons({
 
             {showBrowserHlsDownload && (
                 <MediaActionIconButton
-                    label="HLS 浏览器下载（兼容模式）"
+                    label={dict.result.browserDownloadVideo}
                     icon={Download}
                     variant="outline"
                     className="w-full min-w-0"
@@ -142,7 +144,7 @@ export function SinglePartButtons({
 
             {showStandaloneAudioAction && audioAction !== 'hide' && (
                 <MediaActionIconButton
-                    label={audioAction === 'extract-audio' ? '提取音频' : '下载音频'}
+                    label={audioAction === 'extract-audio' ? dict.extractAudio.button : dict.result.downloadAudio}
                     icon={AudioDownloadIcon}
                     variant="default"
                     className="w-full min-w-0"
