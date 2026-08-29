@@ -1,4 +1,3 @@
-import Link from "next/link"
 import { getMessages } from "next-intl/server"
 
 import { ViewportSideRailAd } from "@/components/ads/viewport-side-rail-ad"
@@ -42,16 +41,8 @@ export default async function HomePage({
                 mobileAd={
                     <ViewportSideRailAd slot="5740014745" showOn="mobile" height={250} />
                 }
-                mobileGuides={
-                    <>
-                        <TodayStatsCard dict={dict} />
-                        <QuickStartCard dict={dict} />
-                        <FreeSupportCard dict={dict} />
-                        <PlatformGuideCard dict={dict} />
-                    </>
-                }
                 heroMeta={
-                    <p className="text-center text-xs text-muted-foreground">
+                    <p className="text-center text-xs leading-5 text-muted-foreground text-pretty">
                         {dict.page.feedback}
                     </p>
                 }
