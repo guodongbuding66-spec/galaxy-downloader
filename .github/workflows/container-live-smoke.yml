@@ -3,7 +3,13 @@ name: Container Live Smoke
 on:
   push:
     branches:
-      - 'feature/platform-download-health'
+      - 'main'
+    paths:
+      - 'container-backend/**'
+      - 'scripts/container-live-smoke.py'
+      - 'scripts/platform-smoke.py'
+      - '.github/workflows/container-live-smoke.yml'
+  pull_request:
     paths:
       - 'container-backend/**'
       - 'scripts/container-live-smoke.py'
