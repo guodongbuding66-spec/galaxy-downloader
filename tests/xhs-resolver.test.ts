@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     isAllowedXhsMediaUrl,
     isXhsSourceUrl,
+    limitStreamBytes,
     normalizeXhsDetail,
     xhsResolverMode,
 } from '../container-backend/src/xhs-resolver';
@@ -109,6 +110,28 @@ describe('XHS resolver provider', () => {
         expect(isAllowedXhsMediaUrl('https://media.example-cdn.com/video.mp4', {
             XHS_MEDIA_HOST_SUFFIXES: 'example-cdn.com',
         })).toBe(true);
+    });
+
+    it('hard-limits a streaming response even without Content-Length', async () => {
+        const withinLimit = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new Uint8Array([1, 2]));
+                controller.enqueue(new Uint8Array([3, 4]));
+                controller.close();
+            },
+        });
+        const accepted = await new Response(limitStreamBytes(withinLimit, 4)).arrayBuffer();
+        expect(accepted.byteLength).toBe(4);
+
+        const overLimit = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new Uint8Array([1, 2]));
+                controller.enqueue(new Uint8Array([3, 4]));
+                controller.close();
+            },
+        });
+        await expect(new Response(limitStreamBytes(overLimit, 3)).arrayBuffer())
+            .rejects.toThrow('XHS media exceeded the 3 byte stream limit');
     });
 
     it('defaults to fallback mode and only accepts explicit prefer mode', () => {
