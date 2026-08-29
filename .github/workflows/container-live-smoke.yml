@@ -46,6 +46,8 @@ jobs:
         env:
           YTDLP_COOKIES_B64: ${{ secrets.YTDLP_COOKIES_B64 }}
           YTDLP_PROXY: ${{ secrets.YTDLP_PROXY }}
+          YTDLP_YOUTUBE_PROXY: ${{ secrets.YTDLP_YOUTUBE_PROXY }}
+          YTDLP_XHS_PROXY: ${{ secrets.YTDLP_XHS_PROXY }}
           YTDLP_RUMBLE_PROXY: ${{ secrets.YTDLP_RUMBLE_PROXY }}
           YTDLP_USER_AGENT: ${{ secrets.YTDLP_USER_AGENT }}
         run: |
@@ -54,6 +56,8 @@ jobs:
             -p 8080:8080 \
             -e YTDLP_COOKIES_B64="$YTDLP_COOKIES_B64" \
             -e YTDLP_PROXY="$YTDLP_PROXY" \
+            -e YTDLP_YOUTUBE_PROXY="$YTDLP_YOUTUBE_PROXY" \
+            -e YTDLP_XHS_PROXY="$YTDLP_XHS_PROXY" \
             -e YTDLP_RUMBLE_PROXY="$YTDLP_RUMBLE_PROXY" \
             -e YTDLP_USER_AGENT="$YTDLP_USER_AGENT" \
             -e YTDLP_COOKIE_POLICY=when_needed \
@@ -116,6 +120,8 @@ jobs:
           GALAXY_SMOKE_MAX_CANDIDATES: '4'
           YTDLP_COOKIES_B64: ${{ secrets.YTDLP_COOKIES_B64 }}
           YTDLP_PROXY: ${{ secrets.YTDLP_PROXY }}
+          YTDLP_YOUTUBE_PROXY: ${{ secrets.YTDLP_YOUTUBE_PROXY }}
+          YTDLP_XHS_PROXY: ${{ secrets.YTDLP_XHS_PROXY }}
           YTDLP_RUMBLE_PROXY: ${{ secrets.YTDLP_RUMBLE_PROXY }}
           YTDLP_IMPERSONATE: chrome
         run: python scripts/container-live-smoke.py
