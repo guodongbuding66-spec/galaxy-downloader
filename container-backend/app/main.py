@@ -4,6 +4,7 @@ import asyncio
 import base64
 import ipaddress
 import json
+import mimetypes
 import os
 import re
 import shutil
@@ -15,11 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.background import BackgroundTask
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 PARSE_TIMEOUT_SECONDS = int(os.getenv("PARSE_TIMEOUT_SECONDS", "90"))
 DOWNLOAD_TIMEOUT_SECONDS = int(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "1800"))
 MAX_SOURCE_URL_LENGTH = 4096
@@ -49,6 +50,7 @@ app.add_middleware(
 )
 
 COOKIE_PATH = Path("/tmp/galaxy-cookies.txt")
+AUDIO_EXTENSIONS = {"aac", "flac", "m4a", "m4b", "mp3", "oga", "ogg", "opus", "wav", "weba"}
 
 
 def materialize_cookies() -> str | None:
@@ -78,7 +80,7 @@ PLATFORM_ALIASES: list[tuple[tuple[str, ...], str]] = [
     (("wechat", "weixin"), "wechat"),
     (("niconico", "nicovideo"), "niconico"),
     (("weibo",), "weibo"),
-    (("xiaohongshu", "xiaohongshu"), "xiaohongshu"),
+    (("xiaohongshu", "xhs"), "xiaohongshu"),
     (("tiktok",), "tiktok"),
     (("instagram",), "instagram"),
     (("twitter",), "x"),
@@ -121,6 +123,24 @@ def codec_present(value: Any) -> bool:
     return isinstance(value, str) and bool(value) and value.lower() != "none"
 
 
+def format_has_video(fmt: dict[str, Any]) -> bool:
+    vcodec = fmt.get("vcodec")
+    if isinstance(vcodec, str):
+        return vcodec.lower() != "none"
+    if int(fmt.get("height") or 0) > 0 or int(fmt.get("width") or 0) > 0:
+        return str(fmt.get("ext") or "").lower() not in AUDIO_EXTENSIONS
+    return False
+
+
+def format_has_audio(fmt: dict[str, Any]) -> bool:
+    acodec = fmt.get("acodec")
+    if isinstance(acodec, str):
+        return acodec.lower() != "none"
+    if fmt.get("audio_channels") or float(fmt.get("abr") or 0) > 0:
+        return True
+    return not format_has_video(fmt) and str(fmt.get("ext") or "").lower() in AUDIO_EXTENSIONS
+
+
 def public_base(request: Request) -> str:
     forwarded = request.headers.get("x-public-base-url", "").strip()
     if forwarded.startswith(("https://", "http://")):
@@ -148,6 +168,16 @@ def common_yt_dlp_args() -> list[str]:
         "node",
         "--impersonate",
         os.getenv("YTDLP_IMPERSONATE", "chrome"),
+        "--socket-timeout",
+        os.getenv("YTDLP_SOCKET_TIMEOUT", "30"),
+        "--extractor-retries",
+        os.getenv("YTDLP_EXTRACTOR_RETRIES", "3"),
+        "--retries",
+        os.getenv("YTDLP_RETRIES", "3"),
+        "--fragment-retries",
+        os.getenv("YTDLP_FRAGMENT_RETRIES", "3"),
+        "--concurrent-fragments",
+        os.getenv("YTDLP_CONCURRENT_FRAGMENTS", "4"),
     ]
     if COOKIE_FILE:
         args.extend(["--cookies", COOKIE_FILE])
@@ -239,9 +269,9 @@ def parse_with_ytdlp(source_url: str) -> dict[str, Any]:
 
 def best_format_groups(info: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
     formats = [fmt for fmt in info.get("formats") or [] if isinstance(fmt, dict) and isinstance(fmt.get("url"), str)]
-    videos = [fmt for fmt in formats if codec_present(fmt.get("vcodec"))]
-    audios = [fmt for fmt in formats if codec_present(fmt.get("acodec"))]
-    has_muxed = any(codec_present(fmt.get("vcodec")) and codec_present(fmt.get("acodec")) for fmt in formats)
+    videos = [fmt for fmt in formats if format_has_video(fmt)]
+    audios = [fmt for fmt in formats if format_has_audio(fmt)]
+    has_muxed = any(format_has_video(fmt) and format_has_audio(fmt) for fmt in formats)
     return videos, audios, has_muxed
 
 
@@ -333,8 +363,8 @@ def normalize_parse_result(info: dict[str, Any], source_url: str, base: str) -> 
     videos, audios, has_muxed = best_format_groups(info)
     has_video = bool(videos)
     has_audio = bool(audios)
-    has_video_only = any(codec_present(fmt.get("vcodec")) and not codec_present(fmt.get("acodec")) for fmt in videos)
-    has_audio_only = any(codec_present(fmt.get("acodec")) and not codec_present(fmt.get("vcodec")) for fmt in audios)
+    has_video_only = any(format_has_video(fmt) and not format_has_audio(fmt) for fmt in videos)
+    has_audio_only = any(format_has_audio(fmt) and not format_has_video(fmt) for fmt in audios)
 
     if not has_video and has_audio:
         mode = "pure_music"
@@ -377,7 +407,7 @@ def select_format(media_type: str, quality: str, format_id: str | None) -> str:
     if media_type == "audio":
         return "ba/b"
     if format_id:
-        safe_id = re.sub(r"[^A-Za-z0-9_.+-]", "", format_id)
+        safe_id = re.sub(r"[^A-Za-z0-9_.:-]", "", format_id).strip(".")
         if safe_id:
             return f"{safe_id}+ba/{safe_id}/b"
     height_match = re.fullmatch(r"(\d{3,4})(?:p)?", quality.strip().lower())
@@ -433,6 +463,7 @@ async def health() -> dict[str, Any]:
         "version": APP_VERSION,
         "ytDlp": shutil.which("yt-dlp") is not None,
         "ffmpeg": shutil.which("ffmpeg") is not None,
+        "node": shutil.which("node") is not None,
         "cookiesConfigured": bool(COOKIE_FILE),
         "proxyConfigured": bool(os.getenv("YTDLP_PROXY", "").strip()),
         "impersonation": os.getenv("YTDLP_IMPERSONATE", "chrome"),
@@ -474,8 +505,6 @@ async def download_media(
     source_url = await asyncio.to_thread(validate_public_source_url, url)
     request_id = x_request_id or "unknown"
 
-    # A HEAD request verifies service reachability without starting an expensive
-    # download. Actual media probing should use GET/Range when content is needed.
     if request.method == "HEAD":
         return JSONResponse(
             {"success": True, "ready": True, "requestId": request_id},
@@ -494,6 +523,7 @@ async def download_media(
             directory,
         )
         filename = safe_download_name(file_path)
+        media_type_header = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
         def cleanup() -> None:
             try:
@@ -504,7 +534,7 @@ async def download_media(
         return FileResponse(
             path=file_path,
             filename=filename,
-            media_type="application/octet-stream",
+            media_type=media_type_header,
             headers={
                 "X-Request-Id": request_id,
                 "Cache-Control": "private, no-store",
