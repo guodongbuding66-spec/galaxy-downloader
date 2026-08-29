@@ -1,0 +1,22 @@
+{$XHS_RESOLVER_DOMAIN} {
+  @health path /healthz
+  handle @health {
+    respond "ok" 200
+  }
+
+  @authorized header Authorization "Bearer {$XHS_RESOLVER_TOKEN}"
+  handle @authorized {
+    reverse_proxy xhs-resolver:5556
+  }
+
+  handle {
+    respond "Unauthorized" 401
+  }
+
+  header {
+    -Server
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer"
+    Cache-Control "no-store"
+  }
+}

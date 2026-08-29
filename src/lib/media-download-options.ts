@@ -1,4 +1,4 @@
-import { API_ENDPOINTS } from '@/lib/config';
+import { API_ENDPOINT_CANDIDATES } from '@/lib/config';
 import type { SubtitleTrack, VideoQualityOption } from '@/lib/types';
 
 export type MediaDownloadType = 'video' | 'audio';
@@ -55,11 +55,6 @@ function buildQualityLabel(option: VideoQualityOption): string {
     return details.join(' · ') || option.quality;
 }
 
-/**
- * Prefer parser-provided formats because their `quality` values are the exact
- * values understood by the backend. Fall back to common presets only when a
- * parser does not expose a format list.
- */
 export function normalizeQualityOptions(options?: VideoQualityOption[] | null): QualityChoice[] {
     if (!options?.length) {
         return [...VIDEO_QUALITY_PRESETS];
@@ -80,8 +75,6 @@ export function normalizeQualityOptions(options?: VideoQualityOption[] | null): 
             return (b.fps || 0) - (a.fps || 0);
         })
         .filter((option) => {
-            // Radix Select values must be unique. If a parser exposes multiple
-            // codecs for the same quality, retain the highest-ranked entry.
             const key = option.quality.toLowerCase();
             if (seen.has(key)) return false;
             seen.add(key);
@@ -100,23 +93,19 @@ export function normalizeQualityOptions(options?: VideoQualityOption[] | null): 
     return normalized;
 }
 
-/**
- * Build a source-aware download request. Historical versions of this project
- * used `type=video|audio`; `quality` was already part of UnifiedDownloadOptions.
- * Passing the original page URL lets the backend select a fresh stream instead
- * of reusing a potentially low-resolution or IP-bound CDN URL.
- */
-export function buildSourceMediaDownloadUrl({
-    sourceUrl,
-    type,
-    quality,
-    formatId,
-}: {
+type BuildSourceMediaDownloadInput = {
     sourceUrl: string;
     type: MediaDownloadType;
     quality?: string | null;
     formatId?: number | null;
-}): string {
+};
+
+function buildSourceMediaDownloadUrlForEndpoint(endpoint: string, {
+    sourceUrl,
+    type,
+    quality,
+    formatId,
+}: BuildSourceMediaDownloadInput): string {
     const params = new URLSearchParams({
         url: sourceUrl.trim(),
         type,
@@ -130,12 +119,23 @@ export function buildSourceMediaDownloadUrl({
         params.set('formatId', String(formatId));
     }
 
-    const separator = API_ENDPOINTS.unified.download.includes('?') ? '&' : '?';
-    return `${API_ENDPOINTS.unified.download}${separator}${params.toString()}`;
+    const separator = endpoint.includes('?') ? '&' : '?';
+    return `${endpoint}${separator}${params.toString()}`;
+}
+
+export function buildSourceMediaDownloadUrls(input: BuildSourceMediaDownloadInput): string[] {
+    return API_ENDPOINT_CANDIDATES.unified.download.map((endpoint) =>
+        buildSourceMediaDownloadUrlForEndpoint(endpoint, input)
+    );
+}
+
+export function buildSourceMediaDownloadUrl(input: BuildSourceMediaDownloadInput): string {
+    return buildSourceMediaDownloadUrls(input)[0];
 }
 
 type DownloadResolutionPayload = {
     success?: boolean;
+    ready?: unknown;
     url?: unknown;
     downloadUrl?: unknown;
     data?: unknown;
@@ -170,45 +170,92 @@ function extractResolvedDownloadUrl(payload: DownloadResolutionPayload): string 
     return null;
 }
 
-/**
- * Galaxy Downloader has used two compatible `/api/download` behaviors over
- * time:
- * 1. a resolver endpoint that returns JSON containing a fresh media URL;
- * 2. a streaming proxy that returns the media body directly.
- *
- * Probe the request once so the frontend works with either deployment. For a
- * JSON resolver response we return its media URL; for a streaming response we
- * cancel the probe body and return the original API request URL so the browser
- * performs the real download without buffering the whole video in JS memory.
- */
-export async function resolveSourceMediaDownloadUrl(requestUrl: string): Promise<string> {
+function responseLooksJson(response: Response): boolean {
+    const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+    return contentType.includes('application/json') || contentType.includes('+json');
+}
+
+async function readResolutionPayload(response: Response): Promise<DownloadResolutionPayload> {
+    try {
+        return await response.json() as DownloadResolutionPayload;
+    } catch {
+        throw new Error('Download resolver returned invalid JSON');
+    }
+}
+
+function resolutionError(response: Response, payload: DownloadResolutionPayload): Error {
+    const message = typeof payload.error === 'string'
+        ? payload.error
+        : typeof payload.message === 'string'
+            ? payload.message
+            : `Download request failed (${response.status})`;
+    return new Error(message);
+}
+
+function sourceAwareRequestCandidates(requestUrl: string): string[] {
+    try {
+        const parsed = new URL(requestUrl, 'http://localhost');
+        if (parsed.pathname !== '/api/download') return [requestUrl];
+        const query = parsed.search;
+        const candidates = [requestUrl];
+        for (const endpoint of API_ENDPOINT_CANDIDATES.unified.download) {
+            const separator = endpoint.includes('?')
+                ? (query ? '&' : '')
+                : (query ? '?' : '');
+            const queryWithoutPrefix = query.startsWith('?') ? query.slice(1) : query;
+            candidates.push(`${endpoint}${separator}${queryWithoutPrefix}`);
+        }
+        return [...new Set(candidates)];
+    } catch {
+        return [requestUrl];
+    }
+}
+
+async function resolveSingleSourceMediaDownloadUrl(requestUrl: string): Promise<string> {
+    let headResponse: Response | null = null;
+    try {
+        headResponse = await fetch(requestUrl, {
+            method: 'HEAD',
+            cache: 'no-store',
+        });
+    } catch {
+        // Legacy endpoints may not support HEAD. Fall through to GET.
+    }
+
+    if (headResponse?.ok) {
+        if (!responseLooksJson(headResponse)) {
+            void headResponse.body?.cancel();
+            return requestUrl;
+        }
+
+        try {
+            const payload = await readResolutionPayload(headResponse);
+            if (payload.success !== false) {
+                const resolvedUrl = extractResolvedDownloadUrl(payload);
+                if (resolvedUrl) return resolvedUrl;
+                if (payload.ready === true) return requestUrl;
+            }
+        } catch {
+            // Empty JSON HEAD bodies are common on older resolver services.
+        }
+    } else {
+        void headResponse?.body?.cancel();
+    }
+
     const response = await fetch(requestUrl, {
         method: 'GET',
         cache: 'no-store',
     });
 
-    const contentType = response.headers.get('content-type')?.toLowerCase() || '';
-    const looksJson = contentType.includes('application/json') || contentType.includes('+json');
-
-    if (looksJson) {
-        let payload: DownloadResolutionPayload | null = null;
-        try {
-            payload = await response.json() as DownloadResolutionPayload;
-        } catch {
-            throw new Error('Download resolver returned invalid JSON');
-        }
-
+    if (responseLooksJson(response)) {
+        const payload = await readResolutionPayload(response);
         if (!response.ok || payload.success === false) {
-            const message = typeof payload.error === 'string'
-                ? payload.error
-                : typeof payload.message === 'string'
-                    ? payload.message
-                    : `Download request failed (${response.status})`;
-            throw new Error(message);
+            throw resolutionError(response, payload);
         }
 
         const resolvedUrl = extractResolvedDownloadUrl(payload);
         if (!resolvedUrl) {
+            if (payload.ready === true) return requestUrl;
             throw new Error('Download resolver did not return a media URL');
         }
         return resolvedUrl;
@@ -219,11 +266,26 @@ export async function resolveSourceMediaDownloadUrl(requestUrl: string): Promise
         throw new Error(`Download request failed (${response.status})`);
     }
 
-    // Do not buffer potentially multi-gigabyte media into memory merely to
-    // trigger a save. Abort the probe and let a normal browser navigation run
-    // the same streaming endpoint as the real download.
     void response.body?.cancel();
     return requestUrl;
+}
+
+/**
+ * Resolve a legacy JSON resolver or streaming endpoint. Source-aware download
+ * requests automatically retry the optional first-party Container backend with
+ * the exact same source/quality parameters when the primary endpoint fails.
+ */
+export async function resolveSourceMediaDownloadUrl(requestUrl: string): Promise<string> {
+    let lastError: unknown = null;
+    for (const candidate of sourceAwareRequestCandidates(requestUrl)) {
+        try {
+            return await resolveSingleSourceMediaDownloadUrl(candidate);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    if (lastError instanceof Error) throw lastError;
+    throw new Error('No media download endpoint is available');
 }
 
 export function resolveSubtitleUrl(track: SubtitleTrack): string | null {

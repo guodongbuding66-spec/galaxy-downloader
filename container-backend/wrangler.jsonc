@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "galaxy-downloader-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "XHS_RESOLVER_MODE": "fallback",
+    "XHS_RESOLVER_TIMEOUT_MS": "20000",
+    "XHS_RESOLVER_FAILURE_THRESHOLD": "3",
+    "XHS_RESOLVER_COOLDOWN_MS": "30000",
+    "XHS_MEDIA_HOST_SUFFIXES": "xhscdn.com,xiaohongshu.com",
+    "XHS_MAX_STREAM_BYTES": "6442450944"
+  },
+  "containers": [
+    {
+      "name": "galaxy-media",
+      "class_name": "MediaContainer",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 3,
+      "rollout_step_percentage": [50, 100],
+      "rollout_active_grace_period": 60
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MEDIA_CONTAINER",
+        "class_name": "MediaContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MediaContainer"]
+    }
+  ],
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
+}

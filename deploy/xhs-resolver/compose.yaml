@@ -1,0 +1,44 @@
+services:
+  xhs-resolver:
+    build:
+      context: https://github.com/komens/XHS-Downloader-web.git#7a9ff055ac66623ac4f51c56ad2c2996f9e0cc3f
+    restart: unless-stopped
+    expose:
+      - "5556"
+    volumes:
+      - xhs_resolver_volume:/app/Volume
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:5556/docs', timeout=5).read(1)
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 30s
+
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      xhs-resolver:
+        condition: service_healthy
+    environment:
+      XHS_RESOLVER_DOMAIN: ${XHS_RESOLVER_DOMAIN:?set XHS_RESOLVER_DOMAIN in .env}
+      XHS_RESOLVER_TOKEN: ${XHS_RESOLVER_TOKEN:?set XHS_RESOLVER_TOKEN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  xhs_resolver_volume:
+  caddy_data:
+  caddy_config:

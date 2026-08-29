@@ -1,0 +1,93 @@
+name: Container Backend CI
+
+on:
+  push:
+    branches:
+      - 'feature/platform-download-health'
+    paths:
+      - 'container-backend/**'
+      - '.github/workflows/container-backend-ci.yml'
+  pull_request:
+    paths:
+      - 'container-backend/**'
+      - '.github/workflows/container-backend-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install backend test dependencies
+        working-directory: container-backend
+        run: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements-dev.txt
+
+      - name: Run backend unit tests
+        working-directory: container-backend
+        run: pytest -q
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Worker dependencies
+        working-directory: container-backend
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck Worker router
+        working-directory: container-backend
+        run: npm run typecheck
+
+      - name: Build production container
+        working-directory: container-backend
+        run: docker build --pull -t galaxy-downloader-backend:ci .
+
+      - name: Start production container
+        working-directory: container-backend
+        run: |
+          docker run -d --name galaxy-downloader-backend-ci -p 8080:8080 galaxy-downloader-backend:ci
+          echo 'GALAXY_CONTAINER_ID=galaxy-downloader-backend-ci' >> "$GITHUB_ENV"
+
+      - name: Wait for health endpoint
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8080/health > /tmp/galaxy-health.json; then
+              cat /tmp/galaxy-health.json
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs galaxy-downloader-backend-ci
+          exit 1
+
+      - name: Verify media runtime dependencies
+        run: |
+          docker exec galaxy-downloader-backend-ci node --version
+          docker exec galaxy-downloader-backend-ci ffmpeg -version | head -n 1
+          docker exec galaxy-downloader-backend-ci yt-dlp --version
+          docker exec galaxy-downloader-backend-ci python -c "import curl_cffi, fastapi, yt_dlp; print('curl_cffi', curl_cffi.__version__); print('fastapi', fastapi.__version__); print('yt_dlp', yt_dlp.version.__version__)"
+
+      - name: Print container logs
+        if: always()
+        run: docker logs galaxy-downloader-backend-ci 2>/dev/null || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f galaxy-downloader-backend-ci 2>/dev/null || true

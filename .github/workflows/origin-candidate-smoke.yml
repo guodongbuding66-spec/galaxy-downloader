@@ -1,0 +1,35 @@
+name: Origin Candidate Smoke
+
+on:
+  push:
+    branches:
+      - 'feature/platform-download-health'
+    paths:
+      - 'scripts/platform-origin-candidate-smoke.py'
+      - '.github/workflows/origin-candidate-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check --no-cache-dir yt-dlp
+      - name: Probe parsed candidate chains
+        env:
+          PLATFORM_SMOKE_API_BASE: https://downloader-api.bhwa233.com
+          PLATFORM_SMOKE_TIMEOUT: '30'
+        run: python scripts/platform-origin-candidate-smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: origin-candidate-smoke
+          path: platform-smoke-artifacts/origin-candidate-smoke.json
+          retention-days: 14

@@ -26,9 +26,15 @@ function resolvePublicApiBaseUrl(): string {
     return ''
 }
 
-function buildApiUrl(pathname: string): string {
+function resolveContainerApiBaseUrl(): string {
+    const value = process.env.NEXT_PUBLIC_CONTAINER_API_BASE_URL?.trim()
+    if (!value) return ''
+    if (!/^https?:\/\//i.test(value)) return ''
+    return normalizeBaseUrl(value)
+}
+
+function buildApiUrl(pathname: string, baseUrl = resolvePublicApiBaseUrl()): string {
     const normalizedPathname = pathname.startsWith('/') ? pathname : `/${pathname}`
-    const baseUrl = resolvePublicApiBaseUrl()
 
     if (!baseUrl) {
         return normalizedPathname
@@ -37,9 +43,18 @@ function buildApiUrl(pathname: string): string {
     return new URL(normalizedPathname, `${baseUrl}/`).toString()
 }
 
+function endpointCandidates(pathname: string): string[] {
+    const primary = buildApiUrl(pathname)
+    const containerBase = resolveContainerApiBaseUrl()
+    const candidates = [primary]
+    if (containerBase) {
+        candidates.push(buildApiUrl(pathname, containerBase))
+    }
+    return [...new Set(candidates)]
+}
+
 /**
- * API Endpoints
- * Prefer direct public API calls so Cloudflare can rate-limit by the final user IP.
+ * Primary API endpoints. These keep the existing production behavior intact.
  */
 export const API_ENDPOINTS = {
     unified: {
@@ -50,5 +65,17 @@ export const API_ENDPOINTS = {
     feedback: buildApiUrl('/api/feedback'),
     stats: {
         today: buildApiUrl('/api/stats/today'),
+    },
+} as const
+
+/**
+ * Ordered media backend candidates. The optional first-party Container backend
+ * is only present when NEXT_PUBLIC_CONTAINER_API_BASE_URL is configured, so
+ * merely shipping this code cannot change the current production route.
+ */
+export const API_ENDPOINT_CANDIDATES = {
+    unified: {
+        parse: endpointCandidates('/api/parse'),
+        download: endpointCandidates('/api/download'),
     },
 } as const
