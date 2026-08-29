@@ -4,6 +4,7 @@ import {
   buildFinalMediaFfmpegArgs,
   inferJoinedHlsExtension,
   isHlsMediaResponse,
+  resolveLogicalHlsBaseUrl,
   shouldStreamCopyAudio,
 } from '../src/lib/final-media-export.ts';
 
@@ -68,6 +69,21 @@ describe('final media export', () => {
     expect(isHlsMediaResponse('text/plain', 'https://example.com/master.m3u8')).toBe(true);
     expect(isHlsMediaResponse('text/plain', 'https://example.com/proxy', new TextEncoder().encode('#EXTM3U\n#EXT-X-VERSION:3'))).toBe(true);
     expect(isHlsMediaResponse('video/mp4', 'https://example.com/video.mp4', new Uint8Array([0, 1, 2]))).toBe(false);
+  });
+
+  it('keeps the original CDN as the HLS relative-URL base behind proxy fetches', () => {
+    const cdnPlaylist = 'https://cdn.example.com/path/master.m3u8?token=abc';
+    expect(resolveLogicalHlsBaseUrl(cdnPlaylist, 'https://api.example.com/api/download?url=x')).toBe(cdnPlaylist);
+
+    const proxiedRaw = `/api/download?${new URLSearchParams({ url: cdnPlaylist }).toString()}`;
+    expect(resolveLogicalHlsBaseUrl(proxiedRaw, 'https://api.example.com/api/download?url=x')).toBe(cdnPlaylist);
+
+    const sourceAware = `/api/download?${new URLSearchParams({
+      url: 'https://example.com/watch/123',
+      type: 'video',
+      quality: 'best',
+    }).toString()}`;
+    expect(resolveLogicalHlsBaseUrl(sourceAware, 'https://api.example.com/api/download?url=source&type=video')).toBe('https://api.example.com/api/download?url=source&type=video');
   });
 
   it('uses MP4 for fragmented HLS and TS for transport-stream HLS', () => {
