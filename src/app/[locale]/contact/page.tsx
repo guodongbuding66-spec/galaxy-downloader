@@ -1,7 +1,8 @@
 import type { Metadata } from "next"
+import Image from "next/image"
 import Link from "next/link"
 import { getMessages } from "next-intl/server"
-import { Github, Mail, MessageSquare } from "lucide-react"
+import { Mail, MessageSquare } from "lucide-react"
 import { PageStructuredData } from "@/components/page-structured-data"
 import { FEEDBACK_CONFIG } from "@/lib/feedback-config"
 import type { Locale } from "@/lib/i18n/config"
@@ -91,7 +92,14 @@ export default async function ContactPage({
 
                 <section className="rounded-2xl border bg-card p-5 shadow-sm space-y-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-                        <Github className="h-4 w-4" aria-hidden="true" />
+                        <Image
+                            src="/platform-icons/github.svg"
+                            alt=""
+                            width={16}
+                            height={16}
+                            aria-hidden="true"
+                            className="dark:invert"
+                        />
                     </div>
                     <a
                         href="https://github.com/guodongbuding66-spec/galaxy-downloader"
