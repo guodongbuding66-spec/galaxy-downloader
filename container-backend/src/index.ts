@@ -26,6 +26,10 @@ interface RuntimeSecrets extends XhsResolverRuntime {
   YTDLP_RETRIES?: string;
   YTDLP_FRAGMENT_RETRIES?: string;
   YTDLP_CONCURRENT_FRAGMENTS?: string;
+  PARSE_CONCURRENCY?: string;
+  DOWNLOAD_CONCURRENCY?: string;
+  PARSE_QUEUE_TIMEOUT_SECONDS?: string;
+  DOWNLOAD_QUEUE_TIMEOUT_SECONDS?: string;
   ALLOWED_ORIGINS?: string;
 }
 
@@ -76,6 +80,10 @@ export class MediaContainer extends Container {
     YTDLP_RETRIES: runtimeSecrets.YTDLP_RETRIES || '3',
     YTDLP_FRAGMENT_RETRIES: runtimeSecrets.YTDLP_FRAGMENT_RETRIES || '3',
     YTDLP_CONCURRENT_FRAGMENTS: runtimeSecrets.YTDLP_CONCURRENT_FRAGMENTS || '4',
+    PARSE_CONCURRENCY: runtimeSecrets.PARSE_CONCURRENCY || '4',
+    DOWNLOAD_CONCURRENCY: runtimeSecrets.DOWNLOAD_CONCURRENCY || '2',
+    PARSE_QUEUE_TIMEOUT_SECONDS: runtimeSecrets.PARSE_QUEUE_TIMEOUT_SECONDS || '15',
+    DOWNLOAD_QUEUE_TIMEOUT_SECONDS: runtimeSecrets.DOWNLOAD_QUEUE_TIMEOUT_SECONDS || '30',
     ALLOWED_ORIGINS: configuredOrigins().join(','),
   };
 

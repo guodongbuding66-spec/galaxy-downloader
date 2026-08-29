@@ -30,3 +30,19 @@ def test_worker_router_uses_both_rate_limit_bindings() -> None:
     assert "env.DOWNLOAD_RATE_LIMITER" in source
     assert "code: 'RATE_LIMITED'" in source
     assert "'Retry-After': '60'" in source
+
+
+def test_container_capacity_defaults_are_explicit_and_forwarded() -> None:
+    config = load_wrangler_config()
+    variables = config["vars"]
+    source = (ROOT / "src" / "index.ts").read_text(encoding="utf-8")
+
+    expected = {
+        "PARSE_CONCURRENCY": "4",
+        "DOWNLOAD_CONCURRENCY": "2",
+        "PARSE_QUEUE_TIMEOUT_SECONDS": "15",
+        "DOWNLOAD_QUEUE_TIMEOUT_SECONDS": "30",
+    }
+    for name, value in expected.items():
+        assert variables[name] == value
+        assert f"{name}: runtimeSecrets.{name}" in source

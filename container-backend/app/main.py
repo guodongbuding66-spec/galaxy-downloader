@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 PARSE_TIMEOUT_SECONDS = int(os.getenv("PARSE_TIMEOUT_SECONDS", "90"))
 PARSE_ATTEMPTS = max(1, int(os.getenv("PARSE_ATTEMPTS", "2")))
 PARSE_RETRY_DELAY_SECONDS = max(0.0, float(os.getenv("PARSE_RETRY_DELAY_SECONDS", "0.75")))
@@ -29,6 +29,8 @@ DOWNLOAD_TIMEOUT_SECONDS = int(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "1800"))
 MAX_SOURCE_URL_LENGTH = 4096
 PARSE_CONCURRENCY = int(os.getenv("PARSE_CONCURRENCY", "4"))
 DOWNLOAD_CONCURRENCY = int(os.getenv("DOWNLOAD_CONCURRENCY", "2"))
+PARSE_QUEUE_TIMEOUT_SECONDS = max(0.1, float(os.getenv("PARSE_QUEUE_TIMEOUT_SECONDS", "15")))
+DOWNLOAD_QUEUE_TIMEOUT_SECONDS = max(0.1, float(os.getenv("DOWNLOAD_QUEUE_TIMEOUT_SECONDS", "30")))
 MAX_DOWNLOAD_BYTES = max(1, int(os.getenv("MAX_DOWNLOAD_BYTES", str(6 * 1024 * 1024 * 1024))))
 DOWNLOAD_DISK_HEADROOM_BYTES = max(0, int(os.getenv("DOWNLOAD_DISK_HEADROOM_BYTES", str(512 * 1024 * 1024))))
 MIN_DOWNLOAD_CAPACITY_BYTES = max(1, int(os.getenv("MIN_DOWNLOAD_CAPACITY_BYTES", str(64 * 1024 * 1024))))
@@ -52,7 +54,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "HEAD", "OPTIONS"],
     allow_headers=["*"],
-    expose_headers=["Content-Length", "Content-Range", "Content-Disposition", "Accept-Ranges", "X-Request-Id"],
+    expose_headers=["Content-Length", "Content-Range", "Content-Disposition", "Accept-Ranges", "Retry-After", "X-Request-Id"],
 )
 
 COOKIE_PATH = Path("/tmp/galaxy-cookies.txt")
@@ -530,6 +532,46 @@ def safe_download_name(path: Path) -> str:
     return f"{stem[:120]}{path.suffix.lower()}"
 
 
+async def acquire_capacity(slot: asyncio.Semaphore, timeout_seconds: float) -> bool:
+    try:
+        await asyncio.wait_for(slot.acquire(), timeout=timeout_seconds)
+        return True
+    except TimeoutError:
+        return False
+
+
+def public_error_message(exc: HTTPException, operation: str) -> str:
+    if exc.status_code >= 500 and exc.status_code not in {504, 507}:
+        return f"Media provider {operation} failed upstream."
+    return str(exc.detail)
+
+
+def api_error_response(
+    code: str,
+    status: int,
+    message: str,
+    request_id: str,
+    retry_after: int | None = None,
+) -> JSONResponse:
+    headers = {
+        "X-Request-Id": request_id,
+        "Cache-Control": "no-store",
+    }
+    if retry_after is not None:
+        headers["Retry-After"] = str(retry_after)
+    return JSONResponse(
+        {
+            "success": False,
+            "code": code,
+            "status": status,
+            "error": message,
+            "requestId": request_id,
+        },
+        status_code=status,
+        headers=headers,
+    )
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     disk_free_bytes = shutil.disk_usage("/tmp").free
@@ -544,6 +586,10 @@ async def health() -> dict[str, Any]:
         "proxyConfigured": bool(os.getenv("YTDLP_PROXY", "").strip()),
         "impersonation": os.getenv("YTDLP_IMPERSONATE", "chrome"),
         "parseAttempts": PARSE_ATTEMPTS,
+        "parseConcurrency": PARSE_CONCURRENCY,
+        "downloadConcurrency": DOWNLOAD_CONCURRENCY,
+        "parseQueueTimeoutSeconds": PARSE_QUEUE_TIMEOUT_SECONDS,
+        "downloadQueueTimeoutSeconds": DOWNLOAD_QUEUE_TIMEOUT_SECONDS,
         "maxDownloadBytes": MAX_DOWNLOAD_BYTES,
         "diskFreeBytes": disk_free_bytes,
     }
@@ -557,17 +603,38 @@ async def parse_media(
 ) -> JSONResponse:
     source_url = await asyncio.to_thread(validate_public_source_url, url)
     request_id = x_request_id or "unknown"
-    async with parse_slots:
-        try:
-            info = await asyncio.to_thread(parse_with_ytdlp, source_url)
-            data = normalize_parse_result(info, source_url, public_base(request))
-            return JSONResponse({"success": True, "data": data, "requestId": request_id}, headers={"X-Request-Id": request_id})
-        except HTTPException as exc:
-            return JSONResponse(
-                {"success": False, "code": "PARSE_FAILED", "status": exc.status_code, "error": str(exc.detail), "requestId": request_id},
-                status_code=exc.status_code,
-                headers={"X-Request-Id": request_id},
-            )
+    if not await acquire_capacity(parse_slots, PARSE_QUEUE_TIMEOUT_SECONDS):
+        return api_error_response(
+            "BACKEND_BUSY",
+            503,
+            "Parser capacity is busy. Please retry shortly.",
+            request_id,
+            retry_after=5,
+        )
+
+    try:
+        info = await asyncio.to_thread(parse_with_ytdlp, source_url)
+        data = normalize_parse_result(info, source_url, public_base(request))
+        return JSONResponse(
+            {"success": True, "data": data, "requestId": request_id},
+            headers={"X-Request-Id": request_id},
+        )
+    except HTTPException as exc:
+        return api_error_response(
+            "PARSE_FAILED",
+            exc.status_code,
+            public_error_message(exc, "parsing"),
+            request_id,
+        )
+    except Exception:
+        return api_error_response(
+            "PARSE_FAILED",
+            500,
+            "Media parsing failed unexpectedly.",
+            request_id,
+        )
+    finally:
+        parse_slots.release()
 
 
 @app.api_route("/api/download", methods=["GET", "HEAD"])
@@ -590,9 +657,19 @@ async def download_media(
             headers={"X-Request-Id": request_id},
         )
 
-    await download_slots.acquire()
-    directory = Path(tempfile.mkdtemp(prefix="galaxy-download-"))
+    if not await acquire_capacity(download_slots, DOWNLOAD_QUEUE_TIMEOUT_SECONDS):
+        return api_error_response(
+            "BACKEND_BUSY",
+            503,
+            "Download capacity is busy. Please retry shortly.",
+            request_id,
+            retry_after=10,
+        )
+
+    directory: Path | None = None
+    response_handoff = False
     try:
+        directory = Path(tempfile.mkdtemp(prefix="galaxy-download-"))
         file_path = await asyncio.to_thread(
             download_with_ytdlp,
             source_url,
@@ -610,7 +687,7 @@ async def download_media(
             finally:
                 download_slots.release()
 
-        return FileResponse(
+        response = FileResponse(
             path=file_path,
             filename=filename,
             media_type=media_type_header,
@@ -622,7 +699,24 @@ async def download_media(
             },
             background=BackgroundTask(cleanup),
         )
+        response_handoff = True
+        return response
+    except HTTPException as exc:
+        return api_error_response(
+            "DOWNLOAD_FAILED",
+            exc.status_code,
+            public_error_message(exc, "download"),
+            request_id,
+        )
     except Exception:
-        shutil.rmtree(directory, ignore_errors=True)
-        download_slots.release()
-        raise
+        return api_error_response(
+            "DOWNLOAD_FAILED",
+            500,
+            "Media download failed unexpectedly.",
+            request_id,
+        )
+    finally:
+        if not response_handoff:
+            if directory is not None:
+                shutil.rmtree(directory, ignore_errors=True)
+            download_slots.release()
