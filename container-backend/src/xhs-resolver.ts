@@ -3,6 +3,8 @@ export interface XhsResolverRuntime {
   XHS_RESOLVER_TOKEN?: string;
   XHS_RESOLVER_MODE?: string;
   XHS_RESOLVER_TIMEOUT_MS?: string;
+  XHS_RESOLVER_FAILURE_THRESHOLD?: string;
+  XHS_RESOLVER_COOLDOWN_MS?: string;
   XHS_MEDIA_HOST_SUFFIXES?: string;
   XHS_MAX_STREAM_BYTES?: string;
   YTDLP_USER_AGENT?: string;
@@ -19,13 +21,20 @@ type XhsMediaItem = {
 };
 
 export type XhsDetailSchema = 'media-v1' | 'download-address-v1' | 'unknown';
+export type XhsResolverCircuitState = 'closed' | 'open' | 'half-open';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_FAILURE_THRESHOLD = 3;
+const DEFAULT_COOLDOWN_MS = 30_000;
 const DEFAULT_MAX_STREAM_BYTES = 6 * 1024 * 1024 * 1024;
 const MAX_RESOLVER_RESPONSE_CHARS = 2 * 1024 * 1024;
 const DEFAULT_MEDIA_HOST_SUFFIXES = ['xhscdn.com', 'xiaohongshu.com'];
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+let resolverConsecutiveFailures = 0;
+let resolverCircuitOpenUntil = 0;
+let resolverProbeInFlight = false;
 
 class XhsResolverError extends Error {
   status: number;
@@ -71,6 +80,77 @@ function suffixFromUrl(value: string, fallback: string): string {
     // needs a safe extension hint for the UI.
   }
   return fallback;
+}
+
+function resolverFailureThreshold(runtime: XhsResolverRuntime): number {
+  return positiveInteger(runtime.XHS_RESOLVER_FAILURE_THRESHOLD, DEFAULT_FAILURE_THRESHOLD);
+}
+
+function resolverCooldownMs(runtime: XhsResolverRuntime): number {
+  return positiveInteger(runtime.XHS_RESOLVER_COOLDOWN_MS, DEFAULT_COOLDOWN_MS);
+}
+
+export function resetXhsResolverCircuitState(): void {
+  resolverConsecutiveFailures = 0;
+  resolverCircuitOpenUntil = 0;
+  resolverProbeInFlight = false;
+}
+
+export function getXhsResolverCircuitState(runtime: XhsResolverRuntime = {}): {
+  state: XhsResolverCircuitState;
+  consecutiveFailures: number;
+  retryAfterMs: number;
+} {
+  const now = Date.now();
+  const threshold = resolverFailureThreshold(runtime);
+  if (resolverCircuitOpenUntil > now) {
+    return {
+      state: 'open',
+      consecutiveFailures: resolverConsecutiveFailures,
+      retryAfterMs: resolverCircuitOpenUntil - now,
+    };
+  }
+  if (resolverConsecutiveFailures >= threshold) {
+    return {
+      state: 'half-open',
+      consecutiveFailures: resolverConsecutiveFailures,
+      retryAfterMs: 0,
+    };
+  }
+  return {
+    state: 'closed',
+    consecutiveFailures: resolverConsecutiveFailures,
+    retryAfterMs: 0,
+  };
+}
+
+function beginResolverAttempt(runtime: XhsResolverRuntime): void {
+  const state = getXhsResolverCircuitState(runtime);
+  if (state.state === 'open') {
+    throw new XhsResolverError(`XHS resolver circuit is open; retry in ${Math.max(1, Math.ceil(state.retryAfterMs / 1000))}s`, 503);
+  }
+  if (state.state === 'half-open') {
+    if (resolverProbeInFlight) {
+      throw new XhsResolverError('XHS resolver recovery probe is already in progress', 503);
+    }
+    resolverProbeInFlight = true;
+  }
+}
+
+function markResolverHealthy(): void {
+  resetXhsResolverCircuitState();
+}
+
+function markResolverInfrastructureFailure(runtime: XhsResolverRuntime): void {
+  resolverProbeInFlight = false;
+  resolverConsecutiveFailures += 1;
+  if (resolverConsecutiveFailures >= resolverFailureThreshold(runtime)) {
+    resolverCircuitOpenUntil = Date.now() + resolverCooldownMs(runtime);
+  }
+}
+
+function isInfrastructureFailure(status: number): boolean {
+  return status === 429 || status >= 500;
 }
 
 function resolverEndpoint(runtime: XhsResolverRuntime): string | null {
@@ -219,6 +299,7 @@ export async function fetchXhsDetail(sourceUrl: string, runtime: XhsResolverRunt
   const endpoint = resolverEndpoint(runtime);
   if (!endpoint) throw new XhsResolverError('XHS resolver is not configured', 503);
 
+  beginResolverAttempt(runtime);
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -247,13 +328,26 @@ export async function fetchXhsDetail(sourceUrl: string, runtime: XhsResolverRunt
     }
     const detail = asObject(payload.data);
     if (!detail) throw new XhsResolverError('XHS resolver did not return work detail');
+    markResolverHealthy();
     return detail;
   } catch (error) {
-    if (error instanceof XhsResolverError) throw error;
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new XhsResolverError('XHS resolver timed out', 504);
+    let normalized: XhsResolverError;
+    if (error instanceof XhsResolverError) {
+      normalized = error;
+    } else if (error instanceof DOMException && error.name === 'AbortError') {
+      normalized = new XhsResolverError('XHS resolver timed out', 504);
+    } else {
+      normalized = new XhsResolverError(`XHS resolver request failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    throw new XhsResolverError(`XHS resolver request failed: ${error instanceof Error ? error.message : String(error)}`);
+
+    if (isInfrastructureFailure(normalized.status)) {
+      markResolverInfrastructureFailure(runtime);
+    } else {
+      // A reachable resolver that returns a client/content error is healthy
+      // infrastructure and should not remain penalized by old network failures.
+      markResolverHealthy();
+    }
+    throw normalized;
   } finally {
     clearTimeout(timeout);
   }
