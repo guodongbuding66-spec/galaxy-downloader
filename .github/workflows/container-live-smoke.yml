@@ -46,6 +46,7 @@ jobs:
         env:
           YTDLP_COOKIES_B64: ${{ secrets.YTDLP_COOKIES_B64 }}
           YTDLP_PROXY: ${{ secrets.YTDLP_PROXY }}
+          YTDLP_RUMBLE_PROXY: ${{ secrets.YTDLP_RUMBLE_PROXY }}
           YTDLP_USER_AGENT: ${{ secrets.YTDLP_USER_AGENT }}
         run: |
           docker run -d \
@@ -53,7 +54,9 @@ jobs:
             -p 8080:8080 \
             -e YTDLP_COOKIES_B64="$YTDLP_COOKIES_B64" \
             -e YTDLP_PROXY="$YTDLP_PROXY" \
+            -e YTDLP_RUMBLE_PROXY="$YTDLP_RUMBLE_PROXY" \
             -e YTDLP_USER_AGENT="$YTDLP_USER_AGENT" \
+            -e YTDLP_COOKIE_POLICY=when_needed \
             -e YTDLP_IMPERSONATE=chrome \
             -e YTDLP_SOCKET_TIMEOUT=30 \
             -e YTDLP_EXTRACTOR_RETRIES=3 \
@@ -74,6 +77,32 @@ jobs:
           docker logs galaxy-downloader-live-smoke
           exit 1
 
+      - name: Verify YouTube challenge runtime
+        run: |
+          docker exec galaxy-downloader-live-smoke python - <<'PY'
+          import importlib.metadata
+          import socket
+
+          assert importlib.metadata.version('bgutil-ytdlp-pot-provider') == '1.3.2'
+          with socket.create_connection(('127.0.0.1', 4416), timeout=2):
+              pass
+          print('bgutil provider plugin and TCP service are ready')
+          PY
+
+          docker exec galaxy-downloader-live-smoke sh -lc '
+            set +e
+            /opt/venv/bin/yt-dlp --verbose --simulate --skip-download \
+              "https://www.youtube.com/watch?v=BaW_jenozKc" \
+              >/tmp/youtube-runtime-diagnostic.log 2>&1
+            status=$?
+            set -e
+            tail -n 120 /tmp/youtube-runtime-diagnostic.log || true
+            grep -q "System config.*yt-dlp.conf" /tmp/youtube-runtime-diagnostic.log
+            grep -q "youtubepot-bgutilhttp" /tmp/youtube-runtime-diagnostic.log
+            grep -Eq "player[_-]client.*mweb|mweb.*player[_-]client" /tmp/youtube-runtime-diagnostic.log
+            echo "yt-dlp loaded the bundled PO-token and mweb configuration (probe exit=$status)"
+          '
+
       - name: Run real platform regressions
         env:
           GALAXY_SMOKE_CONTAINER: galaxy-downloader-live-smoke
@@ -82,6 +111,7 @@ jobs:
           GALAXY_SMOKE_MAX_CANDIDATES: '4'
           YTDLP_COOKIES_B64: ${{ secrets.YTDLP_COOKIES_B64 }}
           YTDLP_PROXY: ${{ secrets.YTDLP_PROXY }}
+          YTDLP_RUMBLE_PROXY: ${{ secrets.YTDLP_RUMBLE_PROXY }}
           YTDLP_IMPERSONATE: chrome
         run: python scripts/container-live-smoke.py
 
