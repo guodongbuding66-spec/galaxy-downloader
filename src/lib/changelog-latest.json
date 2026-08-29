@@ -1,6 +1,60 @@
 {
   "versions": [
     {
+      "version": "6.4.0",
+      "date": "2026-08-29",
+      "changes": {
+        "zh": [
+          "重构高级下载为“成品下载”：画质、音质、字幕和封面一次选择，系统自动批处理并最终只输出一个 MP4 成品文件",
+          "最佳画质与最佳音频会自动获取并合并；视频轨默认直接复制而不二次压缩，尽量保持原始最高画质",
+          "字幕改为内嵌到 MP4 的可开关字幕轨，封面作为视频封面写入同一个文件，无需用户再手工合成剪辑",
+          "新增成品生成进度：解析媒体流、获取视频、获取音频、获取字幕、获取封面、启动 FFmpeg、封装和保存均可查看进度，并支持取消任务",
+          "精简视频结果操作区，移除重复的独立视频/音频/字幕/封面下载入口；HLS 兼容下载仅在需要时保留",
+          "保留纯音频内容和图文笔记背景音轨的独立音频下载能力，避免非视频场景功能回退"
+        ],
+        "zh-tw": [
+          "將進階下載重構為「成品下載」：畫質、音質、字幕與封面一次選擇，系統自動批次處理並最終只輸出一個 MP4 成品檔案",
+          "最佳畫質與最佳音訊會自動取得並合併；影片軌預設直接複製而不再次壓縮，盡量保留原始最高畫質",
+          "字幕改為內嵌 MP4 的可切換字幕軌，封面作為影片封面寫入同一檔案，無需再手動合成剪輯",
+          "新增成品產生進度：解析媒體串流、取得影片、取得音訊、取得字幕、取得封面、啟動 FFmpeg、封裝與儲存皆可查看進度，並可取消任務",
+          "精簡影片結果操作區，移除重複的獨立影片/音訊/字幕/封面下載入口；HLS 相容下載只在需要時保留",
+          "保留純音訊內容與圖文筆記背景音軌的獨立音訊下載能力，避免非影片場景功能退化"
+        ],
+        "en": [
+          "Reworked Advanced Download into a Finished Video workflow: choose video quality, audio quality, subtitles and cover once, then receive one final MP4 instead of separate assets",
+          "Best video and best audio are fetched and merged automatically; the selected video stream is copied without re-encoding whenever possible to preserve source quality",
+          "Subtitles are embedded as a selectable MP4 subtitle track and the cover is attached to the same video file, removing the need for manual post-production",
+          "Added end-to-end progress for resolving streams, fetching video/audio/subtitles/cover, starting FFmpeg, muxing and saving, with task cancellation",
+          "Simplified video result actions by removing duplicate standalone video/audio/subtitle/cover downloads; HLS browser download remains only as a compatibility fallback",
+          "Preserved standalone audio downloads for audio-only media and image posts with background audio"
+        ],
+        "ja": [
+          "詳細ダウンロードを「完成動画ダウンロード」に再設計し、画質・音質・字幕・カバーを一度選ぶだけで、個別素材ではなく最終的な 1 本の MP4 を出力するようにしました",
+          "最高画質の映像と最高音質の音声を自動取得して結合し、映像は可能な限り再エンコードせずストリームコピーして元の画質を保持します",
+          "字幕は切り替え可能な MP4 字幕トラックとして内蔵し、カバーも同じ動画ファイルに埋め込むため、手作業での後編集が不要になりました",
+          "ストリーム解析、映像・音声・字幕・カバー取得、FFmpeg 起動、封装、保存までの進捗表示とキャンセルに対応しました",
+          "動画結果の重複した個別ダウンロード操作を整理し、HLS ブラウザダウンロードは互換用フォールバックとしてのみ残しました",
+          "音声専用コンテンツや画像投稿の背景音声については従来の単独音声ダウンロードを維持しました"
+        ],
+        "es": [
+          "Se rediseñó la descarga avanzada como un flujo de vídeo final: elige calidad de vídeo, audio, subtítulos y portada una sola vez y recibe un único MP4 final",
+          "El mejor vídeo y el mejor audio se obtienen y combinan automáticamente; el vídeo se copia sin recodificar cuando es posible para conservar la calidad original",
+          "Los subtítulos se integran como una pista seleccionable de MP4 y la portada se adjunta al mismo archivo, evitando la edición manual posterior",
+          "Se añadió progreso completo para resolver flujos, obtener vídeo/audio/subtítulos/portada, iniciar FFmpeg, multiplexar y guardar, con posibilidad de cancelar",
+          "Se simplificaron las acciones de vídeo eliminando descargas separadas duplicadas; la descarga HLS del navegador queda como modo de compatibilidad",
+          "Se conservan las descargas de audio independientes para contenido solo de audio y publicaciones de imágenes con audio de fondo"
+        ],
+        "ru": [
+          "Расширенная загрузка переработана в режим готового видео: качество видео, аудио, субтитры и обложка выбираются один раз, после чего создаётся один итоговый MP4 вместо отдельных файлов",
+          "Лучшее видео и лучшее аудио автоматически загружаются и объединяются; видеопоток по возможности копируется без повторного кодирования для сохранения исходного качества",
+          "Субтитры встраиваются как переключаемая дорожка MP4, а обложка прикрепляется к тому же файлу, поэтому ручной монтаж больше не нужен",
+          "Добавлен полный прогресс обработки: разрешение потоков, загрузка видео/аудио/субтитров/обложки, запуск FFmpeg, упаковка и сохранение, а также отмена задачи",
+          "Интерфейс результатов видео упрощён: отдельные дублирующие загрузки видео, аудио, субтитров и обложки убраны; HLS-загрузка в браузере оставлена как режим совместимости",
+          "Сохранена отдельная загрузка аудио для чисто аудиоконтента и постов с изображениями и фоновой аудиодорожкой"
+        ]
+      }
+    },
+    {
       "version": "6.3.0",
       "date": "2026-08-29",
       "changes": {
