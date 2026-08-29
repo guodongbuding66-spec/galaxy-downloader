@@ -231,11 +231,19 @@ export function buildFinalMediaFfmpegArgs({
   if (coverIndex !== null) {
     args.push('-c:v:1', 'mjpeg');
     args.push('-disposition:v:1', 'attached_pic');
+    args.push('-metadata:s:v:1', 'title=Cover');
   }
 
   if (title?.trim()) args.push('-metadata', `title=${title.trim()}`);
   if (sourceUrl?.trim()) args.push('-metadata', `comment=Source: ${sourceUrl.trim()}`);
-  args.push('-movflags', '+faststart', '-shortest', output);
+  args.push('-movflags', '+faststart');
+  // `-shortest` is useful when only video + a separately downloaded audio
+  // track are present, but it must not consider a short subtitle/cover stream
+  // and accidentally truncate the finished movie.
+  if (audioIndex !== null && subtitleIndex === null && coverIndex === null) {
+    args.push('-shortest');
+  }
+  args.push(output);
   return args;
 }
 
