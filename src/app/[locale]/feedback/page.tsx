@@ -77,7 +77,7 @@ export default async function FeedbackPage({
                 <div className="max-w-2xl space-y-3">
                     <div className="inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
                         <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                        Private feedback
+                        {copy.privateFeedbackTitle}
                     </div>
                     <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">{copy.title}</h1>
                     <p className="text-sm leading-6 text-muted-foreground text-pretty">{copy.metaDescription}</p>
@@ -99,16 +99,13 @@ export default async function FeedbackPage({
                                     {FEEDBACK_CONFIG.supportEmail}
                                 </a>
                             </div>
-                            <Button asChild size="lg" className="min-h-11 shrink-0 active:scale-[0.96] transition-transform duration-150">
+                            <Button asChild size="lg" className="min-h-11 shrink-0">
                                 <a href={feedbackMailto}>
                                     <Mail className="h-4 w-4" aria-hidden="true" />
                                     {copy.emailAction}
                                 </a>
                             </Button>
                         </div>
-                    </div>
-                    <div className="border-t bg-muted/30 px-5 py-3 text-xs leading-5 text-muted-foreground sm:px-7">
-                        Feedback is sent through your own email client. Media files are not uploaded with the message.
                     </div>
                 </section>
             </div>
