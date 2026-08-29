@@ -29,8 +29,14 @@ interface RuntimeSecrets extends XhsResolverRuntime {
   ALLOWED_ORIGINS?: string;
 }
 
+interface RateLimitBinding {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 interface Env extends RuntimeSecrets {
   MEDIA_CONTAINER: DurableObjectNamespace<MediaContainer>;
+  PARSE_RATE_LIMITER: RateLimitBinding;
+  DOWNLOAD_RATE_LIMITER: RateLimitBinding;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -86,7 +92,7 @@ function corsHeaders(request: Request): HeadersInit {
     'Access-Control-Allow-Origin': allowed.has(origin) ? origin : allowedOrigins[0],
     'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Range,X-Request-Id',
-    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Content-Disposition,Accept-Ranges,X-Request-Id,X-Galaxy-Provider,X-Max-Stream-Bytes',
+    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Content-Disposition,Accept-Ranges,Retry-After,X-Request-Id,X-Galaxy-Provider,X-Max-Stream-Bytes',
     Vary: 'Origin',
   };
 }
@@ -124,6 +130,48 @@ function asObject(value: unknown): JsonObject | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as JsonObject
     : null;
+}
+
+function clientRateLimitKey(request: Request): string {
+  const connectingIp = request.headers.get('cf-connecting-ip')?.trim();
+  if (connectingIp) return `ip:${connectingIp}`;
+
+  // Local Wrangler and CI do not always provide cf-connecting-ip. Keep the
+  // fallback deterministic without trusting arbitrary forwarded-IP headers.
+  const userAgent = request.headers.get('user-agent')?.trim().slice(0, 128) || 'anonymous';
+  return `local:${userAgent}`;
+}
+
+async function apiRateLimitResponse(
+  request: Request,
+  env: Env,
+  pathname: string,
+  requestId: string,
+): Promise<Response | null> {
+  const limiter = pathname === '/api/parse'
+    ? env.PARSE_RATE_LIMITER
+    : pathname === '/api/download'
+      ? env.DOWNLOAD_RATE_LIMITER
+      : null;
+  if (!limiter) return null;
+
+  const { success } = await limiter.limit({ key: clientRateLimitKey(request) });
+  if (success) return null;
+
+  return withCors(Response.json({
+    success: false,
+    code: 'RATE_LIMITED',
+    status: 429,
+    error: 'Too many requests. Please retry shortly.',
+    requestId,
+  }, {
+    status: 429,
+    headers: {
+      'Cache-Control': 'no-store',
+      'Retry-After': '60',
+      'X-Request-Id': requestId,
+    },
+  }), request);
 }
 
 function addProviderHint(value: unknown, requestOrigin: string, provider: string): unknown {
@@ -228,6 +276,10 @@ async function augmentHealth(response: Response): Promise<Response> {
       xhsResolverConfigured: configured,
       xhsResolverMode: xhsResolverMode(runtimeSecrets),
       xhsResolverCircuit: circuit,
+      rateLimits: {
+        parsePerMinute: 30,
+        downloadPerMinute: 10,
+      },
     }, {
       status: response.status,
       headers,
@@ -303,6 +355,9 @@ export default {
       const response = await augmentHealth(await containerResponse(forwarded, env));
       return withCors(response, request);
     }
+
+    const rateLimited = await apiRateLimitResponse(request, env, url.pathname, requestId);
+    if (rateLimited) return rateLimited;
 
     const sourceUrl = sourceUrlFromRequest(url);
     const useXhsResolver = Boolean(
