@@ -2,6 +2,7 @@ import { Container, getRandom } from '@cloudflare/containers';
 import { env as runtimeEnv } from 'cloudflare:workers';
 
 import {
+  getXhsResolverCircuitState,
   isXhsSourceUrl,
   xhsDownloadResponse,
   xhsParseResponse,
@@ -144,10 +145,16 @@ async function augmentHealth(response: Response): Promise<Response> {
     const payload = await response.clone().json() as Record<string, unknown>;
     const headers = new Headers(response.headers);
     headers.delete('content-length');
+    const configured = xhsResolverConfigured(runtimeSecrets);
+    const circuit = configured
+      ? getXhsResolverCircuitState(runtimeSecrets)
+      : { state: 'disabled', consecutiveFailures: 0, retryAfterMs: 0 };
+
     return Response.json({
       ...payload,
-      xhsResolverConfigured: xhsResolverConfigured(runtimeSecrets),
+      xhsResolverConfigured: configured,
       xhsResolverMode: xhsResolverMode(runtimeSecrets),
+      xhsResolverCircuit: circuit,
     }, {
       status: response.status,
       headers,
