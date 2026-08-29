@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Live smoke-test Galaxy Downloader's production parser/download pipeline.
 
-The script deliberately reads only a small prefix of media responses. It verifies
-that a real upstream URL can be parsed and that the backend can begin serving the
-selected media without downloading full copyrighted files during CI.
+The runner downloads only a small prefix of media responses. It validates real
+production parsing and download startup without pulling entire media files.
 
-Fixtures are discovered from yt-dlp's public extractor test cases when possible.
-They can be overridden with PLATFORM_SMOKE_FIXTURES_JSON, e.g.
-{"youtube":"https://...","wechat":"https://..."}.
+Fixtures come from yt-dlp's public extractor tests. For each platform we rank
+single-media extractors ahead of collection/channel/search extractors and try a
+few candidates until one parses. PLATFORM_SMOKE_FIXTURES_JSON can override or
+add stable fixtures, for example:
+{"youtube":"https://...","wechat":["https://...","https://..."]}.
 """
 
 from __future__ import annotations
@@ -30,7 +31,9 @@ from typing import Any, Iterable
 DEFAULT_API_BASE = "https://downloader-api.bhwa233.com"
 DEFAULT_TIMEOUT = 30
 MAX_PROBE_BYTES = 96 * 1024
+MAX_JSON_BYTES = 6 * 1024 * 1024
 MAX_HLS_DEPTH = 4
+MAX_FIXTURE_CANDIDATES = 4
 
 PLATFORM_ALIASES: dict[str, tuple[str, ...]] = {
     "bilibili": ("bilibili",),
@@ -68,11 +71,21 @@ PLATFORM_ALIASES: dict[str, tuple[str, ...]] = {
     "rutube": ("rutube",),
 }
 
-MANUAL_DEFAULT_FIXTURES = {
-    # Stable public HLS test stream; this exercises the generic/HLS path without
-    # depending on a social platform post staying online.
-    "generic": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+MANUAL_DEFAULT_FIXTURES: dict[str, list[str]] = {
+    "generic": ["https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"],
 }
+
+COLLECTION_WORDS = (
+    "album", "channel", "collection", "playlist", "search", "user", "profile",
+    "feed", "live", "series", "show", "course", "tag", "category", "clips",
+)
+
+
+@dataclass(frozen=True)
+class FixtureCandidate:
+    url: str
+    source: str
+    rank: int = 0
 
 
 @dataclass
@@ -90,6 +103,7 @@ class PlatformResult:
     platform: str
     fixture_url: str | None = None
     fixture_source: str | None = None
+    attempted_fixtures: int = 0
     status: str = "SKIP"
     parse: ProbeResult = field(default_factory=lambda: ProbeResult(False, error="not run"))
     video: ProbeResult | None = None
@@ -123,49 +137,84 @@ def iter_testcases(extractor: Any) -> Iterable[dict[str, Any]]:
         yield single
 
 
-def discover_yt_dlp_fixtures() -> tuple[dict[str, str], dict[str, str]]:
+def extractor_rank(extractor: Any, aliases: tuple[str, ...]) -> int | None:
+    ie_name = str(getattr(extractor, "IE_NAME", ""))
+    class_name = type(extractor).__name__
+    desc = str(getattr(extractor, "IE_DESC", ""))
+    normalized_aliases = tuple(normalize_name(alias) for alias in aliases)
+    normalized_ie = normalize_name(ie_name)
+    normalized_class = normalize_name(class_name)
+    normalized_desc = normalize_name(desc)
+
+    rank: int | None = None
+    for alias in normalized_aliases:
+        if not alias:
+            continue
+        if normalized_ie == alias:
+            rank = min(rank if rank is not None else 999, 0)
+        elif normalized_ie.startswith(alias):
+            rank = min(rank if rank is not None else 999, 2)
+        elif normalized_class.startswith(alias):
+            rank = min(rank if rank is not None else 999, 3)
+        elif alias in normalized_ie:
+            rank = min(rank if rank is not None else 999, 5)
+        elif alias in normalized_class:
+            rank = min(rank if rank is not None else 999, 6)
+        elif alias in normalized_desc:
+            rank = min(rank if rank is not None else 999, 9)
+    if rank is None:
+        return None
+
+    lower_name = f"{ie_name} {class_name}".lower()
+    if any(word in lower_name for word in COLLECTION_WORDS):
+        rank += 20
+    return rank
+
+
+def discover_yt_dlp_candidates() -> dict[str, list[FixtureCandidate]]:
     try:
         from yt_dlp.extractor import gen_extractors  # type: ignore
-    except Exception as exc:  # pragma: no cover - only happens in missing CI dep
+    except Exception as exc:  # pragma: no cover
         print(f"warning: yt-dlp fixture discovery unavailable: {exc}", file=sys.stderr)
-        return {}, {}
+        return {}
 
     extractors = list(gen_extractors())
-    fixtures: dict[str, str] = {}
-    sources: dict[str, str] = {}
+    output: dict[str, list[FixtureCandidate]] = {}
 
     for platform, aliases in PLATFORM_ALIASES.items():
         if platform == "generic":
             continue
-        normalized_aliases = tuple(normalize_name(alias) for alias in aliases)
-        candidates: list[Any] = []
+        ranked: list[tuple[int, int, Any]] = []
         for ie in extractors:
-            names = [
-                str(getattr(ie, "IE_NAME", "")),
-                type(ie).__name__,
-                str(getattr(ie, "IE_DESC", "")),
-            ]
-            normalized_names = [normalize_name(name) for name in names]
-            if any(alias and any(alias in name for name in normalized_names) for alias in normalized_aliases):
-                candidates.append(ie)
+            rank = extractor_rank(ie, aliases)
+            if rank is not None:
+                ranked.append((rank, len(str(getattr(ie, "IE_NAME", ""))), ie))
+        ranked.sort(key=lambda item: (item[0], item[1]))
 
-        for ie in candidates:
+        seen: set[str] = set()
+        candidates: list[FixtureCandidate] = []
+        for rank, _, ie in ranked:
             for testcase in iter_testcases(ie):
                 url = testcase.get("url")
                 if not isinstance(url, str) or not url.startswith(("http://", "https://")):
                     continue
-                if testcase.get("only_matching") or testcase.get("skip"):
+                if testcase.get("only_matching") or testcase.get("skip") or url in seen:
                     continue
-                fixtures[platform] = url
-                sources[platform] = f"yt-dlp:{getattr(ie, 'IE_NAME', type(ie).__name__)}"
+                seen.add(url)
+                candidates.append(FixtureCandidate(
+                    url=url,
+                    source=f"yt-dlp:{getattr(ie, 'IE_NAME', type(ie).__name__)}",
+                    rank=rank,
+                ))
+                if len(candidates) >= MAX_FIXTURE_CANDIDATES:
+                    break
+            if len(candidates) >= MAX_FIXTURE_CANDIDATES:
                 break
-            if platform in fixtures:
-                break
-
-    return fixtures, sources
+        output[platform] = candidates
+    return output
 
 
-def load_fixture_overrides() -> dict[str, str]:
+def load_fixture_overrides() -> dict[str, list[str]]:
     raw = os.environ.get("PLATFORM_SMOKE_FIXTURES_JSON", "").strip()
     if not raw:
         return {}
@@ -175,21 +224,33 @@ def load_fixture_overrides() -> dict[str, str]:
         raise SystemExit(f"Invalid PLATFORM_SMOKE_FIXTURES_JSON: {exc}") from exc
     if not isinstance(parsed, dict):
         raise SystemExit("PLATFORM_SMOKE_FIXTURES_JSON must be a JSON object")
-    return {
-        key: value
-        for key, value in parsed.items()
-        if key in PLATFORM_ALIASES and isinstance(value, str) and value.startswith(("http://", "https://"))
-    }
+
+    output: dict[str, list[str]] = {}
+    for key, value in parsed.items():
+        if key not in PLATFORM_ALIASES:
+            continue
+        values = value if isinstance(value, list) else [value]
+        urls = [item for item in values if isinstance(item, str) and item.startswith(("http://", "https://"))]
+        if urls:
+            output[key] = urls
+    return output
 
 
-def build_fixtures() -> tuple[dict[str, str], dict[str, str]]:
-    discovered, sources = discover_yt_dlp_fixtures()
-    fixtures = {**discovered, **MANUAL_DEFAULT_FIXTURES}
-    fixture_sources = {**sources, **{key: "manual-default" for key in MANUAL_DEFAULT_FIXTURES}}
+def build_fixture_candidates() -> dict[str, list[FixtureCandidate]]:
+    discovered = discover_yt_dlp_candidates()
     overrides = load_fixture_overrides()
-    fixtures.update(overrides)
-    fixture_sources.update({key: "env-override" for key in overrides})
-    return fixtures, fixture_sources
+    output: dict[str, list[FixtureCandidate]] = {}
+    for platform in PLATFORM_ALIASES:
+        combined: list[FixtureCandidate] = []
+        combined.extend(FixtureCandidate(url, "env-override", -20) for url in overrides.get(platform, []))
+        combined.extend(FixtureCandidate(url, "manual-default", -10) for url in MANUAL_DEFAULT_FIXTURES.get(platform, []))
+        combined.extend(discovered.get(platform, []))
+        seen: set[str] = set()
+        output[platform] = [
+            item for item in sorted(combined, key=lambda item: item.rank)
+            if not (item.url in seen or seen.add(item.url))
+        ][:MAX_FIXTURE_CANDIDATES]
+    return output
 
 
 def read_prefix(response: Any, limit: int = MAX_PROBE_BYTES) -> bytes:
@@ -210,15 +271,31 @@ def request_prefix(url: str, timeout: int, accept: str = "*/*") -> tuple[int, di
         headers={
             "Accept": accept,
             "Range": f"bytes=0-{MAX_PROBE_BYTES - 1}",
-            "User-Agent": "GalaxyDownloaderPlatformSmoke/1.0 (+GitHub Actions)",
+            "User-Agent": "GalaxyDownloaderPlatformSmoke/1.1 (+GitHub Actions)",
         },
         method="GET",
     )
     with urllib.request.urlopen(req, timeout=timeout) as response:
         headers = {key.lower(): value for key, value in response.headers.items()}
         data = read_prefix(response)
-        final_url = response.geturl()
-        return int(getattr(response, "status", 200)), headers, data, final_url
+        return int(getattr(response, "status", 200)), headers, data, response.geturl()
+
+
+def request_json(url: str, timeout: int) -> tuple[int, dict[str, str], Any]:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "GalaxyDownloaderPlatformSmoke/1.1 (+GitHub Actions)",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        data = response.read(MAX_JSON_BYTES + 1)
+        if len(data) > MAX_JSON_BYTES:
+            raise ValueError(f"JSON response exceeded {MAX_JSON_BYTES} bytes")
+        headers = {key.lower(): value for key, value in response.headers.items()}
+        return int(getattr(response, "status", 200)), headers, json.loads(data.decode("utf-8", errors="replace"))
 
 
 def decode_json_prefix(data: bytes) -> Any:
@@ -282,8 +359,7 @@ def probe_media_url(url: str, timeout: int, depth: int = 0) -> ProbeResult:
             or urllib.parse.urlparse(final_url).path.lower().endswith(".m3u8")
         )
         if looks_hls:
-            playlist = data.decode("utf-8", errors="replace")
-            resource = first_hls_resource(playlist, final_url)
+            resource = first_hls_resource(data.decode("utf-8", errors="replace"), final_url)
             if not resource:
                 return ProbeResult(False, status=status, content_type=content_type, bytes_read=len(data), kind="hls", error="playlist has no media/variant URI")
             nested = probe_media_url(resource, timeout, depth + 1)
@@ -307,20 +383,19 @@ def probe_media_url(url: str, timeout: int, depth: int = 0) -> ProbeResult:
 def parse_source(api_base: str, source_url: str, timeout: int) -> tuple[ProbeResult, dict[str, Any] | None]:
     endpoint = f"{api_base.rstrip('/')}/api/parse?{urllib.parse.urlencode({'url': source_url})}"
     try:
-        status, headers, data, _ = request_prefix(endpoint, timeout, "application/json")
+        status, headers, payload = request_json(endpoint, timeout)
         content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
-        payload = decode_json_prefix(data)
-        if status not in (200, 206) or not isinstance(payload, dict) or payload.get("success") is not True or not isinstance(payload.get("data"), dict):
+        if status != 200 or not isinstance(payload, dict) or payload.get("success") is not True or not isinstance(payload.get("data"), dict):
             message = payload.get("error") or payload.get("message") if isinstance(payload, dict) else None
-            return ProbeResult(False, status, content_type, len(data), "json", str(message or "parse returned unsuccessful payload")), payload if isinstance(payload, dict) else None
-        return ProbeResult(True, status, content_type, len(data), "json"), payload
+            return ProbeResult(False, status, content_type, 0, "json", str(message or "parse returned unsuccessful payload")), payload if isinstance(payload, dict) else None
+        return ProbeResult(True, status, content_type, 0, "json"), payload
     except urllib.error.HTTPError as exc:
         body = b""
         try:
-            body = read_prefix(exc, 4096)
+            body = read_prefix(exc, 8192)
         except Exception:
             pass
-        return ProbeResult(False, exc.code, exc.headers.get_content_type() if exc.headers else None, len(body), "http", body.decode("utf-8", errors="replace")[:500] or str(exc)), None
+        return ProbeResult(False, exc.code, exc.headers.get_content_type() if exc.headers else None, len(body), "http", body.decode("utf-8", errors="replace")[:1200] or str(exc)), None
     except Exception as exc:
         return ProbeResult(False, kind="exception", error=f"{type(exc).__name__}: {exc}"), None
 
@@ -359,21 +434,42 @@ def should_expect_audio(data: dict[str, Any]) -> bool:
     )
 
 
-def run_platform(platform: str, fixture_url: str | None, fixture_source: str | None, api_base: str, timeout: int) -> PlatformResult:
+def choose_parsable_fixture(platform: str, candidates: list[FixtureCandidate], api_base: str, timeout: int) -> tuple[FixtureCandidate | None, ProbeResult, dict[str, Any] | None, list[str]]:
+    last_probe = ProbeResult(False, kind="fixture", error="no stable live fixture discovered")
+    diagnostics: list[str] = []
+    for index, candidate in enumerate(candidates):
+        probe, payload = parse_source(api_base, candidate.url, timeout)
+        if probe.ok and payload:
+            if index > 0:
+                diagnostics.append(f"fixture fallback selected after {index} failed candidate(s)")
+            return candidate, probe, payload, diagnostics
+        last_probe = probe
+        detail = probe.error or f"HTTP {probe.status or '?'}"
+        diagnostics.append(f"fixture {index + 1} ({candidate.source}) failed: {detail[:260]}")
+        time.sleep(0.2)
+    return None, last_probe, None, diagnostics
+
+
+def run_platform(platform: str, candidates: list[FixtureCandidate], api_base: str, timeout: int) -> PlatformResult:
     started = time.monotonic()
-    result = PlatformResult(platform=platform, fixture_url=fixture_url, fixture_source=fixture_source)
-    if not fixture_url:
+    result = PlatformResult(platform=platform, attempted_fixtures=len(candidates))
+    if not candidates:
         result.parse = ProbeResult(False, kind="fixture", error="no stable live fixture discovered; provide PLATFORM_SMOKE_FIXTURES_JSON")
         result.elapsed_ms = int((time.monotonic() - started) * 1000)
         return result
 
-    parse_probe, payload = parse_source(api_base, fixture_url, timeout)
+    selected, parse_probe, payload, fixture_diagnostics = choose_parsable_fixture(platform, candidates, api_base, timeout)
     result.parse = parse_probe
-    if not parse_probe.ok or not payload or not isinstance(payload.get("data"), dict):
+    result.diagnostics.extend(fixture_diagnostics)
+    if not selected or not payload or not isinstance(payload.get("data"), dict):
+        result.fixture_url = candidates[0].url
+        result.fixture_source = candidates[0].source
         result.status = "FAIL"
         result.elapsed_ms = int((time.monotonic() - started) * 1000)
         return result
 
+    result.fixture_url = selected.url
+    result.fixture_source = selected.source
     data: dict[str, Any] = payload["data"]
     result.detected_platform = str(data.get("platform") or "") or None
     result.title = str(data.get("title") or data.get("desc") or "")[:160] or None
@@ -387,10 +483,8 @@ def run_platform(platform: str, fixture_url: str | None, fixture_source: str | N
     optional_failures: list[str] = []
 
     if should_expect_video(data):
-        result.video = probe_media_url(source_download_url(api_base, fixture_url, "video"), timeout)
+        result.video = probe_media_url(source_download_url(api_base, selected.url, "video"), timeout)
         if not result.video.ok:
-            # Some custom backends only expose the parsed stream URL. Probe that
-            # too before declaring the platform broken.
             fallback = data.get("downloadVideoUrl") or data.get("originDownloadVideoUrl")
             if isinstance(fallback, str) and fallback.startswith(("http://", "https://")):
                 fallback_probe = probe_media_url(fallback, timeout)
@@ -401,7 +495,7 @@ def run_platform(platform: str, fixture_url: str | None, fixture_source: str | N
                 primary_failures.append("video")
 
     if should_expect_audio(data):
-        result.audio = probe_media_url(source_download_url(api_base, fixture_url, "audio"), timeout)
+        result.audio = probe_media_url(source_download_url(api_base, selected.url, "audio"), timeout)
         if not result.audio.ok:
             fallback = data.get("downloadAudioUrl") or data.get("originDownloadAudioUrl")
             if isinstance(fallback, str) and fallback.startswith(("http://", "https://")):
@@ -409,7 +503,6 @@ def run_platform(platform: str, fixture_url: str | None, fixture_source: str | N
                 if fallback_probe.ok:
                     result.audio = fallback_probe
                     result.diagnostics.append("source-aware audio endpoint failed but parsed audio stream is reachable")
-            # A muxed video legitimately may not expose a dedicated audio URL.
             if not result.audio.ok and data.get("videoAudioMode") not in ("muxed", "not_applicable"):
                 primary_failures.append("audio")
 
@@ -453,10 +546,7 @@ def probe_cell(probe: ProbeResult | None) -> str:
 def write_reports(results: list[PlatformResult], output_dir: Path, api_base: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    summary = {
-        key: sum(1 for item in results if item.status == key)
-        for key in ("PASS", "PARTIAL", "FAIL", "SKIP")
-    }
+    summary = {key: sum(1 for item in results if item.status == key) for key in ("PASS", "PARTIAL", "FAIL", "SKIP")}
     payload = {
         "generatedAt": generated_at,
         "apiBase": api_base,
@@ -472,7 +562,7 @@ def write_reports(results: list[PlatformResult], output_dir: Path, api_base: str
         f"API: `{api_base}`  ",
         f"PASS **{summary['PASS']}** · PARTIAL **{summary['PARTIAL']}** · FAIL **{summary['FAIL']}** · SKIP **{summary['SKIP']}**",
         "",
-        "> A PASS means the production API parsed the live fixture and CI could read a real media prefix. It is a strong smoke signal, not a mathematical guarantee that every post/account/region will download forever.",
+        "> PASS means the production API parsed a live fixture and CI could read a real media prefix. It is a strong smoke signal, not a guarantee that every post/account/region will download forever.",
         "",
         "| Platform | Status | Parse | Video | Audio | Cover | Subtitle | Fixture |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -494,31 +584,32 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api-base", default=os.environ.get("PLATFORM_SMOKE_API_BASE", DEFAULT_API_BASE))
     parser.add_argument("--timeout", type=int, default=int(os.environ.get("PLATFORM_SMOKE_TIMEOUT", DEFAULT_TIMEOUT)))
-    parser.add_argument("--workers", type=int, default=int(os.environ.get("PLATFORM_SMOKE_WORKERS", "4")))
+    parser.add_argument("--workers", type=int, default=int(os.environ.get("PLATFORM_SMOKE_WORKERS", "2")))
     parser.add_argument("--output-dir", default="platform-smoke-artifacts")
     parser.add_argument("--strict", action="store_true", help="exit non-zero when any platform FAILs")
     args = parser.parse_args()
 
-    fixtures, sources = build_fixtures()
+    candidates = build_fixture_candidates()
     platforms = list(PLATFORM_ALIASES)
+    fixture_count = sum(1 for platform in platforms if candidates.get(platform))
     print(f"Testing {len(platforms)} registered platforms against {args.api_base}")
-    print(f"Discovered live fixtures for {len(fixtures)}/{len(platforms)} platforms")
+    print(f"Discovered live fixture candidates for {fixture_count}/{len(platforms)} platforms")
 
     results_by_platform: dict[str, PlatformResult] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         futures = {
-            pool.submit(run_platform, platform, fixtures.get(platform), sources.get(platform), args.api_base, args.timeout): platform
+            pool.submit(run_platform, platform, candidates.get(platform, []), args.api_base, args.timeout): platform
             for platform in platforms
         }
         for future in concurrent.futures.as_completed(futures):
             platform = futures[future]
             try:
                 result = future.result()
-            except Exception as exc:  # keep the matrix running even if one worker crashes
-                result = PlatformResult(platform=platform, fixture_url=fixtures.get(platform), fixture_source=sources.get(platform), status="FAIL")
+            except Exception as exc:
+                result = PlatformResult(platform=platform, status="FAIL")
                 result.parse = ProbeResult(False, kind="runner", error=f"{type(exc).__name__}: {exc}")
             results_by_platform[platform] = result
-            print(f"[{result.status:7}] {platform:14} parse={probe_cell(result.parse)} video={probe_cell(result.video)} audio={probe_cell(result.audio)}")
+            print(f"[{result.status:7}] {platform:14} parse={probe_cell(result.parse)} video={probe_cell(result.video)} audio={probe_cell(result.audio)} fixture={result.fixture_source or '-'}")
 
     results = [results_by_platform[platform] for platform in platforms]
     write_reports(results, Path(args.output_dir), args.api_base)
