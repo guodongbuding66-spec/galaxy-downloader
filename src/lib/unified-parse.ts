@@ -1,5 +1,6 @@
 import { ApiRequestError } from '@/lib/api-errors'
 import { API_ENDPOINTS } from '@/lib/config'
+import { normalizeParserCapabilities } from '@/lib/parser-capabilities'
 import { notifyTodayParseStatsChanged } from '@/lib/parse-stats'
 import type { UnifiedParseResult } from '@/lib/types'
 
@@ -66,6 +67,16 @@ export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedPars
             details: payload?.details,
             fallbackMessage: payload?.error || payload?.message,
         })
+    }
+
+    // Compatible parser deployments may expose richer yt-dlp-like capability
+    // fields. Preserve the original response while normalizing those optional
+    // formats/subtitles into the frontend's stable model.
+    payload = {
+        ...payload,
+        data: normalizeParserCapabilities(
+            payload.data as unknown as Record<string, unknown>
+        ) as NonNullable<UnifiedParseResult['data']>,
     }
 
     notifyTodayParseStatsChanged()
