@@ -1,0 +1,58 @@
+{
+  "versions": [
+    {
+      "version": "6.5.0",
+      "date": "2026-08-29",
+      "changes": {
+        "zh": [
+          "上线 Local-First 浏览器媒体处理架构：大文件优先使用 OPFS / WORKERFS，FFmpeg 在浏览器本机处理，降低多 GB 文件进入 JS 内存导致崩溃的风险",
+          "重新设计首页为单一媒体工作台：删除桌面三栏主布局，把链接输入、解析、画质选择、本地合成与最终 MP4 下载提升为唯一主流程",
+          "统计、平台指南、帮助工具与广告统一移动到主任务之后，减少操作干扰并改善桌面与移动端的信息层级",
+          "重构顶部导航、卡片与按钮视觉系统，增加 320px 小屏适配、键盘跳转、清晰的 focus-visible、reduced-motion 和更大的触控区域",
+          "新增本机处理、媒体不上传、本地合成免费等状态说明，并为六种语言补齐工作台与导航文案",
+          "反馈邮箱统一更换为 guodongbuding66@gmail.com，联系页与反馈页同步切换到项目自己的联系方式和 GitHub 仓库"
+        ],
+        "zh-tw": [
+          "上線 Local-First 瀏覽器媒體處理架構：大型檔案優先使用 OPFS / WORKERFS，FFmpeg 在瀏覽器本機處理，降低多 GB 檔案進入 JS 記憶體造成崩潰的風險",
+          "首頁重新設計為單一媒體工作台：移除桌面三欄主布局，將連結輸入、解析、畫質選擇、本機合成與最終 MP4 下載提升為唯一主流程",
+          "統計、平台指南、輔助工具與廣告統一移至主要任務之後，降低操作干擾並改善桌面與行動裝置資訊層級",
+          "重構頂部導覽、卡片與按鈕視覺系統，加入 320px 小螢幕支援、鍵盤跳轉、清楚的 focus-visible、reduced-motion 與更大的觸控區域",
+          "新增本機處理、媒體不上傳、本機合成免費等狀態說明，並補齊六種語言的工作台與導覽文案",
+          "回饋信箱統一更換為 guodongbuding66@gmail.com，聯絡與回饋頁同步切換為專案自己的聯絡方式與 GitHub 倉庫"
+        ],
+        "en": [
+          "Introduced a Local-First browser media architecture using OPFS / WORKERFS for large files and local FFmpeg processing to reduce multi-GB JavaScript memory pressure",
+          "Redesigned the homepage as one focused media workbench, replacing the desktop three-column primary layout with a clear URL → resolve → quality → local assembly → final MP4 workflow",
+          "Moved statistics, platform guides, helper tools and ads below the primary task to reduce distraction and improve hierarchy across desktop and mobile",
+          "Refined navigation, cards and buttons with 320px reflow, skip-to-content, visible keyboard focus, reduced-motion support and larger touch targets",
+          "Added clear local-processing, media-stays-on-device and free-local-assembly status messaging with localized workbench/navigation copy across six languages",
+          "Changed the project feedback address to guodongbuding66@gmail.com and updated contact/feedback surfaces to use the project's own repository and contact details"
+        ],
+        "ja": [
+          "大容量ファイルに OPFS / WORKERFS を優先利用し、FFmpeg をブラウザ端末内で実行する Local-First メディア処理構成を導入しました",
+          "ホーム画面を単一のメディアワークベンチとして再設計し、3 カラム中心の構成から URL → 解析 → 画質選択 → ローカル合成 → 最終 MP4 の主フローへ整理しました",
+          "統計、対応プラットフォーム、補助ツール、広告を主タスクの後へ移動し、デスクトップとモバイルの情報階層を改善しました",
+          "ナビゲーション、カード、ボタンを再設計し、320px 幅、Skip to content、キーボードフォーカス、reduced-motion、より大きなタッチ領域に対応しました",
+          "ローカル処理、メディア非アップロード、ローカル合成無料の状態表示を追加し、6 言語のワークベンチ文言を整備しました",
+          "フィードバック先を guodongbuding66@gmail.com に変更し、連絡・フィードバック画面をプロジェクト独自の GitHub と連絡先へ更新しました"
+        ],
+        "es": [
+          "Se introdujo una arquitectura multimedia Local-First con OPFS / WORKERFS para archivos grandes y FFmpeg ejecutado localmente en el navegador, reduciendo la presión de memoria de JavaScript",
+          "La página principal se rediseñó como una única mesa de trabajo: URL → análisis → calidad → ensamblado local → MP4 final, eliminando el diseño principal de tres columnas",
+          "Estadísticas, guías de plataformas, herramientas auxiliares y anuncios se movieron después de la tarea principal para reducir distracciones",
+          "Se renovaron navegación, tarjetas y botones con adaptación a 320px, salto al contenido, foco visible, reduced-motion y áreas táctiles mayores",
+          "Se añadieron estados claros de procesamiento local, medios sin subir y ensamblado local gratuito, con textos localizados en seis idiomas",
+          "El correo de comentarios cambió a guodongbuding66@gmail.com y las páginas de contacto/comentarios usan ahora los datos y repositorio propios del proyecto"
+        ],
+        "ru": [
+          "Внедрена Local-First архитектура обработки медиа: для больших файлов используются OPFS / WORKERFS, а FFmpeg выполняется локально в браузере, снижая нагрузку на память JavaScript",
+          "Главная страница переработана в единое медиарабочее пространство с последовательностью URL → разбор → качество → локальная сборка → итоговый MP4 вместо основной трёхколоночной схемы",
+          "Статистика, справка по платформам, вспомогательные инструменты и реклама перенесены ниже основного сценария, чтобы уменьшить отвлекающие элементы",
+          "Обновлены навигация, карточки и кнопки: поддержка ширины 320px, переход к основному содержимому, заметный клавиатурный фокус, reduced-motion и увеличенные зоны касания",
+          "Добавлены статусы локальной обработки, отсутствия загрузки медиа на сервер и бесплатной локальной сборки с локализацией интерфейса на шесть языков",
+          "Адрес обратной связи изменён на guodongbuding66@gmail.com; страницы контактов и обратной связи теперь используют собственные данные проекта и GitHub-репозиторий"
+        ]
+      }
+    }
+  ]
+}
