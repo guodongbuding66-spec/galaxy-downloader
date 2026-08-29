@@ -1,8 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Captions, Clipboard, Download, FileJson, Image, Music, SlidersHorizontal, Video } from 'lucide-react';
+import {
+    Captions,
+    Clipboard,
+    Download,
+    FileJson,
+    Image as ImageIcon,
+    Music,
+    SlidersHorizontal,
+    Video,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +35,8 @@ import type { SubtitleTrack, UnifiedParseResult, VideoQualityOption } from '@/li
 import { downloadFile, formatBytes, sanitizeFilename } from '@/lib/utils';
 
 type ResultData = NonNullable<UnifiedParseResult['data']>;
+
+const EMPTY_SUBTITLES: SubtitleTrack[] = [];
 
 type Copy = {
     title: string;
@@ -216,7 +227,7 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
         [capabilities.qualityOptions]
     );
     const parserProvidedFormats = Boolean(capabilities.qualityOptions?.length);
-    const subtitles = capabilities.subtitles || [];
+    const subtitles = capabilities.subtitles ?? EMPTY_SUBTITLES;
     const [videoQuality, setVideoQuality] = useState('best');
     const [audioQuality, setAudioQuality] = useState('best');
     const [subtitleId, setSubtitleId] = useState('');
@@ -228,47 +239,13 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
         && result.videoAudioMode !== 'pure_music';
     const showAudioControls = result.noteType !== 'image';
 
-    useEffect(() => {
-        try {
-            const storedVideoQuality = window.localStorage.getItem('galaxy:video-quality');
-            const storedAudioQuality = window.localStorage.getItem('galaxy:audio-quality');
-            if (storedVideoQuality) setVideoQuality(storedVideoQuality);
-            if (storedAudioQuality) setAudioQuality(storedAudioQuality);
-        } catch {
-            // Local storage can be unavailable in hardened/private browser contexts.
-        }
-    }, []);
-
-    useEffect(() => {
-        const first = subtitles[0];
-        const currentExists = subtitles.some((track, index) => (track.id || `${track.language}-${index}`) === subtitleId);
-        if (first && (!subtitleId || !currentExists)) {
-            setSubtitleId(first.id || `${first.language}-0`);
-        }
-        if (!first && subtitleId) {
-            setSubtitleId('');
-        }
-    }, [subtitleId, subtitles]);
-
-    const persistVideoQuality = (value: string) => {
-        setVideoQuality(value);
-        try {
-            window.localStorage.setItem('galaxy:video-quality', value);
-        } catch {
-            // The current selection remains usable when persistence is blocked.
-        }
-    };
-
-    const persistAudioQuality = (value: string) => {
-        setAudioQuality(value);
-        try {
-            window.localStorage.setItem('galaxy:audio-quality', value);
-        } catch {
-            // The current selection remains usable when persistence is blocked.
-        }
-    };
-
     const selectedQuality = qualityOptions.find((option) => option.quality === videoQuality) || qualityOptions[0];
+    const firstSubtitleId = subtitles[0]
+        ? subtitles[0].id || `${subtitles[0].language}-0`
+        : '';
+    const effectiveSubtitleId = subtitles.some(
+        (track, index) => (track.id || `${track.language}-${index}`) === subtitleId
+    ) ? subtitleId : firstSubtitleId;
 
     const handleVideoDownload = () => {
         if (!sourceUrl || !selectedQuality) return;
@@ -298,7 +275,7 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
 
     const handleSubtitleDownload = () => {
         const index = subtitles.findIndex(
-            (track, trackIndex) => (track.id || `${track.language}-${trackIndex}`) === subtitleId
+            (track, trackIndex) => (track.id || `${track.language}-${trackIndex}`) === effectiveSubtitleId
         );
         if (index < 0) return;
         const track = subtitles[index];
@@ -357,7 +334,7 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                                     {parserProvidedFormats ? copy.parserFormats : copy.genericPresets}
                                 </span>
                             </div>
-                            <Select value={selectedQuality?.quality || 'best'} onValueChange={persistVideoQuality}>
+                            <Select value={selectedQuality?.quality || 'best'} onValueChange={setVideoQuality}>
                                 <SelectTrigger className="h-9">
                                     <SelectValue placeholder={copy.best} />
                                 </SelectTrigger>
@@ -391,7 +368,7 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                                 <Music className="h-3.5 w-3.5" />
                                 {copy.audioQuality}
                             </div>
-                            <Select value={audioQuality} onValueChange={persistAudioQuality}>
+                            <Select value={audioQuality} onValueChange={setAudioQuality}>
                                 <SelectTrigger className="h-9">
                                     <SelectValue placeholder={copy.best} />
                                 </SelectTrigger>
@@ -427,13 +404,13 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                         disabled={!result.cover}
                         onClick={handleCoverDownload}
                     >
-                        <Image className="h-4 w-4" />
+                        <ImageIcon className="h-4 w-4" aria-hidden="true" />
                         {copy.cover}
                     </Button>
 
                     {subtitles.length > 0 ? (
                         <div className="flex min-w-0 gap-1">
-                            <Select value={subtitleId} onValueChange={setSubtitleId}>
+                            <Select value={effectiveSubtitleId} onValueChange={setSubtitleId}>
                                 <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
                                     <SelectValue placeholder={copy.subtitles} />
                                 </SelectTrigger>
