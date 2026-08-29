@@ -2,6 +2,35 @@
 
 All notable changes to Galaxy Downloader are documented here. The in-app changelog remains the user-facing release history.
 
+## 6.4.0 — 2026-08-29
+
+### One finished video instead of separate assets
+- Reworked Advanced Download into a one-click Finished Video workflow.
+- Video quality, audio quality, subtitles and cover are selected before processing.
+- The browser fetches the required media tracks, runs the assembly pipeline automatically and downloads one final MP4.
+- Standalone video/audio/subtitle/cover downloads are no longer the primary workflow for normal video results.
+
+### Media assembly
+- The selected video stream is copied without re-encoding whenever possible, preserving the requested source quality.
+- A separately selected audio stream is merged and normalized to AAC for MP4 compatibility.
+- Subtitles are embedded as a selectable `mov_text` MP4 subtitle track rather than requiring a separate subtitle file.
+- Cover art is embedded into the same MP4 as an attached picture.
+- Title and source URL metadata are written into the final file.
+- Auxiliary subtitle/cover streams no longer participate in `-shortest`, preventing accidental truncation of the finished video.
+
+### Workflow and UX
+- Added a single `Build and download final video` action.
+- Added progress for stream resolution, video/audio/subtitle/cover downloads, FFmpeg startup, muxing and final save.
+- Added task cancellation.
+- Added automatic fallback to parser-provided media streams if a selected-quality resolver endpoint is unavailable.
+- HLS browser download remains available as a compatibility fallback.
+- Audio-only content and image posts with background audio retain their standalone audio download action.
+
+### Quality assurance
+- Added FFmpeg argument tests for video + audio + subtitle + cover output and muxed-audio fallback.
+- Preserved existing image-note background-audio behavior after regression testing.
+- Tests, ESLint and the production bundle are validated by CI before production merge.
+
 ## 6.3.0 — 2026-08-29
 
 ### Download quality
