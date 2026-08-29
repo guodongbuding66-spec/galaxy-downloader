@@ -55,11 +55,6 @@ function buildQualityLabel(option: VideoQualityOption): string {
     return details.join(' · ') || option.quality;
 }
 
-/**
- * Prefer parser-provided formats because their `quality` values are the exact
- * values understood by the backend. Fall back to common presets only when a
- * parser does not expose a format list.
- */
 export function normalizeQualityOptions(options?: VideoQualityOption[] | null): QualityChoice[] {
     if (!options?.length) {
         return [...VIDEO_QUALITY_PRESETS];
@@ -128,17 +123,12 @@ function buildSourceMediaDownloadUrlForEndpoint(endpoint: string, {
     return `${endpoint}${separator}${params.toString()}`;
 }
 
-/**
- * Build ordered source-aware download candidates. A first-party Container
- * endpoint is only included when NEXT_PUBLIC_CONTAINER_API_BASE_URL exists.
- */
 export function buildSourceMediaDownloadUrls(input: BuildSourceMediaDownloadInput): string[] {
     return API_ENDPOINT_CANDIDATES.unified.download.map((endpoint) =>
         buildSourceMediaDownloadUrlForEndpoint(endpoint, input)
     );
 }
 
-/** Keep the historical single-URL API for existing call sites. */
 export function buildSourceMediaDownloadUrl(input: BuildSourceMediaDownloadInput): string {
     return buildSourceMediaDownloadUrls(input)[0];
 }
@@ -202,12 +192,26 @@ function resolutionError(response: Response, payload: DownloadResolutionPayload)
     return new Error(message);
 }
 
-/**
- * Resolve either a legacy JSON resolver or a streaming `/api/download` route.
- * HEAD is attempted first so the first-party Container can report readiness
- * without downloading the entire source once merely for probing.
- */
-export async function resolveSourceMediaDownloadUrl(requestUrl: string): Promise<string> {
+function sourceAwareRequestCandidates(requestUrl: string): string[] {
+    try {
+        const parsed = new URL(requestUrl, 'http://localhost');
+        if (parsed.pathname !== '/api/download') return [requestUrl];
+        const query = parsed.search;
+        const candidates = [requestUrl];
+        for (const endpoint of API_ENDPOINT_CANDIDATES.unified.download) {
+            const separator = endpoint.includes('?')
+                ? (query ? '&' : '')
+                : (query ? '?' : '');
+            const queryWithoutPrefix = query.startsWith('?') ? query.slice(1) : query;
+            candidates.push(`${endpoint}${separator}${queryWithoutPrefix}`);
+        }
+        return [...new Set(candidates)];
+    } catch {
+        return [requestUrl];
+    }
+}
+
+async function resolveSingleSourceMediaDownloadUrl(requestUrl: string): Promise<string> {
     let headResponse: Response | null = null;
     try {
         headResponse = await fetch(requestUrl, {
@@ -232,8 +236,7 @@ export async function resolveSourceMediaDownloadUrl(requestUrl: string): Promise
                 if (payload.ready === true) return requestUrl;
             }
         } catch {
-            // Some legacy services return an empty JSON HEAD body. GET remains
-            // the compatibility path in that case.
+            // Empty JSON HEAD bodies are common on older resolver services.
         }
     } else {
         void headResponse?.body?.cancel();
@@ -265,6 +268,24 @@ export async function resolveSourceMediaDownloadUrl(requestUrl: string): Promise
 
     void response.body?.cancel();
     return requestUrl;
+}
+
+/**
+ * Resolve a legacy JSON resolver or streaming endpoint. Source-aware download
+ * requests automatically retry the optional first-party Container backend with
+ * the exact same source/quality parameters when the primary endpoint fails.
+ */
+export async function resolveSourceMediaDownloadUrl(requestUrl: string): Promise<string> {
+    let lastError: unknown = null;
+    for (const candidate of sourceAwareRequestCandidates(requestUrl)) {
+        try {
+            return await resolveSingleSourceMediaDownloadUrl(candidate);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    if (lastError instanceof Error) throw lastError;
+    throw new Error('No media download endpoint is available');
 }
 
 export function resolveSubtitleUrl(track: SubtitleTrack): string | null {
