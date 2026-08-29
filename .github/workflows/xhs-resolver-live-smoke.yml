@@ -1,0 +1,59 @@
+name: XHS Resolver Live Smoke
+
+on:
+  push:
+    branches:
+      - 'feature/platform-download-health'
+    paths:
+      - 'deploy/xhs-resolver/**'
+      - 'scripts/xhs-resolver-live-smoke.py'
+      - '.github/workflows/xhs-resolver-live-smoke.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xhs-resolver-live-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    env:
+      XHS_RESOLVER_URL: ${{ secrets.XHS_RESOLVER_URL }}
+      XHS_RESOLVER_TOKEN: ${{ secrets.XHS_RESOLVER_TOKEN }}
+      XHS_SMOKE_URL: ${{ secrets.XHS_SMOKE_URL }}
+      XHS_MEDIA_HOST_SUFFIXES: xhscdn.com,xiaohongshu.com
+      XHS_SMOKE_TIMEOUT: '30'
+      XHS_SMOKE_FETCH_MEDIA: '1'
+      XHS_SMOKE_ALLOW_MISSING: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run XHS resolver live smoke
+        run: python scripts/xhs-resolver-live-smoke.py
+
+      - name: Print smoke report
+        if: always()
+        run: cat platform-smoke-artifacts/xhs-resolver-live-smoke.json 2>/dev/null || true
+
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xhs-resolver-live-smoke
+          path: platform-smoke-artifacts/xhs-resolver-live-smoke.json
+          if-no-files-found: warn
+          retention-days: 30
