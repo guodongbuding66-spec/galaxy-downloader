@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useDictionary } from '@/i18n/client';
 import { isHlsPlaylistUrl } from '@/lib/hls-playback';
 import type { UnifiedParseResult } from '@/lib/types';
-import { downloadFile } from '@/lib/utils';
+import { downloadFile, getProxiedDownloadUrl } from '@/lib/utils';
 
 import { MediaActionIconButton } from './MediaActionIconButton';
 import { canPreviewResultAudio, canPreviewResultVideo } from './media-preview';
@@ -48,16 +48,22 @@ export function SinglePartButtons({
     const [videoLoading, setVideoLoading] = useState(false);
     const [audioLoading, setAudioLoading] = useState(false);
     const previewSourceUrl = typeof result.url === 'string' ? result.url.trim() : '';
-    const videoDownloadUrl = result.downloadVideoUrl || result.originDownloadVideoUrl;
-    const audioDownloadUrl = result.downloadAudioUrl || result.originDownloadAudioUrl || null;
+    const rawVideoDownloadUrl = result.downloadVideoUrl || result.originDownloadVideoUrl;
+    const rawAudioDownloadUrl = result.downloadAudioUrl || result.originDownloadAudioUrl || null;
     const { videoAction, audioAction } = getResultMediaActions({
         videoAudioMode: result.videoAudioMode,
         mediaActions: result.mediaActions,
-        videoDownloadUrl,
-        audioDownloadUrl,
+        videoDownloadUrl: rawVideoDownloadUrl,
+        audioDownloadUrl: rawAudioDownloadUrl,
         originDownloadVideoUrl: result.originDownloadVideoUrl,
         originDownloadAudioUrl: result.originDownloadAudioUrl,
     });
+    const videoDownloadUrl = rawVideoDownloadUrl
+        ? getProxiedDownloadUrl(rawVideoDownloadUrl)
+        : null;
+    const audioDownloadUrl = rawAudioDownloadUrl
+        ? getProxiedDownloadUrl(rawAudioDownloadUrl)
+        : null;
     const showVideoDownload = videoAction === 'direct-download' || videoAction === 'merge-then-download';
     const showBrowserHlsDownload = videoAction === 'browser-hls-download' || (videoAction === 'hide' && isHlsPlaylistUrl(result.originDownloadVideoUrl));
     const showAudioDownload = audioAction !== 'hide';
@@ -66,11 +72,11 @@ export function SinglePartButtons({
     const showOriginVideoLink =
         typeof result.originDownloadVideoUrl === 'string'
         && result.originDownloadVideoUrl.length > 0
-        && result.originDownloadVideoUrl !== videoDownloadUrl;
+        && result.originDownloadVideoUrl !== rawVideoDownloadUrl;
     const showOriginAudioLink =
         typeof result.originDownloadAudioUrl === 'string'
         && result.originDownloadAudioUrl.length > 0
-        && result.originDownloadAudioUrl !== audioDownloadUrl;
+        && result.originDownloadAudioUrl !== rawAudioDownloadUrl;
 
     const handleDownload = (url: string, setLoading: (value: boolean) => void) => {
         setLoading(true);
@@ -97,7 +103,7 @@ export function SinglePartButtons({
             title: result.title || result.desc || undefined,
             sourceUrl: result.url || null,
             audioUrl: audioDownloadUrl,
-            videoUrl: videoDownloadUrl || null,
+            videoUrl: videoDownloadUrl,
             mediaActions: result.mediaActions,
         });
     };
@@ -214,7 +220,7 @@ export function SinglePartButtons({
                     {showOriginVideoLink && (
                         <Button variant="link" size="sm" className="h-auto px-0 py-0 text-xs" asChild>
                             <a
-                                href={result.originDownloadVideoUrl!}
+                                href={getProxiedDownloadUrl(result.originDownloadVideoUrl!)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                             >
@@ -226,7 +232,7 @@ export function SinglePartButtons({
                     {showOriginAudioLink && (
                         <Button variant="link" size="sm" className="h-auto px-0 py-0 text-xs" asChild>
                             <a
-                                href={result.originDownloadAudioUrl!}
+                                href={getProxiedDownloadUrl(result.originDownloadAudioUrl!)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                             >
