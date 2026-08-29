@@ -30,7 +30,6 @@ export function ImageResultPanel({
         coverUrl: result.cover,
     });
 
-    // 图文笔记常带一条背景音乐，后端会把它作为可选音轨返回
     const { audioAction } = getResultMediaActions({
         videoAudioMode: result.videoAudioMode,
         mediaActions: result.mediaActions,
@@ -42,7 +41,7 @@ export function ImageResultPanel({
     const showAudioActions = audioAction !== 'hide';
 
     return (
-        <Card>
+        <Card className="overflow-hidden">
             <ResultCardHeader
                 title={result.title}
                 duration={result.duration}
@@ -50,16 +49,18 @@ export function ImageResultPanel({
                 onCopyShareLink={() => {}}
                 onClose={onClose}
             />
-            <CardContent className="px-3 pb-3 pt-0">
-                <div className="space-y-2">
+            <CardContent className="p-4 sm:p-5">
+                <div className="space-y-4">
                     <ImageNoteGrid images={displayImages} title={result.title} />
                     {showAudioActions ? (
-                        <SinglePartButtons
-                            result={result}
-                            onOpenExtractAudio={onOpenExtractAudio}
-                            onOpenHlsDownload={() => {}}
-                            onRequestPreview={onRequestPreview}
-                        />
+                        <div className="border-t pt-4">
+                            <SinglePartButtons
+                                result={result}
+                                onOpenExtractAudio={onOpenExtractAudio}
+                                onOpenHlsDownload={() => {}}
+                                onRequestPreview={onRequestPreview}
+                            />
+                        </div>
                     ) : null}
                 </div>
             </CardContent>
