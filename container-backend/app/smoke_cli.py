@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.parse
 from typing import Any
 
 from curl_cffi import requests
@@ -83,24 +84,22 @@ def probe_format(fmt: dict[str, Any] | None) -> dict[str, Any] | None:
             allow_redirects=True,
         ) as response:
             received = 0
-            prefix = bytearray()
             for chunk in response.iter_content(chunk_size=min(32 * 1024, PROBE_BYTES)):
                 if not chunk:
                     continue
-                remaining = PROBE_BYTES - received
-                prefix.extend(chunk[:remaining])
-                received += min(len(chunk), remaining)
+                received += min(len(chunk), PROBE_BYTES - received)
                 if received >= PROBE_BYTES:
                     break
 
             content_type = response.headers.get("content-type", "")
+            final_host = urllib.parse.urlsplit(str(response.url)).hostname
             looks_error = content_type.lower().startswith(("text/html", "application/json", "text/plain")) and response.status_code >= 400
             return {
                 "ok": 200 <= response.status_code < 400 and received > 0 and not looks_error,
                 "status": response.status_code,
                 "bytes": received,
                 "contentType": content_type,
-                "finalHost": response.url.host if getattr(response.url, "host", None) else None,
+                "finalHost": final_host,
             }
     except Exception as exc:
         return {
