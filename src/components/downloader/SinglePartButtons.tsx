@@ -10,6 +10,7 @@ import { isHlsPlaylistUrl } from '@/lib/hls-playback';
 import type { UnifiedParseResult } from '@/lib/types';
 import { downloadFile, getProxiedDownloadUrl } from '@/lib/utils';
 
+import { AdvancedDownloadOptions } from './AdvancedDownloadOptions';
 import { MediaActionIconButton } from './MediaActionIconButton';
 import { canPreviewResultAudio, canPreviewResultVideo } from './media-preview';
 import { getResultMediaActions } from './result-card-visibility';
@@ -243,6 +244,8 @@ export function SinglePartButtons({
                     )}
                 </div>
             )}
+
+            <AdvancedDownloadOptions result={result} />
         </>
     );
 }
