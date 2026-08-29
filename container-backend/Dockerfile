@@ -6,7 +6,7 @@ WORKDIR /
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PATH=/opt/venv/bin:$PATH
+    PATH=/app/bin:/opt/venv/bin:$PATH
 
 # Preserve the provider exactly as shipped so its Node/native dependencies stay ABI-compatible.
 RUN mv /app /opt/bgutil-provider \
@@ -29,11 +29,12 @@ RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY bin ./bin
 COPY yt-dlp.conf /etc/yt-dlp.conf
 COPY entrypoint.sh ./entrypoint.sh
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin galaxy \
-    && chmod 0755 /app/entrypoint.sh \
+    && chmod 0755 /app/entrypoint.sh /app/bin/yt-dlp \
     && chown -R galaxy:galaxy /app /home/galaxy
 
 USER galaxy
