@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+    detectXhsDetailSchema,
     isAllowedXhsMediaUrl,
     isXhsSourceUrl,
     limitStreamBytes,
@@ -40,6 +41,30 @@ function videoResolverPayload() {
     };
 }
 
+function legacyVideoResolverPayload() {
+    return {
+        message: '获取小红书作品数据成功',
+        params: {
+            url: sourceUrl,
+            download: false,
+            index: null,
+            cookie: null,
+            proxy: null,
+            skip: false,
+        },
+        data: {
+            作品ID: 'abc',
+            作品标题: 'Legacy 视频',
+            作品描述: 'Legacy 描述',
+            作品类型: '视频',
+            作者昵称: 'Legacy 作者',
+            作者ID: 'author-legacy',
+            下载地址: ['https://sns-video-bd.xhscdn.com/legacy-video.mp4'],
+            动图地址: [null],
+        },
+    };
+}
+
 afterEach(() => {
     vi.restoreAllMocks();
 });
@@ -56,7 +81,9 @@ describe('XHS resolver provider', () => {
     it('normalizes a resolver video into a first-party download route', () => {
         const result = normalizeXhsDetail(videoResolverPayload().data, sourceUrl, 'https://media.example.com');
 
+        expect(detectXhsDetailSchema(videoResolverPayload().data)).toBe('media-v1');
         expect(result.platform).toBe('xiaohongshu');
+        expect(result.resolverSchema).toBe('media-v1');
         expect(result.noteType).toBe('video');
         expect(result.kind).toBe('video');
         expect(result.cover).toBe('https://sns-webpic-qc.xhscdn.com/cover.jpg');
@@ -74,6 +101,21 @@ describe('XHS resolver provider', () => {
                 ext: 'mp4',
                 downloadUrl: result.downloadVideoUrl,
             }),
+        ]);
+    });
+
+    it('auto-detects and normalizes the legacy server resolver schema', () => {
+        const legacy = legacyVideoResolverPayload();
+        const result = normalizeXhsDetail(legacy.data, sourceUrl, 'https://media.example.com');
+
+        expect(detectXhsDetailSchema(legacy.data)).toBe('download-address-v1');
+        expect(result.resolverSchema).toBe('download-address-v1');
+        expect(result.title).toBe('Legacy 视频');
+        expect(result.author).toBe('Legacy 作者');
+        expect(result.noteType).toBe('video');
+        expect(result.kind).toBe('video');
+        expect(result.qualityOptions).toEqual([
+            expect.objectContaining({ quality: 'best', ext: 'mp4' }),
         ]);
     });
 
@@ -112,6 +154,36 @@ describe('XHS resolver provider', () => {
                 index: 2,
                 url: 'https://sns-webpic-qc.xhscdn.com/2.webp',
                 downloadUrl: 'https://sns-webpic-qc.xhscdn.com/2.webp',
+            },
+        ]);
+    });
+
+    it('normalizes legacy image-address arrays as image notes', () => {
+        const imageSourceUrl = 'https://www.xiaohongshu.com/explore/legacy-images';
+        const detail = {
+            作品标题: 'Legacy 图集',
+            作品类型: '图集',
+            作者昵称: 'Legacy 作者',
+            下载地址: [
+                'https://sns-webpic-qc.xhscdn.com/legacy-1.jpg',
+                'https://sns-webpic-qc.xhscdn.com/legacy-2.webp',
+            ],
+            动图地址: ['NaN', 'NaN'],
+        };
+        const result = normalizeXhsDetail(detail, imageSourceUrl, 'https://media.example.com');
+
+        expect(detectXhsDetailSchema(detail)).toBe('download-address-v1');
+        expect(result.noteType).toBe('image');
+        expect(result.images).toEqual([
+            {
+                index: 1,
+                url: 'https://sns-webpic-qc.xhscdn.com/legacy-1.jpg',
+                downloadUrl: 'https://sns-webpic-qc.xhscdn.com/legacy-1.jpg',
+            },
+            {
+                index: 2,
+                url: 'https://sns-webpic-qc.xhscdn.com/legacy-2.webp',
+                downloadUrl: 'https://sns-webpic-qc.xhscdn.com/legacy-2.webp',
             },
         ]);
     });
@@ -160,11 +232,12 @@ describe('XHS resolver provider', () => {
             XHS_RESOLVER_URL: 'https://resolver.example.com',
             XHS_RESOLVER_TOKEN: 'secret-token',
         }, 'req-1');
-        const payload = await response.json() as { success: boolean; data: Record<string, unknown> };
+        const payload = await response.json() as { success: boolean; data: Record<string, unknown>; details?: Record<string, unknown> };
 
         expect(response.status).toBe(200);
         expect(payload.success).toBe(true);
         expect(payload.data.platform).toBe('xiaohongshu');
+        expect(payload.details?.schema).toBe('media-v1');
         expect(fetchMock).toHaveBeenCalledTimes(1);
 
         const [resolverUrl, init] = fetchMock.mock.calls[0];
@@ -207,6 +280,30 @@ describe('XHS resolver provider', () => {
         expect(String(mediaUrl)).toBe('https://sns-video-bd.xhscdn.com/video.mp4');
         expect(new Headers(mediaInit?.headers).get('range')).toBe('bytes=0-2');
         expect(new Headers(mediaInit?.headers).get('referer')).toBe(sourceUrl);
+    });
+
+    it('streams legacy resolver video addresses through the same guarded tunnel', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(Response.json(legacyVideoResolverPayload()))
+            .mockResolvedValueOnce(new Response(new Uint8Array([7, 8, 9]), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'video/mp4',
+                    'Content-Length': '3',
+                },
+            }));
+
+        const request = new Request(
+            `https://media.example.com/api/download?url=${encodeURIComponent(sourceUrl)}&type=video`,
+        );
+        const response = await xhsDownloadResponse(request, sourceUrl, {
+            XHS_RESOLVER_URL: 'https://resolver.example.com',
+            XHS_MAX_STREAM_BYTES: '10',
+        }, 'req-legacy');
+
+        expect(response?.status).toBe(200);
+        expect(new Uint8Array(await response!.arrayBuffer())).toEqual(new Uint8Array([7, 8, 9]));
+        expect(String(fetchMock.mock.calls[1][0])).toBe('https://sns-video-bd.xhscdn.com/legacy-video.mp4');
     });
 
     it('blocks a redirect from an allowlisted CDN to an untrusted host', async () => {
