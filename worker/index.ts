@@ -29,6 +29,28 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
+function withLocalProcessingHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+
+  // SharedArrayBuffer and multi-thread ffmpeg.wasm require cross-origin
+  // isolation. `credentialless` is intentionally used instead of a global
+  // `require-corp` policy because Galaxy renders third-party media artwork.
+  // Browsers that do not support this COEP mode simply remain on the existing
+  // single-thread FFmpeg fallback.
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+  headers.set("Origin-Agent-Cluster", "?1");
+
+  // Same-origin static resources can participate in an isolated document.
+  headers.set("Cross-Origin-Resource-Policy", "same-origin");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // Image security config. SVG sources with .svg extension auto-skip the
 // optimization endpoint on the client side (served directly, no proxy).
 // To route SVGs through the optimizer (with security headers), set
@@ -44,19 +66,20 @@ const worker = {
     // normalizes backslashes and validates the origin hasn't changed.
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(request, {
+      const response = await handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
           const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
         },
       }, allowedWidths);
+      return withLocalProcessingHeaders(response);
     }
 
     // Delegate everything else to vinext, forwarding ctx so that
     // ctx.waitUntil() is available to background cache writes and
     // other deferred work via getRequestExecutionContext().
-    return handler.fetch(request, env, ctx);
+    return withLocalProcessingHeaders(await handler.fetch(request, env, ctx));
   },
 };
 
