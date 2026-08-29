@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildFinalMediaFfmpegArgs } from '../src/lib/final-media-export.ts';
+import {
+  buildFinalMediaFfmpegArgs,
+  inferJoinedHlsExtension,
+  isHlsMediaResponse,
+} from '../src/lib/final-media-export.ts';
 
 describe('final media export', () => {
   it('builds one MP4 with best video/audio, subtitle and attached cover', () => {
@@ -40,5 +44,18 @@ describe('final media export', () => {
     expect(mapPairs).toContain('0:a:0?');
     expect(args).not.toContain('mov_text');
     expect(args).not.toContain('attached_pic');
+  });
+
+  it('detects HLS from MIME type, URL suffix, or playlist bytes', () => {
+    expect(isHlsMediaResponse('application/vnd.apple.mpegurl', 'https://example.com/video')).toBe(true);
+    expect(isHlsMediaResponse('text/plain', 'https://example.com/master.m3u8')).toBe(true);
+    expect(isHlsMediaResponse('text/plain', 'https://example.com/proxy', new TextEncoder().encode('#EXTM3U\n#EXT-X-VERSION:3'))).toBe(true);
+    expect(isHlsMediaResponse('video/mp4', 'https://example.com/video.mp4', new Uint8Array([0, 1, 2]))).toBe(false);
+  });
+
+  it('uses MP4 for fragmented HLS and TS for transport-stream HLS', () => {
+    expect(inferJoinedHlsExtension('https://example.com/init.mp4', [{ url: 'https://example.com/seg.m4s' }])).toBe('mp4');
+    expect(inferJoinedHlsExtension(null, [{ url: 'https://example.com/seg.m4s' }])).toBe('mp4');
+    expect(inferJoinedHlsExtension(null, [{ url: 'https://example.com/seg.ts' }])).toBe('ts');
   });
 });
