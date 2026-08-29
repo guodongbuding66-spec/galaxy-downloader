@@ -124,6 +124,31 @@ function fetchableUrl(url: string): string {
   return isAlreadyBackendResource(url) ? url : getProxiedDownloadUrl(url);
 }
 
+/**
+ * Network requests for external HLS resources travel through /api/download,
+ * but relative variant/segment URIs still belong to the original CDN playlist.
+ * Never let response.url (the proxy endpoint) replace that logical base URL.
+ * For explicit hls-proxy/raw-media proxy URLs, recover their `url` target.
+ */
+export function resolveLogicalHlsBaseUrl(requestedUrl: string, responseUrl?: string | null): string {
+  try {
+    const parsed = new URL(requestedUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+    const target = parsed.searchParams.get('url');
+    const isRawMediaProxy = parsed.pathname === '/api/hls-proxy'
+      || (parsed.pathname === '/api/download' && !parsed.searchParams.has('type'));
+    if (isRawMediaProxy && target && /^https?:\/\//i.test(target)) {
+      return target;
+    }
+  } catch {
+    // Fall through to the original URL.
+  }
+
+  if (!isAlreadyBackendResource(requestedUrl)) {
+    return requestedUrl;
+  }
+  return responseUrl || requestedUrl;
+}
+
 export function isHlsMediaResponse(contentType: string, url: string, bytes?: Uint8Array | null): boolean {
   const normalizedType = contentType.split(';')[0]?.trim().toLowerCase() || '';
   if (HLS_CONTENT_TYPES.has(normalizedType)) return true;
@@ -202,7 +227,10 @@ async function fetchText(url: string, signal?: AbortSignal): Promise<{ text: str
     headers: { Accept: 'application/vnd.apple.mpegurl, application/x-mpegurl, text/plain, */*' },
   });
   if (!response.ok) throw new Error(`HLS playlist request failed (${response.status})`);
-  return { text: await response.text(), finalUrl: response.url || url };
+  return {
+    text: await response.text(),
+    finalUrl: resolveLogicalHlsBaseUrl(url, response.url),
+  };
 }
 
 async function resolveHlsMediaPlaylist(initialText: string, initialUrl: string, signal?: AbortSignal) {
@@ -373,14 +401,14 @@ async function fetchRemoteFile({
 
   const contentType = response.headers.get('content-type') || '';
   const bytes = await readResponseBytes({ response, signal, stage, progressStart, progressEnd, onProgress });
-  const finalUrl = response.url || url;
+  const logicalResourceUrl = resolveLogicalHlsBaseUrl(url, response.url);
 
-  if (isHlsMediaResponse(contentType, finalUrl, bytes)) {
+  if (isHlsMediaResponse(contentType, logicalResourceUrl, bytes)) {
     const playlistText = new TextDecoder().decode(bytes);
     onProgress?.({ stage, progress: progressStart });
     return createHlsFile({
       initialPlaylistText: playlistText,
-      playlistUrl: finalUrl,
+      playlistUrl: logicalResourceUrl,
       filenameBase,
       signal,
       stage,
