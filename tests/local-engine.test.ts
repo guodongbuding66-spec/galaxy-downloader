@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  canProcessMediaLocally,
   detectLocalProcessingCapabilities,
-  GALAXY_LOCAL_ENGINE_PROTOCOL_VERSION,
-  isGalaxyCompanionEnvelope,
+  shouldUseFileBackedInputs,
 } from '../src/lib/local-engine'
 
 describe('local media engine capabilities', () => {
-  it('enables multithread ffmpeg only with SharedArrayBuffer and cross-origin isolation', () => {
-    expect(detectLocalProcessingCapabilities({
+  it('uses the multithread profile only with SharedArrayBuffer and cross-origin isolation', () => {
+    const capabilities = detectLocalProcessingCapabilities({
       WebAssembly: {},
       SharedArrayBuffer: {},
       crossOriginIsolated: true,
@@ -17,7 +17,9 @@ describe('local media engine capabilities', () => {
         serviceWorker: {},
         wakeLock: {},
       },
-    })).toEqual({
+    })
+
+    expect(capabilities).toEqual({
       webAssembly: true,
       sharedArrayBuffer: true,
       crossOriginIsolated: true,
@@ -25,18 +27,30 @@ describe('local media engine capabilities', () => {
       opfs: true,
       serviceWorker: true,
       wakeLock: true,
+      profile: 'multi-thread',
     })
+    expect(canProcessMediaLocally(capabilities)).toBe(true)
+    expect(shouldUseFileBackedInputs(capabilities)).toBe(true)
+  })
 
-    expect(detectLocalProcessingCapabilities({
+  it('falls back to the single-thread profile without cross-origin isolation', () => {
+    const capabilities = detectLocalProcessingCapabilities({
       WebAssembly: {},
       SharedArrayBuffer: {},
       crossOriginIsolated: false,
       navigator: {},
-    }).multiThreadFFmpeg).toBe(false)
+    })
+
+    expect(capabilities.profile).toBe('single-thread')
+    expect(capabilities.multiThreadFFmpeg).toBe(false)
+    expect(canProcessMediaLocally(capabilities)).toBe(true)
+    expect(shouldUseFileBackedInputs(capabilities)).toBe(false)
   })
 
-  it('reports missing browser features without throwing', () => {
-    expect(detectLocalProcessingCapabilities({})).toEqual({
+  it('reports unsupported browsers without throwing', () => {
+    const capabilities = detectLocalProcessingCapabilities({})
+
+    expect(capabilities).toEqual({
       webAssembly: false,
       sharedArrayBuffer: false,
       crossOriginIsolated: false,
@@ -44,25 +58,8 @@ describe('local media engine capabilities', () => {
       opfs: false,
       serviceWorker: false,
       wakeLock: false,
+      profile: 'unsupported',
     })
-  })
-
-  it('accepts only Galaxy Companion response envelopes', () => {
-    expect(isGalaxyCompanionEnvelope({
-      source: 'galaxy-companion',
-      protocolVersion: GALAXY_LOCAL_ENGINE_PROTOCOL_VERSION,
-      requestId: 'req-1',
-      type: 'response',
-      ok: true,
-    })).toBe(true)
-
-    expect(isGalaxyCompanionEnvelope({
-      source: 'other-extension',
-      protocolVersion: 1,
-      requestId: 'req-1',
-      type: 'response',
-    })).toBe(false)
-
-    expect(isGalaxyCompanionEnvelope(null)).toBe(false)
+    expect(canProcessMediaLocally(capabilities)).toBe(false)
   })
 })
