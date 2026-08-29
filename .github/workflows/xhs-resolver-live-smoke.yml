@@ -38,12 +38,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate Docker Compose configuration
-        run: >-
-          docker compose
-          --env-file deploy/xhs-resolver/.env.example
-          -f deploy/xhs-resolver/compose.yaml
-          config
-          > /tmp/xhs-resolver-compose.yaml
+        run: |
+          XHS_RESOLVER_DOMAIN=xhs-resolver.example.com \
+          XHS_RESOLVER_TOKEN=ci-validation-token \
+          docker compose \
+            -f deploy/xhs-resolver/compose.yaml \
+            config \
+            > /tmp/xhs-resolver-compose.yaml
 
       - name: Validate Caddy gateway configuration
         run: |
