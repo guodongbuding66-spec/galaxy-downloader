@@ -5,6 +5,13 @@ interface RuntimeSecrets {
   YTDLP_COOKIES_B64?: string;
   YTDLP_PROXY?: string;
   YTDLP_USER_AGENT?: string;
+  YTDLP_IMPERSONATE?: string;
+  YTDLP_SOCKET_TIMEOUT?: string;
+  YTDLP_EXTRACTOR_RETRIES?: string;
+  YTDLP_RETRIES?: string;
+  YTDLP_FRAGMENT_RETRIES?: string;
+  YTDLP_CONCURRENT_FRAGMENTS?: string;
+  ALLOWED_ORIGINS?: string;
 }
 
 interface Env extends RuntimeSecrets {
@@ -12,6 +19,19 @@ interface Env extends RuntimeSecrets {
 }
 
 const runtimeSecrets = runtimeEnv as unknown as RuntimeSecrets;
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://galaxy-downloader.guodongbuding66.workers.dev',
+  'http://localhost:3010',
+  'http://127.0.0.1:3010',
+];
+
+function configuredOrigins(): string[] {
+  const configured = runtimeSecrets.ALLOWED_ORIGINS
+    ?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return configured?.length ? configured : DEFAULT_ALLOWED_ORIGINS;
+}
 
 export class MediaContainer extends Container {
   defaultPort = 8080;
@@ -22,11 +42,13 @@ export class MediaContainer extends Container {
     YTDLP_COOKIES_B64: runtimeSecrets.YTDLP_COOKIES_B64 || '',
     YTDLP_PROXY: runtimeSecrets.YTDLP_PROXY || '',
     YTDLP_USER_AGENT: runtimeSecrets.YTDLP_USER_AGENT || '',
-    ALLOWED_ORIGINS: [
-      'https://galaxy-downloader.guodongbuding66.workers.dev',
-      'http://localhost:3010',
-      'http://127.0.0.1:3010',
-    ].join(','),
+    YTDLP_IMPERSONATE: runtimeSecrets.YTDLP_IMPERSONATE || 'chrome',
+    YTDLP_SOCKET_TIMEOUT: runtimeSecrets.YTDLP_SOCKET_TIMEOUT || '30',
+    YTDLP_EXTRACTOR_RETRIES: runtimeSecrets.YTDLP_EXTRACTOR_RETRIES || '3',
+    YTDLP_RETRIES: runtimeSecrets.YTDLP_RETRIES || '3',
+    YTDLP_FRAGMENT_RETRIES: runtimeSecrets.YTDLP_FRAGMENT_RETRIES || '3',
+    YTDLP_CONCURRENT_FRAGMENTS: runtimeSecrets.YTDLP_CONCURRENT_FRAGMENTS || '4',
+    ALLOWED_ORIGINS: configuredOrigins().join(','),
   };
 
   override onError(error: unknown) {
@@ -36,15 +58,12 @@ export class MediaContainer extends Container {
 
 function corsHeaders(request: Request): HeadersInit {
   const origin = request.headers.get('origin') || '';
-  const allowed = new Set([
-    'https://galaxy-downloader.guodongbuding66.workers.dev',
-    'http://localhost:3010',
-    'http://127.0.0.1:3010',
-  ]);
+  const allowedOrigins = configuredOrigins();
+  const allowed = new Set(allowedOrigins);
   return {
-    'Access-Control-Allow-Origin': allowed.has(origin) ? origin : 'https://galaxy-downloader.guodongbuding66.workers.dev',
+    'Access-Control-Allow-Origin': allowed.has(origin) ? origin : allowedOrigins[0],
     'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Range',
+    'Access-Control-Allow-Headers': 'Content-Type,Range,X-Request-Id',
     'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Content-Disposition,Accept-Ranges,X-Request-Id',
     Vary: 'Origin',
   };
@@ -84,7 +103,9 @@ export default {
 
     const headers = new Headers(request.headers);
     headers.set('x-public-base-url', `${url.protocol}//${url.host}`);
-    headers.set('x-request-id', crypto.randomUUID());
+    if (!headers.has('x-request-id')) {
+      headers.set('x-request-id', crypto.randomUUID());
+    }
     const forwarded = new Request(request, { headers });
 
     // Stateless media work is spread across a small pool. Each Container is a
