@@ -29,7 +29,10 @@ type CoreCandidate = {
 };
 
 export function getFFmpegCoreBaseUrls(): readonly string[] {
-  return [...FFMPEG_MULTI_CORE_BASE_URLS, ...FFMPEG_SINGLE_CORE_BASE_URLS];
+  // Preserve the original public fallback contract: app-hosted assets first,
+  // then single-thread CDN mirrors. Multi-thread cores are runtime candidates
+  // selected separately only when the browser is cross-origin isolated.
+  return FFMPEG_SINGLE_CORE_BASE_URLS;
 }
 
 export function getPreferredFFmpegCoreCandidates(): readonly CoreCandidate[] {
