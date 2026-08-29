@@ -1,5 +1,7 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 
+import { detectLocalProcessingCapabilities } from '@/lib/local-engine';
+
 let ffmpegInstance: FFmpeg | null = null;
 let loadPromise: Promise<FFmpeg> | null = null;
 
@@ -12,14 +14,41 @@ const LOCAL_FFMPEG_WASM_PART_URLS = [
   `${LOCAL_FFMPEG_CORE_BASE_URL}/ffmpeg-core.wasm.part-0`,
   `${LOCAL_FFMPEG_CORE_BASE_URL}/ffmpeg-core.wasm.part-1`,
 ];
-const FFMPEG_CORE_BASE_URLS = [
+const FFMPEG_SINGLE_CORE_BASE_URLS = [
   LOCAL_FFMPEG_CORE_BASE_URL,
   `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/esm`,
   `https://cdn.jsdmirror.com/npm/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/esm`,
-];
+] as const;
+const FFMPEG_MULTI_CORE_BASE_URLS = [
+  `https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@${FFMPEG_CORE_VERSION}/dist/esm`,
+  `https://cdn.jsdmirror.com/npm/@ffmpeg/core-mt@${FFMPEG_CORE_VERSION}/dist/esm`,
+] as const;
+
+type CoreCandidate = {
+  baseURL: string;
+  multithread: boolean;
+};
 
 export function getFFmpegCoreBaseUrls(): readonly string[] {
-  return FFMPEG_CORE_BASE_URLS;
+  return [...FFMPEG_MULTI_CORE_BASE_URLS, ...FFMPEG_SINGLE_CORE_BASE_URLS];
+}
+
+export function getPreferredFFmpegCoreCandidates(): readonly CoreCandidate[] {
+  const capabilities = detectLocalProcessingCapabilities();
+  const candidates: CoreCandidate[] = [];
+
+  if (capabilities.multiThreadFFmpeg) {
+    candidates.push(...FFMPEG_MULTI_CORE_BASE_URLS.map((baseURL) => ({
+      baseURL,
+      multithread: true,
+    })));
+  }
+
+  candidates.push(...FFMPEG_SINGLE_CORE_BASE_URLS.map((baseURL) => ({
+    baseURL,
+    multithread: false,
+  })));
+  return candidates;
 }
 
 async function fetchBlobURL(
@@ -80,9 +109,14 @@ async function withTimeout<T>(
   }
 }
 
-async function loadFFmpegCoreFromSource(ffmpeg: FFmpeg, baseURL: string) {
+async function loadFFmpegCoreFromSource(
+  ffmpeg: FFmpeg,
+  candidate: CoreCandidate,
+) {
+  const { baseURL, multithread } = candidate;
   let coreURL: string | null = null;
   let wasmURL: string | null = null;
+  let workerURL: string | null = null;
 
   try {
     coreURL = await withTimeout(
@@ -96,18 +130,23 @@ async function loadFFmpegCoreFromSource(ffmpeg: FFmpeg, baseURL: string) {
         : fetchBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm', signal)
     );
 
+    if (multithread) {
+      workerURL = await withTimeout(
+        FFMPEG_ASSET_TIMEOUT_MS,
+        (signal) => fetchBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript', signal)
+      );
+    }
+
     await withTimeout(FFMPEG_INITIALIZATION_TIMEOUT_MS, (signal) => ffmpeg.load({
       coreURL,
       wasmURL,
+      ...(workerURL ? { workerURL } : {}),
     }, { signal }));
   } finally {
     if (!ffmpeg.loaded) {
-      if (coreURL) {
-        URL.revokeObjectURL(coreURL);
-      }
-      if (wasmURL) {
-        URL.revokeObjectURL(wasmURL);
-      }
+      if (coreURL) URL.revokeObjectURL(coreURL);
+      if (wasmURL) URL.revokeObjectURL(wasmURL);
+      if (workerURL) URL.revokeObjectURL(workerURL);
     }
   }
 }
@@ -122,39 +161,31 @@ export async function getFFmpeg(): Promise<FFmpeg> {
   }
 
   loadPromise = (async () => {
-    const ffmpeg = new FFmpeg();
+    let lastError: unknown = null;
 
-    ffmpeg.on('log', ({ message }) => {
-      console.log('[FFmpeg]', message);
-    });
+    for (const candidate of getPreferredFFmpegCoreCandidates()) {
+      const ffmpeg = new FFmpeg();
+      ffmpeg.on('log', ({ message }) => {
+        console.log('[FFmpeg]', message);
+      });
 
-    try {
-      let lastError: unknown = null;
-
-      // The FFmpeg wrapper uses a module worker and loads ffmpeg-core with import().
-      // That means the core asset must be the ESM build, not the UMD one.
-      for (const baseURL of FFMPEG_CORE_BASE_URLS) {
-        try {
-          await loadFFmpegCoreFromSource(ffmpeg, baseURL);
-          console.log('[FFmpeg] Loaded single-thread core from:', baseURL);
-          lastError = null;
-          break;
-        } catch (candidateError) {
-          lastError = candidateError;
-          console.warn('[FFmpeg] Failed to load core from:', baseURL, candidateError);
-        }
+      try {
+        await loadFFmpegCoreFromSource(ffmpeg, candidate);
+        console.log(
+          `[FFmpeg] Loaded ${candidate.multithread ? 'multi-thread' : 'single-thread'} core from:`,
+          candidate.baseURL,
+        );
+        ffmpegInstance = ffmpeg;
+        return ffmpeg;
+      } catch (candidateError) {
+        lastError = candidateError;
+        ffmpeg.terminate();
+        console.warn('[FFmpeg] Failed to load core from:', candidate.baseURL, candidateError);
       }
-
-      if (lastError) {
-        throw lastError;
-      }
-    } catch (err) {
-      loadPromise = null;
-      throw new Error(`Failed to load FFmpeg: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    ffmpegInstance = ffmpeg;
-    return ffmpeg;
+    loadPromise = null;
+    throw new Error(`Failed to load FFmpeg: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
   })();
 
   return loadPromise;
@@ -350,17 +381,14 @@ export async function extractAudioFromVideo({
   const ffmpeg = await getFFmpeg();
   console.log('[FFmpeg] FFmpeg loaded successfully');
 
-  // Download video file with progress tracking
   onProgress?.(0, 'downloading');
   console.log('[FFmpeg] Downloading video...');
 
   let videoData: Uint8Array;
   try {
     if (videoFile) {
-      // Read from local File object
       videoData = await readLocalFile(videoFile, 'downloading', signal, onProgress);
     } else if (videoUrl) {
-      // Download from URL
       videoData = await downloadVideoData(videoUrl, signal, onProgress);
     } else {
       throw new Error('Either videoUrl or videoFile must be provided');
@@ -372,18 +400,15 @@ export async function extractAudioFromVideo({
 
   onProgress?.(100, 'downloading');
 
-  // Write to virtual file system
   await ffmpeg.writeFile('input.mp4', videoData, { signal });
   console.log('[FFmpeg] Video written to virtual filesystem');
 
-  // Set conversion progress listener
   const handleProgress = ({ progress }: { progress: number }) => {
     onProgress?.(Math.round(progress * 100), 'converting');
   };
   ffmpeg.on('progress', handleProgress);
 
   try {
-    // Execute conversion: extract audio to MP3
     console.log('[FFmpeg] Starting conversion...');
     await ffmpeg.exec([
       '-i', 'input.mp4',
@@ -394,14 +419,11 @@ export async function extractAudioFromVideo({
     ], undefined, { signal });
     console.log('[FFmpeg] Conversion completed');
 
-    // Read output file
     const outputData = await ffmpeg.readFile('output.mp3', undefined, { signal });
 
-    // Create Blob (outputData is Uint8Array or string)
     if (typeof outputData === 'string') {
       throw new Error('Unexpected string output from ffmpeg');
     }
-    // Copy to a new ArrayBuffer to avoid SharedArrayBuffer issues
     const buffer = new ArrayBuffer(outputData.byteLength);
     new Uint8Array(buffer).set(outputData);
     console.log('[FFmpeg] Audio blob created, size:', buffer.byteLength);
@@ -478,7 +500,7 @@ export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
+  a.download = filename || '';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
