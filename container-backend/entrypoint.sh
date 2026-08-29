@@ -4,6 +4,7 @@ set -eu
 POT_LOG="/tmp/bgutil-provider.log"
 POT_HOST="127.0.0.1"
 POT_PORT="4416"
+APP_PORT="${PORT:-8080}"
 
 node /opt/bgutil-provider/build/main.js --port "$POT_PORT" >"$POT_LOG" 2>&1 &
 POT_PID=$!
@@ -45,6 +46,6 @@ fi
 
 exec python -m uvicorn app.main:app \
   --host 0.0.0.0 \
-  --port 8080 \
+  --port "$APP_PORT" \
   --proxy-headers \
   --forwarded-allow-ips '*'
