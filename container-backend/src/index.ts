@@ -3,7 +3,12 @@ import { env as runtimeEnv } from 'cloudflare:workers';
 
 interface RuntimeSecrets {
   YTDLP_COOKIES_B64?: string;
+  YTDLP_COOKIE_POLICY?: string;
+  YTDLP_TWITCH_ALLOW_COOKIES?: string;
   YTDLP_PROXY?: string;
+  YTDLP_YOUTUBE_PROXY?: string;
+  YTDLP_XHS_PROXY?: string;
+  YTDLP_RUMBLE_PROXY?: string;
   YTDLP_USER_AGENT?: string;
   YTDLP_IMPERSONATE?: string;
   YTDLP_SOCKET_TIMEOUT?: string;
@@ -40,7 +45,12 @@ export class MediaContainer extends Container {
 
   envVars = {
     YTDLP_COOKIES_B64: runtimeSecrets.YTDLP_COOKIES_B64 || '',
+    YTDLP_COOKIE_POLICY: runtimeSecrets.YTDLP_COOKIE_POLICY || 'when_needed',
+    YTDLP_TWITCH_ALLOW_COOKIES: runtimeSecrets.YTDLP_TWITCH_ALLOW_COOKIES || '0',
     YTDLP_PROXY: runtimeSecrets.YTDLP_PROXY || '',
+    YTDLP_YOUTUBE_PROXY: runtimeSecrets.YTDLP_YOUTUBE_PROXY || '',
+    YTDLP_XHS_PROXY: runtimeSecrets.YTDLP_XHS_PROXY || '',
+    YTDLP_RUMBLE_PROXY: runtimeSecrets.YTDLP_RUMBLE_PROXY || '',
     YTDLP_USER_AGENT: runtimeSecrets.YTDLP_USER_AGENT || '',
     YTDLP_IMPERSONATE: runtimeSecrets.YTDLP_IMPERSONATE || 'chrome',
     YTDLP_SOCKET_TIMEOUT: runtimeSecrets.YTDLP_SOCKET_TIMEOUT || '30',
