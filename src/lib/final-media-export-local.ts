@@ -26,6 +26,10 @@ interface MountedFile {
   cleanup: () => Promise<void>
 }
 
+interface WakeLockLike {
+  release(): Promise<void>
+}
+
 function fileExtension(url: string, fallback: string): string {
   try {
     const pathname = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost').pathname
@@ -45,8 +49,42 @@ function isHlsUrl(url: string | null | undefined): boolean {
   }
 }
 
+async function isHlsFile(file: File): Promise<boolean> {
+  const type = file.type.split(';')[0]?.trim().toLowerCase() || ''
+  if (type.includes('mpegurl')) return true
+  if (file.size > 2 * 1024 * 1024) return false
+
+  try {
+    const prefix = await file.slice(0, 256).text()
+    return prefix.trimStart().startsWith('#EXTM3U')
+  } catch {
+    return false
+  }
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return buffer
+}
+
+async function requestWakeLock(): Promise<WakeLockLike | null> {
+  if (typeof navigator === 'undefined') return null
+  const wakeLock = (navigator as Navigator & {
+    wakeLock?: { request(type: 'screen'): Promise<WakeLockLike> }
+  }).wakeLock
+  if (!wakeLock) return null
+
+  try {
+    return await wakeLock.request('screen')
+  } catch (error) {
+    console.debug('[Galaxy Local] Screen Wake Lock unavailable:', error)
+    return null
+  }
 }
 
 async function mountFile(ffmpeg: FFmpeg, file: File, mountPoint: string): Promise<MountedFile> {
@@ -125,6 +163,7 @@ async function createBrowserLocalFinalMediaFile(input: FinalMediaInput): Promise
   const localResources: BrowserLocalFile[] = []
   const mounts: MountedFile[] = []
   const ffmpegTempFiles: string[] = []
+  const wakeLock = await requestWakeLock()
 
   try {
     const video = await downloadLocalCandidate({
@@ -138,6 +177,10 @@ async function createBrowserLocalFinalMediaFile(input: FinalMediaInput): Promise
     })
     localResources.push(video)
 
+    if (await isHlsFile(video.file)) {
+      throw new Error('GALAXY_USE_LEGACY_HLS')
+    }
+
     const audio = input.audioUrl
       ? await downloadLocalCandidate({
           url: input.audioUrl,
@@ -149,7 +192,12 @@ async function createBrowserLocalFinalMediaFile(input: FinalMediaInput): Promise
           onProgress: input.onProgress,
         })
       : null
-    if (audio) localResources.push(audio)
+    if (audio) {
+      localResources.push(audio)
+      if (await isHlsFile(audio.file)) {
+        throw new Error('GALAXY_USE_LEGACY_HLS')
+      }
+    }
 
     const subtitle = input.subtitleUrl
       ? await downloadLocalCandidate({
@@ -227,7 +275,7 @@ async function createBrowserLocalFinalMediaFile(input: FinalMediaInput): Promise
       input.onProgress?.({ stage: 'saving', progress: 97 })
       const outputData = await ffmpeg.readFile(outputName, undefined, { signal: input.signal })
       if (typeof outputData === 'string') throw new Error('Unexpected FFmpeg output')
-      downloadBlob(new Blob([outputData], { type: 'video/mp4' }), `${safeTitle}.mp4`)
+      downloadBlob(new Blob([copyToArrayBuffer(outputData)], { type: 'video/mp4' }), `${safeTitle}.mp4`)
       input.onProgress?.({ stage: 'completed', progress: 100 })
     } finally {
       ffmpeg.off('progress', handleProgress)
@@ -236,6 +284,7 @@ async function createBrowserLocalFinalMediaFile(input: FinalMediaInput): Promise
   } finally {
     await Promise.allSettled(mounts.reverse().map((mount) => mount.cleanup()))
     await Promise.allSettled(localResources.map((resource) => resource.cleanup()))
+    await wakeLock?.release().catch(() => undefined)
   }
 }
 
