@@ -250,7 +250,7 @@ export function UnifiedDownloader({
             autoplay: request.autoplay ?? false,
             origin: request.origin ?? 'result',
         });
-    }, []);
+    }, [setActivePreview]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
