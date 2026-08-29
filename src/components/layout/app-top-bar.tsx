@@ -133,7 +133,7 @@ export function AppTopBar({
                     </div>
                     <div className="flex items-center gap-1">
                         <Button variant="ghost" size="sm" asChild>
-                            <a href="https://github.com/lxw15337674/galaxy-downloader" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
+                            <a href="https://github.com/guodongbuding66-spec/galaxy-downloader" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
                                 <Image
                                     src="/platform-icons/github.svg"
                                     alt=""
