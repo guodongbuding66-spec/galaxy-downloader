@@ -6,6 +6,7 @@ on:
       - 'feature/platform-download-health'
     paths:
       - 'scripts/platform-smoke.py'
+      - 'scripts/platform-browser-fallback-smoke.py'
       - '.github/workflows/platform-smoke.yml'
       - 'src/components/downloader/platform-support.ts'
   workflow_dispatch:
@@ -22,7 +23,7 @@ concurrency:
 jobs:
   production-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     continue-on-error: true
     steps:
       - name: Checkout
@@ -43,6 +44,13 @@ jobs:
           PLATFORM_SMOKE_TIMEOUT: '30'
           PLATFORM_SMOKE_FIXTURES_JSON: ${{ secrets.PLATFORM_SMOKE_FIXTURES_JSON }}
         run: python scripts/platform-smoke.py --output-dir platform-smoke-artifacts
+
+      - name: Probe browser fallback route
+        env:
+          PLATFORM_SMOKE_API_BASE: https://downloader-api.bhwa233.com
+          PLATFORM_SMOKE_TIMEOUT: '30'
+          PLATFORM_SMOKE_FIXTURES_JSON: ${{ secrets.PLATFORM_SMOKE_FIXTURES_JSON }}
+        run: python scripts/platform-browser-fallback-smoke.py
 
       - name: Print report
         if: always()
