@@ -7,6 +7,7 @@ import type { MediaPreviewRequest } from '@/components/downloader/media-preview'
 import { Button } from '@/components/ui/button';
 import { useDictionary } from '@/i18n/client';
 import { isHlsPlaylistUrl } from '@/lib/hls-playback';
+import { buildSourceMediaDownloadUrl } from '@/lib/media-download-options';
 import type { UnifiedParseResult } from '@/lib/types';
 import { downloadFile, getProxiedDownloadUrl } from '@/lib/utils';
 
@@ -65,6 +66,12 @@ export function SinglePartButtons({
     const audioDownloadUrl = rawAudioDownloadUrl
         ? getProxiedDownloadUrl(rawAudioDownloadUrl)
         : null;
+    const bestVideoDownloadUrl = previewSourceUrl
+        ? buildSourceMediaDownloadUrl({ sourceUrl: previewSourceUrl, type: 'video', quality: 'best' })
+        : videoDownloadUrl;
+    const bestAudioDownloadUrl = previewSourceUrl
+        ? buildSourceMediaDownloadUrl({ sourceUrl: previewSourceUrl, type: 'audio', quality: 'best' })
+        : audioDownloadUrl;
     const showVideoDownload = videoAction === 'direct-download' || videoAction === 'merge-then-download';
     const showBrowserHlsDownload = videoAction === 'browser-hls-download' || (videoAction === 'hide' && isHlsPlaylistUrl(result.originDownloadVideoUrl));
     const showAudioDownload = audioAction !== 'hide';
@@ -170,7 +177,9 @@ export function SinglePartButtons({
                                         return;
                                     }
 
-                                    handleDownload(videoDownloadUrl!, setVideoLoading);
+                                    if (bestVideoDownloadUrl) {
+                                        handleDownload(bestVideoDownloadUrl, setVideoLoading);
+                                    }
                                 }}
                             />
                         )}
@@ -199,7 +208,9 @@ export function SinglePartButtons({
                                         return;
                                     }
 
-                                    handleDownload(audioDownloadUrl!, setAudioLoading);
+                                    if (bestAudioDownloadUrl) {
+                                        handleDownload(bestAudioDownloadUrl, setAudioLoading);
+                                    }
                                 }}
                             />
                         )}
