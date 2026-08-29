@@ -22,13 +22,13 @@ interface AppTopBarProps {
     homeHref?: string
 }
 
-const SKIP_COPY: Record<string, string> = {
-    zh: '跳到主要内容',
-    'zh-tw': '跳到主要內容',
-    en: 'Skip to main content',
-    ja: 'メインコンテンツへ移動',
-    es: 'Saltar al contenido principal',
-    ru: 'Перейти к основному содержимому',
+const NAV_COPY: Record<string, { skip: string; subtitle: string; tools: string }> = {
+    zh: { skip: '跳到主要内容', subtitle: '本地媒体工作台', tools: '工具' },
+    'zh-tw': { skip: '跳到主要內容', subtitle: '本機媒體工作台', tools: '工具' },
+    en: { skip: 'Skip to main content', subtitle: 'Local media workbench', tools: 'Tools' },
+    ja: { skip: 'メインコンテンツへ移動', subtitle: 'ローカルメディアワークベンチ', tools: 'ツール' },
+    es: { skip: 'Saltar al contenido principal', subtitle: 'Mesa de medios local', tools: 'Herramientas' },
+    ru: { skip: 'Перейти к основному содержимому', subtitle: 'Локальная медиамастерская', tools: 'Инструменты' },
 }
 
 export function AppTopBar({
@@ -46,6 +46,7 @@ export function AppTopBar({
     const locale = i18n.locales.includes(firstSegment as (typeof i18n.locales)[number])
         ? firstSegment
         : i18n.defaultLocale
+    const navCopy = NAV_COPY[locale] || NAV_COPY.en
     const feedbackHref = `/${locale}/feedback`
     const resolvedHomeHref = homeHref === '/' ? `/${locale}` : homeHref
     const shouldShowHomeButton = showHomeButton || (pathname !== `/${locale}` && pathname !== `/${locale}/`)
@@ -63,7 +64,7 @@ export function AppTopBar({
                 href="#main-content"
                 className="sr-only fixed left-3 top-3 z-[60] rounded-lg bg-background px-3 py-2 text-sm font-medium shadow-lg ring-2 ring-ring focus:not-sr-only"
             >
-                {SKIP_COPY[locale] || SKIP_COPY.en}
+                {navCopy.skip}
             </a>
 
             <div className="mx-auto flex min-h-14 w-full max-w-6xl items-center gap-2 px-3 sm:px-5 md:px-6">
@@ -77,13 +78,13 @@ export function AppTopBar({
                     </span>
                     <span className="hidden min-w-0 sm:block">
                         <span className="block truncate text-sm font-semibold tracking-tight">Galaxy Downloader</span>
-                        <span className="hidden text-[11px] leading-4 text-muted-foreground lg:block">Local media workbench</span>
+                        <span className="hidden text-[11px] leading-4 text-muted-foreground lg:block">{navCopy.subtitle}</span>
                     </span>
                 </Link>
 
-                <nav className="ml-1 hidden min-w-0 flex-1 items-center gap-1 md:flex" aria-label="Tools">
+                <nav className="ml-1 hidden min-w-0 flex-1 items-center gap-1 md:flex" aria-label={navCopy.tools}>
                     {shouldShowHomeButton && (
-                        <Button variant="ghost" size="sm" className="gap-1.5 active:scale-[0.96] transition-transform duration-150" asChild>
+                        <Button variant="ghost" size="sm" className="gap-1.5" asChild>
                             <Link href={resolvedHomeHref}>
                                 <Home className="h-4 w-4" aria-hidden="true" />
                                 <span>{dict.common.home}</span>
@@ -91,23 +92,13 @@ export function AppTopBar({
                         </Button>
                     )}
                     {effectiveShowHistoryShortcut && effectiveHistoryClick && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-1.5 active:scale-[0.96] transition-[transform,background-color] duration-150"
-                            onClick={effectiveHistoryClick}
-                        >
+                        <Button variant="ghost" size="sm" className="gap-1.5" onClick={effectiveHistoryClick}>
                             <History className="h-4 w-4" aria-hidden="true" />
                             <span>{dict.history.title}</span>
                         </Button>
                     )}
                     {effectiveShowAudioTool && effectiveAudioToolClick && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-1.5 active:scale-[0.96] transition-[transform,background-color] duration-150"
-                            onClick={effectiveAudioToolClick}
-                        >
+                        <Button variant="ghost" size="sm" className="gap-1.5" onClick={effectiveAudioToolClick}>
                             <Music className="h-4 w-4" aria-hidden="true" />
                             <span>{dict.audioTool.triggerButton}</span>
                         </Button>
@@ -116,42 +107,30 @@ export function AppTopBar({
 
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                     {effectiveShowHistoryShortcut && effectiveHistoryClick && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-10 w-10 active:scale-[0.96] transition-[transform,background-color] duration-150 md:hidden"
-                            onClick={effectiveHistoryClick}
-                            aria-label={dict.history.title}
-                        >
+                        <Button variant="ghost" size="icon" className="md:hidden" onClick={effectiveHistoryClick} aria-label={dict.history.title}>
                             <History className="h-4 w-4" aria-hidden="true" />
                         </Button>
                     )}
                     {effectiveShowAudioTool && effectiveAudioToolClick && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-10 w-10 active:scale-[0.96] transition-[transform,background-color] duration-150 md:hidden"
-                            onClick={effectiveAudioToolClick}
-                            aria-label={dict.audioTool.triggerButton}
-                        >
+                        <Button variant="ghost" size="icon" className="md:hidden" onClick={effectiveAudioToolClick} aria-label={dict.audioTool.triggerButton}>
                             <Music className="h-4 w-4" aria-hidden="true" />
                         </Button>
                     )}
 
-                    <Button variant="ghost" size="icon" className="h-10 w-10 active:scale-[0.96] transition-[transform,background-color] duration-150 sm:hidden" asChild>
+                    <Button variant="ghost" size="icon" className="sm:hidden" asChild>
                         <Link href={feedbackHref} aria-label={dict.feedback.triggerButton}>
                             <MessageSquare className="h-4 w-4" aria-hidden="true" />
                         </Link>
                     </Button>
 
-                    <Button variant="ghost" size="sm" className="hidden gap-1.5 active:scale-[0.96] transition-[transform,background-color] duration-150 sm:inline-flex" asChild>
+                    <Button variant="ghost" size="sm" className="hidden gap-1.5 sm:inline-flex" asChild>
                         <Link href={feedbackHref}>
                             <MessageSquare className="h-4 w-4" aria-hidden="true" />
                             <span>{dict.feedback.triggerButton}</span>
                         </Link>
                     </Button>
 
-                    <Button variant="ghost" size="sm" className="hidden gap-1.5 active:scale-[0.96] transition-[transform,background-color] duration-150 lg:inline-flex" asChild>
+                    <Button variant="ghost" size="sm" className="hidden gap-1.5 lg:inline-flex" asChild>
                         <a href="https://github.com/guodongbuding66-spec/galaxy-downloader" target="_blank" rel="noopener noreferrer">
                             <Image
                                 src="/platform-icons/github.svg"
