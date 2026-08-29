@@ -11,6 +11,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -20,12 +21,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 PARSE_TIMEOUT_SECONDS = int(os.getenv("PARSE_TIMEOUT_SECONDS", "90"))
+PARSE_ATTEMPTS = max(1, int(os.getenv("PARSE_ATTEMPTS", "2")))
+PARSE_RETRY_DELAY_SECONDS = max(0.0, float(os.getenv("PARSE_RETRY_DELAY_SECONDS", "0.75")))
 DOWNLOAD_TIMEOUT_SECONDS = int(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "1800"))
 MAX_SOURCE_URL_LENGTH = 4096
 PARSE_CONCURRENCY = int(os.getenv("PARSE_CONCURRENCY", "4"))
 DOWNLOAD_CONCURRENCY = int(os.getenv("DOWNLOAD_CONCURRENCY", "2"))
+MAX_DOWNLOAD_BYTES = max(1, int(os.getenv("MAX_DOWNLOAD_BYTES", str(6 * 1024 * 1024 * 1024))))
+DOWNLOAD_DISK_HEADROOM_BYTES = max(0, int(os.getenv("DOWNLOAD_DISK_HEADROOM_BYTES", str(512 * 1024 * 1024))))
+MIN_DOWNLOAD_CAPACITY_BYTES = max(1, int(os.getenv("MIN_DOWNLOAD_CAPACITY_BYTES", str(64 * 1024 * 1024))))
 
 parse_slots = asyncio.Semaphore(PARSE_CONCURRENCY)
 download_slots = asyncio.Semaphore(DOWNLOAD_CONCURRENCY)
@@ -51,6 +57,17 @@ app.add_middleware(
 
 COOKIE_PATH = Path("/tmp/galaxy-cookies.txt")
 AUDIO_EXTENSIONS = {"aac", "flac", "m4a", "m4b", "mp3", "oga", "ogg", "opus", "wav", "weba"}
+NON_RETRYABLE_PARSE_MARKERS = (
+    "sign in to confirm you’re not a bot",
+    "sign in to confirm you're not a bot",
+    "no video formats found",
+    "unsupported url",
+    "private video",
+    "login required",
+    "this video is unavailable",
+    "http error 401",
+    "http error 403",
+)
 
 
 def materialize_cookies() -> str | None:
@@ -240,31 +257,59 @@ def run_process(command: list[str], timeout: int) -> subprocess.CompletedProcess
     )
 
 
+def parse_error_message(completed: subprocess.CompletedProcess[str]) -> str:
+    return (completed.stderr or completed.stdout or "yt-dlp failed")[-4000:].strip()
+
+
+def parse_error_is_retryable(message: str) -> bool:
+    normalized = message.lower()
+    return not any(marker in normalized for marker in NON_RETRYABLE_PARSE_MARKERS)
+
+
 def parse_with_ytdlp(source_url: str) -> dict[str, Any]:
     command = common_yt_dlp_args() + [
         "--dump-single-json",
         "--skip-download",
         source_url,
     ]
-    try:
-        completed = run_process(command, PARSE_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail="Parser timed out") from exc
-    if completed.returncode != 0:
-        message = (completed.stderr or completed.stdout or "yt-dlp failed")[-4000:].strip()
-        raise HTTPException(status_code=502, detail=message)
-    try:
-        payload = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=502, detail="Parser returned invalid JSON") from exc
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Parser returned an invalid result")
-    if payload.get("_type") == "playlist":
-        entries = [entry for entry in payload.get("entries") or [] if isinstance(entry, dict)]
-        if not entries:
-            raise HTTPException(status_code=404, detail="No downloadable media was found")
-        payload = entries[0]
-    return payload
+    last_message = "yt-dlp failed"
+    timed_out = False
+
+    for attempt in range(1, PARSE_ATTEMPTS + 1):
+        try:
+            completed = run_process(command, PARSE_TIMEOUT_SECONDS)
+            timed_out = False
+        except subprocess.TimeoutExpired:
+            completed = None
+            timed_out = True
+            last_message = "Parser timed out"
+
+        if completed is not None and completed.returncode == 0:
+            try:
+                payload = json.loads(completed.stdout)
+            except json.JSONDecodeError:
+                last_message = "Parser returned invalid JSON"
+            else:
+                if not isinstance(payload, dict):
+                    last_message = "Parser returned an invalid result"
+                else:
+                    if payload.get("_type") == "playlist":
+                        entries = [entry for entry in payload.get("entries") or [] if isinstance(entry, dict)]
+                        if not entries:
+                            raise HTTPException(status_code=404, detail="No downloadable media was found")
+                        payload = entries[0]
+                    return payload
+        elif completed is not None:
+            last_message = parse_error_message(completed)
+            if not parse_error_is_retryable(last_message):
+                break
+
+        if attempt < PARSE_ATTEMPTS and PARSE_RETRY_DELAY_SECONDS > 0:
+            time.sleep(PARSE_RETRY_DELAY_SECONDS * attempt)
+
+    if timed_out:
+        raise HTTPException(status_code=504, detail=last_message)
+    raise HTTPException(status_code=502, detail=last_message)
 
 
 def best_format_groups(info: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
@@ -400,6 +445,7 @@ def normalize_parse_result(info: dict[str, Any], source_url: str, base: str) -> 
         "url": source_url,
         "duration": info.get("duration"),
         "kind": kind,
+        "maxDownloadBytes": MAX_DOWNLOAD_BYTES,
     }
 
 
@@ -426,11 +472,23 @@ def find_downloaded_file(directory: Path) -> Path:
     return max(candidates, key=lambda path: path.stat().st_size)
 
 
+def available_download_limit(directory: Path) -> int:
+    free_bytes = shutil.disk_usage(directory).free
+    safe_free_bytes = max(0, free_bytes - DOWNLOAD_DISK_HEADROOM_BYTES)
+    effective_limit = min(MAX_DOWNLOAD_BYTES, safe_free_bytes)
+    if effective_limit < MIN_DOWNLOAD_CAPACITY_BYTES:
+        raise HTTPException(status_code=507, detail="Not enough temporary storage capacity for a media download")
+    return effective_limit
+
+
 def download_with_ytdlp(source_url: str, media_type: str, quality: str, format_id: str | None, output_dir: Path) -> Path:
     selector = select_format(media_type, quality, format_id)
+    effective_limit = available_download_limit(output_dir)
     command = common_yt_dlp_args() + [
         "--quiet",
         "--no-progress",
+        "--max-filesize",
+        str(effective_limit),
         "--format",
         selector,
         "--output",
@@ -444,10 +502,27 @@ def download_with_ytdlp(source_url: str, media_type: str, quality: str, format_i
         completed = run_process(command, DOWNLOAD_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=504, detail="Download timed out") from exc
+
+    diagnostic = (completed.stderr or completed.stdout or "")[-4000:].strip()
     if completed.returncode != 0:
-        message = (completed.stderr or completed.stdout or "yt-dlp download failed")[-4000:].strip()
-        raise HTTPException(status_code=502, detail=message)
-    return find_downloaded_file(output_dir)
+        normalized = diagnostic.lower()
+        if "max-filesize" in normalized or "larger than max" in normalized or "exceeds" in normalized and "size" in normalized:
+            raise HTTPException(status_code=413, detail=f"Media exceeds the {effective_limit} byte download limit")
+        raise HTTPException(status_code=502, detail=diagnostic or "yt-dlp download failed")
+
+    try:
+        file_path = find_downloaded_file(output_dir)
+    except HTTPException:
+        normalized = diagnostic.lower()
+        if "max-filesize" in normalized or "larger than max" in normalized:
+            raise HTTPException(status_code=413, detail=f"Media exceeds the {effective_limit} byte download limit")
+        raise
+
+    output_bytes = file_path.stat().st_size
+    if output_bytes > effective_limit:
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=413, detail=f"Media exceeds the {effective_limit} byte download limit")
+    return file_path
 
 
 def safe_download_name(path: Path) -> str:
@@ -457,6 +532,7 @@ def safe_download_name(path: Path) -> str:
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
+    disk_free_bytes = shutil.disk_usage("/tmp").free
     return {
         "ok": True,
         "service": "galaxy-downloader-backend",
@@ -467,6 +543,9 @@ async def health() -> dict[str, Any]:
         "cookiesConfigured": bool(COOKIE_FILE),
         "proxyConfigured": bool(os.getenv("YTDLP_PROXY", "").strip()),
         "impersonation": os.getenv("YTDLP_IMPERSONATE", "chrome"),
+        "parseAttempts": PARSE_ATTEMPTS,
+        "maxDownloadBytes": MAX_DOWNLOAD_BYTES,
+        "diskFreeBytes": disk_free_bytes,
     }
 
 
@@ -539,6 +618,7 @@ async def download_media(
                 "X-Request-Id": request_id,
                 "Cache-Control": "private, no-store",
                 "Accept-Ranges": "bytes",
+                "X-Max-Download-Bytes": str(MAX_DOWNLOAD_BYTES),
             },
             background=BackgroundTask(cleanup),
         )
