@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
     buildSourceMediaDownloadUrl,
@@ -6,8 +6,14 @@ import {
     getSubtitleDisplayName,
     inferExtension,
     normalizeQualityOptions,
+    resolveSourceMediaDownloadUrl,
     resolveSubtitleUrl,
 } from '../src/lib/media-download-options.ts'
+
+afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+})
 
 describe('advanced media download helpers', () => {
     it('builds a fresh source-aware video request with quality', () => {
@@ -46,6 +52,42 @@ describe('advanced media download helpers', () => {
         expect(options[2].quality).toBe('1080p60')
         expect(options[3].quality).toBe('720p')
         expect(options.slice(1).every((item) => item.source === 'parser')).toBe(true)
+    })
+
+    it('resolves legacy JSON download responses to their fresh media URL', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+            success: true,
+            url: 'https://cdn.example.com/fresh-video.mp4',
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json; charset=utf-8' },
+        })))
+
+        await expect(resolveSourceMediaDownloadUrl('https://api.example.com/api/download?x=1'))
+            .resolves.toBe('https://cdn.example.com/fresh-video.mp4')
+    })
+
+    it('keeps streaming proxy requests as browser download URLs', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response('media-bytes', {
+            status: 200,
+            headers: { 'content-type': 'video/mp4' },
+        })))
+
+        const requestUrl = 'https://api.example.com/api/download?url=source&type=video'
+        await expect(resolveSourceMediaDownloadUrl(requestUrl)).resolves.toBe(requestUrl)
+    })
+
+    it('surfaces resolver errors instead of treating JSON as a media file', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+            success: false,
+            error: 'quality unavailable',
+        }), {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+        })))
+
+        await expect(resolveSourceMediaDownloadUrl('https://api.example.com/api/download?x=1'))
+            .rejects.toThrow('quality unavailable')
     })
 
     it('resolves subtitle URLs and labels auto-generated tracks', () => {
