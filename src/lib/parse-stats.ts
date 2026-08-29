@@ -9,7 +9,11 @@ export interface TodayParseStats {
     windowStart: string
     windowEnd: string
     count: number
-    totalCount: number
+    /**
+     * Older stats API deployments returned only the daily count. Keep this
+     * optional so the UI remains compatible with both response versions.
+     */
+    totalCount?: number
 }
 
 function isTodayParseStats(value: unknown): value is TodayParseStats {
@@ -18,13 +22,19 @@ function isTodayParseStats(value: unknown): value is TodayParseStats {
     }
 
     const candidate = value as Partial<TodayParseStats>
+    const hasValidTotalCount = candidate.totalCount === undefined
+        || (typeof candidate.totalCount === 'number'
+            && Number.isFinite(candidate.totalCount)
+            && candidate.totalCount >= 0)
+
     return typeof candidate.date === 'string'
+        && typeof candidate.timezone === 'string'
+        && typeof candidate.windowStart === 'string'
+        && typeof candidate.windowEnd === 'string'
         && typeof candidate.count === 'number'
         && Number.isFinite(candidate.count)
         && candidate.count >= 0
-        && typeof candidate.totalCount === 'number'
-        && Number.isFinite(candidate.totalCount)
-        && candidate.totalCount >= 0
+        && hasValidTotalCount
 }
 
 /**
