@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 import { getMessages } from "next-intl/server"
-import { Mail } from "lucide-react"
-import { GiscusFeedback } from "@/components/giscus-feedback"
+import { Mail, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PageStructuredData } from "@/components/page-structured-data"
 import { Footer } from "@/components/layout/footer"
+import { FEEDBACK_CONFIG } from "@/lib/feedback-config"
 import type { Locale } from "@/lib/i18n/config"
 import type { Dictionary } from "@/lib/i18n/types"
 import {
@@ -13,8 +13,6 @@ import {
     buildOpenGraphLocaleAlternates,
     localeToOpenGraphLocale,
 } from "@/lib/seo"
-
-const FEEDBACK_EMAIL = "feedback@bhwa233.com"
 
 export async function generateMetadata({
     params,
@@ -69,38 +67,49 @@ export default async function FeedbackPage({
     const { locale } = await params
     const dict = await getMessages({ locale }) as Dictionary
     const copy = dict.feedbackPage
-
-    const emailSubject = encodeURIComponent(`[Feedback] sparkdownloader`)
+    const emailSubject = encodeURIComponent(`[Feedback] Galaxy Downloader`)
     const emailBody = encodeURIComponent(copy.emailTemplateBody || '')
-    const feedbackMailto = `mailto:${FEEDBACK_EMAIL}?subject=${emailSubject}&body=${emailBody}`
+    const feedbackMailto = `mailto:${FEEDBACK_CONFIG.supportEmail}?subject=${emailSubject}&body=${emailBody}`
 
     return (
-        <main className="min-h-screen bg-background flex flex-col">
-            <div className="flex-1 w-full mx-auto max-w-7xl px-4 py-10 sm:px-6 md:px-8">
-                <div>
-                    <h1 className="text-3xl font-semibold tracking-tight">{copy.title}</h1>
+        <main id="main-content" className="min-h-screen bg-background flex flex-col">
+            <div className="flex-1 w-full mx-auto max-w-4xl px-4 py-10 sm:px-6 md:px-8 md:py-14">
+                <div className="max-w-2xl space-y-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
+                        <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                        Private feedback
+                    </div>
+                    <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">{copy.title}</h1>
+                    <p className="text-sm leading-6 text-muted-foreground text-pretty">{copy.metaDescription}</p>
                 </div>
 
-                <section className="mt-8 rounded-md border bg-card p-5 sm:p-6">
-                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <div className="space-y-2">
-                            <h2 className="text-lg font-semibold tracking-tight">{copy.privateFeedbackTitle}</h2>
-                            <p className="text-sm leading-6 text-muted-foreground whitespace-pre-wrap">{copy.privateFeedbackDescription}</p>
-                            <p className="break-all rounded-md border bg-muted/30 px-3 py-2 text-sm font-medium">
-                                {FEEDBACK_EMAIL}
-                            </p>
+                <section className="mt-8 overflow-hidden rounded-2xl border bg-card shadow-sm">
+                    <div className="p-5 sm:p-7">
+                        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+                            <div className="min-w-0 space-y-3">
+                                <h2 className="text-lg font-semibold tracking-tight">{copy.privateFeedbackTitle}</h2>
+                                <p className="max-w-2xl text-sm leading-6 text-muted-foreground whitespace-pre-wrap text-pretty">
+                                    {copy.privateFeedbackDescription}
+                                </p>
+                                <a
+                                    href={`mailto:${FEEDBACK_CONFIG.supportEmail}`}
+                                    className="inline-flex max-w-full items-center gap-2 break-all text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground"
+                                >
+                                    <Mail className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                    {FEEDBACK_CONFIG.supportEmail}
+                                </a>
+                            </div>
+                            <Button asChild size="lg" className="min-h-11 shrink-0 active:scale-[0.96] transition-transform duration-150">
+                                <a href={feedbackMailto}>
+                                    <Mail className="h-4 w-4" aria-hidden="true" />
+                                    {copy.emailAction}
+                                </a>
+                            </Button>
                         </div>
-                        <Button asChild className="shrink-0">
-                            <a href={feedbackMailto}>
-                                <Mail className="h-4 w-4" />
-                                {copy.emailAction}
-                            </a>
-                        </Button>
                     </div>
-                </section>
-
-                <section className="mt-6 rounded-md border bg-card p-4 sm:p-6 mb-10">
-                    <GiscusFeedback locale={locale} />
+                    <div className="border-t bg-muted/30 px-5 py-3 text-xs leading-5 text-muted-foreground sm:px-7">
+                        Feedback is sent through your own email client. Media files are not uploaded with the message.
+                    </div>
                 </section>
             </div>
 
