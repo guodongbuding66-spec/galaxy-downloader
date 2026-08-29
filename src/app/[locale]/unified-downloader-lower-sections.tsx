@@ -47,21 +47,27 @@ export function UnifiedDownloaderLowerSections({
     const hasDownloadHistory = downloadHistory.length > 0;
 
     return (
-        <>
+        <div className="space-y-6">
             {parseResult && (
-                <ResultCard
-                    result={parseResult}
-                    onClose={onCloseParseResult}
-                    onOpenExtractAudio={onOpenExtractAudio}
-                    onRequestPreview={onRequestPreview}
-                    onClearPreview={onClearPreview}
-                    activePreview={activePreview}
-                />
+                <section aria-live="polite">
+                    <ResultCard
+                        result={parseResult}
+                        onClose={onCloseParseResult}
+                        onOpenExtractAudio={onOpenExtractAudio}
+                        onRequestPreview={onRequestPreview}
+                        onClearPreview={onClearPreview}
+                        activePreview={activePreview}
+                    />
+                </section>
             )}
 
-            {mobileAd && <div className="lg:hidden min-h-[250px] overflow-hidden">{mobileAd}</div>}
+            {mobileAd && (
+                <div className="lg:hidden min-h-[250px] overflow-hidden rounded-2xl">
+                    {mobileAd}
+                </div>
+            )}
 
-            <div ref={historyRef}>
+            <section ref={historyRef} className="scroll-mt-20">
                 {hasDownloadHistory ? (
                     <DownloadHistory
                         downloadHistory={downloadHistory}
@@ -71,9 +77,9 @@ export function UnifiedDownloaderLowerSections({
                 ) : !historyHydrated ? (
                     <div className="min-h-[84px]" aria-hidden />
                 ) : null}
-            </div>
+            </section>
 
-            {mobileGuides && <div className="lg:hidden flex flex-col gap-4">{mobileGuides}</div>}
-        </>
+            {mobileGuides && <div className="flex flex-col gap-4 lg:hidden">{mobileGuides}</div>}
+        </div>
     );
 }
