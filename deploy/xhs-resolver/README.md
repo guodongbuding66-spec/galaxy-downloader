@@ -47,12 +47,11 @@ cd deploy/xhs-resolver
 cp .env.example .env
 ```
 
-Edit `.env` and set at least:
+Edit `.env` and set:
 
 ```dotenv
 XHS_RESOLVER_DOMAIN=xhs-resolver.example.com
 XHS_RESOLVER_TOKEN=<long-random-token>
-ACME_EMAIL=admin@example.com
 ```
 
 Generate a token, for example:
@@ -67,6 +66,8 @@ Then build and start:
 docker compose build --pull
 docker compose up -d
 ```
+
+Caddy automatically obtains and renews the public TLS certificate for `XHS_RESOLVER_DOMAIN`.
 
 Check the public gateway:
 
@@ -130,6 +131,8 @@ XHS_MAX_STREAM_BYTES=6442450944
 XHS_RESOLVER_FAILURE_THRESHOLD=3
 XHS_RESOLVER_COOLDOWN_MS=30000
 ```
+
+These safe defaults are already committed in `container-backend/wrangler.jsonc`.
 
 Do not widen `XHS_MEDIA_HOST_SUFFIXES` unless a verified resolver response demonstrates a legitimate new Xiaohongshu CDN hostname.
 
