@@ -1,4 +1,15 @@
+import pRetry from 'p-retry';
+
 import { downloadBlob, getFFmpeg } from '@/lib/ffmpeg';
+import {
+  buildRangeHeader,
+  decryptAes128Cbc,
+  importAes128Key,
+  parseHlsMediaPlaylist,
+  pickBestVariant,
+  type ByteRange,
+  type HlsSegment,
+} from '@/lib/hls-browser-download';
 import { getProxiedDownloadUrl, sanitizeFilename } from '@/lib/utils';
 
 export type FinalMediaStage =
@@ -37,6 +48,17 @@ interface RemoteFileResult {
   contentType: string;
 }
 
+const HLS_CONTENT_TYPES = new Set([
+  'application/vnd.apple.mpegurl',
+  'application/x-mpegurl',
+  'audio/mpegurl',
+  'audio/x-mpegurl',
+]);
+const HLS_DOWNLOAD_CONCURRENCY = 6;
+const HLS_DOWNLOAD_RETRIES = 3;
+const HLS_MASTER_MAX_DEPTH = 8;
+const HLS_FINAL_EXPORT_MAX_SEGMENTS = 1200;
+
 function extensionFromContentType(contentType: string, fallback: string): string {
   const normalized = contentType.split(';')[0]?.trim().toLowerCase() || '';
   const map: Record<string, string> = {
@@ -44,6 +66,7 @@ function extensionFromContentType(contentType: string, fallback: string): string
     'video/webm': 'webm',
     'video/quicktime': 'mov',
     'video/x-matroska': 'mkv',
+    'video/mp2t': 'ts',
     'audio/mp4': 'm4a',
     'audio/mpeg': 'mp3',
     'audio/aac': 'aac',
@@ -69,37 +92,45 @@ function extensionFromUrl(url: string, fallback: string): string {
   }
 }
 
-async function fetchRemoteFile({
-  url,
-  filenameBase,
-  fallbackExtension,
+function isAlreadyBackendResource(url: string): boolean {
+  try {
+    const pathname = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost').pathname;
+    return pathname === '/api/download' || pathname === '/api/hls-proxy';
+  } catch {
+    return false;
+  }
+}
+
+function fetchableUrl(url: string): string {
+  return isAlreadyBackendResource(url) ? url : getProxiedDownloadUrl(url);
+}
+
+export function isHlsMediaResponse(contentType: string, url: string, bytes?: Uint8Array | null): boolean {
+  const normalizedType = contentType.split(';')[0]?.trim().toLowerCase() || '';
+  if (HLS_CONTENT_TYPES.has(normalizedType)) return true;
+  if (extensionFromUrl(url, '') === 'm3u8') return true;
+  if (bytes?.byteLength) {
+    const prefix = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.byteLength, 256))).trimStart();
+    return prefix.startsWith('#EXTM3U');
+  }
+  return false;
+}
+
+async function readResponseBytes({
+  response,
   signal,
   stage,
   progressStart,
   progressEnd,
   onProgress,
 }: {
-  url: string;
-  filenameBase: string;
-  fallbackExtension: string;
+  response: Response;
   signal?: AbortSignal;
   stage: FinalMediaStage;
   progressStart: number;
   progressEnd: number;
   onProgress?: (progress: FinalMediaProgress) => void;
-}): Promise<RemoteFileResult> {
-  const fetchUrl = getProxiedDownloadUrl(url);
-  const response = await fetch(fetchUrl, {
-    method: 'GET',
-    cache: 'no-store',
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Download request failed (${response.status})`);
-  }
-
-  const contentType = response.headers.get('content-type') || '';
+}): Promise<Uint8Array> {
   const total = Number(response.headers.get('content-length') || '0');
   const chunks: Uint8Array[] = [];
   let loaded = 0;
@@ -141,6 +172,204 @@ async function fetchRemoteFile({
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return bytes;
+}
+
+async function fetchText(url: string, signal?: AbortSignal): Promise<{ text: string; finalUrl: string }> {
+  const response = await fetch(fetchableUrl(url), {
+    method: 'GET',
+    cache: 'no-store',
+    signal,
+    headers: { Accept: 'application/vnd.apple.mpegurl, application/x-mpegurl, text/plain, */*' },
+  });
+  if (!response.ok) throw new Error(`HLS playlist request failed (${response.status})`);
+  return { text: await response.text(), finalUrl: response.url || url };
+}
+
+async function resolveHlsMediaPlaylist(initialText: string, initialUrl: string, signal?: AbortSignal) {
+  let playlistText = initialText;
+  let playlistUrl = initialUrl;
+
+  for (let depth = 0; depth < HLS_MASTER_MAX_DEPTH; depth += 1) {
+    const variant = pickBestVariant(playlistText, playlistUrl);
+    if (!variant) {
+      return {
+        playlistUrl,
+        media: parseHlsMediaPlaylist(playlistText, playlistUrl),
+      };
+    }
+    const next = await fetchText(variant.url, signal);
+    playlistText = next.text;
+    playlistUrl = next.finalUrl || variant.url;
+  }
+
+  if (pickBestVariant(playlistText, playlistUrl)) {
+    throw new Error('HLS master playlist nesting is too deep');
+  }
+  return {
+    playlistUrl,
+    media: parseHlsMediaPlaylist(playlistText, playlistUrl),
+  };
+}
+
+async function fetchHlsBytes(url: string, signal?: AbortSignal, byterange?: ByteRange): Promise<Uint8Array> {
+  return pRetry(async () => {
+    const range = buildRangeHeader(byterange);
+    const response = await fetch(fetchableUrl(url), {
+      method: 'GET',
+      cache: 'no-store',
+      signal,
+      headers: range ? { Range: range } : undefined,
+    });
+    if (!response.ok) throw new Error(`HLS media request failed (${response.status})`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength === 0) throw new Error('HLS media resource is empty');
+    return bytes;
+  }, {
+    retries: HLS_DOWNLOAD_RETRIES,
+    factor: 2,
+    minTimeout: 350,
+    maxTimeout: 2500,
+    randomize: true,
+    signal,
+  });
+}
+
+async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<void>) {
+  let nextIndex = 0;
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      await worker(items[current], current);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => runWorker()));
+}
+
+export function inferJoinedHlsExtension(mapUrl: string | null, segments: Array<Pick<HlsSegment, 'url'>>): 'mp4' | 'ts' {
+  if (mapUrl) return 'mp4';
+  const extension = extensionFromUrl(segments[0]?.url || '', '').toLowerCase();
+  return ['mp4', 'm4s', 'm4v', 'cmfv', 'cmfa'].includes(extension) ? 'mp4' : 'ts';
+}
+
+async function createHlsFile({
+  initialPlaylistText,
+  playlistUrl,
+  filenameBase,
+  signal,
+  stage,
+  progressStart,
+  progressEnd,
+  onProgress,
+}: {
+  initialPlaylistText: string;
+  playlistUrl: string;
+  filenameBase: string;
+  signal?: AbortSignal;
+  stage: FinalMediaStage;
+  progressStart: number;
+  progressEnd: number;
+  onProgress?: (progress: FinalMediaProgress) => void;
+}): Promise<RemoteFileResult> {
+  const resolved = await resolveHlsMediaPlaylist(initialPlaylistText, playlistUrl, signal);
+  const { media } = resolved;
+  if (media.segments.length > HLS_FINAL_EXPORT_MAX_SEGMENTS) {
+    throw new Error(`HLS video has ${media.segments.length} segments and is too large for in-browser final assembly. Use the HLS compatibility downloader or server-side processing.`);
+  }
+
+  const targets: Array<{ url: string; byterange?: ByteRange; keyUrl?: string; iv?: Uint8Array }> = [
+    ...(media.mapUrl ? [{ url: media.mapUrl, byterange: media.mapByterange }] : []),
+    ...media.segments,
+  ];
+  const chunks = new Map<number, Uint8Array>();
+  const keyCache = new Map<string, Promise<CryptoKey>>();
+  let completed = 0;
+  let loaded = 0;
+
+  await runWithConcurrency(targets, HLS_DOWNLOAD_CONCURRENCY, async (target, index) => {
+    let bytes = await fetchHlsBytes(target.url, signal, target.byterange);
+    if (target.keyUrl) {
+      if (!target.iv) throw new Error('Encrypted HLS segment is missing an IV');
+      if (!keyCache.has(target.keyUrl)) {
+        keyCache.set(target.keyUrl, fetchHlsBytes(target.keyUrl, signal).then(importAes128Key));
+      }
+      bytes = await decryptAes128Cbc(bytes, await keyCache.get(target.keyUrl)!, target.iv);
+    }
+    chunks.set(index, bytes);
+    completed += 1;
+    loaded += bytes.byteLength;
+    const ratio = targets.length ? completed / targets.length : 1;
+    onProgress?.({
+      stage,
+      progress: Math.round(progressStart + ((progressEnd - progressStart) * ratio)),
+      loaded,
+    });
+  });
+
+  const ordered = targets.map((_, index) => chunks.get(index)).filter(Boolean) as Uint8Array[];
+  const total = ordered.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const joined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of ordered) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const extension = inferJoinedHlsExtension(media.mapUrl, media.segments);
+  const contentType = extension === 'mp4' ? 'video/mp4' : 'video/mp2t';
+  const file = new File([joined], `${filenameBase}.${extension}`, { type: contentType });
+  onProgress?.({ stage, progress: progressEnd, loaded: total, total });
+  return { file, contentType };
+}
+
+async function fetchRemoteFile({
+  url,
+  filenameBase,
+  fallbackExtension,
+  signal,
+  stage,
+  progressStart,
+  progressEnd,
+  onProgress,
+}: {
+  url: string;
+  filenameBase: string;
+  fallbackExtension: string;
+  signal?: AbortSignal;
+  stage: FinalMediaStage;
+  progressStart: number;
+  progressEnd: number;
+  onProgress?: (progress: FinalMediaProgress) => void;
+}): Promise<RemoteFileResult> {
+  const fetchUrl = fetchableUrl(url);
+  const response = await fetch(fetchUrl, {
+    method: 'GET',
+    cache: 'no-store',
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Download request failed (${response.status})`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  const bytes = await readResponseBytes({ response, signal, stage, progressStart, progressEnd, onProgress });
+  const finalUrl = response.url || url;
+
+  if (isHlsMediaResponse(contentType, finalUrl, bytes)) {
+    const playlistText = new TextDecoder().decode(bytes);
+    onProgress?.({ stage, progress: progressStart });
+    return createHlsFile({
+      initialPlaylistText: playlistText,
+      playlistUrl: finalUrl,
+      filenameBase,
+      signal,
+      stage,
+      progressStart,
+      progressEnd,
+      onProgress,
+    });
+  }
 
   const extension = extensionFromContentType(
     contentType,
@@ -148,7 +377,7 @@ async function fetchRemoteFile({
   );
   const blob = new Blob([bytes], { type: contentType || undefined });
   const file = new File([blob], `${filenameBase}.${extension}`, { type: contentType || undefined });
-  onProgress?.({ stage, progress: progressEnd, loaded, total: total || loaded });
+  onProgress?.({ stage, progress: progressEnd, loaded: bytes.byteLength, total: bytes.byteLength });
   return { file, contentType };
 }
 
