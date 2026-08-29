@@ -47,9 +47,12 @@ export function SinglePartButtons({
     const isAudioOnly = result.kind === 'audio'
         || result.noteType === 'audio'
         || result.videoAudioMode === 'pure_music';
-    const showVideoPreview = !isAudioOnly && previewSourceUrl.length > 0 && canPreviewResultVideo(result);
+    const isImageWithAudio = result.noteType === 'image' && Boolean(rawAudioDownloadUrl);
+    const showStandaloneAudioAction = isAudioOnly || isImageWithAudio;
+    const isVideoResult = !isAudioOnly && result.noteType !== 'image';
+    const showVideoPreview = isVideoResult && previewSourceUrl.length > 0 && canPreviewResultVideo(result);
     const showAudioPreview = previewSourceUrl.length > 0 && canPreviewResultAudio(result);
-    const showBrowserHlsDownload = !isAudioOnly && (
+    const showBrowserHlsDownload = isVideoResult && (
         videoAction === 'browser-hls-download'
         || (videoAction === 'hide' && isHlsPlaylistUrl(result.originDownloadVideoUrl))
     );
@@ -66,7 +69,7 @@ export function SinglePartButtons({
         });
     };
 
-    const handleAudioOnlyAction = () => {
+    const handleStandaloneAudioAction = () => {
         if (audioAction === 'extract-audio' && rawVideoDownloadUrl) {
             onOpenExtractAudio({
                 action: 'extract-audio',
@@ -137,17 +140,17 @@ export function SinglePartButtons({
                 />
             )}
 
-            {isAudioOnly && audioAction !== 'hide' && (
+            {showStandaloneAudioAction && audioAction !== 'hide' && (
                 <MediaActionIconButton
                     label={audioAction === 'extract-audio' ? '提取音频' : '下载音频'}
                     icon={AudioDownloadIcon}
                     variant="default"
                     className="w-full min-w-0"
-                    onClick={handleAudioOnlyAction}
+                    onClick={handleStandaloneAudioAction}
                 />
             )}
 
-            {!isAudioOnly && <AdvancedDownloadOptions result={result} />}
+            {isVideoResult && <AdvancedDownloadOptions result={result} />}
         </div>
     );
 }
