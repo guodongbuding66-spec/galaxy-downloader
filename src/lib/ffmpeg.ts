@@ -1,11 +1,10 @@
-import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { FFmpeg, FFFSType } from '@ffmpeg/ffmpeg';
 
 import { detectLocalProcessingCapabilities } from '@/lib/local-engine';
 
 let ffmpegInstance: FFmpeg | null = null;
 let loadPromise: Promise<FFmpeg> | null = null;
 
-// Keep this aligned with the installed @ffmpeg/ffmpeg package's expected core build.
 const FFMPEG_CORE_VERSION = '0.12.9';
 const FFMPEG_ASSET_TIMEOUT_MS = 45_000;
 const FFMPEG_INITIALIZATION_TIMEOUT_MS = 45_000;
@@ -152,22 +151,15 @@ async function loadFFmpegCoreFromSource(
 }
 
 export async function getFFmpeg(): Promise<FFmpeg> {
-  if (ffmpegInstance?.loaded) {
-    return ffmpegInstance;
-  }
-
-  if (loadPromise) {
-    return loadPromise;
-  }
+  if (ffmpegInstance?.loaded) return ffmpegInstance;
+  if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
     let lastError: unknown = null;
 
     for (const candidate of getPreferredFFmpegCoreCandidates()) {
       const ffmpeg = new FFmpeg();
-      ffmpeg.on('log', ({ message }) => {
-        console.log('[FFmpeg]', message);
-      });
+      ffmpeg.on('log', ({ message }) => console.log('[FFmpeg]', message));
 
       try {
         await loadFFmpegCoreFromSource(ffmpeg, candidate);
@@ -196,7 +188,6 @@ export function terminateFFmpeg() {
     ffmpegInstance.terminate();
     ffmpegInstance = null;
   }
-
   loadPromise = null;
 }
 
@@ -239,6 +230,23 @@ function buildTempFilename(prefix: string, file: File, fallbackExtension: string
   return `${prefix}.${extension}`;
 }
 
+async function mountWorkerFile(
+  ffmpeg: FFmpeg,
+  file: File,
+  mountPoint: string,
+): Promise<{ path: string; cleanup: () => Promise<void> }> {
+  await ffmpeg.createDir(mountPoint).catch(() => undefined);
+  await ffmpeg.mount(FFFSType.WORKERFS, { files: [file] }, mountPoint);
+
+  return {
+    path: `${mountPoint}/${file.name}`,
+    cleanup: async () => {
+      await ffmpeg.unmount(mountPoint).catch(() => undefined);
+      await ffmpeg.deleteDir(mountPoint).catch(() => undefined);
+    },
+  };
+}
+
 async function readLocalFile<TStage extends FFmpegStage>(
   file: File,
   stage: TStage,
@@ -253,28 +261,21 @@ async function readLocalFile<TStage extends FFmpegStage>(
     const range = Math.max(0, progressEnd - progressStart);
     let settled = false;
 
-    const cleanupAbort = () => {
-      signal?.removeEventListener('abort', handleAbort);
-    };
-
+    const cleanupAbort = () => signal?.removeEventListener('abort', handleAbort);
     const rejectOnce = (error: Error) => {
       if (settled) return;
       settled = true;
       cleanupAbort();
       reject(error);
     };
-
     const resolveOnce = (data: Uint8Array) => {
       if (settled) return;
       settled = true;
       cleanupAbort();
       resolve(data);
     };
-
     const handleAbort = () => {
-      if (reader.readyState === FileReader.LOADING) {
-        reader.abort();
-      }
+      if (reader.readyState === FileReader.LOADING) reader.abort();
       rejectOnce(new DOMException('File read was aborted', 'AbortError'));
     };
 
@@ -284,16 +285,13 @@ async function readLocalFile<TStage extends FFmpegStage>(
     }
 
     signal?.addEventListener('abort', handleAbort, { once: true });
-
     reader.onprogress = (event) => {
       if (settled) return;
       const loaded = event.loaded;
       const eventTotal = event.total || total;
       const ratio = eventTotal > 0 ? loaded / eventTotal : 0;
-      const progress = Math.round(progressStart + (ratio * range));
-      onProgress?.(progress, stage, { loaded, total: eventTotal });
+      onProgress?.(Math.round(progressStart + (ratio * range)), stage, { loaded, total: eventTotal });
     };
-
     reader.onload = (e) => {
       const result = e.target?.result;
       if (result instanceof ArrayBuffer) {
@@ -303,11 +301,7 @@ async function readLocalFile<TStage extends FFmpegStage>(
         rejectOnce(new Error('Failed to read file as ArrayBuffer'));
       }
     };
-
-    reader.onerror = () => {
-      rejectOnce(new Error(`File read error: ${reader.error?.message || 'unknown error'}`));
-    };
-
+    reader.onerror = () => rejectOnce(new Error(`File read error: ${reader.error?.message || 'unknown error'}`));
     reader.readAsArrayBuffer(file);
   });
 }
@@ -317,18 +311,10 @@ async function downloadVideoData(
   signal?: AbortSignal,
   onProgress?: (progress: number, stage: ExtractStage, info?: ProgressInfo) => void
 ): Promise<Uint8Array> {
-  const response = await fetch(videoUrl, {
-    method: 'GET',
-    cache: 'no-store',
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
+  const response = await fetch(videoUrl, { method: 'GET', cache: 'no-store', signal });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
   const total = Number(response.headers.get('content-length') || '0');
-
   if (!response.body) {
     const fallbackData = new Uint8Array(await response.arrayBuffer());
     onProgress?.(100, 'downloading', { loaded: fallbackData.byteLength, total });
@@ -344,19 +330,12 @@ async function downloadVideoData(
       await reader.cancel().catch(() => undefined);
       throw new DOMException('Video download was aborted', 'AbortError');
     }
-
     const { done, value } = await reader.read();
     if (done) break;
     if (!value) continue;
-
     chunks.push(value);
     loaded += value.byteLength;
-
-    const percentCompleted = total > 0 ? Math.round((loaded * 100) / total) : 0;
-    onProgress?.(percentCompleted, 'downloading', {
-      loaded,
-      total,
-    });
+    onProgress?.(total > 0 ? Math.round((loaded * 100) / total) : 0, 'downloading', { loaded, total });
   }
 
   const combined = new Uint8Array(loaded);
@@ -365,7 +344,6 @@ async function downloadVideoData(
     combined.set(chunk, offset);
     offset += chunk.byteLength;
   }
-
   onProgress?.(100, 'downloading', { loaded, total });
   return combined;
 }
@@ -376,62 +354,53 @@ export async function extractAudioFromVideo({
   signal,
   onProgress,
 }: ExtractAudioOptions): Promise<Blob> {
-  console.log('[FFmpeg] Starting audio extraction from:', videoUrl || 'local file');
-
   const ffmpeg = await getFFmpeg();
-  console.log('[FFmpeg] FFmpeg loaded successfully');
+  let inputPath = 'input.mp4';
+  let mountedCleanup: (() => Promise<void>) | null = null;
 
-  onProgress?.(0, 'downloading');
-  console.log('[FFmpeg] Downloading video...');
-
-  let videoData: Uint8Array;
   try {
+    onProgress?.(0, 'downloading');
     if (videoFile) {
-      videoData = await readLocalFile(videoFile, 'downloading', signal, onProgress);
+      const mounted = await mountWorkerFile(ffmpeg, videoFile, '/galaxy-audio-source');
+      inputPath = mounted.path;
+      mountedCleanup = mounted.cleanup;
+      onProgress?.(100, 'downloading', { loaded: videoFile.size, total: videoFile.size });
     } else if (videoUrl) {
-      videoData = await downloadVideoData(videoUrl, signal, onProgress);
+      const videoData = await downloadVideoData(videoUrl, signal, onProgress);
+      await ffmpeg.writeFile(inputPath, videoData, { signal });
     } else {
       throw new Error('Either videoUrl or videoFile must be provided');
     }
-    console.log('[FFmpeg] Video ready, size:', videoData.byteLength);
-  } catch (err) {
-    throw new Error(`Failed to get video: ${err instanceof Error ? err.message : String(err)}`);
-  }
 
-  onProgress?.(100, 'downloading');
+    const handleProgress = ({ progress }: { progress: number }) => {
+      onProgress?.(Math.round(progress * 100), 'converting');
+    };
+    ffmpeg.on('progress', handleProgress);
 
-  await ffmpeg.writeFile('input.mp4', videoData, { signal });
-  console.log('[FFmpeg] Video written to virtual filesystem');
+    try {
+      await ffmpeg.exec([
+        '-i', inputPath,
+        '-vn',
+        '-acodec', 'libmp3lame',
+        '-q:a', '2',
+        'output.mp3'
+      ], undefined, { signal });
 
-  const handleProgress = ({ progress }: { progress: number }) => {
-    onProgress?.(Math.round(progress * 100), 'converting');
-  };
-  ffmpeg.on('progress', handleProgress);
-
-  try {
-    console.log('[FFmpeg] Starting conversion...');
-    await ffmpeg.exec([
-      '-i', 'input.mp4',
-      '-vn',
-      '-acodec', 'libmp3lame',
-      '-q:a', '2',
-      'output.mp3'
-    ], undefined, { signal });
-    console.log('[FFmpeg] Conversion completed');
-
-    const outputData = await ffmpeg.readFile('output.mp3', undefined, { signal });
-
-    if (typeof outputData === 'string') {
-      throw new Error('Unexpected string output from ffmpeg');
+      const outputData = await ffmpeg.readFile('output.mp3', undefined, { signal });
+      if (typeof outputData === 'string') throw new Error('Unexpected string output from ffmpeg');
+      const buffer = new ArrayBuffer(outputData.byteLength);
+      new Uint8Array(buffer).set(outputData);
+      return new Blob([buffer], { type: 'audio/mpeg' });
+    } finally {
+      ffmpeg.off('progress', handleProgress);
+      await ffmpeg.deleteFile('output.mp3').catch(() => undefined);
     }
-    const buffer = new ArrayBuffer(outputData.byteLength);
-    new Uint8Array(buffer).set(outputData);
-    console.log('[FFmpeg] Audio blob created, size:', buffer.byteLength);
-    return new Blob([buffer], { type: 'audio/mpeg' });
   } finally {
-    ffmpeg.off('progress', handleProgress);
-    await ffmpeg.deleteFile('input.mp4').catch(() => undefined);
-    await ffmpeg.deleteFile('output.mp3').catch(() => undefined);
+    if (mountedCleanup) {
+      await mountedCleanup();
+    } else {
+      await ffmpeg.deleteFile(inputPath).catch(() => undefined);
+    }
   }
 }
 
@@ -441,58 +410,49 @@ export async function mergeVideoAudio({
   signal,
   onProgress,
 }: MergeVideoAudioOptions): Promise<Blob> {
-  console.log('[FFmpeg] Starting merge with:', videoFile.name, audioFile.name);
-
   const ffmpeg = await getFFmpeg();
-  console.log('[FFmpeg] FFmpeg loaded successfully for merge');
-
-  const videoInputName = buildTempFilename('merge-input-video', videoFile, 'mp4');
-  const audioInputName = buildTempFilename('merge-input-audio', audioFile, 'mp3');
   const outputName = 'merged-output.mp4';
 
-  onProgress?.(10, 'reading-video', { loaded: 0, total: videoFile.size });
-  const videoData = await readLocalFile(videoFile, 'reading-video', signal, onProgress, 10, 40);
+  onProgress?.(10, 'reading-video', { loaded: videoFile.size, total: videoFile.size });
+  const videoMount = await mountWorkerFile(ffmpeg, videoFile, '/galaxy-video-input');
+  onProgress?.(40, 'reading-video', { loaded: videoFile.size, total: videoFile.size });
 
-  onProgress?.(40, 'reading-audio', { loaded: 0, total: audioFile.size });
-  const audioData = await readLocalFile(audioFile, 'reading-audio', signal, onProgress, 40, 50);
-
-  await ffmpeg.writeFile(videoInputName, videoData, { signal });
-  await ffmpeg.writeFile(audioInputName, audioData, { signal });
-  console.log('[FFmpeg] Merge inputs written to virtual filesystem');
-
-  const handleProgress = ({ progress }: { progress: number }) => {
-    onProgress?.(50 + Math.round(progress * 50), 'merging');
-  };
-  ffmpeg.on('progress', handleProgress);
-
+  let audioMount: Awaited<ReturnType<typeof mountWorkerFile>> | null = null;
   try {
-    console.log('[FFmpeg] Starting merge...');
-    await ffmpeg.exec([
-      '-i', videoInputName,
-      '-i', audioInputName,
-      '-c:v', 'copy',
-      '-c:a', 'aac',
-      '-map', '0:v:0',
-      '-map', '1:a:0',
-      '-shortest',
-      '-movflags', '+faststart',
-      outputName,
-    ], undefined, { signal });
-    console.log('[FFmpeg] Merge completed');
+    onProgress?.(40, 'reading-audio', { loaded: audioFile.size, total: audioFile.size });
+    audioMount = await mountWorkerFile(ffmpeg, audioFile, '/galaxy-audio-input');
+    onProgress?.(50, 'reading-audio', { loaded: audioFile.size, total: audioFile.size });
 
-    const outputData = await ffmpeg.readFile(outputName, undefined, { signal });
-    if (typeof outputData === 'string') {
-      throw new Error('Unexpected string output from ffmpeg during merge');
+    const handleProgress = ({ progress }: { progress: number }) => {
+      onProgress?.(50 + Math.round(progress * 50), 'merging');
+    };
+    ffmpeg.on('progress', handleProgress);
+
+    try {
+      await ffmpeg.exec([
+        '-i', videoMount.path,
+        '-i', audioMount.path,
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-map', '0:v:0',
+        '-map', '1:a:0',
+        '-shortest',
+        '-movflags', '+faststart',
+        outputName,
+      ], undefined, { signal });
+
+      const outputData = await ffmpeg.readFile(outputName, undefined, { signal });
+      if (typeof outputData === 'string') throw new Error('Unexpected string output from ffmpeg during merge');
+      const buffer = new ArrayBuffer(outputData.byteLength);
+      new Uint8Array(buffer).set(outputData);
+      return new Blob([buffer], { type: 'video/mp4' });
+    } finally {
+      ffmpeg.off('progress', handleProgress);
+      await ffmpeg.deleteFile(outputName).catch(() => undefined);
     }
-
-    const buffer = new ArrayBuffer(outputData.byteLength);
-    new Uint8Array(buffer).set(outputData);
-    return new Blob([buffer], { type: 'video/mp4' });
   } finally {
-    ffmpeg.off('progress', handleProgress);
-    await ffmpeg.deleteFile(videoInputName).catch(() => undefined);
-    await ffmpeg.deleteFile(audioInputName).catch(() => undefined);
-    await ffmpeg.deleteFile(outputName).catch(() => undefined);
+    if (audioMount) await audioMount.cleanup();
+    await videoMount.cleanup();
   }
 }
 
