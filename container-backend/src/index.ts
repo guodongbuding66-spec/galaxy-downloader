@@ -83,7 +83,7 @@ function corsHeaders(request: Request): HeadersInit {
     'Access-Control-Allow-Origin': allowed.has(origin) ? origin : allowedOrigins[0],
     'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Range,X-Request-Id',
-    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Content-Disposition,Accept-Ranges,X-Request-Id,X-Galaxy-Provider',
+    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Content-Disposition,Accept-Ranges,X-Request-Id,X-Galaxy-Provider,X-Max-Stream-Bytes',
     Vary: 'Origin',
   };
 }
@@ -103,6 +103,18 @@ function withCors(response: Response, request: Request): Response {
 function sourceUrlFromRequest(url: URL): string | null {
   const value = url.searchParams.get('url')?.trim();
   return value || null;
+}
+
+function safeXhsSourceUrl(value: string | null): value is string {
+  if (!value || !isXhsSourceUrl(value)) return false;
+  try {
+    const parsed = new URL(value);
+    return ['http:', 'https:'].includes(parsed.protocol)
+      && !parsed.username
+      && !parsed.password;
+  } catch {
+    return false;
+  }
 }
 
 async function containerResponse(request: Request, env: Env): Promise<Response> {
@@ -180,8 +192,7 @@ export default {
 
     const sourceUrl = sourceUrlFromRequest(url);
     const useXhsResolver = Boolean(
-      sourceUrl
-      && isXhsSourceUrl(sourceUrl)
+      safeXhsSourceUrl(sourceUrl)
       && xhsResolverConfigured(runtimeSecrets),
     );
 
@@ -203,7 +214,7 @@ export default {
 
     if (useXhsResolver && sourceUrl && url.pathname === '/api/download') {
       const specialized = await xhsDownloadResponse(request, sourceUrl, runtimeSecrets, requestId);
-      if (specialized?.ok || specialized?.status === 206) {
+      if (specialized?.ok || specialized?.status === 206 || specialized?.status === 413) {
         return withCors(specialized, request);
       }
 
