@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import time
 import urllib.error
@@ -14,7 +15,7 @@ from typing import Any
 
 DEFAULT_BASE_URL = "https://galaxy-downloader.guodongbuding66.workers.dev"
 READ_BYTES = 64 * 1024
-USER_AGENT = "GalaxyDownloaderProductionSmoke/1.0 (+GitHub Actions)"
+USER_AGENT = "GalaxyDownloaderProductionSmoke/1.1 (+GitHub Actions)"
 
 
 @dataclass(frozen=True)
@@ -145,9 +146,22 @@ def probe_fixture(base_url: str, fixture: Fixture, timeout: int) -> tuple[bool, 
 
 
 def run_once(base_url: str, timeout: int) -> bool:
+    results: dict[str, tuple[bool, str]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(FIXTURES)) as pool:
+        futures = {
+            pool.submit(probe_fixture, base_url, fixture, timeout): fixture
+            for fixture in FIXTURES
+        }
+        for future in concurrent.futures.as_completed(futures):
+            fixture = futures[future]
+            try:
+                results[fixture.platform] = future.result()
+            except Exception as exc:
+                results[fixture.platform] = (False, f"runner error: {type(exc).__name__}: {exc}")
+
     all_ok = True
     for fixture in FIXTURES:
-        ok, detail = probe_fixture(base_url, fixture, timeout)
+        ok, detail = results[fixture.platform]
         print(f"[{'PASS' if ok else 'FAIL'}] {fixture.platform}: {detail}", flush=True)
         all_ok = all_ok and ok
     return all_ok
@@ -156,9 +170,9 @@ def run_once(base_url: str, timeout: int) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
-    parser.add_argument("--timeout", type=int, default=35)
-    parser.add_argument("--attempts", type=int, default=15)
-    parser.add_argument("--retry-delay", type=int, default=20)
+    parser.add_argument("--timeout", type=int, default=15)
+    parser.add_argument("--attempts", type=int, default=12)
+    parser.add_argument("--retry-delay", type=int, default=15)
     args = parser.parse_args()
 
     for attempt in range(1, max(1, args.attempts) + 1):
