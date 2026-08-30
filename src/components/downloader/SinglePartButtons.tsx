@@ -15,9 +15,7 @@ import { getResultMediaActions } from './result-card-visibility';
 import { AudioDownloadIcon } from './CustomIcons';
 
 function getActionRowClass(actionCount: number) {
-    if (actionCount >= 3) return 'grid-cols-3';
-    if (actionCount === 2) return 'grid-cols-2';
-    return 'grid-cols-1';
+    return actionCount >= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1';
 }
 
 export function SinglePartButtons({
@@ -104,7 +102,7 @@ export function SinglePartButtons({
                             label={dict.result.playVideo}
                             icon={MonitorPlay}
                             variant="secondary"
-                            className="w-full min-w-0"
+                            className="min-h-10 w-full min-w-0"
                             onClick={() => onRequestPreview({
                                 mediaType: 'video',
                                 sourceUrl: previewSourceUrl,
@@ -119,7 +117,7 @@ export function SinglePartButtons({
                             label={dict.result.playAudio}
                             icon={Headphones}
                             variant="secondary"
-                            className="w-full min-w-0"
+                            className="min-h-10 w-full min-w-0"
                             onClick={() => onRequestPreview({
                                 mediaType: 'audio',
                                 sourceUrl: previewSourceUrl,
@@ -137,7 +135,7 @@ export function SinglePartButtons({
                     label={dict.result.browserDownloadVideo}
                     icon={Download}
                     variant="outline"
-                    className="w-full min-w-0"
+                    className="min-h-10 w-full min-w-0"
                     onClick={openBrowserHlsDownload}
                 />
             )}
@@ -147,7 +145,7 @@ export function SinglePartButtons({
                     label={audioAction === 'extract-audio' ? dict.extractAudio.button : dict.result.downloadAudio}
                     icon={AudioDownloadIcon}
                     variant="default"
-                    className="w-full min-w-0"
+                    className="min-h-10 w-full min-w-0"
                     onClick={handleStandaloneAudioAction}
                 />
             )}
