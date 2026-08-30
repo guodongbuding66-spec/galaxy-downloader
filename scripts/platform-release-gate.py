@@ -16,7 +16,14 @@ STATUS_KEYS = ("PASS", "PARTIAL", "FAIL", "SKIP")
 
 def load_catalog_platforms(repo_root: Path) -> set[str]:
     source = (repo_root / "src/components/downloader/platform-support.ts").read_text(encoding="utf-8")
-    return set(re.findall(r"platform:\s*'([^']+)'", source))
+    match = re.search(
+        r"const\s+PLATFORM_SUPPORT_CATALOG[^=]*=\s*\[(.*?)\];",
+        source,
+        flags=re.DOTALL,
+    )
+    if not match:
+        raise RuntimeError("could not locate PLATFORM_SUPPORT_CATALOG")
+    return set(re.findall(r"'([^']+)'", match.group(1)))
 
 
 def main() -> int:
