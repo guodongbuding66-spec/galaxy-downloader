@@ -4,6 +4,7 @@
 
 const DEFAULT_DEV_API_BASE_URL = 'http://localhost:8788'
 const DEFAULT_PROD_API_BASE_URL = 'https://downloader-api.bhwa233.com'
+const FIRST_PARTY_LOCAL_PARSE_ENDPOINT = '/api/local-parse'
 
 function normalizeBaseUrl(value: string): string {
     return value.endsWith('/') ? value.slice(0, -1) : value
@@ -53,6 +54,13 @@ function endpointCandidates(pathname: string): string[] {
     return [...new Set(candidates)]
 }
 
+function parseEndpointCandidates(): string[] {
+    return [
+        FIRST_PARTY_LOCAL_PARSE_ENDPOINT,
+        ...endpointCandidates('/api/parse'),
+    ].filter((value, index, list) => list.indexOf(value) === index)
+}
+
 /**
  * Primary API endpoints. These keep the existing production behavior intact.
  */
@@ -69,13 +77,16 @@ export const API_ENDPOINTS = {
 } as const
 
 /**
- * Ordered media backend candidates. The optional first-party Container backend
- * is only present when NEXT_PUBLIC_CONTAINER_API_BASE_URL is configured, so
- * merely shipping this code cannot change the current production route.
+ * Ordered media backend candidates.
+ *
+ * Parsing tries Galaxy's same-origin lightweight parser first. It handles a
+ * small set of public platforms without API keys and deliberately returns an
+ * error for everything else; requestUnifiedParse then falls back to the
+ * existing shared/container backends. Download candidates remain unchanged.
  */
 export const API_ENDPOINT_CANDIDATES = {
     unified: {
-        parse: endpointCandidates('/api/parse'),
+        parse: parseEndpointCandidates(),
         download: endpointCandidates('/api/download'),
     },
 } as const
