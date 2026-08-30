@@ -221,6 +221,8 @@ export function VideoResultPanel({
             ? effectiveResult.downloadVideoUrl
             : null;
     const playerUrl = hlsPlaybackUrl || (playerPreview ? buildMediaPreviewUrl(playerPreview) : null);
+    const hasPrimaryVisual = Boolean((playerPreview && playerUrl) || coverSrc);
+
     const handleSelectPage = (pageNumber: number, mediaType: 'video' | 'audio') => {
         const page = result.pages?.find((item) => item.page === pageNumber);
         if (!page) return;
@@ -290,8 +292,48 @@ export function VideoResultPanel({
             : effectiveResult.title || result.title;
     const displayDuration = effectiveResult.duration ?? result.duration;
 
+    const primaryVisual = playerPreview && playerUrl ? (
+        <div className="overflow-hidden rounded-2xl bg-black shadow-sm ring-1 ring-border/60">
+            {playerPreview.mediaType === 'audio' ? (
+                <audio
+                    key={playerUrl}
+                    src={playerUrl}
+                    controls
+                    autoPlay={playerPreview.autoplay}
+                    preload="metadata"
+                    className="w-full"
+                />
+            ) : hlsPlaybackUrl ? (
+                <HlsVideoPlayer
+                    key={playerUrl}
+                    src={playerUrl}
+                    autoPlay={playerPreview.autoplay}
+                    muted={playerPreview.origin === 'share' && playerPreview.autoplay}
+                    playsInline
+                    preload="metadata"
+                    poster={coverSrc || undefined}
+                    className="min-h-[220px] max-h-[64vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-11rem)]"
+                />
+            ) : (
+                <video
+                    key={playerUrl}
+                    src={playerUrl}
+                    controls
+                    autoPlay={playerPreview.autoplay}
+                    muted={playerPreview.origin === 'share' && playerPreview.autoplay}
+                    playsInline
+                    preload="metadata"
+                    poster={coverSrc || undefined}
+                    className="min-h-[220px] max-h-[64vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-11rem)]"
+                />
+            )}
+        </div>
+    ) : !isImageNote && coverSrc ? (
+        <ImageNoteGrid images={[coverSrc]} title={displayTitle} singleImageMode />
+    ) : null;
+
     return (
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden border-border/80 bg-card/95 workbench-shadow">
             <ResultCardHeader
                 title={displayTitle}
                 duration={displayDuration}
@@ -299,62 +341,42 @@ export function VideoResultPanel({
                 onCopyShareLink={() => void handleCopySharePlayLink()}
                 onClose={onClose}
             />
-            <CardContent className="p-4 sm:p-5">
-                <div className="space-y-4">
-                    {playerPreview && playerUrl ? (
-                        <div className="overflow-hidden rounded-xl bg-black shadow-sm ring-1 ring-border/60">
-                            {playerPreview.mediaType === 'audio' ? (
-                                <audio
-                                    key={playerUrl}
-                                    src={playerUrl}
-                                    controls
-                                    autoPlay={playerPreview.autoplay}
-                                    preload="metadata"
-                                    className="w-full"
-                                />
-                            ) : hlsPlaybackUrl ? (
-                                <HlsVideoPlayer
-                                    key={playerUrl}
-                                    src={playerUrl}
-                                    autoPlay={playerPreview.autoplay}
-                                    muted={playerPreview.origin === 'share' && playerPreview.autoplay}
-                                    playsInline
-                                    preload="metadata"
-                                    poster={coverSrc || undefined}
-                                    className="min-h-[220px] max-h-[56vh] w-full bg-black sm:min-h-[240px]"
-                                />
-                            ) : (
-                                <video
-                                    key={playerUrl}
-                                    src={playerUrl}
-                                    controls
-                                    autoPlay={playerPreview.autoplay}
-                                    muted={playerPreview.origin === 'share' && playerPreview.autoplay}
-                                    playsInline
-                                    preload="metadata"
-                                    poster={coverSrc || undefined}
-                                    className="min-h-[220px] max-h-[56vh] w-full bg-black sm:min-h-[240px]"
-                                />
-                            )}
-                        </div>
-                    ) : !isImageNote && coverSrc ? (
-                        <ImageNoteGrid images={[coverSrc]} title={displayTitle} singleImageMode />
-                    ) : null}
+            <CardContent className="p-3 sm:p-5">
+                <div className="space-y-4 sm:space-y-5">
                     {isImageNote ? (
                         <ImageNoteGrid images={displayImages} title={displayTitle} />
                     ) : (
                         <>
-                            <SinglePartButtons
-                                result={effectiveResult}
-                                previewItem={previewItem}
-                                onOpenExtractAudio={onOpenExtractAudio}
-                                onOpenHlsDownload={setHlsDownloadRequest}
-                                onRequestPreview={onRequestPreview}
-                            />
+                            <div
+                                className={
+                                    hasPrimaryVisual
+                                        ? 'grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(330px,0.85fr)] lg:items-start xl:grid-cols-[minmax(0,1.62fr)_minmax(370px,0.82fr)]'
+                                        : 'grid gap-4'
+                                }
+                            >
+                                {hasPrimaryVisual ? (
+                                    <section className="min-w-0 rounded-2xl border border-border/70 bg-muted/15 p-2 shadow-sm sm:p-3">
+                                        {primaryVisual}
+                                    </section>
+                                ) : null}
+
+                                <aside className="min-w-0 lg:sticky lg:top-20">
+                                    <div className="rounded-2xl border border-border/75 bg-card/90 p-3 shadow-[0_1px_2px_hsl(var(--shadow-color)/0.04),0_12px_30px_hsl(var(--shadow-color)/0.05)] sm:p-4">
+                                        <SinglePartButtons
+                                            result={effectiveResult}
+                                            previewItem={previewItem}
+                                            onOpenExtractAudio={onOpenExtractAudio}
+                                            onOpenHlsDownload={setHlsDownloadRequest}
+                                            onRequestPreview={onRequestPreview}
+                                        />
+                                    </div>
+                                </aside>
+                            </div>
+
                             {(showMultiPartList || showSeasonList || hasBilibiliSourceSwitch) && (
-                                <div className="space-y-3 rounded-xl bg-muted/15 p-3 ring-1 ring-border/70 sm:p-4">
+                                <section className="space-y-3 rounded-2xl border border-border/70 bg-muted/10 p-3 sm:p-4">
                                     {hasBilibiliSourceSwitch && (
-                                        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center" role="group">
+                                        <div className="grid grid-cols-2 gap-2 sm:inline-grid sm:grid-cols-2" role="group">
                                             <Button
                                                 variant={activeBiliList === 'pages' ? 'default' : 'outline'}
                                                 size="sm"
@@ -392,10 +414,13 @@ export function VideoResultPanel({
                                             onSelectItem={handleSelectVideo}
                                         />
                                     ) : null}
-                                </div>
+                                </section>
                             )}
+
                             {hasSupplementalImages && (
-                                <ImageNoteGrid images={displayImages} title={displayTitle} />
+                                <section className="rounded-2xl border border-border/70 bg-muted/10 p-3 sm:p-4">
+                                    <ImageNoteGrid images={displayImages} title={displayTitle} />
+                                </section>
                             )}
                         </>
                     )}
