@@ -51,6 +51,56 @@ function withLocalProcessingHeaders(response: Response): Response {
   });
 }
 
+function isDailymotionHlsUrl(url: URL): boolean {
+  return url.pathname === "/api/local-media"
+    && url.searchParams.get("platform") === "dailymotion"
+    && url.searchParams.get("mode") === "hls";
+}
+
+function isDailymotionHlsAlias(url: URL): boolean {
+  return url.pathname === "/api/hls-proxy"
+    && url.searchParams.get("provider") === "dailymotion";
+}
+
+function toDailymotionLocalMediaRequest(request: Request): Request {
+  const source = new URL(request.url);
+  const target = new URL(source.toString());
+  target.pathname = "/api/local-media";
+  target.searchParams.delete("provider");
+  target.searchParams.set("platform", "dailymotion");
+  target.searchParams.set("mode", "hls");
+
+  return new Request(target.toString(), {
+    method: request.method,
+    headers: request.headers,
+    redirect: request.redirect,
+    signal: request.signal,
+  });
+}
+
+async function rewriteDailymotionPlaylistResponse(response: Response): Promise<Response> {
+  const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+  if (!response.ok || (!contentType.includes("mpegurl") && !contentType.includes("vnd.apple.mpegurl"))) {
+    return response;
+  }
+
+  const text = await response.text();
+  const rewritten = text.replaceAll(
+    "/api/local-media?platform=dailymotion&mode=hls&",
+    "/api/hls-proxy?provider=dailymotion&",
+  );
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.set("content-length", String(new TextEncoder().encode(rewritten).byteLength));
+  headers.set("cache-control", "private, no-store");
+
+  return new Response(rewritten, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // Image security config. SVG sources with .svg extension auto-skip the
 // optimization endpoint on the client side (served directly, no proxy).
 // To route SVGs through the optimizer (with security headers), set
@@ -74,6 +124,24 @@ const worker = {
         },
       }, allowedWidths);
       return withLocalProcessingHeaders(response);
+    }
+
+    // Galaxy's browser HLS downloader historically trusts `/api/hls-proxy`
+    // child resources. Dailymotion needs a same-egress relay because its
+    // signed streams can be tied to the network identity that produced the
+    // metadata. Keep that compatibility path as a Worker-level alias instead
+    // of adding another Next route, which avoids vinext route-table drift.
+    if (isDailymotionHlsAlias(url)) {
+      const internalRequest = toDailymotionLocalMediaRequest(request);
+      const response = await handler.fetch(internalRequest, env, ctx);
+      return withLocalProcessingHeaders(await rewriteDailymotionPlaylistResponse(response));
+    }
+
+    // Root Dailymotion HLS playlists are served by the stable local-media
+    // route. Rewrite their child URIs to the trusted Worker alias above.
+    if (isDailymotionHlsUrl(url)) {
+      const response = await handler.fetch(request, env, ctx);
+      return withLocalProcessingHeaders(await rewriteDailymotionPlaylistResponse(response));
     }
 
     // Delegate everything else to vinext, forwarding ctx so that
