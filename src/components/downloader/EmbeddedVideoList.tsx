@@ -11,7 +11,7 @@ import { LOAD_MORE_BATCH, useChunkedMobileList } from './use-chunked-mobile-list
 import { replaceTemplate } from './result-card-utils';
 import { useTemporaryDownloadKeys } from './use-temporary-download-keys';
 
-const DEFAULT_VISIBLE_PARTS = 100;
+const DEFAULT_VISIBLE_PARTS = 36;
 
 export function EmbeddedVideoList({
     videos,
@@ -102,6 +102,7 @@ export function EmbeddedVideoList({
                     </span>
                 </span>
                 <Input
+                    type="search"
                     value={searchQuery}
                     onChange={(event) => {
                         setSearchQuery(event.target.value);
@@ -116,7 +117,7 @@ export function EmbeddedVideoList({
                 ref={containerRef}
                 className="max-h-[min(56vh,26rem)] overflow-y-auto overscroll-contain pe-1 md:max-h-[min(60vh,32rem)]"
             >
-                <div className="space-y-2 pe-2">
+                <div className="space-y-2 pe-2" role="list">
                     {filteredVideos.length === 0 && (
                         <p className="py-6 text-center text-sm text-muted-foreground">
                             {dict.result.collectionNoSearchResults}
@@ -145,6 +146,7 @@ export function EmbeddedVideoList({
                                         itemRefs.current.delete(video.id);
                                     }
                                 }}
+                                role="listitem"
                                 aria-current={isCurrentItem ? 'true' : undefined}
                                 className={`flex w-full max-w-full flex-col gap-3 overflow-hidden rounded-xl border p-3 text-left transition-colors md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4 ${
                                     isCurrentItem
