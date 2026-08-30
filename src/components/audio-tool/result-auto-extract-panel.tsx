@@ -26,7 +26,7 @@ export function ResultAutoExtractPanel({
 
     return (
         <div className="space-y-4">
-            <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground break-all">
+            <div className="rounded-xl border bg-muted/20 px-3 py-2.5 text-xs leading-5 text-muted-foreground break-all">
                 {task.sourceUrl || task.videoUrl || task.audioUrl}
             </div>
 
@@ -34,7 +34,7 @@ export function ResultAutoExtractPanel({
                 <Button
                     type="button"
                     variant="outline"
-                    className="w-full"
+                    className="min-h-11 w-full"
                     onClick={onRetry}
                     disabled={isBusy}
                 >
