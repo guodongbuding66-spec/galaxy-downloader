@@ -59,7 +59,7 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
-          python -m py_compile local-engine/engine.py
+          python -m py_compile local-engine/engine.py local-engine/external_ytdlp.py
           python local-engine/engine.py --self-test
           $engineVersion = (python local-engine/engine.py --version | Select-Object -Last 1).Trim()
           $releaseVersion = '${{ steps.release.outputs.version }}'
@@ -123,6 +123,16 @@ jobs:
             throw "Protocol command does not target the installed executable: $registeredCommand"
           }
 
+          $externalYtDlp = Join-Path $testInstall 'yt-dlp.exe'
+          if (-not (Test-Path $externalYtDlp)) {
+            throw 'Verified external yt-dlp.exe was not installed'
+          }
+          $externalVersion = (& $externalYtDlp --version | Select-Object -Last 1).Trim()
+          if (-not $externalVersion) {
+            throw 'Installed external yt-dlp.exe did not report a version'
+          }
+          Write-Host "External yt-dlp version: $externalVersion"
+
           & 'dist/package/uninstall.ps1' -InstallDir $testInstall
           if (Test-Path 'HKCU:\Software\Classes\galaxy-downloader') {
             throw 'galaxy-downloader protocol registration remained after uninstall'
@@ -152,14 +162,14 @@ jobs:
           $notes = @"
           ## Galaxy Local Engine $env:RELEASE_TAG
 
-          Free Windows local yt-dlp + FFmpeg fallback for Galaxy Downloader.
+          Free Windows local yt-dlp + FFmpeg engine for Galaxy Downloader.
 
           1. Download `GalaxyLocalEngine-Windows.zip`.
           2. Extract the complete ZIP.
           3. Double-click `install.cmd` once.
           4. Return to Galaxy Downloader and use **Local yt-dlp download**.
 
-          The installer verifies the FFmpeg publisher SHA-256 checksum before extraction. Media, browser cookies and FFmpeg processing stay on the user's computer.
+          The installer verifies both FFmpeg and the official external `yt-dlp.exe` with publisher SHA-256 data. Galaxy prefers the external extractor, checks the official yt-dlp nightly channel at most once every 12 hours, and automatically falls back to the embedded extractor if an update or external run fails. Media, browser cookies and FFmpeg processing stay on the user's computer.
           "@
 
           gh release create $env:RELEASE_TAG dist/GalaxyLocalEngine-Windows.zip dist/SHA256SUMS.txt --title "Galaxy Local Engine $env:RELEASE_TAG" --notes $notes --verify-tag
