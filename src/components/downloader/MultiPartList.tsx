@@ -53,7 +53,7 @@ export function MultiPartList({
                                 aria-current={isCurrentPage ? 'true' : undefined}
                                 className={`flex w-full max-w-full flex-col gap-3 overflow-hidden rounded-xl border p-3 text-left transition-colors md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4 ${
                                     isCurrentPage
-                                        ? 'border-primary/70 bg-primary/5 ring-1 ring-primary/15'
+                                        ? 'border-primary bg-primary/5 ring-1 ring-primary/15'
                                         : 'border-border/80 bg-background/60 hover:bg-muted/40'
                                 }`}
                                 style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 128px' }}
