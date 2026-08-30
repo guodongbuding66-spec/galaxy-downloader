@@ -43,6 +43,7 @@ export function FileExtractPanel({
                 hint={dict.audioTool.dropHint}
                 limitText={dict.audioTool.fileSizeLimit}
                 emptyButtonLabel={selectedFile ? dict.audioTool.changeFileButton : dict.audioTool.selectFileButton}
+                clearButtonLabel={dict.history.clear}
                 selectedLabel={selectedFile
                     ? dict.audioTool.fileSelected
                         .replace('{name}', selectedFile.name)
@@ -61,11 +62,11 @@ export function FileExtractPanel({
 
             <Button
                 type="button"
-                className="w-full flex items-center justify-center gap-2"
+                className="flex min-h-11 w-full items-center justify-center gap-2"
                 onClick={onSubmit}
                 disabled={isBusy || !selectedFile}
             >
-                {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                {isBusy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                 {isBusy ? dict.audioTool.processingButton : dict.audioTool.submitButton}
             </Button>
         </div>
