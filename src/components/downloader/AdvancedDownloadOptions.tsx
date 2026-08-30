@@ -41,6 +41,8 @@ import {
 import type { SubtitleTrack, UnifiedParseResult, VideoQualityOption } from '@/lib/types';
 import { formatBytes, sanitizeFilename } from '@/lib/utils';
 
+import { LocalEngineDownloadCard } from './LocalEngineDownloadCard';
+
 type ResultData = NonNullable<UnifiedParseResult['data']>;
 const EMPTY_SUBTITLES: SubtitleTrack[] = [];
 
@@ -544,6 +546,21 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
         : '—';
     const selectedAudioLabel = AUDIO_QUALITY_PRESETS.find((item) => item.quality === audioQuality)?.label || audioQuality;
 
+    const localEnginePlan = {
+        videoSelection: effectiveVideoQuality
+            ? {
+                quality: effectiveVideoQuality.quality,
+                label: effectiveVideoQuality.label,
+                height: effectiveVideoQuality.height,
+            }
+            : null,
+        audioQuality,
+        includeAudio,
+        includeSubtitle: includeSubtitle && Boolean(selectedSubtitle),
+        subtitleLanguage: selectedSubtitle?.language || null,
+        includeCover: includeCover && Boolean(capabilities.cover),
+    };
+
     return (
         <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
             <div className="border-b bg-muted/20 p-4 sm:p-5">
@@ -679,6 +696,12 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                             <span>{copy.outputHint}</span>
                         </div>
                     </div>
+
+                    <LocalEngineDownloadCard
+                        result={result}
+                        plan={localEnginePlan}
+                        disabled={running}
+                    />
 
                     {progress && (
                         <div className="space-y-2.5 rounded-xl border bg-background p-4 shadow-sm" role="status" aria-live="polite">

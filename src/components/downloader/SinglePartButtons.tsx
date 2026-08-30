@@ -9,7 +9,6 @@ import type { UnifiedParseResult } from '@/lib/types';
 import { getProxiedDownloadUrl } from '@/lib/utils';
 
 import { AdvancedDownloadOptions } from './AdvancedDownloadOptions';
-import { LocalEngineDownloadCard } from './LocalEngineDownloadCard';
 import { MediaActionIconButton } from './MediaActionIconButton';
 import { canPreviewResultAudio, canPreviewResultVideo } from './media-preview';
 import { getResultMediaActions } from './result-card-visibility';
@@ -161,12 +160,7 @@ export function SinglePartButtons({
                 />
             )}
 
-            {isVideoResult && (
-                <>
-                    <AdvancedDownloadOptions result={result} />
-                    <LocalEngineDownloadCard result={result} />
-                </>
-            )}
+            {isVideoResult && <AdvancedDownloadOptions result={result} />}
         </div>
     );
 }
