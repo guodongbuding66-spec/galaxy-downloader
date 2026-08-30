@@ -64,9 +64,9 @@ const THEME_LABELS = {
 } as const
 
 function ThemeIcon({ theme }: { theme: ThemeOption }) {
-    if (theme === 'light') return <Sun className="h-4 w-4" />
-    if (theme === 'dark') return <Moon className="h-4 w-4" />
-    return <Laptop className="h-4 w-4" />
+    if (theme === 'light') return <Sun className="h-4 w-4" aria-hidden="true" />
+    if (theme === 'dark') return <Moon className="h-4 w-4" aria-hidden="true" />
+    return <Laptop className="h-4 w-4" aria-hidden="true" />
 }
 
 function subscribeToHydration() {
@@ -81,6 +81,13 @@ function getServerSnapshot() {
     return false
 }
 
+function normalizeTheme(theme: string | undefined): ThemeOption {
+    if (theme === 'light' || theme === 'dark' || theme === 'system') {
+        return theme
+    }
+    return 'system'
+}
+
 export function ThemeSwitcher({ compact = false, fullWidth = false }: ThemeSwitcherProps) {
     const locale = useAppLocale()
     const labels = THEME_LABELS[locale]
@@ -91,7 +98,7 @@ export function ThemeSwitcher({ compact = false, fullWidth = false }: ThemeSwitc
     const dropdownRef = useRef<HTMLDivElement>(null)
     const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null)
     const { theme, setTheme } = useTheme()
-    const currentTheme = (mounted ? theme : 'system') as ThemeOption
+    const currentTheme = normalizeTheme(mounted ? theme : 'system')
 
     const updateDropdownPosition = useCallback(() => {
         const trigger = triggerRef.current
@@ -102,7 +109,7 @@ export function ThemeSwitcher({ compact = false, fullWidth = false }: ThemeSwitc
         const gap = 6
         const estimatedHeight = dropdownRef.current?.offsetHeight ?? 180
         const maxWidth = Math.max(120, window.innerWidth - viewportPadding * 2)
-        const preferredWidth = fullWidth ? rect.width : Math.max(160, rect.width)
+        const preferredWidth = fullWidth ? rect.width : Math.max(168, rect.width)
         const width = Math.min(preferredWidth, maxWidth)
         const left = Math.min(
             Math.max(viewportPadding, rect.right - width),
@@ -149,6 +156,7 @@ export function ThemeSwitcher({ compact = false, fullWidth = false }: ThemeSwitc
         function handleEscapeKey(event: KeyboardEvent) {
             if (event.key === 'Escape') {
                 setIsOpen(false)
+                triggerRef.current?.focus()
             }
         }
 
@@ -182,12 +190,13 @@ export function ThemeSwitcher({ compact = false, fullWidth = false }: ThemeSwitc
         system: labels.system,
     }
 
-    const triggerTheme = currentTheme
     const triggerLabel = optionLabels[currentTheme]
     const dropdown = isOpen && dropdownPosition ? (
         <div
             ref={dropdownRef}
-            className="z-[70] rounded-md border border-border bg-background shadow-lg"
+            className="z-[70] overflow-y-auto rounded-xl border border-border bg-background p-1 shadow-lg"
+            role="menu"
+            aria-label={labels.title}
             style={{
                 position: 'fixed',
                 top: `${dropdownPosition.top}px`,
@@ -195,29 +204,33 @@ export function ThemeSwitcher({ compact = false, fullWidth = false }: ThemeSwitc
                 width: `${dropdownPosition.width}px`,
                 maxHeight: `${dropdownPosition.maxHeight}px`,
                 transform: dropdownPosition.placement === 'top' ? 'translateY(-100%)' : undefined,
-                overflowY: 'auto',
             }}
         >
-            <div className="py-1">
-                {(['light', 'dark', 'system'] as ThemeOption[]).map((option) => (
+            {(['light', 'dark', 'system'] as ThemeOption[]).map((option) => {
+                const selected = option === currentTheme
+                return (
                     <button
                         key={option}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={selected}
                         onClick={() => {
                             setTheme(option)
                             setIsOpen(false)
+                            triggerRef.current?.focus()
                         }}
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 flex items-center justify-between transition-colors"
+                        className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-start text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                        <span className="flex items-center gap-2">
+                        <span className="flex min-w-0 items-center gap-2">
                             <ThemeIcon theme={option} />
-                            <span>{optionLabels[option]}</span>
+                            <span className="truncate">{optionLabels[option]}</span>
                         </span>
-                        {option === currentTheme ? (
-                            <Check className="h-4 w-4 text-primary" />
+                        {selected ? (
+                            <Check className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                         ) : null}
                     </button>
-                ))}
-            </div>
+                )
+            })}
         </div>
     ) : null
 
@@ -228,16 +241,25 @@ export function ThemeSwitcher({ compact = false, fullWidth = false }: ThemeSwitc
                 variant="ghost"
                 size={compact ? 'icon' : 'sm'}
                 onClick={() => setIsOpen((open) => !open)}
-                className={cn('flex items-center gap-2 text-sm', compact && 'h-9 w-9 p-0', fullWidth && 'w-full justify-between')}
-                aria-label={labels.title}
+                className={cn(
+                    'flex min-h-10 items-center gap-2 text-sm',
+                    compact && 'h-10 w-10 p-0',
+                    fullWidth && 'w-full justify-between',
+                )}
+                aria-label={`${labels.title}: ${triggerLabel}`}
+                aria-haspopup="menu"
+                aria-expanded={isOpen}
             >
-                <ThemeIcon theme={triggerTheme} />
+                <ThemeIcon theme={currentTheme} />
                 {compact ? (
                     <span className="sr-only">{triggerLabel}</span>
                 ) : (
                     <>
-                        <span>{triggerLabel}</span>
-                        <ChevronDown className={cn('h-4 w-4 transition-transform', isOpen && 'rotate-180')} />
+                        <span className="min-w-0 truncate">{triggerLabel}</span>
+                        <ChevronDown
+                            className={cn('h-4 w-4 shrink-0 transition-transform', isOpen && 'rotate-180')}
+                            aria-hidden="true"
+                        />
                     </>
                 )}
             </Button>
