@@ -35,10 +35,9 @@ export function LanguageSwitcher({
     const router = useRouter()
     const dropdownRef = useRef<HTMLDivElement>(null)
 
-    // 移除当前语言前缀，获取路径
-    const pathWithoutLocale = pathname.replace(`/${currentLocale}`, '') || '/'
+    const safePathname = pathname || `/${currentLocale}`
+    const pathWithoutLocale = safePathname.replace(`/${currentLocale}`, '') || '/'
 
-    // 切换语言
     const handleLanguageChange = (locale: Locale) => {
         if (locale === currentLocale) {
             setIsOpen(false)
@@ -46,16 +45,11 @@ export function LanguageSwitcher({
         }
 
         const newPath = `/${locale}${pathWithoutLocale}`
-
-        // 设置 Cookie
         setLocaleCookie(locale)
-
-        // 路由跳转
         router.push(newPath)
         setIsOpen(false)
     }
 
-    // 点击外部关闭下拉菜单
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -69,7 +63,6 @@ export function LanguageSwitcher({
         }
     }, [isOpen])
 
-    // ESC 键关闭
     useEffect(() => {
         function handleEscapeKey(event: KeyboardEvent) {
             if (event.key === 'Escape') {
@@ -88,16 +81,18 @@ export function LanguageSwitcher({
             <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={() => setIsOpen((open) => !open)}
                 className={cn(
-                    'flex items-center gap-2 text-sm',
-                    compact && 'h-9 max-w-[8rem] gap-1.5 px-2.5',
-                    iconOnly && 'h-8 w-8 p-0',
+                    'flex min-h-10 items-center gap-2 text-sm',
+                    compact && 'max-w-[8rem] gap-1.5 px-2.5',
+                    iconOnly && 'h-10 w-10 p-0',
                     fullWidth && 'w-full justify-between'
                 )}
                 aria-label={iconOnly ? dict.page.switchLanguageLabel : getLocaleLabel(currentLocale)}
+                aria-haspopup="menu"
+                aria-expanded={isOpen}
             >
-                <Globe className="h-4 w-4" />
+                <Globe className="h-4 w-4" aria-hidden="true" />
                 {iconOnly ? (
                     <span className="sr-only">{dict.page.switchLanguageLabel}</span>
                 ) : compact ? (
@@ -105,29 +100,37 @@ export function LanguageSwitcher({
                 ) : (
                     <>
                         <span>{getLocaleLabel(currentLocale)}</span>
-                        <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
                     </>
                 )}
             </Button>
 
             {isOpen && (
-                <div className="absolute right-0 top-full mt-1 w-40 bg-background border border-border rounded-md shadow-lg z-50">
-                    <div className="py-1">
-                        {SUPPORTED_LOCALES.map((locale) => (
+                <div
+                    className="absolute end-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-background p-1 shadow-lg"
+                    role="menu"
+                    aria-label={dict.page.switchLanguageLabel}
+                >
+                    {SUPPORTED_LOCALES.map((locale) => {
+                        const selected = locale === currentLocale
+                        return (
                             <button
                                 key={locale}
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={selected}
                                 onClick={() => handleLanguageChange(locale)}
-                                className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 flex items-center justify-between transition-colors"
+                                className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-start text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
                                 <span>{getLocaleLabel(locale)}</span>
-                                {locale === currentLocale && (
-                                    <Check className="h-4 w-4 text-primary" />
+                                {selected && (
+                                    <Check className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                                 )}
                             </button>
-                        ))}
-                    </div>
+                        )
+                    })}
                 </div>
             )}
         </div>
     )
-} 
+}

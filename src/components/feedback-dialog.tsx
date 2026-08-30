@@ -53,11 +53,9 @@ export function FeedbackDialog({
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
 
-    // 字符计数
     const contentLength = content.length
     const maxLength = FEEDBACK_CONFIG.validation.contentMaxLength
 
-    // 验证状态
     const contentError = content ? validateContent(content) : null
     const emailError = email ? !validateEmail(email) : null
     const canSubmit = !contentError && !emailError && content.trim().length >= FEEDBACK_CONFIG.validation.contentMinLength
@@ -66,12 +64,10 @@ export function FeedbackDialog({
         .replace('{current}', String(contentLength))
         .replace('{max}', String(maxLength))
 
-    // 获取当前反馈类型对应的placeholder
     const getPlaceholder = () => {
         return feedback.contentPlaceholder[feedbackType] || feedback.contentPlaceholder.other || ''
     }
 
-    // 重置表单
     const resetForm = () => {
         setFeedbackType('bug')
         setContent('')
@@ -79,23 +75,19 @@ export function FeedbackDialog({
         setSubmitStatus('idle')
     }
 
-    // 关闭弹窗时重置
     useEffect(() => {
         if (!open) {
-            // 延迟重置，等待关闭动画完成
             const timer = setTimeout(resetForm, 200)
             return () => clearTimeout(timer)
         }
     }, [open])
 
-    // 处理提交
     const handleSubmit = async () => {
         if (!canSubmit) return
 
         setIsSubmitting(true)
 
         try {
-            // 提交反馈
             await submitFeedback({
                 type: feedbackType,
                 content: content.trim(),
@@ -106,7 +98,6 @@ export function FeedbackDialog({
             setSubmitStatus('success')
             toast.success(feedback.toastSuccess)
 
-            // 3秒后自动关闭
             setTimeout(() => {
                 setOpen(false)
             }, 3000)
@@ -132,41 +123,38 @@ export function FeedbackDialog({
         }
     }
 
-    // 渲染成功状态
     const renderSuccess = () => (
-        <div className="py-8 text-center space-y-4">
+        <div className="space-y-4 py-8 text-center" role="status" aria-live="polite">
             <div className="flex justify-center">
-                <CheckCircle2 className="h-16 w-16 text-green-500" />
+                <CheckCircle2 className="h-16 w-16 text-green-500" aria-hidden="true" />
             </div>
             <div className="space-y-2">
                 <h3 className="text-lg font-semibold">
                     {feedback.successTitle}
                 </h3>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm leading-5 text-muted-foreground">
                     {feedback.successMessage}
                 </p>
                 {email && (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs leading-5 text-muted-foreground">
                         {feedback.successNote}
                     </p>
                 )}
             </div>
-            <Button onClick={() => setOpen(false)} className="mt-4">
+            <Button onClick={() => setOpen(false)} className="mt-4 min-h-11 w-full sm:w-auto">
                 {feedback.closeButton}
             </Button>
         </div>
     )
 
-    // 渲染表单
     const renderForm = () => (
-        <div className="space-y-4">
-            {/* 反馈类型 */}
+        <div className="space-y-5">
             <div className="space-y-2">
                 <Label htmlFor="feedback-type">
-                    {feedback.typeLabel} <span className="text-red-500">*</span>
+                    {feedback.typeLabel} <span className="text-red-500" aria-hidden="true">*</span>
                 </Label>
                 <Select value={feedbackType} onValueChange={(value) => setFeedbackType(value as FeedbackType)}>
-                    <SelectTrigger id="feedback-type">
+                    <SelectTrigger id="feedback-type" className="h-11 sm:h-10">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -183,10 +171,9 @@ export function FeedbackDialog({
                 </Select>
             </div>
 
-            {/* 详细描述 */}
             <div className="space-y-2">
                 <Label htmlFor="feedback-content">
-                    {feedback.contentLabel} <span className="text-red-500">*</span>
+                    {feedback.contentLabel} <span className="text-red-500" aria-hidden="true">*</span>
                 </Label>
                 <Textarea
                     id="feedback-content"
@@ -194,10 +181,12 @@ export function FeedbackDialog({
                     onChange={(e) => setContent(e.target.value)}
                     placeholder={getPlaceholder()}
                     rows={5}
-                    className="resize-none"
+                    className="min-h-32 resize-none text-base sm:text-sm"
                     maxLength={maxLength}
+                    aria-invalid={Boolean(contentError)}
+                    aria-describedby="feedback-content-meta"
                 />
-                <div className="flex justify-between items-center text-xs">
+                <div id="feedback-content-meta" className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <span className={contentError ? 'text-red-500' : 'text-muted-foreground'}>
                         {contentError === 'contentRequired' && feedback.contentRequired}
                         {contentError === 'contentTooShort' && contentTooShortMessage}
@@ -208,7 +197,6 @@ export function FeedbackDialog({
                 </div>
             </div>
 
-            {/* 联系邮箱 */}
             <div className="space-y-2">
                 <Label htmlFor="feedback-email">
                     {feedback.emailLabel}
@@ -219,39 +207,45 @@ export function FeedbackDialog({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder={feedback.emailPlaceholder}
+                    className="h-11 text-base sm:h-10 sm:text-sm"
+                    aria-invalid={Boolean(emailError)}
+                    aria-describedby="feedback-email-help"
                 />
-                {emailError && (
-                    <p className="text-xs text-red-500">
-                        {feedback.emailInvalid}
-                    </p>
-                )}
-                {!email && !emailError && (
-                    <p className="text-xs text-muted-foreground">
-                        {feedback.emailRequired}
-                    </p>
-                )}
+                <div id="feedback-email-help">
+                    {emailError && (
+                        <p className="text-xs leading-5 text-red-500">
+                            {feedback.emailInvalid}
+                        </p>
+                    )}
+                    {!email && !emailError && (
+                        <p className="text-xs leading-5 text-muted-foreground">
+                            {feedback.emailRequired}
+                        </p>
+                    )}
+                </div>
             </div>
 
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs leading-5 text-muted-foreground">
                 {feedback.diagnosticInfoHint}
             </p>
 
-            {/* 按钮 */}
-            <div className="flex justify-end gap-2 pt-4">
+            <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
                 <Button
                     variant="ghost"
+                    className="min-h-11 sm:min-h-10"
                     onClick={() => setOpen(false)}
                     disabled={isSubmitting}
                 >
                     {feedback.cancelButton}
                 </Button>
                 <Button
+                    className="min-h-11 sm:min-h-10"
                     onClick={handleSubmit}
                     disabled={!canSubmit || isSubmitting}
                 >
                     {isSubmitting ? (
                         <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden="true" />
                             {feedback.submittingButton}
                         </>
                     ) : (
@@ -268,11 +262,11 @@ export function FeedbackDialog({
                 <Button
                     variant="ghost"
                     size={triggerIconOnly ? 'icon' : 'sm'}
-                    className={cn('text-sm', triggerClassName)}
+                    className={cn('min-h-10 text-sm', triggerIconOnly && 'h-10 w-10', triggerClassName)}
                     onClick={onTriggerClick}
                     aria-label={triggerLabel}
                 >
-                    <MessageSquare className={cn('h-4 w-4', !triggerIconOnly && 'mr-1')} />
+                    <MessageSquare className={cn('h-4 w-4', !triggerIconOnly && 'me-1')} aria-hidden="true" />
                     {triggerIconOnly ? (
                         <span className="sr-only">{triggerLabel}</span>
                     ) : (
@@ -281,10 +275,10 @@ export function FeedbackDialog({
                 </Button>
             </DialogTrigger>
             <DialogContent
-                className="max-w-lg max-h-[90vh] overflow-y-auto"
+                className="max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl p-4 sm:max-h-[90dvh] sm:max-w-lg sm:p-6"
                 onInteractOutside={(event) => event.preventDefault()}
             >
-                <DialogHeader>
+                <DialogHeader className="pe-8">
                     <DialogTitle>
                         {feedback.title}
                     </DialogTitle>

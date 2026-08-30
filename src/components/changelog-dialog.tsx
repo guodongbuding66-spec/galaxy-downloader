@@ -51,35 +51,35 @@ export function ChangelogDialog({
                 <Button
                     variant="ghost"
                     size={triggerIconOnly ? 'icon' : 'sm'}
-                    className={cn('text-sm', triggerClassName)}
+                    className={cn('min-h-10 text-sm', triggerIconOnly && 'h-10 w-10', triggerClassName)}
                     onClick={onTriggerClick}
                     aria-label={title}
                 >
-                    <ScrollText className={cn('h-4 w-4', !triggerIconOnly && 'mr-1')} />
+                    <ScrollText className={cn('h-4 w-4', !triggerIconOnly && 'me-1')} aria-hidden="true" />
                     {triggerIconOnly ? <span className="sr-only">{title}</span> : title}
                 </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
-                <DialogHeader>
+            <DialogContent className="max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] rounded-xl p-4 sm:max-h-[85dvh] sm:max-w-md sm:p-6">
+                <DialogHeader className="pe-8">
                     <DialogTitle>{title}</DialogTitle>
                 </DialogHeader>
-                <ScrollArea className="max-h-[60vh] pr-2">
+                <ScrollArea className="max-h-[calc(100dvh-6rem)] pe-2 sm:max-h-[70dvh]">
                     <div className="space-y-6">
                         {versions.map((version) => (
-                            <div key={version.version} className="border-b border-border pb-4 last:border-b-0 last:pb-0">
-                                <div className="flex items-center justify-between mb-3">
+                            <section key={version.version} className="border-b border-border pb-4 last:border-b-0 last:pb-0">
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                     <span className="font-semibold">v{version.version}</span>
-                                    <span className="text-sm text-muted-foreground">{version.date}</span>
+                                    <time className="text-sm text-muted-foreground">{version.date}</time>
                                 </div>
-                                <ul className="space-y-2 pl-1">
+                                <ul className="space-y-2 ps-1">
                                     {getChanges(version.changes).map((change, index) => (
-                                        <li key={index} className="text-sm text-muted-foreground flex items-start gap-2">
-                                            <span className="text-primary shrink-0">•</span>
-                                            <span>{change}</span>
+                                        <li key={index} className="flex items-start gap-2 text-sm leading-5 text-muted-foreground">
+                                            <span className="shrink-0 text-primary" aria-hidden="true">•</span>
+                                            <span className="break-words">{change}</span>
                                         </li>
                                     ))}
                                 </ul>
-                            </div>
+                            </section>
                         ))}
                     </div>
                 </ScrollArea>
