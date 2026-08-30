@@ -75,7 +75,39 @@ jobs:
           Copy-Item local-engine/uninstall.ps1 dist/package/uninstall.ps1
           Copy-Item local-engine/README.md dist/package/README.md
           Copy-Item local-engine/VERSION dist/package/VERSION
-          Compress-Archive -Force -Path dist/package/* -DestinationPath dist/GalaxyLocalEngine-Windows.zip
+
+      - name: Validate installer and protocol lifecycle
+        shell: pwsh
+        run: |
+          $testInstall = Join-Path $env:RUNNER_TEMP 'GalaxyLocalEngineTest'
+          $fakeFfmpeg = Join-Path $testInstall 'ffmpeg\bin'
+          New-Item -ItemType Directory -Force -Path $fakeFfmpeg | Out-Null
+          Set-Content -Path (Join-Path $fakeFfmpeg 'ffmpeg.exe') -Value 'ci-placeholder'
+
+          & 'dist/package/install.ps1' -InstallDir $testInstall -NoLaunch
+
+          $protocolCommandPath = 'HKCU:\Software\Classes\galaxy-downloader\shell\open\command'
+          if (-not (Test-Path $protocolCommandPath)) {
+            throw 'galaxy-downloader protocol registration was not created'
+          }
+          $registeredCommand = (Get-Item $protocolCommandPath).GetValue('')
+          $expectedExe = Join-Path $testInstall 'GalaxyLocalEngine.exe'
+          if ($registeredCommand -notlike "*$expectedExe*") {
+            throw "Protocol command does not target the installed executable: $registeredCommand"
+          }
+          if (-not (Test-Path (Join-Path $testInstall 'VERSION'))) {
+            throw 'Installed VERSION file is missing'
+          }
+
+          & 'dist/package/uninstall.ps1' -InstallDir $testInstall
+          if (Test-Path 'HKCU:\Software\Classes\galaxy-downloader') {
+            throw 'galaxy-downloader protocol registration remained after uninstall'
+          }
+          Remove-Item -Recurse -Force $testInstall -ErrorAction SilentlyContinue
+
+      - name: Compress Windows package
+        shell: pwsh
+        run: Compress-Archive -Force -Path dist/package/* -DestinationPath dist/GalaxyLocalEngine-Windows.zip
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
