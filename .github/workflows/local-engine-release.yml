@@ -95,7 +95,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist/package | Out-Null
           Copy-Item dist/GalaxyLocalEngine.exe dist/package/GalaxyLocalEngine.exe
+          Copy-Item local-engine/install.cmd dist/package/install.cmd
           Copy-Item local-engine/install.ps1 dist/package/install.ps1
+          Copy-Item local-engine/uninstall.cmd dist/package/uninstall.cmd
           Copy-Item local-engine/uninstall.ps1 dist/package/uninstall.ps1
           Copy-Item local-engine/README.md dist/package/README.md
           Copy-Item local-engine/VERSION dist/package/VERSION
@@ -121,11 +123,11 @@ jobs:
           Free Windows local yt-dlp + FFmpeg fallback for Galaxy Downloader.
 
           1. Download `GalaxyLocalEngine-Windows.zip`.
-          2. Extract it.
-          3. Run `install.ps1` once.
+          2. Extract the complete ZIP.
+          3. Double-click `install.cmd` once.
           4. Return to Galaxy Downloader and use **Local yt-dlp download**.
 
-          Media, browser cookies and FFmpeg processing stay on the user's computer.
+          The installer verifies the FFmpeg publisher SHA-256 checksum before extraction. Media, browser cookies and FFmpeg processing stay on the user's computer.
           "@
 
           gh release create $env:RELEASE_TAG dist/GalaxyLocalEngine-Windows.zip dist/SHA256SUMS.txt --title "Galaxy Local Engine $env:RELEASE_TAG" --notes $notes --verify-tag
