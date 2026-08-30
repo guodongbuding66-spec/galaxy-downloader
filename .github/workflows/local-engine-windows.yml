@@ -1,0 +1,75 @@
+name: Local Engine Windows
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/**'
+      - '.github/workflows/local-engine-windows.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/**'
+      - '.github/workflows/local-engine-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install build dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+
+      - name: Compile-check engine source
+        run: python -m py_compile local-engine/engine.py
+
+      - name: Validate source self-test
+        run: python local-engine/engine.py --self-test
+
+      - name: Build portable executable
+        run: >-
+          pyinstaller
+          --noconfirm
+          --clean
+          --onefile
+          --windowed
+          --name GalaxyLocalEngine
+          --collect-all yt_dlp
+          local-engine/engine.py
+
+      - name: Validate packaged executable
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "GalaxyLocalEngine.exe self-test exited with $($process.ExitCode)"
+          }
+
+      - name: Assemble release package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/package | Out-Null
+          Copy-Item dist/GalaxyLocalEngine.exe dist/package/GalaxyLocalEngine.exe
+          Copy-Item local-engine/install.ps1 dist/package/install.ps1
+          Copy-Item local-engine/uninstall.ps1 dist/package/uninstall.ps1
+          Copy-Item local-engine/README.md dist/package/README.md
+          Compress-Archive -Force -Path dist/package/* -DestinationPath dist/GalaxyLocalEngine-Windows.zip
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GalaxyLocalEngine-Windows
+          path: dist/GalaxyLocalEngine-Windows.zip
+          if-no-files-found: error
+          retention-days: 30
