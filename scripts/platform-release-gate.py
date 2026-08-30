@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -12,6 +13,25 @@ from pathlib import Path
 
 EXPECTED_PLATFORM_COUNT = 33
 STATUS_KEYS = ("PASS", "PARTIAL", "FAIL", "SKIP")
+
+# Stable public examples used only when the repository secret does not provide
+# a better fixture. Explicit secret values stay first and therefore win.
+DEFAULT_FIXTURE_OVERRIDES: dict[str, list[str]] = {
+    "threads": [
+        "https://www.threads.net/@zuck/post/Cuw_QlKxvbq",
+        "https://www.threads.com/@instagram/post/DQNCKbZjq-v",
+    ],
+    "wechat": [
+        "https://mp.weixin.qq.com/s/v0OiILpavyPe4PDHaqf_KQ",
+        "https://mp.weixin.qq.com/s/cMUFXDgoGyqOtq9HnudmGA",
+    ],
+    "kuaishou": [
+        "https://www.kuaishou.com/short-video/3xf86se7buu8tvq",
+    ],
+    "twitch": [
+        "https://m.twitch.tv/ninja/clip/SuaveNeighborlySrirachaHeyGirl-1J8kzeLFWxdUBZ4C",
+    ],
+}
 
 
 def load_catalog_platforms(repo_root: Path) -> set[str]:
@@ -24,6 +44,33 @@ def load_catalog_platforms(repo_root: Path) -> set[str]:
     if not match:
         raise RuntimeError("could not locate PLATFORM_SUPPORT_CATALOG")
     return set(re.findall(r"'([^']+)'", match.group(1)))
+
+
+def build_smoke_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    existing_raw = env.get("PLATFORM_SMOKE_FIXTURES_JSON", "").strip()
+    existing: dict[str, object] = {}
+    if existing_raw:
+        try:
+            parsed = json.loads(existing_raw)
+            if isinstance(parsed, dict):
+                existing = parsed
+        except json.JSONDecodeError:
+            # The smoke runner will surface malformed secret JSON. Do not hide it.
+            return env
+
+    merged: dict[str, object] = dict(existing)
+    for platform, defaults in DEFAULT_FIXTURE_OVERRIDES.items():
+        current = merged.get(platform)
+        if isinstance(current, list):
+            merged[platform] = [*current, *defaults]
+        elif isinstance(current, str):
+            merged[platform] = [current, *defaults]
+        else:
+            merged[platform] = defaults
+
+    env["PLATFORM_SMOKE_FIXTURES_JSON"] = json.dumps(merged, ensure_ascii=False)
+    return env
 
 
 def main() -> int:
@@ -50,7 +97,12 @@ def main() -> int:
         "--output-dir",
         str(output_dir),
     ]
-    completed = subprocess.run(command, cwd=repo_root, check=False)
+    completed = subprocess.run(
+        command,
+        cwd=repo_root,
+        env=build_smoke_environment(),
+        check=False,
+    )
     if completed.returncode != 0:
         print(f"platform smoke runner exited with {completed.returncode}", file=sys.stderr)
         return completed.returncode
