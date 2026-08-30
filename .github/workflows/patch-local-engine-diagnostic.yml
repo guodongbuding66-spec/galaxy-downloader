@@ -1,0 +1,109 @@
+name: Refine Local Engine diagnostic classification
+
+on:
+  push:
+    branches:
+      - test/local-engine-33-diagnostics
+    paths:
+      - '.github/workflows/patch-local-engine-diagnostic.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/local-engine-33-diagnostics
+          fetch-depth: 0
+
+      - name: Refine diagnostic model
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/local-engine-platform-diagnostic.py')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  'STATUS_TIMEOUT = "TIMEOUT"\nSTATUS_NO_FIXTURE = "NO_FIXTURE"\nSTATUS_UNKNOWN = "UNKNOWN_FAILURE"\n',
+                  'STATUS_TIMEOUT = "TIMEOUT"\nSTATUS_NO_EXTRACTOR = "NO_EXTRACTOR"\nSTATUS_NO_FIXTURE = "NO_FIXTURE"\nSTATUS_UNKNOWN = "UNKNOWN_FAILURE"\n',
+              ),
+              (
+                  '    STATUS_EXTRACTOR: 20,\n    STATUS_UNKNOWN: 10,\n    STATUS_NO_FIXTURE: 0,\n',
+                  '    STATUS_EXTRACTOR: 20,\n    STATUS_NO_EXTRACTOR: 15,\n    STATUS_UNKNOWN: 10,\n    STATUS_NO_FIXTURE: 5,\n',
+              ),
+              (
+                  '    r"http error 403",\n    r"403 forbidden",\n    r"http error 429",\n',
+                  '    r"http error 403",\n    r"403 forbidden",\n    r"http error 412",\n    r"412 precondition failed",\n    r"precondition failed",\n    r"http error 429",\n',
+              ),
+              (
+                  'EXTRACTOR_PATTERNS = (\n    r"unsupported url",\n    r"no suitable extractor",\n    r"unsupported site",\n)\n',
+                  'EXTRACTOR_PATTERNS = (\n    r"unsupported url",\n    r"no suitable extractor",\n    r"unsupported site",\n    r"no video formats found",\n    r"requested format is not available",\n)\n',
+              ),
+              (
+                  '    fixture_source: str | None = None\n    attempts: list[Attempt] = field(default_factory=list)\n',
+                  '    fixture_source: str | None = None\n    matching_extractors: list[str] = field(default_factory=list)\n    attempts: list[Attempt] = field(default_factory=list)\n',
+              ),
+          ]
+
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'marker not found:\n{old}')
+              text = text.replace(old, new, 1)
+
+          marker = '''def diagnose_platform(\n    executable: Path,\n    platform: str,\n    candidates: list[Any],\n    *,\n    timeout: int,\n    max_candidates: int,\n) -> PlatformDiagnostic:\n    if not candidates:\n        return PlatformDiagnostic(\n            platform=platform,\n            status=STATUS_NO_FIXTURE,\n            note="yt-dlp currently exposes no usable public test fixture for this platform",\n        )\n'''
+          replacement = '''def discover_matching_extractors(platform_smoke: Any) -> dict[str, list[str]]:\n    try:\n        from yt_dlp.extractor import gen_extractors  # type: ignore\n    except Exception as exc:  # pragma: no cover\n        print(f"warning: yt-dlp extractor discovery unavailable: {exc}", file=sys.stderr)\n        return {platform: [] for platform in platform_smoke.PLATFORM_ALIASES}\n\n    extractors = list(gen_extractors())\n    output: dict[str, list[str]] = {}\n    for platform, aliases in platform_smoke.PLATFORM_ALIASES.items():\n        matches: list[tuple[int, str]] = []\n        for extractor in extractors:\n            rank = platform_smoke.extractor_rank(extractor, aliases)\n            if rank is None:\n                continue\n            name = str(getattr(extractor, "IE_NAME", "") or type(extractor).__name__).strip()\n            if name:\n                matches.append((rank, name))\n        matches.sort(key=lambda item: (item[0], item[1].lower()))\n        seen: set[str] = set()\n        names: list[str] = []\n        for _, name in matches:\n            key = name.lower()\n            if key in seen:\n                continue\n            seen.add(key)\n            names.append(name)\n        output[platform] = names\n    return output\n\n\ndef diagnose_platform(\n    executable: Path,\n    platform: str,\n    candidates: list[Any],\n    matching_extractors: list[str],\n    *,\n    timeout: int,\n    max_candidates: int,\n) -> PlatformDiagnostic:\n    if not candidates:\n        if not matching_extractors:\n            return PlatformDiagnostic(\n                platform=platform,\n                status=STATUS_NO_EXTRACTOR,\n                matching_extractors=[],\n                note="No yt-dlp extractor currently matches this Galaxy platform catalog entry.",\n            )\n        return PlatformDiagnostic(\n            platform=platform,\n            status=STATUS_NO_FIXTURE,\n            matching_extractors=matching_extractors,\n            note="yt-dlp has a matching extractor but currently exposes no usable public test fixture for this platform.",\n        )\n'''
+          if marker not in text:
+              raise SystemExit('diagnose_platform marker not found')
+          text = text.replace(marker, replacement, 1)
+
+          pass_marker = '''                fixture_url=attempt.fixture_url,\n                fixture_source=attempt.fixture_source,\n                attempts=attempts,\n'''
+          pass_replacement = '''                fixture_url=attempt.fixture_url,\n                fixture_source=attempt.fixture_source,\n                matching_extractors=matching_extractors,\n                attempts=attempts,\n'''
+          if pass_marker not in text:
+              raise SystemExit('PASS return marker not found')
+          text = text.replace(pass_marker, pass_replacement, 1)
+
+          final_marker = '''        fixture_url=best.fixture_url,\n        fixture_source=best.fixture_source,\n        attempts=attempts,\n'''
+          final_replacement = '''        fixture_url=best.fixture_url,\n        fixture_source=best.fixture_source,\n        matching_extractors=matching_extractors,\n        attempts=attempts,\n'''
+          if final_marker not in text:
+              raise SystemExit('final return marker not found')
+          text = text.replace(final_marker, final_replacement, 1)
+
+          matrix_marker = '''        "| Platform | Status | Extractor | Formats | Fixture source |",\n        "| --- | --- | --- | ---: | --- |",\n    ])\n    for item in results:\n        lines.append(\n            f"| {item.platform} | **{item.status}** | {item.extractor or '—'} | {item.format_count} | {item.fixture_source or '—'} |"\n        )\n'''
+          matrix_replacement = '''        "| Platform | Status | Used extractor | Matching extractors | Formats | Fixture source |",\n        "| --- | --- | --- | --- | ---: | --- |",\n    ])\n    for item in results:\n        matching = ", ".join(item.matching_extractors[:4]) or "—"\n        lines.append(\n            f"| {item.platform} | **{item.status}** | {item.extractor or '—'} | {matching} | {item.format_count} | {item.fixture_source or '—'} |"\n        )\n'''
+          if matrix_marker not in text:
+              raise SystemExit('matrix marker not found')
+          text = text.replace(matrix_marker, matrix_replacement, 1)
+
+          main_marker = '''    platform_smoke = load_platform_smoke()\n    candidates_by_platform = platform_smoke.build_fixture_candidates()\n    platforms = list(platform_smoke.PLATFORM_ALIASES.keys())\n'''
+          main_replacement = '''    platform_smoke = load_platform_smoke()\n    candidates_by_platform = platform_smoke.build_fixture_candidates()\n    matching_extractors_by_platform = discover_matching_extractors(platform_smoke)\n    platforms = list(platform_smoke.PLATFORM_ALIASES.keys())\n'''
+          if main_marker not in text:
+              raise SystemExit('main discovery marker not found')
+          text = text.replace(main_marker, main_replacement, 1)
+
+          future_marker = '''                platform,\n                candidates_by_platform.get(platform, []),\n                timeout=max(8, args.timeout),\n'''
+          future_replacement = '''                platform,\n                candidates_by_platform.get(platform, []),\n                matching_extractors_by_platform.get(platform, []),\n                timeout=max(8, args.timeout),\n'''
+          if future_marker not in text:
+              raise SystemExit('future marker not found')
+          text = text.replace(future_marker, future_replacement, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit refined classifier
+        shell: bash
+        run: |
+          if git diff --quiet -- scripts/local-engine-platform-diagnostic.py; then
+            echo 'No changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/local-engine-platform-diagnostic.py
+          git commit -m 'test: distinguish missing extractors and refine failures'
+          git push origin HEAD:test/local-engine-33-diagnostics
