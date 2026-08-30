@@ -32,15 +32,18 @@ type VimeoConfig = {
         duration?: number;
         thumbs?: Record<string, string>;
         thumb?: string;
-        files?: {
-            progressive?: VimeoProgressive[];
-        };
+        files?: { progressive?: VimeoProgressive[] };
     };
     request?: {
-        files?: {
-            progressive?: VimeoProgressive[];
-        };
+        files?: { progressive?: VimeoProgressive[] };
     };
+};
+
+type VimeoOEmbed = {
+    title?: string;
+    thumbnail_url?: string;
+    duration?: number;
+    html?: string;
 };
 
 type DailymotionSource = {
@@ -71,7 +74,6 @@ type AppleLookupItem = {
 };
 
 type AppleLookupPayload = {
-    resultCount?: number;
     results?: AppleLookupItem[];
 };
 
@@ -79,7 +81,6 @@ type ApplePageEpisode = {
     streamUrl: string;
     title?: string;
     cover?: string;
-    duration?: number;
 };
 
 function noStoreJson(payload: UnifiedParseResult, status = 200) {
@@ -99,7 +100,9 @@ function unsupported(sourceUrl: string) {
     }, 422);
 }
 
-function upstreamFailure(sourceUrl: string, platform: string, message: string) {
+function upstreamFailure(sourceUrl: string, platform: string, error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('First-party parser failed', { platform, sourceUrl, error: message });
     return noStoreJson({
         success: false,
         code: 'UPSTREAM_ERROR',
@@ -113,8 +116,7 @@ function upstreamFailure(sourceUrl: string, platform: string, message: string) {
 function parseUrl(raw: string): URL | null {
     try {
         const url = new URL(raw);
-        if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-        return url;
+        return url.protocol === 'https:' || url.protocol === 'http:' ? url : null;
     } catch {
         return null;
     }
@@ -122,46 +124,36 @@ function parseUrl(raw: string): URL | null {
 
 function highestPoster(posters?: Record<string, string>): string | null {
     if (!posters) return null;
-    const entries = Object.entries(posters)
+    return Object.entries(posters)
         .filter(([, value]) => typeof value === 'string' && value.length > 0)
-        .sort(([a], [b]) => Number(b) - Number(a));
-    return entries[0]?.[1] || null;
+        .sort(([a], [b]) => Number(b) - Number(a))[0]?.[1] || null;
 }
 
 function localMediaUrl(params: Record<string, string | number | undefined>): string {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
-        if (value !== undefined && String(value).length > 0) {
-            query.set(key, String(value));
-        }
+        if (value !== undefined && String(value).length > 0) query.set(key, String(value));
     }
     return `/api/local-media?${query.toString()}`;
 }
 
 function extractVimeoId(url: URL): string | null {
     if (!/(^|\.)vimeo\.com$/i.test(url.hostname)) return null;
-    const match = url.pathname.match(/(?:video\/)?(\d{5,})/);
-    return match?.[1] || null;
+    return url.pathname.match(/(?:video\/)?(\d{5,})/)?.[1] || null;
 }
 
 function extractDailymotionId(url: URL): string | null {
-    const host = url.hostname.toLowerCase();
-    if (host === 'dai.ly') {
-        return url.pathname.split('/').filter(Boolean)[0] || null;
-    }
-    if (!host.endsWith('dailymotion.com')) return null;
-    const match = url.pathname.match(/(?:video|embed\/video)\/([a-zA-Z0-9]+)/);
-    return match?.[1] || null;
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === 'dai.ly') return url.pathname.split('/').filter(Boolean)[0] || null;
+    if (!hostname.endsWith('dailymotion.com')) return null;
+    return url.pathname.match(/(?:video|embed\/video)\/([a-zA-Z0-9]+)/)?.[1] || null;
 }
 
 function extractApplePodcastIds(url: URL): { showId: string; episodeId: string | null } | null {
     if (!/(^|\.)podcasts\.apple\.com$/i.test(url.hostname)) return null;
     const match = url.pathname.match(/id(\d{5,})/i);
     if (!match) return null;
-    return {
-        showId: match[1],
-        episodeId: url.searchParams.get('i'),
-    };
+    return { showId: match[1], episodeId: url.searchParams.get('i') };
 }
 
 function decodeHtml(value: string): string {
@@ -185,13 +177,9 @@ function extractBalancedJson(text: string, marker: RegExp): unknown | null {
     for (let index = start; index < text.length; index += 1) {
         const char = text[index];
         if (inString) {
-            if (escaped) {
-                escaped = false;
-            } else if (char === '\\') {
-                escaped = true;
-            } else if (char === '"') {
-                inString = false;
-            }
+            if (escaped) escaped = false;
+            else if (char === '\\') escaped = true;
+            else if (char === '"') inString = false;
             continue;
         }
         if (char === '"') {
@@ -199,7 +187,7 @@ function extractBalancedJson(text: string, marker: RegExp): unknown | null {
             continue;
         }
         if (char === '{') depth += 1;
-        if (char === '}') {
+        else if (char === '}') {
             depth -= 1;
             if (depth === 0) {
                 try {
@@ -213,53 +201,68 @@ function extractBalancedJson(text: string, marker: RegExp): unknown | null {
     return null;
 }
 
-async function fetchVimeoConfig(id: string, sourceUrl: string): Promise<VimeoConfig> {
-    const playerUrl = `https://player.vimeo.com/video/${encodeURIComponent(id)}`;
-    const referer = sourceUrl.includes('player.vimeo.com') ? 'https://vimeo.com/' : sourceUrl;
-    const pageResponse = await fetch(playerUrl, {
-        headers: { ...HTML_HEADERS, Referer: referer },
+async function fetchJson<T>(url: string, headers: HeadersInit = JSON_HEADERS): Promise<T> {
+    const response = await fetch(url, { headers, redirect: 'follow', cache: 'no-store' });
+    if (!response.ok) throw new Error(`Metadata request failed (${response.status})`);
+    return response.json() as Promise<T>;
+}
+
+function iframeSrc(html: string | undefined): string | null {
+    if (!html) return null;
+    const value = html.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1];
+    return value ? decodeHtml(value) : null;
+}
+
+async function getVimeoEmbedUrl(id: string): Promise<{ url: string; oembed: VimeoOEmbed }> {
+    const endpoint = new URL('https://vimeo.com/api/oembed.json');
+    endpoint.searchParams.set('url', `https://vimeo.com/${id}`);
+    const oembed = await fetchJson<VimeoOEmbed>(endpoint.toString(), {
+        ...JSON_HEADERS,
+        Referer: 'https://vimeo.com/',
+    });
+    const src = iframeSrc(oembed.html);
+    if (!src) throw new Error('Vimeo oEmbed did not return an iframe URL');
+    const embed = parseUrl(src);
+    if (!embed || embed.hostname !== 'player.vimeo.com' || !embed.pathname.startsWith(`/video/${id}`)) {
+        throw new Error('Vimeo oEmbed returned an unexpected iframe URL');
+    }
+    return { url: embed.toString(), oembed };
+}
+
+async function fetchVimeoConfig(id: string): Promise<{ config: VimeoConfig; oembed: VimeoOEmbed }> {
+    const { url: embedUrl, oembed } = await getVimeoEmbedUrl(id);
+    const page = await fetch(embedUrl, {
+        headers: { ...HTML_HEADERS, Referer: `https://vimeo.com/${id}` },
         redirect: 'follow',
         cache: 'no-store',
     });
 
-    if (pageResponse.ok) {
-        const html = await pageResponse.text();
-        for (const marker of [/\bplayerConfig\s*=\s*/i, /\bconfig\s*=\s*/i]) {
-            const embedded = extractBalancedJson(html, marker);
-            if (embedded && typeof embedded === 'object') return embedded as VimeoConfig;
+    if (page.ok) {
+        const html = await page.text();
+        for (const marker of [/\bplayerConfig\s*=\s*/i, /\bvimeo\.config\s*=\s*/i, /\bconfig\s*=\s*/i]) {
+            const value = extractBalancedJson(html, marker);
+            if (value && typeof value === 'object') return { config: value as VimeoConfig, oembed };
         }
-
-        const dataConfig = html.match(/\bdata-config-url=["']([^"']+)["']/i)?.[1];
-        const configUrlValue = dataConfig
+        const configValue = html.match(/\bdata-config-url=["']([^"']+)["']/i)?.[1]
             || html.match(/["']config_url["']\s*:\s*["']([^"']+)["']/i)?.[1];
-        if (configUrlValue) {
-            const configUrl = decodeHtml(configUrlValue);
-            const configResponse = await fetch(configUrl, {
-                headers: {
-                    ...JSON_HEADERS,
-                    Referer: playerUrl,
-                    Origin: 'https://player.vimeo.com',
-                },
-                redirect: 'follow',
-                cache: 'no-store',
+        if (configValue) {
+            const config = await fetchJson<VimeoConfig>(decodeHtml(configValue), {
+                ...JSON_HEADERS,
+                Referer: embedUrl,
+                Origin: 'https://player.vimeo.com',
             });
-            if (configResponse.ok) return configResponse.json() as Promise<VimeoConfig>;
+            return { config, oembed };
         }
     }
 
-    const directResponse = await fetch(`${playerUrl}/config`, {
-        headers: {
-            ...JSON_HEADERS,
-            Referer: playerUrl,
-            Origin: 'https://player.vimeo.com',
-        },
-        redirect: 'follow',
-        cache: 'no-store',
+    const configUrl = new URL(embedUrl);
+    configUrl.pathname = `${configUrl.pathname.replace(/\/$/, '')}/config`;
+    const config = await fetchJson<VimeoConfig>(configUrl.toString(), {
+        ...JSON_HEADERS,
+        Referer: embedUrl,
+        Origin: 'https://player.vimeo.com',
     });
-    if (!directResponse.ok) {
-        throw new Error(`Vimeo player/config returned ${pageResponse.status}/${directResponse.status}`);
-    }
-    return directResponse.json() as Promise<VimeoConfig>;
+    return { config, oembed };
 }
 
 function vimeoProgressive(config: VimeoConfig): VimeoProgressive[] {
@@ -269,36 +272,33 @@ function vimeoProgressive(config: VimeoConfig): VimeoProgressive[] {
 }
 
 async function parseVimeo(sourceUrl: string, id: string): Promise<UnifiedParseResult> {
-    const config = await fetchVimeoConfig(id, sourceUrl);
-    const progressive = vimeoProgressive(config);
-    if (!progressive.length) {
-        throw new Error('Vimeo did not expose a progressive media stream');
-    }
+    const { config, oembed } = await fetchVimeoConfig(id);
+    const formats = vimeoProgressive(config);
+    if (!formats.length) throw new Error('Vimeo did not expose a progressive media stream');
 
-    const qualityOptions: VideoQualityOption[] = progressive.map((item, index) => {
-        const height = item.height || Number.parseInt(item.quality || '', 10) || undefined;
+    const qualityOptions: VideoQualityOption[] = formats.map((format, index) => {
+        const height = format.height || Number.parseInt(format.quality || '', 10) || undefined;
         return {
-            quality: height ? String(height) : item.quality || String(index),
-            label: height ? `${height}p` : item.quality,
-            width: item.width,
+            quality: height ? String(height) : format.quality || String(index),
+            label: height ? `${height}p` : format.quality,
+            width: format.width,
             height,
-            fps: item.fps,
-            ext: item.mime?.includes('mp4') ? 'mp4' : undefined,
+            fps: format.fps,
+            ext: format.mime?.includes('mp4') ? 'mp4' : undefined,
             downloadUrl: localMediaUrl({
                 platform: 'vimeo',
                 id,
-                quality: height ? String(height) : item.quality || 'best',
-                source: sourceUrl,
+                quality: height ? String(height) : format.quality || 'best',
             }),
         };
     });
+    const best = qualityOptions[0]?.downloadUrl || localMediaUrl({ platform: 'vimeo', id, quality: 'best' });
 
-    const best = qualityOptions[0]?.downloadUrl || localMediaUrl({ platform: 'vimeo', id, quality: 'best', source: sourceUrl });
     return {
         success: true,
         data: {
-            title: config.video?.title || `Vimeo ${id}`,
-            cover: highestPoster(config.video?.thumbs) || config.video?.thumb || null,
+            title: config.video?.title || oembed.title || `Vimeo ${id}`,
+            cover: highestPoster(config.video?.thumbs) || config.video?.thumb || oembed.thumbnail_url || null,
             platform: 'vimeo',
             downloadAudioUrl: null,
             downloadVideoUrl: best,
@@ -308,14 +308,14 @@ async function parseVimeo(sourceUrl: string, id: string): Promise<UnifiedParseRe
             mediaActions: { video: 'direct-download', audio: 'extract-audio' },
             qualityOptions,
             url: sourceUrl,
-            duration: config.video?.duration,
+            duration: config.video?.duration || oembed.duration,
             kind: 'video',
         },
     };
 }
 
-function dailymotionMp4Qualities(metadata: DailymotionMetadata): Array<{ quality: string; source: DailymotionSource }> {
-    const output: Array<{ quality: string; source: DailymotionSource }> = [];
+function dailymotionMp4Formats(metadata: DailymotionMetadata): Array<{ quality: string; url: string }> {
+    const formats: Array<{ quality: string; url: string }> = [];
     for (const [quality, sources] of Object.entries(metadata.qualities || {})) {
         if (!Array.isArray(sources)) continue;
         const source = sources.find((item) =>
@@ -323,34 +323,26 @@ function dailymotionMp4Qualities(metadata: DailymotionMetadata): Array<{ quality
             && item.url.length > 0
             && (item.type?.includes('mp4') || item.url.includes('.mp4'))
         );
-        if (source) output.push({ quality, source });
+        if (source?.url) formats.push({ quality, url: source.url });
     }
-    return output.sort((a, b) => Number.parseInt(b.quality, 10) - Number.parseInt(a.quality, 10));
+    return formats.sort((a, b) => Number.parseInt(b.quality, 10) - Number.parseInt(a.quality, 10));
 }
 
-function dailymotionHls(metadata: DailymotionMetadata): string | null {
-    for (const sources of Object.values(metadata.qualities || {})) {
-        if (!Array.isArray(sources)) continue;
-        const source = sources.find((item) =>
+function hasDailymotionHls(metadata: DailymotionMetadata): boolean {
+    return Object.values(metadata.qualities || {}).some((sources) =>
+        Array.isArray(sources) && sources.some((item) =>
             typeof item?.url === 'string'
             && item.url.length > 0
-            && (item.type === 'application/x-mpegURL' || item.type?.includes('mpegurl') || item.url.includes('.m3u8'))
-        );
-        if (source?.url) return source.url.split('#')[0];
-    }
-    return null;
+            && (item.type?.toLowerCase().includes('mpegurl') || item.url.includes('.m3u8'))
+        )
+    );
 }
 
 async function parseDailymotion(sourceUrl: string, id: string): Promise<UnifiedParseResult> {
-    const response = await fetch(`https://www.dailymotion.com/player/metadata/video/${encodeURIComponent(id)}`, {
-        headers: JSON_HEADERS,
-        redirect: 'follow',
-        cache: 'no-store',
-    });
-    if (!response.ok) throw new Error(`Dailymotion metadata returned ${response.status}`);
-
-    const metadata = await response.json() as DailymotionMetadata;
-    const formats = dailymotionMp4Qualities(metadata);
+    const metadata = await fetchJson<DailymotionMetadata>(
+        `https://www.dailymotion.com/player/metadata/video/${encodeURIComponent(id)}`,
+    );
+    const formats = dailymotionMp4Formats(metadata);
     if (formats.length) {
         const qualityOptions: VideoQualityOption[] = formats.map(({ quality }) => {
             const height = Number.parseInt(quality, 10) || undefined;
@@ -383,8 +375,8 @@ async function parseDailymotion(sourceUrl: string, id: string): Promise<UnifiedP
         };
     }
 
-    const hlsUrl = dailymotionHls(metadata);
-    if (!hlsUrl) throw new Error('Dailymotion did not expose a downloadable stream');
+    if (!hasDailymotionHls(metadata)) throw new Error('Dailymotion did not expose a downloadable stream');
+    const relay = localMediaUrl({ platform: 'dailymotion', id, mode: 'hls' });
     return {
         success: true,
         data: {
@@ -392,9 +384,9 @@ async function parseDailymotion(sourceUrl: string, id: string): Promise<UnifiedP
             cover: highestPoster(metadata.posters),
             platform: 'dailymotion',
             downloadAudioUrl: null,
-            downloadVideoUrl: hlsUrl,
+            downloadVideoUrl: relay,
             originDownloadAudioUrl: null,
-            originDownloadVideoUrl: hlsUrl,
+            originDownloadVideoUrl: relay,
             videoAudioMode: 'muxed',
             mediaActions: { video: 'browser-hls-download', audio: 'extract-audio' },
             url: sourceUrl,
@@ -412,14 +404,15 @@ function isPodcastEpisode(item: AppleLookupItem): boolean {
 
 function toPodcastEpisode(showId: string, item: AppleLookupItem): PodcastEpisodeInfo | null {
     if (!isPodcastEpisode(item) || !item.trackId || !item.episodeUrl) return null;
+    const localAudio = localMediaUrl({ platform: 'apple_podcasts', showId, episodeId: item.trackId });
     return {
         id: String(item.trackId),
         title: item.trackName || `Episode ${item.trackId}`,
         cover: item.artworkUrl600 || item.artworkUrl100 || null,
         duration: item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : undefined,
         releaseDate: item.releaseDate,
-        downloadAudioUrl: localMediaUrl({ platform: 'apple_podcasts', showId, episodeId: item.trackId }),
-        originDownloadAudioUrl: localMediaUrl({ platform: 'apple_podcasts', showId, episodeId: item.trackId }),
+        downloadAudioUrl: localAudio,
+        originDownloadAudioUrl: localAudio,
     };
 }
 
@@ -446,15 +439,12 @@ function metaContent(html: string, property: string): string | undefined {
     const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const first = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']+)["']`, 'i'))?.[1];
     const second = html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escaped}["']`, 'i'))?.[1];
-    return first || second ? decodeHtml(first || second || '') : undefined;
+    const value = first || second;
+    return value ? decodeHtml(value) : undefined;
 }
 
 async function fetchAppleEpisodeFromPage(sourceUrl: string): Promise<ApplePageEpisode | null> {
-    const response = await fetch(sourceUrl, {
-        headers: HTML_HEADERS,
-        redirect: 'follow',
-        cache: 'no-store',
-    });
+    const response = await fetch(sourceUrl, { headers: HTML_HEADERS, redirect: 'follow', cache: 'no-store' });
     if (!response.ok) return null;
     const html = await response.text();
     const scriptMatch = html.match(/<script[^>]+id=["']serialized-server-data["'][^>]*>([\s\S]*?)<\/script>/i);
@@ -470,10 +460,9 @@ async function fetchAppleEpisodeFromPage(sourceUrl: string): Promise<ApplePageEp
                 };
             }
         } catch {
-            // Apple changes this embedded payload occasionally; regex fallback below remains useful.
+            // Apple changes the embedded payload periodically; regex fallback remains useful.
         }
     }
-
     const rawStream = html.match(/["']streamUrl["']\s*:\s*["']([^"']+)["']/i)?.[1]
         || html.match(/\\"streamUrl\\"\s*:\s*\\"([^"\\]+)\\"/i)?.[1];
     if (!rawStream) return null;
@@ -489,17 +478,11 @@ async function fetchAppleLookup(showId: string): Promise<AppleLookupPayload> {
     lookup.searchParams.set('id', showId);
     lookup.searchParams.set('entity', 'podcastEpisode');
     lookup.searchParams.set('limit', '200');
-    const response = await fetch(lookup, {
-        headers: {
-            Accept: 'application/json,*/*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'User-Agent': 'iTunes/12.13.2 (Windows; Microsoft Windows 10 x64) AppleWebKit/7606.3.2.30005.1',
-        },
-        redirect: 'follow',
-        cache: 'no-store',
+    return fetchJson<AppleLookupPayload>(lookup.toString(), {
+        Accept: 'application/json,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': 'iTunes/12.13.2 (Windows; Microsoft Windows 10 x64) AppleWebKit/7606.3.2.30005.1',
     });
-    if (!response.ok) throw new Error(`Apple lookup returned ${response.status}`);
-    return response.json() as Promise<AppleLookupPayload>;
 }
 
 async function parseApplePodcasts(
@@ -605,26 +588,12 @@ export async function GET(request: NextRequest) {
     const appleIds = extractApplePodcastIds(parsed);
 
     try {
-        const result = vimeoId
-            ? await parseVimeo(sourceUrl, vimeoId)
-            : dailymotionId
-                ? await parseDailymotion(sourceUrl, dailymotionId)
-                : appleIds
-                    ? await parseApplePodcasts(sourceUrl, appleIds.showId, appleIds.episodeId)
-                    : null;
-        if (!result) return unsupported(sourceUrl);
-        return noStoreJson(result);
+        if (vimeoId) return noStoreJson(await parseVimeo(sourceUrl, vimeoId));
+        if (dailymotionId) return noStoreJson(await parseDailymotion(sourceUrl, dailymotionId));
+        if (appleIds) return noStoreJson(await parseApplePodcasts(sourceUrl, appleIds.showId, appleIds.episodeId));
+        return unsupported(sourceUrl);
     } catch (error) {
         const platform = vimeoId ? 'vimeo' : dailymotionId ? 'dailymotion' : appleIds ? 'apple_podcasts' : 'unknown';
-        console.warn('First-party parser failed', {
-            platform,
-            sourceUrl,
-            error: error instanceof Error ? error.message : String(error),
-        });
-        return upstreamFailure(
-            sourceUrl,
-            platform,
-            error instanceof Error ? error.message : 'First-party parser failed',
-        );
+        return upstreamFailure(sourceUrl, platform, error);
     }
 }

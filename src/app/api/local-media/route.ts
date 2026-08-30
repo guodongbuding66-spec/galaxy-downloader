@@ -15,6 +15,12 @@ const HTML_HEADERS = {
     'User-Agent': USER_AGENT,
 };
 
+const DAILYMOTION_MEDIA_HOSTS = [
+    'dmcdn.net',
+    'dailymotion.com',
+    'dailymotioncdn.com',
+];
+
 type VimeoProgressive = {
     url?: string;
     quality?: string;
@@ -22,17 +28,11 @@ type VimeoProgressive = {
 };
 
 type VimeoConfig = {
-    video?: {
-        files?: {
-            progressive?: VimeoProgressive[];
-        };
-    };
-    request?: {
-        files?: {
-            progressive?: VimeoProgressive[];
-        };
-    };
+    video?: { files?: { progressive?: VimeoProgressive[] } };
+    request?: { files?: { progressive?: VimeoProgressive[] } };
 };
+
+type VimeoOEmbed = { html?: string };
 
 type DailymotionSource = {
     type?: string;
@@ -57,13 +57,14 @@ type AppleLookupPayload = {
 type ResolvedMedia = {
     url: string;
     referer?: string;
+    origin?: string;
     filename: string;
 };
 
 function failure(message: string, status: number) {
     const response = NextResponse.json({
         success: false,
-        code: status === 400 ? 'BAD_REQUEST' : 'UPSTREAM_ERROR',
+        code: status === 400 || status === 403 ? 'BAD_REQUEST' : 'UPSTREAM_ERROR',
         status,
         error: message,
     }, { status });
@@ -86,6 +87,7 @@ function extractBalancedJson(text: string, marker: RegExp): unknown | null {
     if (!match) return null;
     const start = text.indexOf('{', match.index + match[0].length);
     if (start < 0) return null;
+
     let depth = 0;
     let inString = false;
     let escaped = false;
@@ -102,7 +104,7 @@ function extractBalancedJson(text: string, marker: RegExp): unknown | null {
             continue;
         }
         if (char === '{') depth += 1;
-        if (char === '}') {
+        else if (char === '}') {
             depth -= 1;
             if (depth === 0) {
                 try {
@@ -117,84 +119,110 @@ function extractBalancedJson(text: string, marker: RegExp): unknown | null {
 }
 
 async function fetchJson<T>(url: string, headers: HeadersInit = JSON_HEADERS): Promise<T> {
-    const response = await fetch(url, {
-        headers,
-        redirect: 'follow',
-        cache: 'no-store',
-    });
+    const response = await fetch(url, { headers, redirect: 'follow', cache: 'no-store' });
     if (!response.ok) throw new Error(`Metadata request failed (${response.status})`);
     return response.json() as Promise<T>;
-}
-
-async function fetchVimeoConfig(id: string, sourceUrl?: string): Promise<VimeoConfig> {
-    const playerUrl = `https://player.vimeo.com/video/${encodeURIComponent(id)}`;
-    const referer = sourceUrl && !sourceUrl.includes('player.vimeo.com') ? sourceUrl : 'https://vimeo.com/';
-    const pageResponse = await fetch(playerUrl, {
-        headers: { ...HTML_HEADERS, Referer: referer },
-        redirect: 'follow',
-        cache: 'no-store',
-    });
-    if (pageResponse.ok) {
-        const html = await pageResponse.text();
-        for (const marker of [/\bplayerConfig\s*=\s*/i, /\bconfig\s*=\s*/i]) {
-            const embedded = extractBalancedJson(html, marker);
-            if (embedded && typeof embedded === 'object') return embedded as VimeoConfig;
-        }
-        const configValue = html.match(/\bdata-config-url=["']([^"']+)["']/i)?.[1]
-            || html.match(/["']config_url["']\s*:\s*["']([^"']+)["']/i)?.[1];
-        if (configValue) {
-            const configUrl = decodeHtml(configValue);
-            const response = await fetch(configUrl, {
-                headers: {
-                    ...JSON_HEADERS,
-                    Referer: playerUrl,
-                    Origin: 'https://player.vimeo.com',
-                },
-                redirect: 'follow',
-                cache: 'no-store',
-            });
-            if (response.ok) return response.json() as Promise<VimeoConfig>;
-        }
-    }
-
-    return fetchJson<VimeoConfig>(`${playerUrl}/config`, {
-        ...JSON_HEADERS,
-        Referer: playerUrl,
-        Origin: 'https://player.vimeo.com',
-    });
 }
 
 function requestedQuality(request: NextRequest): string {
     return request.nextUrl.searchParams.get('quality')?.trim() || 'best';
 }
 
+function iframeSrc(html: string | undefined): string | null {
+    if (!html) return null;
+    const value = html.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1];
+    return value ? decodeHtml(value) : null;
+}
+
+async function getVimeoEmbedUrl(id: string): Promise<string> {
+    const endpoint = new URL('https://vimeo.com/api/oembed.json');
+    endpoint.searchParams.set('url', `https://vimeo.com/${id}`);
+    const payload = await fetchJson<VimeoOEmbed>(endpoint.toString(), {
+        ...JSON_HEADERS,
+        Referer: 'https://vimeo.com/',
+    });
+    const src = iframeSrc(payload.html);
+    if (!src) throw new Error('Vimeo oEmbed did not return an iframe URL');
+    const embed = new URL(src);
+    if (embed.hostname !== 'player.vimeo.com' || !embed.pathname.startsWith(`/video/${id}`)) {
+        throw new Error('Unexpected Vimeo embed URL');
+    }
+    return embed.toString();
+}
+
+async function fetchVimeoConfig(id: string): Promise<{ config: VimeoConfig; embedUrl: string }> {
+    const embedUrl = await getVimeoEmbedUrl(id);
+    const page = await fetch(embedUrl, {
+        headers: { ...HTML_HEADERS, Referer: `https://vimeo.com/${id}` },
+        redirect: 'follow',
+        cache: 'no-store',
+    });
+
+    if (page.ok) {
+        const html = await page.text();
+        for (const marker of [/\bplayerConfig\s*=\s*/i, /\bvimeo\.config\s*=\s*/i, /\bconfig\s*=\s*/i]) {
+            const value = extractBalancedJson(html, marker);
+            if (value && typeof value === 'object') return { config: value as VimeoConfig, embedUrl };
+        }
+        const configValue = html.match(/\bdata-config-url=["']([^"']+)["']/i)?.[1]
+            || html.match(/["']config_url["']\s*:\s*["']([^"']+)["']/i)?.[1];
+        if (configValue) {
+            const config = await fetchJson<VimeoConfig>(decodeHtml(configValue), {
+                ...JSON_HEADERS,
+                Referer: embedUrl,
+                Origin: 'https://player.vimeo.com',
+            });
+            return { config, embedUrl };
+        }
+    }
+
+    const configUrl = new URL(embedUrl);
+    configUrl.pathname = `${configUrl.pathname.replace(/\/$/, '')}/config`;
+    const config = await fetchJson<VimeoConfig>(configUrl.toString(), {
+        ...JSON_HEADERS,
+        Referer: embedUrl,
+        Origin: 'https://player.vimeo.com',
+    });
+    return { config, embedUrl };
+}
+
 function pickVimeoProgressive(config: VimeoConfig, quality: string): VimeoProgressive | null {
-    const progressive = (config.video?.files?.progressive || config.request?.files?.progressive || [])
+    const formats = (config.video?.files?.progressive || config.request?.files?.progressive || [])
         .filter((item) => typeof item.url === 'string' && item.url.length > 0)
         .sort((a, b) => (b.height || 0) - (a.height || 0));
-    if (!progressive.length) return null;
-    if (quality === 'best') return progressive[0];
-    const targetHeight = Number.parseInt(quality, 10);
-    if (Number.isFinite(targetHeight)) {
-        return progressive.find((item) => item.height === targetHeight)
-            || progressive.find((item) => (item.height || 0) <= targetHeight)
-            || progressive[progressive.length - 1];
+    if (!formats.length) return null;
+    if (quality === 'best') return formats[0];
+    const height = Number.parseInt(quality, 10);
+    if (Number.isFinite(height)) {
+        return formats.find((item) => item.height === height)
+            || formats.find((item) => (item.height || 0) <= height)
+            || formats[formats.length - 1];
     }
-    return progressive.find((item) => item.quality === quality) || progressive[0];
+    return formats.find((item) => item.quality === quality) || formats[0];
 }
 
 async function resolveVimeo(request: NextRequest): Promise<ResolvedMedia> {
     const id = request.nextUrl.searchParams.get('id')?.trim();
     if (!id || !/^\d{5,}$/.test(id)) throw new Error('Invalid Vimeo id');
-    const source = request.nextUrl.searchParams.get('source')?.trim() || undefined;
-    const config = await fetchVimeoConfig(id, source);
+    const { config, embedUrl } = await fetchVimeoConfig(id);
     const selected = pickVimeoProgressive(config, requestedQuality(request));
     if (!selected?.url) throw new Error('Vimeo progressive stream not available');
     return {
         url: selected.url,
-        referer: source || `https://player.vimeo.com/video/${id}`,
+        referer: embedUrl,
+        origin: 'https://player.vimeo.com',
         filename: `vimeo-${id}.mp4`,
     };
+}
+
+function dailymotionMetadataUrl(id: string): string {
+    const url = new URL(`https://www.dailymotion.com/player/metadata/video/${encodeURIComponent(id)}`);
+    url.searchParams.set('app', 'com.dailymotion.neon');
+    return url.toString();
+}
+
+async function fetchDailymotionMetadata(id: string): Promise<DailymotionMetadata> {
+    return fetchJson<DailymotionMetadata>(dailymotionMetadataUrl(id));
 }
 
 function dailymotionMp4Formats(metadata: DailymotionMetadata): Array<{ quality: string; url: string }> {
@@ -211,12 +239,23 @@ function dailymotionMp4Formats(metadata: DailymotionMetadata): Array<{ quality: 
     return formats.sort((a, b) => Number.parseInt(b.quality, 10) - Number.parseInt(a.quality, 10));
 }
 
+function dailymotionMasterHls(metadata: DailymotionMetadata): URL | null {
+    for (const sources of Object.values(metadata.qualities || {})) {
+        if (!Array.isArray(sources)) continue;
+        const source = sources.find((item) =>
+            typeof item?.url === 'string'
+            && item.url.length > 0
+            && (item.type?.toLowerCase().includes('mpegurl') || item.url.includes('.m3u8'))
+        );
+        if (source?.url) return safeDailymotionTarget(source.url.split('#')[0]);
+    }
+    return null;
+}
+
 async function resolveDailymotion(request: NextRequest): Promise<ResolvedMedia> {
     const id = request.nextUrl.searchParams.get('id')?.trim();
     if (!id || !/^[a-zA-Z0-9]+$/.test(id)) throw new Error('Invalid Dailymotion id');
-    const metadata = await fetchJson<DailymotionMetadata>(
-        `https://www.dailymotion.com/player/metadata/video/${encodeURIComponent(id)}`,
-    );
+    const metadata = await fetchDailymotionMetadata(id);
     const formats = dailymotionMp4Formats(metadata);
     if (!formats.length) throw new Error('Dailymotion progressive stream not available');
     const quality = requestedQuality(request);
@@ -228,6 +267,138 @@ async function resolveDailymotion(request: NextRequest): Promise<ResolvedMedia> 
         referer: `https://www.dailymotion.com/video/${id}`,
         filename: `dailymotion-${id}.mp4`,
     };
+}
+
+function allowedDailymotionHost(hostname: string): boolean {
+    const host = hostname.toLowerCase();
+    return DAILYMOTION_MEDIA_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+}
+
+function safeDailymotionTarget(raw: string): URL | null {
+    try {
+        const url = new URL(raw);
+        if (url.protocol !== 'https:' || !allowedDailymotionHost(url.hostname)) return null;
+        return url;
+    } catch {
+        return null;
+    }
+}
+
+function dailymotionRelayUrl(request: NextRequest, id: string, target: string): string {
+    const url = new URL('/api/local-media', request.nextUrl.origin);
+    url.searchParams.set('platform', 'dailymotion');
+    url.searchParams.set('mode', 'hls');
+    url.searchParams.set('id', id);
+    url.searchParams.set('target', target);
+    return `${url.pathname}?${url.searchParams.toString()}`;
+}
+
+function rewriteDailymotionUri(base: URL, raw: string, request: NextRequest, id: string): string {
+    try {
+        const target = new URL(raw, base);
+        if (target.protocol !== 'https:' || !allowedDailymotionHost(target.hostname)) return raw;
+        return dailymotionRelayUrl(request, id, target.toString());
+    } catch {
+        return raw;
+    }
+}
+
+function rewriteDailymotionPlaylist(text: string, base: URL, request: NextRequest, id: string): string {
+    return text
+        .split(/\r?\n/)
+        .map((line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return line;
+            if (!trimmed.startsWith('#')) return rewriteDailymotionUri(base, trimmed, request, id);
+            return line.replace(/URI="([^"]+)"/g, (_match, uri: string) =>
+                `URI="${rewriteDailymotionUri(base, uri, request, id)}"`
+            );
+        })
+        .join('\n');
+}
+
+function isHlsPlaylist(target: URL, response: Response): boolean {
+    const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+    return target.pathname.toLowerCase().endsWith('.m3u8')
+        || contentType.includes('mpegurl')
+        || contentType.includes('vnd.apple.mpegurl');
+}
+
+function copyHeader(from: Headers, to: Headers, name: string) {
+    const value = from.get(name);
+    if (value) to.set(name, value);
+}
+
+async function handleDailymotionHls(request: NextRequest, headOnly: boolean) {
+    const id = request.nextUrl.searchParams.get('id')?.trim() || '';
+    if (!/^[a-zA-Z0-9]+$/.test(id)) return failure('Invalid Dailymotion id', 400);
+
+    let target: URL | null = null;
+    const requestedTarget = request.nextUrl.searchParams.get('target')?.trim();
+    if (requestedTarget) {
+        target = safeDailymotionTarget(requestedTarget);
+        if (!target) return failure('Dailymotion relay target is not allowed', 403);
+    } else {
+        try {
+            target = dailymotionMasterHls(await fetchDailymotionMetadata(id));
+        } catch (error) {
+            return failure(error instanceof Error ? error.message : 'Unable to resolve Dailymotion HLS', 502);
+        }
+        if (!target) return failure('Dailymotion HLS stream not available', 502);
+    }
+
+    const upstreamHeaders = new Headers({
+        Accept: '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': USER_AGENT,
+        Referer: 'https://www.dailymotion.com/',
+    });
+    const range = request.headers.get('range');
+    if (range) upstreamHeaders.set('Range', range);
+
+    let upstream: Response;
+    try {
+        upstream = await fetch(target.toString(), {
+            method: 'GET',
+            headers: upstreamHeaders,
+            redirect: 'follow',
+            cache: 'no-store',
+        });
+    } catch {
+        return failure('Unable to fetch Dailymotion HLS resource', 502);
+    }
+
+    if (!upstream.ok || !upstream.body) {
+        void upstream.body?.cancel();
+        return failure(`Dailymotion HLS resource returned ${upstream.status}`, 502);
+    }
+
+    const responseHeaders = new Headers();
+    responseHeaders.set('Cache-Control', 'private, no-store');
+    responseHeaders.set('Cross-Origin-Resource-Policy', 'same-origin');
+    responseHeaders.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+
+    if (isHlsPlaylist(target, upstream)) {
+        if (headOnly) {
+            void upstream.body.cancel();
+            responseHeaders.set('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+            return new NextResponse(null, { status: 200, headers: responseHeaders });
+        }
+        const text = await upstream.text();
+        const rewritten = rewriteDailymotionPlaylist(text, target, request, id);
+        responseHeaders.set('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+        responseHeaders.set('Content-Length', String(new TextEncoder().encode(rewritten).byteLength));
+        return new NextResponse(rewritten, { status: 200, headers: responseHeaders });
+    }
+
+    for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) {
+        copyHeader(upstream.headers, responseHeaders, name);
+    }
+    if (headOnly) {
+        void upstream.body.cancel();
+        return new NextResponse(null, { status: upstream.status, headers: responseHeaders });
+    }
+    return new NextResponse(upstream.body, { status: upstream.status, headers: responseHeaders });
 }
 
 function findFirstStringForKey(value: unknown, key: string): string | null {
@@ -250,11 +421,7 @@ function findFirstStringForKey(value: unknown, key: string): string | null {
 }
 
 async function streamUrlFromApplePage(sourceUrl: string): Promise<string | null> {
-    const response = await fetch(sourceUrl, {
-        headers: HTML_HEADERS,
-        redirect: 'follow',
-        cache: 'no-store',
-    });
+    const response = await fetch(sourceUrl, { headers: HTML_HEADERS, redirect: 'follow', cache: 'no-store' });
     if (!response.ok) return null;
     const html = await response.text();
     const scriptMatch = html.match(/<script[^>]+id=["']serialized-server-data["'][^>]*>([\s\S]*?)<\/script>/i);
@@ -323,12 +490,7 @@ async function resolveMedia(request: NextRequest): Promise<ResolvedMedia> {
     throw new Error('Unsupported local media platform');
 }
 
-function copyHeader(from: Headers, to: Headers, name: string) {
-    const value = from.get(name);
-    if (value) to.set(name, value);
-}
-
-async function handle(request: NextRequest, headOnly: boolean) {
+async function handleDirectMedia(request: NextRequest, headOnly: boolean) {
     let media: ResolvedMedia;
     try {
         media = await resolveMedia(request);
@@ -343,6 +505,7 @@ async function handle(request: NextRequest, headOnly: boolean) {
     const range = request.headers.get('range');
     if (range) headers.set('Range', range);
     if (media.referer) headers.set('Referer', media.referer);
+    if (media.origin) headers.set('Origin', media.origin);
 
     let upstream: Response;
     try {
@@ -379,6 +542,15 @@ async function handle(request: NextRequest, headOnly: boolean) {
         return new NextResponse(null, { status: upstream.status, headers: responseHeaders });
     }
     return new NextResponse(upstream.body, { status: upstream.status, headers: responseHeaders });
+}
+
+async function handle(request: NextRequest, headOnly: boolean) {
+    const platform = request.nextUrl.searchParams.get('platform')?.trim();
+    const mode = request.nextUrl.searchParams.get('mode')?.trim();
+    if (platform === 'dailymotion' && mode === 'hls') {
+        return handleDailymotionHls(request, headOnly);
+    }
+    return handleDirectMedia(request, headOnly);
 }
 
 export async function GET(request: NextRequest) {
