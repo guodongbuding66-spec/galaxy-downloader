@@ -11,6 +11,8 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog'
+import { DeferredChangelogDialog } from '@/components/deferred-changelog-dialog'
+import { DeferredLanguageSwitcher } from '@/components/deferred-language-switcher'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { useDictionary } from '@/i18n/client'
 
@@ -28,7 +30,7 @@ export function MobileNavMenu({
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
                 <Button variant="ghost" size="icon" aria-label={dict.page.openMenuLabel}>
-                    <Menu className="h-5 w-5" />
+                    <Menu className="h-5 w-5" aria-hidden="true" />
                 </Button>
             </DialogTrigger>
             <DialogContent
@@ -38,7 +40,14 @@ export function MobileNavMenu({
                 <DialogHeader className="sr-only">
                     <DialogTitle>{dict.page.openMenuLabel}</DialogTitle>
                 </DialogHeader>
-                <div className="space-y-2">
+
+                <div className="space-y-3">
+                    <div className="space-y-1 rounded-xl border border-border bg-muted/20 p-1">
+                        <DeferredLanguageSwitcher fullWidth />
+                        <ThemeSwitcher fullWidth />
+                        <DeferredChangelogDialog triggerClassName="w-full justify-start" />
+                    </div>
+
                     <Button variant="outline" className="w-full justify-start" asChild>
                         <a
                             href="https://github.com/guodongbuding66-spec/galaxy-downloader"
@@ -57,9 +66,6 @@ export function MobileNavMenu({
                             <span>GitHub</span>
                         </a>
                     </Button>
-                    <div className="rounded-md border border-border p-1">
-                        <ThemeSwitcher fullWidth />
-                    </div>
                 </div>
             </DialogContent>
         </Dialog>
