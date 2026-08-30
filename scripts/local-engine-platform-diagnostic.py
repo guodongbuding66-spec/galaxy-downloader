@@ -38,6 +38,7 @@ STATUS_GEO = "GEO_RESTRICTED"
 STATUS_DEAD = "FIXTURE_DEAD"
 STATUS_EXTRACTOR = "EXTRACTOR_ERROR"
 STATUS_TIMEOUT = "TIMEOUT"
+STATUS_NO_EXTRACTOR = "NO_EXTRACTOR"
 STATUS_NO_FIXTURE = "NO_FIXTURE"
 STATUS_UNKNOWN = "UNKNOWN_FAILURE"
 
@@ -49,8 +50,9 @@ STATUS_PRIORITY = {
     STATUS_TIMEOUT: 40,
     STATUS_DEAD: 30,
     STATUS_EXTRACTOR: 20,
+    STATUS_NO_EXTRACTOR: 15,
     STATUS_UNKNOWN: 10,
-    STATUS_NO_FIXTURE: 0,
+    STATUS_NO_FIXTURE: 5,
 }
 
 COOKIE_PATTERNS = (
@@ -68,6 +70,9 @@ CLOUD_PATTERNS = (
     r"confirm (?:that )?you(?:'re| are) not a bot",
     r"http error 403",
     r"403 forbidden",
+    r"http error 412",
+    r"412 precondition failed",
+    r"precondition failed",
     r"http error 429",
     r"too many requests",
     r"rate.?limit",
@@ -99,6 +104,8 @@ EXTRACTOR_PATTERNS = (
     r"unsupported url",
     r"no suitable extractor",
     r"unsupported site",
+    r"no video formats found",
+    r"requested format is not available",
 )
 
 
@@ -123,6 +130,7 @@ class PlatformDiagnostic:
     format_count: int = 0
     fixture_url: str | None = None
     fixture_source: str | None = None
+    matching_extractors: list[str] = field(default_factory=list)
     attempts: list[Attempt] = field(default_factory=list)
     note: str | None = None
 
@@ -255,19 +263,59 @@ def probe_fixture(executable: Path, candidate: Any, timeout: int) -> Attempt:
     )
 
 
+def discover_matching_extractors(platform_smoke: Any) -> dict[str, list[str]]:
+    try:
+        from yt_dlp.extractor import gen_extractors  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        print(f"warning: yt-dlp extractor discovery unavailable: {exc}", file=sys.stderr)
+        return {platform: [] for platform in platform_smoke.PLATFORM_ALIASES}
+
+    extractors = list(gen_extractors())
+    output: dict[str, list[str]] = {}
+    for platform, aliases in platform_smoke.PLATFORM_ALIASES.items():
+        matches: list[tuple[int, str]] = []
+        for extractor in extractors:
+            rank = platform_smoke.extractor_rank(extractor, aliases)
+            if rank is None:
+                continue
+            name = str(getattr(extractor, "IE_NAME", "") or type(extractor).__name__).strip()
+            if name:
+                matches.append((rank, name))
+        matches.sort(key=lambda item: (item[0], item[1].lower()))
+        seen: set[str] = set()
+        names: list[str] = []
+        for _, name in matches:
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            names.append(name)
+        output[platform] = names
+    return output
+
+
 def diagnose_platform(
     executable: Path,
     platform: str,
     candidates: list[Any],
+    matching_extractors: list[str],
     *,
     timeout: int,
     max_candidates: int,
 ) -> PlatformDiagnostic:
     if not candidates:
+        if not matching_extractors:
+            return PlatformDiagnostic(
+                platform=platform,
+                status=STATUS_NO_EXTRACTOR,
+                matching_extractors=[],
+                note="No yt-dlp extractor currently matches this Galaxy platform catalog entry.",
+            )
         return PlatformDiagnostic(
             platform=platform,
             status=STATUS_NO_FIXTURE,
-            note="yt-dlp currently exposes no usable public test fixture for this platform",
+            matching_extractors=matching_extractors,
+            note="yt-dlp has a matching extractor but currently exposes no usable public test fixture for this platform.",
         )
 
     attempts: list[Attempt] = []
@@ -283,6 +331,7 @@ def diagnose_platform(
                 format_count=attempt.format_count,
                 fixture_url=attempt.fixture_url,
                 fixture_source=attempt.fixture_source,
+                matching_extractors=matching_extractors,
                 attempts=attempts,
             )
 
@@ -303,6 +352,7 @@ def diagnose_platform(
         format_count=best.format_count,
         fixture_url=best.fixture_url,
         fixture_source=best.fixture_source,
+        matching_extractors=matching_extractors,
         attempts=attempts,
         note=note,
     )
@@ -328,12 +378,13 @@ def write_markdown(path: Path, results: list[PlatformDiagnostic], version: str) 
         "",
         "## Matrix",
         "",
-        "| Platform | Status | Extractor | Formats | Fixture source |",
-        "| --- | --- | --- | ---: | --- |",
+        "| Platform | Status | Used extractor | Matching extractors | Formats | Fixture source |",
+        "| --- | --- | --- | --- | ---: | --- |",
     ])
     for item in results:
+        matching = ", ".join(item.matching_extractors[:4]) or "—"
         lines.append(
-            f"| {item.platform} | **{item.status}** | {item.extractor or '—'} | {item.format_count} | {item.fixture_source or '—'} |"
+            f"| {item.platform} | **{item.status}** | {item.extractor or '—'} | {matching} | {item.format_count} | {item.fixture_source or '—'} |"
         )
 
     lines.extend(["", "## Diagnostics", ""])
@@ -382,6 +433,7 @@ def main() -> int:
 
     platform_smoke = load_platform_smoke()
     candidates_by_platform = platform_smoke.build_fixture_candidates()
+    matching_extractors_by_platform = discover_matching_extractors(platform_smoke)
     platforms = list(platform_smoke.PLATFORM_ALIASES.keys())
     if len(platforms) != EXPECTED_PLATFORM_COUNT:
         raise SystemExit(
@@ -396,6 +448,7 @@ def main() -> int:
                 executable,
                 platform,
                 candidates_by_platform.get(platform, []),
+                matching_extractors_by_platform.get(platform, []),
                 timeout=max(8, args.timeout),
                 max_candidates=max(1, args.max_candidates),
             ): platform
