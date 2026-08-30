@@ -19,59 +19,71 @@ body {
 @layer base {
   :root {
     color-scheme: light;
-    --background: 220 20% 98%;
-    --foreground: 222 30% 10%;
+    --background: 216 28% 97%;
+    --foreground: 224 34% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 222 30% 10%;
+    --card-foreground: 224 34% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 30% 10%;
-    --primary: 221 83% 53%;
+    --popover-foreground: 224 34% 12%;
+    --primary: 224 78% 52%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 18% 95%;
-    --secondary-foreground: 222 24% 16%;
-    --muted: 220 18% 95%;
-    --muted-foreground: 220 9% 42%;
-    --accent: 216 100% 97%;
-    --accent-foreground: 221 72% 40%;
-    --destructive: 0 72% 51%;
+    --secondary: 218 24% 93%;
+    --secondary-foreground: 223 30% 18%;
+    --muted: 216 25% 94%;
+    --muted-foreground: 219 12% 43%;
+    --accent: 198 72% 93%;
+    --accent-foreground: 215 70% 34%;
+    --destructive: 2 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 16% 88%;
-    --input: 220 16% 86%;
-    --ring: 221 83% 53%;
-    --chart-1: 221 83% 53%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 56%;
-    --chart-5: 27 87% 57%;
-    --radius: 0.75rem;
+    --border: 217 22% 86%;
+    --input: 217 23% 83%;
+    --ring: 224 78% 52%;
+    --success: 158 64% 36%;
+    --warning: 38 92% 46%;
+    --info: 199 80% 43%;
+    --surface-raised: 0 0% 100%;
+    --surface-subtle: 216 30% 95%;
+    --shadow-color: 224 38% 17%;
+    --chart-1: 224 78% 52%;
+    --chart-2: 158 64% 36%;
+    --chart-3: 199 80% 43%;
+    --chart-4: 38 92% 46%;
+    --chart-5: 14 82% 55%;
+    --radius: 0.875rem;
   }
 
   .dark {
     color-scheme: dark;
-    --background: 222 28% 8%;
-    --foreground: 210 20% 96%;
-    --card: 222 24% 10%;
-    --card-foreground: 210 20% 96%;
-    --popover: 222 24% 10%;
-    --popover-foreground: 210 20% 96%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 35% 8%;
-    --secondary: 220 18% 15%;
-    --secondary-foreground: 210 20% 96%;
-    --muted: 220 18% 15%;
-    --muted-foreground: 215 12% 66%;
-    --accent: 219 32% 16%;
-    --accent-foreground: 214 95% 78%;
-    --destructive: 0 63% 42%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 220 15% 20%;
-    --input: 220 15% 22%;
-    --ring: 217 91% 60%;
-    --chart-1: 217 91% 60%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --background: 224 30% 7%;
+    --foreground: 214 27% 96%;
+    --card: 223 27% 10%;
+    --card-foreground: 214 27% 96%;
+    --popover: 223 28% 10%;
+    --popover-foreground: 214 27% 96%;
+    --primary: 219 92% 63%;
+    --primary-foreground: 225 34% 8%;
+    --secondary: 221 21% 15%;
+    --secondary-foreground: 214 27% 95%;
+    --muted: 221 20% 14%;
+    --muted-foreground: 216 14% 67%;
+    --accent: 215 35% 17%;
+    --accent-foreground: 198 94% 78%;
+    --destructive: 2 72% 57%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 18% 21%;
+    --input: 220 18% 24%;
+    --ring: 219 92% 63%;
+    --success: 158 64% 48%;
+    --warning: 42 96% 58%;
+    --info: 198 90% 59%;
+    --surface-raised: 223 27% 11%;
+    --surface-subtle: 222 22% 13%;
+    --shadow-color: 228 50% 2%;
+    --chart-1: 219 92% 63%;
+    --chart-2: 158 64% 48%;
+    --chart-3: 198 90% 59%;
+    --chart-4: 42 96% 58%;
+    --chart-5: 14 88% 62%;
   }
 }
 
@@ -98,14 +110,39 @@ body {
 @layer utilities {
   .workbench-shadow {
     box-shadow:
-      0 1px 2px hsl(222 30% 10% / 0.04),
-      0 18px 44px hsl(222 30% 10% / 0.06);
+      0 1px 2px hsl(var(--shadow-color) / 0.05),
+      0 12px 30px hsl(var(--shadow-color) / 0.055),
+      0 28px 64px hsl(var(--shadow-color) / 0.045);
   }
 
   .dark .workbench-shadow {
     box-shadow:
-      0 1px 2px hsl(0 0% 0% / 0.24),
-      0 18px 44px hsl(0 0% 0% / 0.18);
+      0 1px 2px hsl(var(--shadow-color) / 0.34),
+      0 18px 46px hsl(var(--shadow-color) / 0.28);
+  }
+
+  .surface-raised {
+    background-color: hsl(var(--surface-raised));
+  }
+
+  .surface-subtle {
+    background-color: hsl(var(--surface-subtle));
+  }
+
+  .ui-pressable {
+    transform: translateY(0) scale(1);
+    transform-origin: center;
+    transition:
+      transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 160ms ease,
+      background-color 160ms ease,
+      border-color 160ms ease,
+      color 160ms ease;
+  }
+
+  .ui-pressable:not(:disabled):active {
+    transform: translateY(1px) scale(0.985);
+    transition-duration: 70ms;
   }
 
   .text-balance {
@@ -114,6 +151,12 @@ body {
 
   .text-pretty {
     text-wrap: pretty;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ui-pressable:not(:disabled):hover {
+    transform: translateY(-1px) scale(1);
   }
 }
 
@@ -129,5 +172,11 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .ui-pressable,
+  .ui-pressable:hover,
+  .ui-pressable:active {
+    transform: none !important;
   }
 }
