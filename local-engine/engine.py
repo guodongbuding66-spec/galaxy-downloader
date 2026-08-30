@@ -16,8 +16,26 @@ from yt_dlp.utils import DownloadCancelled, DownloadError
 
 APP_NAME = "Galaxy Local Engine"
 PROTOCOL = "galaxy-downloader"
-VERSION = "0.1.0"
 SUPPORTED_BROWSERS = {"none", "edge", "chrome", "firefox", "brave", "chromium", "opera", "vivaldi"}
+
+
+def resource_path(name: str) -> Path:
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / name
+
+
+def read_version() -> str:
+    path = resource_path("VERSION")
+    try:
+        version = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise RuntimeError(f"Missing bundled VERSION file: {path}") from exc
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise RuntimeError(f"Invalid VERSION value: {version!r}")
+    return version
+
+
+VERSION = read_version()
 
 
 @dataclass(frozen=True)
