@@ -14,6 +14,14 @@ from urllib.parse import parse_qs, unquote, urlparse
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadCancelled, DownloadError
 
+from external_ytdlp import (
+    ExternalYtDlpError,
+    build_external_command,
+    download_with_external_ytdlp,
+    external_ytdlp_path,
+    update_external_ytdlp_if_due,
+)
+
 APP_NAME = "Galaxy Local Engine"
 PROTOCOL = "galaxy-downloader"
 SUPPORTED_BROWSERS = {"none", "edge", "chrome", "firefox", "brave", "chromium", "opera", "vivaldi"}
@@ -164,6 +172,24 @@ def run_self_test() -> int:
     assert "height<=1080" in selector
     assert "abr<=192" in selector
 
+    external_command = build_external_command(
+        Path("yt-dlp.exe"),
+        job.source_url,
+        format_selector=selector,
+        output_template="%(title)s.%(ext)s",
+        ffmpeg_location=Path("ffmpeg"),
+        browser=job.browser,
+        playlist=job.playlist,
+        include_subtitle=job.include_subtitle,
+        subtitle_language=job.subtitle_lang,
+        include_cover=job.include_cover,
+    )
+    assert "--cookies-from-browser" in external_command
+    assert "edge" in external_command
+    assert "--embed-subs" in external_command
+    assert "--embed-thumbnail" in external_command
+    assert external_command[-1] == job.source_url
+
     try:
         parse_job("galaxy-downloader://download?url=file%3A%2F%2FC%3A%2Fsecret.txt")
     except ValueError:
@@ -279,6 +305,28 @@ class EngineWindow(tk.Tk):
                 self.last_path = Path(filepath)
             self.set_status("Finalizing", f"{name} completed")
 
+    def external_progress_hook(
+        self,
+        percent: float,
+        speed: str,
+        eta: str,
+        downloaded: str,
+        total: str,
+    ) -> None:
+        self.ui(self.percent_var.set, percent)
+        self.ui(self.speed_var.set, speed or "—")
+        self.ui(self.eta_var.set, eta or "—")
+        size = downloaded or "—"
+        if total and total != "—":
+            size = f"{size} / {total}"
+        self.ui(self.size_var.set, size)
+        self.set_status("Downloading", "Using the current yt-dlp extractor on this computer")
+
+    def external_status_hook(self, line: str) -> None:
+        if not line:
+            return
+        self.set_status("Preparing media", line[:220])
+
     def build_options(self) -> dict:
         assert self.job is not None
         output_dir = default_download_dir()
@@ -331,9 +379,52 @@ class EngineWindow(tk.Tk):
         self.set_status("Starting", self.job.source_url)
         threading.Thread(target=self._run_job, daemon=True).start()
 
+    def _run_external_job(self, executable: Path) -> bool:
+        assert self.job is not None
+        self.set_status("Updating extractor", "Checking the official yt-dlp nightly channel")
+        attempted, version = update_external_ytdlp_if_due(executable, app_dir())
+        if self.cancel_event.is_set():
+            raise DownloadCancelled("Cancelled by user")
+        if attempted:
+            detail = f"yt-dlp {version}" if version else "Continuing with the installed yt-dlp binary"
+            self.set_status("Extractor ready", detail)
+
+        output_dir = default_download_dir()
+        try:
+            final_path = download_with_external_ytdlp(
+                executable,
+                self.job.source_url,
+                format_selector=format_selector(self.job),
+                output_template=str(output_dir / "%(title).180B [%(id)s].%(ext)s"),
+                ffmpeg_location=ffmpeg_dir(),
+                browser=self.job.browser,
+                playlist=self.job.playlist,
+                include_subtitle=self.job.include_subtitle,
+                subtitle_language=self.job.subtitle_lang,
+                include_cover=self.job.include_cover,
+                cancelled=self.cancel_event.is_set,
+                on_progress=self.external_progress_hook,
+                on_status=self.external_status_hook,
+            )
+        except ExternalYtDlpError as exc:
+            if self.cancel_event.is_set():
+                raise DownloadCancelled("Cancelled by user") from exc
+            self.set_status("Retrying with embedded extractor", str(exc)[:220])
+            return False
+
+        if final_path:
+            self.last_path = final_path
+        self.ui(self.percent_var.set, 100)
+        return True
+
     def _run_job(self) -> None:
         assert self.job is not None
         try:
+            external = external_ytdlp_path(app_dir())
+            if external and self._run_external_job(external):
+                self.set_status("Completed", "The finished media file is saved on this computer")
+                return
+
             with YoutubeDL(self.build_options()) as ydl:
                 result = ydl.extract_info(self.job.source_url, download=True)
                 path = ydl.prepare_filename(result)
