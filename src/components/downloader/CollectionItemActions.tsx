@@ -22,7 +22,7 @@ interface CollectionItemActionsProps {
 }
 
 function getActionRowClass(actionCount: number) {
-    return actionCount === 2 ? 'grid-cols-2' : 'grid-cols-1';
+    return actionCount === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1';
 }
 
 export function CollectionItemActions({
@@ -44,7 +44,7 @@ export function CollectionItemActions({
     const downloadActionCount = Number(canDownloadVideo) + Number(canDownloadAudio);
 
     return (
-        <div className="w-full space-y-2 md:min-w-[11rem] md:shrink-0">
+        <div className="w-full space-y-2 md:min-w-[13rem] md:shrink-0">
             {previewActionCount > 0 && (
                 <div className={`grid ${getActionRowClass(previewActionCount)} gap-2`}>
                     {canPlayVideo && (
@@ -53,8 +53,8 @@ export function CollectionItemActions({
                             text={dict.result.playVideo}
                             icon={Play}
                             variant="secondary"
-                            size="xs"
-                            className="w-full"
+                            size="sm"
+                            className="min-h-10 w-full"
                             onClick={() => onPlay('video')}
                         />
                     )}
@@ -64,8 +64,8 @@ export function CollectionItemActions({
                             text={dict.result.playAudio}
                             icon={Headphones}
                             variant="secondary"
-                            size="xs"
-                            className="w-full"
+                            size="sm"
+                            className="min-h-10 w-full"
                             onClick={() => onPlay('audio')}
                         />
                     )}
@@ -79,8 +79,8 @@ export function CollectionItemActions({
                             text={dict.result.downloadVideo}
                             icon={VideoDownloadIcon}
                             variant="default"
-                            size="xs"
-                            className="w-full"
+                            size="sm"
+                            className="min-h-10 w-full"
                             disabled={videoLoading}
                             loading={videoLoading}
                             onClick={() => onDownloadVideo(videoDownloadUrl!)}
@@ -92,8 +92,8 @@ export function CollectionItemActions({
                             text={dict.result.downloadAudio}
                             icon={AudioDownloadIcon}
                             variant="default"
-                            size="xs"
-                            className="w-full"
+                            size="sm"
+                            className="min-h-10 w-full"
                             disabled={audioLoading}
                             loading={audioLoading}
                             onClick={() => onDownloadAudio(audioDownloadUrl!)}

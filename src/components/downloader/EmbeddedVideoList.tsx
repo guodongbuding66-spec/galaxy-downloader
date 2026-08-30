@@ -37,9 +37,12 @@ export function EmbeddedVideoList({
         () => videos.map((video, originalIndex) => ({ video, originalIndex })),
         [videos]
     );
-    const filteredVideos = normalizedQuery
-        ? indexedVideos.filter(({ video }) => (video.title || '').toLowerCase().includes(normalizedQuery))
-        : indexedVideos;
+    const filteredVideos = useMemo(
+        () => normalizedQuery
+            ? indexedVideos.filter(({ video }) => (video.title || '').toLowerCase().includes(normalizedQuery))
+            : indexedVideos,
+        [indexedVideos, normalizedQuery]
+    );
     const autoScrollIndex = useMemo(
         () => filteredVideos.findIndex(({ video }) => video.id === autoScrollItemId),
         [autoScrollItemId, filteredVideos]
@@ -90,32 +93,30 @@ export function EmbeddedVideoList({
     }, [autoScrollItemId, autoScrollKey, visibleVideos.length]);
 
     return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2 text-xs text-foreground/75">
-                <span className="min-w-0">
+        <div className="space-y-3">
+            <div className="flex flex-col gap-2 text-xs text-foreground/75 sm:flex-row sm:items-center sm:justify-between">
+                <span className="min-w-0 font-medium">
                     <span>{dict.result.videoList}</span>
-                    <span className="ml-2">
+                    <span className="ms-2 text-muted-foreground">
                         {replaceTemplate(dict.result.videoCount, '{count}', String(filteredVideos.length))}
                     </span>
                 </span>
-                <div className="flex items-center gap-2 shrink-0">
-                    <Input
-                        value={searchQuery}
-                        onChange={(event) => {
-                            setSearchQuery(event.target.value);
-                            setMobileVisibleCount(minimumVisibleCount);
-                        }}
-                        placeholder={dict.result.collectionSearchPlaceholder}
-                        aria-label={dict.result.collectionSearchPlaceholder}
-                        className="w-32 sm:w-56 h-8"
-                    />
-                </div>
+                <Input
+                    value={searchQuery}
+                    onChange={(event) => {
+                        setSearchQuery(event.target.value);
+                        setMobileVisibleCount(minimumVisibleCount);
+                    }}
+                    placeholder={dict.result.collectionSearchPlaceholder}
+                    aria-label={dict.result.collectionSearchPlaceholder}
+                    className="h-11 w-full text-base sm:h-10 sm:w-56 sm:text-sm"
+                />
             </div>
             <div
                 ref={containerRef}
-                className="max-h-[min(56vh,26rem)] md:max-h-[min(60vh,32rem)] overflow-y-auto overscroll-contain pr-1"
+                className="max-h-[min(56vh,26rem)] overflow-y-auto overscroll-contain pe-1 md:max-h-[min(60vh,32rem)]"
             >
-                <div className="space-y-2 pr-2">
+                <div className="space-y-2 pe-2">
                     {filteredVideos.length === 0 && (
                         <p className="py-6 text-center text-sm text-muted-foreground">
                             {dict.result.collectionNoSearchResults}
@@ -144,25 +145,28 @@ export function EmbeddedVideoList({
                                         itemRefs.current.delete(video.id);
                                     }
                                 }}
-                                className={`flex w-full max-w-full flex-col gap-2 overflow-hidden rounded-lg border p-2 text-left transition-colors md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-2 md:p-3 ${
+                                aria-current={isCurrentItem ? 'true' : undefined}
+                                className={`flex w-full max-w-full flex-col gap-3 overflow-hidden rounded-xl border p-3 text-left transition-colors md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4 ${
                                     isCurrentItem
-                                        ? 'border-primary bg-primary/5'
-                                        : 'border-border hover:bg-muted/50'
+                                        ? 'border-primary bg-primary/5 ring-1 ring-primary/15'
+                                        : 'border-border/80 bg-background/60 hover:bg-muted/40'
                                 }`}
-                                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 112px' }}
+                                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 128px' }}
                             >
-                                <div className="flex w-full items-start gap-2 min-w-0 overflow-hidden">
-                                    <span className="text-xs font-medium text-foreground/70 shrink-0">
+                                <div className="flex w-full min-w-0 items-start gap-3 overflow-hidden">
+                                    <span className={`mt-0.5 shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold tabular-nums ${
+                                        isCurrentItem ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground/70'
+                                    }`}>
                                         {originalIndex + 1}
                                     </span>
-                                    <div className="flex w-full items-center gap-2 flex-1 min-w-0 overflow-hidden">
-                                        <div className="text-[13px] truncate min-w-0 flex-1 max-w-[64vw] sm:max-w-none" title={displayTitle}>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="line-clamp-2 break-words text-[13px] font-medium leading-5" title={displayTitle}>
                                             {displayTitle}
                                         </div>
                                         {video.duration != null && (
-                                            <span className="text-xs text-foreground/65 shrink-0">
+                                            <div className="mt-1 text-xs tabular-nums text-muted-foreground">
                                                 {formatDuration(video.duration)}
-                                            </span>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
@@ -182,12 +186,12 @@ export function EmbeddedVideoList({
                         );
                     })}
                     {isMobile && (remainingCount > 0 || canCollapseMobile) && (
-                        <div className="rounded-lg border border-border/70 p-2">
+                        <div className="rounded-xl border border-border/70 p-2">
                             {remainingCount > 0 ? (
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="h-8 w-full text-xs"
+                                    className="min-h-10 w-full text-xs"
                                     onClick={loadMore}
                                 >
                                     {replaceTemplate(
@@ -200,7 +204,7 @@ export function EmbeddedVideoList({
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="h-8 w-full text-xs"
+                                    className="min-h-10 w-full text-xs"
                                     onClick={collapse}
                                 >
                                     {replaceTemplate(dict.result.collapseParts, '{count}', String(minimumVisibleCount))}
