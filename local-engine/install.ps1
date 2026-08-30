@@ -1,5 +1,6 @@
 param(
-    [string]$InstallDir = "$env:LOCALAPPDATA\GalaxyDownloader\LocalEngine"
+    [string]$InstallDir = "$env:LOCALAPPDATA\GalaxyDownloader\LocalEngine",
+    [switch]$NoLaunch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,4 +93,6 @@ Write-Host ''
 Write-Host 'The Galaxy website can now launch local downloads with one click.' -ForegroundColor Green
 Write-Host "Download folder: $env:USERPROFILE\Downloads\Galaxy Downloader"
 Write-Host ''
-Start-Process (Join-Path $InstallDir 'GalaxyLocalEngine.exe')
+if (-not $NoLaunch) {
+    Start-Process (Join-Path $InstallDir 'GalaxyLocalEngine.exe')
+}
