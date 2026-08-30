@@ -32,6 +32,32 @@ def external_ytdlp_path(app_dir: Path) -> Path | None:
     return None
 
 
+def managed_plugin_dirs(executable: Path) -> list[Path]:
+    """Return only Galaxy-managed yt-dlp plugin packages.
+
+    The external yt-dlp process is intentionally launched with
+    ``--no-plugin-dirs`` and then these directories are added explicitly. This
+    prevents an unrelated plugin from a user's global yt-dlp configuration from
+    silently changing Galaxy download behavior.
+    """
+    try:
+        root = executable.resolve().parent / "plugins"
+    except OSError:
+        root = executable.parent / "plugins"
+    if not root.is_dir():
+        return []
+
+    output: list[Path] = []
+    try:
+        children = sorted(root.iterdir(), key=lambda item: item.name.lower())
+    except OSError:
+        return []
+    for child in children:
+        if child.is_dir() and (child / "yt_dlp_plugins").is_dir():
+            output.append(child)
+    return output
+
+
 def _creation_flags() -> int:
     if os.name != "nt":
         return 0
@@ -142,8 +168,11 @@ def build_external_command(
     subtitle_language: str | None,
     include_cover: bool,
 ) -> list[str]:
-    command = [
-        str(executable),
+    command = [str(executable), "--no-plugin-dirs"]
+    for plugin_dir in managed_plugin_dirs(executable):
+        command.extend(["--plugin-dirs", str(plugin_dir)])
+
+    command.extend([
         "--newline",
         "--no-colors",
         "--continue",
@@ -161,7 +190,7 @@ def build_external_command(
         f"after_move:{FILE_PREFIX}%(filepath)s",
         "-f", format_selector,
         "-o", output_template,
-    ]
+    ])
 
     command.append("--yes-playlist" if playlist else "--no-playlist")
 
