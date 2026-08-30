@@ -18,6 +18,15 @@ function getActionRowClass(actionCount: number) {
     return actionCount >= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1';
 }
 
+function toBrowserAbsoluteUrl(value: string): string {
+    if (typeof window === 'undefined') return value;
+    try {
+        return new URL(value, window.location.origin).toString();
+    } catch {
+        return value;
+    }
+}
+
 export function SinglePartButtons({
     result,
     previewItem,
@@ -62,9 +71,10 @@ export function SinglePartButtons({
     const openBrowserHlsDownload = () => {
         const workerPlaylistUrl = result.downloadVideoUrl;
         if (!workerPlaylistUrl) return;
+        const absolutePlaylistUrl = toBrowserAbsoluteUrl(workerPlaylistUrl);
         onOpenHlsDownload({
-            sourceUrl: result.url || result.originDownloadVideoUrl || workerPlaylistUrl,
-            resolvedPlaylistUrl: workerPlaylistUrl,
+            sourceUrl: result.url || result.originDownloadVideoUrl || absolutePlaylistUrl,
+            resolvedPlaylistUrl: absolutePlaylistUrl,
             title: result.title || result.desc || 'Media',
         });
     };
