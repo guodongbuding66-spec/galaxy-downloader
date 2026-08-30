@@ -105,6 +105,60 @@ if (-not (Test-Path $ExternalYtDlp)) {
     }
 }
 
+# Threads is not yet supported by upstream yt-dlp. Galaxy installs one narrowly
+# scoped, audited extractor plugin from an immutable upstream commit. The plugin
+# is Unlicense/public-domain software and is loaded only from Galaxy's managed
+# plugin directory; external yt-dlp runs do not inherit arbitrary user plugins.
+$ThreadsPluginCommit = 'c4c44141cb10715f94296a808f5d89a0d24dfe94'
+$ThreadsPluginExpectedHash = 'c28e410b69a0c2377c8530b36f6dca4b973484855b42e281846b97b3305b28ba'
+$ThreadsPluginUrl = "https://raw.githubusercontent.com/tribixbite/yt-dlp-threads/$ThreadsPluginCommit/yt_dlp_plugins/extractor/threads.py"
+$ThreadsPluginRoot = Join-Path $InstallDir 'plugins\yt-dlp-threads'
+$ThreadsPluginDir = Join-Path $ThreadsPluginRoot 'yt_dlp_plugins\extractor'
+$ThreadsPluginPath = Join-Path $ThreadsPluginDir 'threads.py'
+$ThreadsPluginNeedsInstall = $true
+if (Test-Path $ThreadsPluginPath) {
+    try {
+        $InstalledThreadsHash = (Get-FileHash $ThreadsPluginPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $ThreadsPluginNeedsInstall = $InstalledThreadsHash -ne $ThreadsPluginExpectedHash
+    }
+    catch {
+        $ThreadsPluginNeedsInstall = $true
+    }
+}
+
+if ($ThreadsPluginNeedsInstall) {
+    Write-Step 'Installing the pinned Threads yt-dlp extractor plugin'
+    $ThreadsPluginTemp = Join-Path $env:TEMP ('galaxy-threads-plugin-' + [guid]::NewGuid().ToString('N') + '.py')
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $ThreadsPluginUrl -OutFile $ThreadsPluginTemp
+        $ActualThreadsHash = (Get-FileHash $ThreadsPluginTemp -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($ActualThreadsHash -ne $ThreadsPluginExpectedHash) {
+            throw "Threads plugin SHA-256 verification failed. Expected $ThreadsPluginExpectedHash but received $ActualThreadsHash."
+        }
+
+        New-Item -ItemType Directory -Force -Path $ThreadsPluginDir | Out-Null
+        Move-Item -Force $ThreadsPluginTemp $ThreadsPluginPath
+        $Provenance = @"
+Galaxy-managed yt-dlp extractor plugin
+Name: yt-dlp-threads
+Upstream: https://github.com/tribixbite/yt-dlp-threads
+Commit: $ThreadsPluginCommit
+File: yt_dlp_plugins/extractor/threads.py
+SHA-256: $ThreadsPluginExpectedHash
+License: Unlicense / public domain
+"@
+        Set-Content -Path (Join-Path $ThreadsPluginRoot 'GALAXY_PLUGIN_PROVENANCE.txt') -Value $Provenance -Encoding UTF8
+        Write-Step 'Threads plugin SHA-256 verified'
+    }
+    catch {
+        Write-Warn "Could not install the optional Threads extractor: $($_.Exception.Message)"
+        Write-Warn 'Other Local Engine platforms remain available.'
+    }
+    finally {
+        Remove-Item -Force $ThreadsPluginTemp -ErrorAction SilentlyContinue
+    }
+}
+
 Write-Step 'Registering the galaxy-downloader:// protocol for this Windows account'
 $ProtocolRoot = 'HKCU:\Software\Classes\galaxy-downloader'
 New-Item -Force $ProtocolRoot | Out-Null
@@ -133,6 +187,9 @@ Write-Step 'Installation complete'
 Write-Host ''
 Write-Host 'The Galaxy website can now launch local downloads with one click.' -ForegroundColor Green
 Write-Host 'Galaxy will prefer the verified external yt-dlp extractor and keep it on the nightly channel.' -ForegroundColor Green
+if (Test-Path $ThreadsPluginPath) {
+    Write-Host 'Galaxy managed plugin: Threads extractor installed and SHA-256 verified.' -ForegroundColor Green
+}
 Write-Host "Download folder: $env:USERPROFILE\Downloads\Galaxy Downloader"
 Write-Host ''
 if (-not $NoLaunch) {
