@@ -1,15 +1,18 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useDictionary } from '@/i18n/client';
 import type { PageInfo } from '@/lib/types';
 import { formatDuration } from '@/lib/utils';
 
 import { CollectionItemActions, type CollectionPreviewMediaType } from './CollectionItemActions';
 import { canPreviewPageAudio, canPreviewPageVideo } from './media-preview';
-import { LOAD_MORE_BATCH, useChunkedMobileList } from './use-chunked-mobile-list';
 import { replaceTemplate } from './result-card-utils';
+import { LOAD_MORE_BATCH, useChunkedMobileList } from './use-chunked-mobile-list';
 import { useTemporaryDownloadKeys } from './use-temporary-download-keys';
 
-const DEFAULT_VISIBLE_PARTS = 100;
+const DEFAULT_VISIBLE_PARTS = 36;
 
 export function MultiPartList({
     pages,
@@ -22,6 +25,28 @@ export function MultiPartList({
 }) {
     const dict = useDictionary();
     const { loadingKeys, triggerDownload } = useTemporaryDownloadKeys();
+    const [searchQuery, setSearchQuery] = useState('');
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const itemRefs = useRef(new Map<number, HTMLDivElement>());
+    const lastAutoScrolledKeyRef = useRef<string | null>(null);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    const filteredPages = useMemo(() => {
+        if (!normalizedQuery) return pages;
+
+        return pages.filter((page) => {
+            const title = page.part?.trim().toLowerCase() || '';
+            const pageNumber = String(page.page);
+            return title.includes(normalizedQuery)
+                || pageNumber.includes(normalizedQuery)
+                || `p${pageNumber}`.includes(normalizedQuery);
+        });
+    }, [normalizedQuery, pages]);
+
+    const autoScrollIndex = useMemo(
+        () => filteredPages.findIndex((page) => page.page === currentPage),
+        [currentPage, filteredPages]
+    );
     const {
         canCollapseMobile,
         collapse,
@@ -29,18 +54,72 @@ export function MultiPartList({
         loadMore,
         minimumVisibleCount,
         remainingCount,
+        setMobileVisibleCount,
         visibleItems: visiblePages,
-    } = useChunkedMobileList(pages, Math.max(DEFAULT_VISIBLE_PARTS, currentPage || 1));
+    } = useChunkedMobileList(
+        filteredPages,
+        autoScrollIndex >= 0 ? Math.max(DEFAULT_VISIBLE_PARTS, autoScrollIndex + 1) : DEFAULT_VISIBLE_PARTS
+    );
+
+    useEffect(() => {
+        if (autoScrollIndex < 0) return;
+        setMobileVisibleCount((previous) => Math.max(previous, autoScrollIndex + 1));
+    }, [autoScrollIndex, setMobileVisibleCount]);
+
+    useEffect(() => {
+        if (!currentPage || autoScrollIndex < 0) return;
+
+        const autoScrollKey = `${pages.length}:${currentPage}:${normalizedQuery}`;
+        if (lastAutoScrolledKeyRef.current === autoScrollKey) return;
+
+        const element = itemRefs.current.get(currentPage);
+        const container = containerRef.current;
+        if (!element || !container) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+        if (elementRect.top < containerRect.top) {
+            container.scrollTop += elementRect.top - containerRect.top;
+        } else if (elementRect.bottom > containerRect.bottom) {
+            container.scrollTop += elementRect.bottom - containerRect.bottom;
+        }
+
+        lastAutoScrolledKeyRef.current = autoScrollKey;
+    }, [autoScrollIndex, currentPage, normalizedQuery, pages.length, visiblePages.length]);
 
     return (
         <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2 text-xs font-medium text-foreground/75">
-                <span>
+            <div className="flex flex-col gap-2 text-xs text-foreground/75 sm:flex-row sm:items-center sm:justify-between">
+                <span className="min-w-0 font-medium">
                     {replaceTemplate(dict.result.totalParts, '{count}', String(pages.length))}
+                    {normalizedQuery && (
+                        <span className="ms-2 tabular-nums text-muted-foreground">
+                            {filteredPages.length}/{pages.length}
+                        </span>
+                    )}
                 </span>
+                <Input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(event) => {
+                        setSearchQuery(event.target.value);
+                        setMobileVisibleCount(minimumVisibleCount);
+                    }}
+                    placeholder={dict.result.collectionSearchPlaceholder}
+                    aria-label={dict.result.collectionSearchPlaceholder}
+                    className="h-11 w-full text-base sm:h-10 sm:w-56 sm:text-sm"
+                />
             </div>
-            <div className="max-h-[min(56vh,26rem)] overflow-y-auto overscroll-contain pe-1 md:max-h-[min(60vh,32rem)]">
-                <div className="space-y-2 pe-2">
+            <div
+                ref={containerRef}
+                className="max-h-[min(56vh,26rem)] overflow-y-auto overscroll-contain pe-1 md:max-h-[min(60vh,32rem)]"
+            >
+                <div className="space-y-2 pe-2" role="list">
+                    {filteredPages.length === 0 && (
+                        <p className="py-6 text-center text-sm text-muted-foreground">
+                            {dict.result.collectionNoSearchResults}
+                        </p>
+                    )}
                     {visiblePages.map((page) => {
                         const displayTitle = page.part?.trim() || `P${page.page}`;
                         const videoKey = `${page.page}-video`;
@@ -50,6 +129,14 @@ export function MultiPartList({
                         return (
                             <div
                                 key={page.page}
+                                ref={(element) => {
+                                    if (element) {
+                                        itemRefs.current.set(page.page, element);
+                                    } else {
+                                        itemRefs.current.delete(page.page);
+                                    }
+                                }}
+                                role="listitem"
                                 aria-current={isCurrentPage ? 'true' : undefined}
                                 className={`flex w-full max-w-full flex-col gap-3 overflow-hidden rounded-xl border p-3 text-left transition-colors md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4 ${
                                     isCurrentPage
