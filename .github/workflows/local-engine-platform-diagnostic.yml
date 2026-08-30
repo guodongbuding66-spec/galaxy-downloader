@@ -72,6 +72,9 @@ jobs:
 
       - name: Run 33-platform diagnostic matrix
         shell: pwsh
+        env:
+          PLATFORM_SMOKE_FIXTURES_JSON: >-
+            {"threads":"https://www.threads.net/t/CuXnwmrMIZL","wechat":"https://weixin.qq.com/sph/Axv548mzBF","kuaishou":"https://www.kuaishou.com/f/X3t3Ee6o1L7gqHe"}
         run: |
           python scripts/local-engine-platform-diagnostic.py `
             --yt-dlp "$env:YT_DLP_EXE" `
