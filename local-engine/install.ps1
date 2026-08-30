@@ -1,5 +1,6 @@
 param(
-    [string]$InstallDir = "$env:LOCALAPPDATA\GalaxyDownloader\LocalEngine"
+    [string]$InstallDir = "$env:LOCALAPPDATA\GalaxyDownloader\LocalEngine",
+    [switch]$NoLaunch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,20 +24,44 @@ $FfmpegBin = Join-Path $InstallDir 'ffmpeg\bin'
 $FfmpegExe = Join-Path $FfmpegBin 'ffmpeg.exe'
 if (-not (Test-Path $FfmpegExe)) {
     Write-Step 'Downloading the free FFmpeg essentials build'
+    $FfmpegUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+    $ChecksumUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256'
     $TempRoot = Join-Path $env:TEMP ('galaxy-ffmpeg-' + [guid]::NewGuid().ToString('N'))
     $ZipPath = Join-Path $TempRoot 'ffmpeg.zip'
+    $ChecksumPath = Join-Path $TempRoot 'ffmpeg.zip.sha256'
     $ExtractPath = Join-Path $TempRoot 'extract'
-    New-Item -ItemType Directory -Force -Path $ExtractPath | Out-Null
-    Invoke-WebRequest -UseBasicParsing -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $ZipPath
-    Expand-Archive -Force -Path $ZipPath -DestinationPath $ExtractPath
-    $SourceBin = Get-ChildItem -Path $ExtractPath -Directory | Select-Object -First 1 | ForEach-Object { Join-Path $_.FullName 'bin' }
-    if (-not $SourceBin -or -not (Test-Path (Join-Path $SourceBin 'ffmpeg.exe'))) {
-        throw 'FFmpeg download was extracted but ffmpeg.exe could not be found.'
+
+    try {
+        New-Item -ItemType Directory -Force -Path $ExtractPath | Out-Null
+        Invoke-WebRequest -UseBasicParsing -Uri $FfmpegUrl -OutFile $ZipPath
+        Invoke-WebRequest -UseBasicParsing -Uri $ChecksumUrl -OutFile $ChecksumPath
+
+        $ExpectedHash = ((Get-Content $ChecksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+        if ($ExpectedHash -notmatch '^[0-9a-f]{64}$') {
+            throw "The FFmpeg publisher checksum was invalid: '$ExpectedHash'"
+        }
+        $ActualHash = (Get-FileHash $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($ActualHash -ne $ExpectedHash) {
+            throw "FFmpeg SHA-256 verification failed. Expected $ExpectedHash but received $ActualHash."
+        }
+        Write-Step 'FFmpeg SHA-256 verified'
+
+        Expand-Archive -Force -Path $ZipPath -DestinationPath $ExtractPath
+        $SourceBin = Get-ChildItem -Path $ExtractPath -Directory | Select-Object -First 1 | ForEach-Object { Join-Path $_.FullName 'bin' }
+        if (-not $SourceBin -or -not (Test-Path (Join-Path $SourceBin 'ffmpeg.exe'))) {
+            throw 'FFmpeg download was extracted but ffmpeg.exe could not be found.'
+        }
+        if (-not (Test-Path (Join-Path $SourceBin 'ffprobe.exe'))) {
+            throw 'FFmpeg download was extracted but ffprobe.exe could not be found.'
+        }
+
+        New-Item -ItemType Directory -Force -Path $FfmpegBin | Out-Null
+        Copy-Item -Force (Join-Path $SourceBin 'ffmpeg.exe') $FfmpegBin
+        Copy-Item -Force (Join-Path $SourceBin 'ffprobe.exe') $FfmpegBin
     }
-    New-Item -ItemType Directory -Force -Path $FfmpegBin | Out-Null
-    Copy-Item -Force (Join-Path $SourceBin 'ffmpeg.exe') $FfmpegBin
-    Copy-Item -Force (Join-Path $SourceBin 'ffprobe.exe') $FfmpegBin
-    Remove-Item -Recurse -Force $TempRoot -ErrorAction SilentlyContinue
+    finally {
+        Remove-Item -Recurse -Force $TempRoot -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Step 'Registering the galaxy-downloader:// protocol for this Windows account'
@@ -54,10 +79,20 @@ $UninstallSource = Join-Path $SourceDir 'uninstall.ps1'
 if (Test-Path $UninstallSource) {
     Copy-Item -Force $UninstallSource (Join-Path $InstallDir 'uninstall.ps1')
 }
+$UninstallCmdSource = Join-Path $SourceDir 'uninstall.cmd'
+if (Test-Path $UninstallCmdSource) {
+    Copy-Item -Force $UninstallCmdSource (Join-Path $InstallDir 'uninstall.cmd')
+}
+$VersionSource = Join-Path $SourceDir 'VERSION'
+if (Test-Path $VersionSource) {
+    Copy-Item -Force $VersionSource (Join-Path $InstallDir 'VERSION')
+}
 
 Write-Step 'Installation complete'
 Write-Host ''
 Write-Host 'The Galaxy website can now launch local downloads with one click.' -ForegroundColor Green
 Write-Host "Download folder: $env:USERPROFILE\Downloads\Galaxy Downloader"
 Write-Host ''
-Start-Process (Join-Path $InstallDir 'GalaxyLocalEngine.exe')
+if (-not $NoLaunch) {
+    Start-Process (Join-Path $InstallDir 'GalaxyLocalEngine.exe')
+}
