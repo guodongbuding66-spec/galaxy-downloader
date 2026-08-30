@@ -1,0 +1,48 @@
+name: First-party Production Smoke
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/app/api/local-parse/**'
+      - 'src/app/api/local-media/**'
+      - 'src/components/downloader/SinglePartButtons.tsx'
+      - 'src/lib/config.ts'
+      - 'worker/index.ts'
+      - 'scripts/local-parser-production-smoke.py'
+      - '.github/workflows/local-parser-production-smoke.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '41 4 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-parser-production-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile smoke test
+        run: python -m py_compile scripts/local-parser-production-smoke.py
+
+      - name: Probe deployed parser and real media bytes
+        run: >-
+          python scripts/local-parser-production-smoke.py
+          --base-url https://galaxy-downloader.guodongbuding66.workers.dev
+          --attempts 12
+          --retry-delay 15
+          --timeout 15
