@@ -97,8 +97,8 @@ def format_selector(job: Job) -> str:
 
     audio = f"ba[abr<={abr}]/ba" if abr else "ba"
     if height:
-        return f"bv*[height<={height}]+({audio})/b[height<={height}]/b"
-    return f"bv*+({audio})/b"
+        return f"bv*[height<={height}]+{audio}/b[height<={height}]/b"
+    return f"bv*+{audio}/b"
 
 
 def app_dir() -> Path:
@@ -123,6 +123,38 @@ def default_download_dir() -> Path:
     target = Path.home() / "Downloads" / "Galaxy Downloader"
     target.mkdir(parents=True, exist_ok=True)
     return target
+
+
+def run_self_test() -> int:
+    sample = (
+        "galaxy-downloader://download?"
+        "url=https%3A%2F%2Fexample.com%2Fwatch%3Fv%3Dabc123%26list%3Ddemo"
+        "&video=1080p&audio=192&include_audio=1&subtitle=1&subtitle_lang=zh-Hans"
+        "&cover=1&browser=edge&playlist=0"
+    )
+    job = parse_job(sample)
+    assert job.source_url == "https://example.com/watch?v=abc123&list=demo"
+    assert job.video_quality == "1080p"
+    assert job.audio_quality == "192"
+    assert job.include_audio is True
+    assert job.include_subtitle is True
+    assert job.subtitle_lang == "zh-Hans"
+    assert job.include_cover is True
+    assert job.browser == "edge"
+    assert job.playlist is False
+    selector = format_selector(job)
+    assert "height<=1080" in selector
+    assert "abr<=192" in selector
+
+    try:
+        parse_job("galaxy-downloader://download?url=file%3A%2F%2FC%3A%2Fsecret.txt")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("non-http source was accepted")
+
+    print(f"{APP_NAME} {VERSION} self-test OK")
+    return 0
 
 
 class EngineWindow(tk.Tk):
@@ -318,7 +350,13 @@ class EngineWindow(tk.Tk):
 
 
 def main() -> int:
-    raw = sys.argv[1] if len(sys.argv) > 1 else None
+    if "--self-test" in sys.argv:
+        return run_self_test()
+    if "--version" in sys.argv:
+        print(VERSION)
+        return 0
+
+    raw = next((arg for arg in sys.argv[1:] if not arg.startswith("--")), None)
     job = None
     if raw:
         try:
