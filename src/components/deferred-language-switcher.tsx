@@ -45,14 +45,15 @@ export function DeferredLanguageSwitcher({
             size="sm"
             onClick={() => setMounted(true)}
             className={cn(
-                'flex items-center gap-2 text-sm',
-                compact && 'h-9 max-w-[8rem] gap-1.5 px-2.5',
-                iconOnly && 'h-8 w-8 p-0',
+                'flex min-h-10 items-center gap-2 text-sm',
+                compact && 'h-10 max-w-[8rem] gap-1.5 px-2.5',
+                iconOnly && 'h-10 w-10 p-0',
                 fullWidth && 'w-full justify-between'
             )}
             aria-label={iconOnly ? dict.page.switchLanguageLabel : getLocaleLabel(currentLocale)}
+            aria-haspopup="menu"
         >
-            <Globe className="h-4 w-4" />
+            <Globe className="h-4 w-4" aria-hidden="true" />
             {iconOnly ? (
                 <span className="sr-only">{dict.page.switchLanguageLabel}</span>
             ) : compact ? (
@@ -60,7 +61,7 @@ export function DeferredLanguageSwitcher({
             ) : (
                 <>
                     <span>{getLocaleLabel(currentLocale)}</span>
-                    <ChevronDown className="h-4 w-4" />
+                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
                 </>
             )}
         </Button>
