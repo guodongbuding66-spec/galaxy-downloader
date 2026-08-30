@@ -54,6 +54,7 @@ export function MergePanel({
                     hint={dict.audioTool.dropHint}
                     limitText={dict.audioTool.videoSizeLimit}
                     emptyButtonLabel={mergeVideoFile ? dict.audioTool.changeVideoButton : dict.audioTool.selectVideoButton}
+                    clearButtonLabel={dict.history.clear}
                     selectedLabel={mergeVideoFile
                         ? dict.audioTool.videoSelected
                             .replace('{name}', mergeVideoFile.name)
@@ -74,6 +75,7 @@ export function MergePanel({
                     hint={dict.audioTool.dropHint}
                     limitText={dict.audioTool.audioSizeLimit}
                     emptyButtonLabel={mergeAudioFile ? dict.audioTool.changeAudioButton : dict.audioTool.selectAudioButton}
+                    clearButtonLabel={dict.history.clear}
                     selectedLabel={mergeAudioFile
                         ? dict.audioTool.audioSelected
                             .replace('{name}', mergeAudioFile.name)
@@ -93,11 +95,11 @@ export function MergePanel({
 
             <Button
                 type="button"
-                className="w-full flex items-center justify-center gap-2"
+                className="flex min-h-11 w-full items-center justify-center gap-2"
                 onClick={onSubmit}
                 disabled={isBusy || !mergeVideoFile || !mergeAudioFile}
             >
-                {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                {isBusy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                 {isBusy ? dict.audioTool.processingButton : dict.audioTool.mergeButton}
             </Button>
         </div>
