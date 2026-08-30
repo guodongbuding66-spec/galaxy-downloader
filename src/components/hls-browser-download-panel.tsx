@@ -2,7 +2,7 @@
 
 import { fileSave, supported as supportsStreamingFileSave } from 'browser-fs-access'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertCircle, CheckCircle2, Loader2, ListVideo } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Download, ListVideo, Loader2, RotateCcw } from 'lucide-react'
 import pRetry from 'p-retry'
 
 import { Button } from '@/components/ui/button'
@@ -21,7 +21,7 @@ import {
 } from '@/lib/hls-browser-download'
 import { HLS_PLAYLIST_ACCEPT } from '@/lib/hls-playback'
 import { requestUnifiedParse } from '@/lib/unified-parse'
-import { sanitizeFilename } from '@/lib/utils'
+import { cn, sanitizeFilename } from '@/lib/utils'
 
 const DOWNLOAD_CONCURRENCY = 8
 const SEGMENT_DOWNLOAD_RETRIES = 3
@@ -415,6 +415,8 @@ export function HlsBrowserDownloadPanel({
     const taskVersionRef = useRef(0)
     const isBusy = phase === 'preparing' || phase === 'downloading'
     const failed = phase === 'failed'
+    const downloading = phase === 'downloading'
+    const completed = phase === 'completed'
 
     useEffect(() => {
         onBusyChange?.(isBusy)
@@ -542,7 +544,7 @@ export function HlsBrowserDownloadPanel({
                     : []),
                 ...resolution.selectedSegments,
             ]
-            let completed = 0
+            let completedResources = 0
             let downloadedBytes = 0
             const extension = inferHlsOutputExtension(resolution.mapUrl, resolution.selectedSegments)
             const baseTitle = sanitizeFilename(initialTitle || resolution.title || dict.history.unknownTitle)
@@ -561,7 +563,7 @@ export function HlsBrowserDownloadPanel({
                         return
                     }
 
-                    completed += 1
+                    completedResources += 1
                     downloadedBytes += bytes
 
                     const now = Date.now()
@@ -582,10 +584,10 @@ export function HlsBrowserDownloadPanel({
                         nextSpeed = samples[0].bytes
                     }
 
-                    const averageBytesPerResource = downloadedBytes / completed
-                    const remainingResources = targets.length - completed
+                    const averageBytesPerResource = downloadedBytes / completedResources
+                    const remainingResources = targets.length - completedResources
 
-                    setProgress(Math.round((completed * 100) / targets.length))
+                    setProgress(Math.round((completedResources * 100) / targets.length))
                     setSpeedBytesPerSecond(nextSpeed)
                     setEtaSeconds(
                         nextSpeed && averageBytesPerResource > 0
@@ -632,62 +634,99 @@ export function HlsBrowserDownloadPanel({
     }, [cancelActiveTask, dict.history.unknownTitle, dict.hlsDownload.downloadCompletedStatus, dict.hlsDownload.downloadFailedStatus, dict.hlsDownload.downloadingStatus, dict.hlsDownload.idleStatus, finishTask, initialTitle, resetDownloadMetrics, resolution, startTask])
 
     return (
-        <div className="space-y-5">
-            <div className="rounded-md border bg-muted/30 p-3 space-y-3">
-                <div className="flex items-start gap-2 text-sm">
-                    {failed ? (
-                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                    ) : isBusy ? (
-                        <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
-                    ) : progress === 100 ? (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
-                    ) : (
-                        <ListVideo className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <div className="min-w-0 space-y-1">
-                        <div className="font-medium">{dict.hlsDownload.statusLabel}</div>
-                        <p className="break-words text-muted-foreground">{status}</p>
+        <div className="space-y-4">
+            <div
+                role={failed ? 'alert' : 'status'}
+                aria-live="polite"
+                className={cn(
+                    'rounded-2xl border p-4 sm:p-5',
+                    failed && 'border-destructive/25 bg-destructive/[0.045]',
+                    completed && 'border-emerald-500/25 bg-emerald-500/[0.055]',
+                    downloading && 'border-primary/20 bg-primary/[0.035]',
+                    !failed && !completed && !downloading && 'border-border/70 bg-muted/25'
+                )}
+            >
+                <div className="flex items-start gap-3">
+                    <div
+                        className={cn(
+                            'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-background shadow-sm',
+                            failed && 'border-destructive/20 text-destructive',
+                            completed && 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
+                            downloading && 'border-primary/20 text-primary'
+                        )}
+                        aria-hidden="true"
+                    >
+                        {failed ? (
+                            <AlertCircle className="h-5 w-5" />
+                        ) : isBusy ? (
+                            <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />
+                        ) : completed ? (
+                            <CheckCircle2 className="h-5 w-5" />
+                        ) : (
+                            <ListVideo className="h-5 w-5 text-muted-foreground" />
+                        )}
+                    </div>
+
+                    <div className="min-w-0 flex-1 pt-0.5">
+                        <div className="text-sm font-semibold text-foreground">{dict.hlsDownload.statusLabel}</div>
+                        <p className={cn(
+                            'mt-1 break-words text-sm leading-6',
+                            failed ? 'text-destructive' : 'text-muted-foreground'
+                        )}>
+                            {status}
+                        </p>
                     </div>
                 </div>
-                <Progress value={progress} />
-                <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground sm:text-sm">
-                    <div className="rounded-md bg-background/60 px-3 py-2">
-                        <div>{dict.hlsDownload.progressLabel}</div>
-                        <div className="mt-1 font-medium text-foreground">{progress}%</div>
-                    </div>
-                    <div className="rounded-md bg-background/60 px-3 py-2">
-                        <div>{dict.hlsDownload.speedLabel}</div>
-                        <div className="mt-1 font-medium text-foreground">
-                            {speedBytesPerSecond
-                                ? formatSpeed(speedBytesPerSecond)
-                                : dict.hlsDownload.calculatingLabel}
+
+                {downloading ? (
+                    <div className="mt-5 space-y-3 border-t border-border/60 pt-4">
+                        <Progress value={progress} aria-label={`${dict.hlsDownload.progressLabel} ${progress}%`} />
+                        <div className="grid grid-cols-3 divide-x divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-background/75 text-center">
+                            <div className="px-2 py-3 sm:px-4">
+                                <div className="text-[11px] font-medium text-muted-foreground sm:text-xs">{dict.hlsDownload.progressLabel}</div>
+                                <div className="mt-1 text-sm font-semibold tabular-nums text-foreground sm:text-base">{progress}%</div>
+                            </div>
+                            <div className="px-2 py-3 sm:px-4">
+                                <div className="text-[11px] font-medium text-muted-foreground sm:text-xs">{dict.hlsDownload.speedLabel}</div>
+                                <div className="mt-1 text-sm font-semibold tabular-nums text-foreground sm:text-base">
+                                    {speedBytesPerSecond
+                                        ? formatSpeed(speedBytesPerSecond)
+                                        : dict.hlsDownload.calculatingLabel}
+                                </div>
+                            </div>
+                            <div className="px-2 py-3 sm:px-4">
+                                <div className="text-[11px] font-medium text-muted-foreground sm:text-xs">{dict.hlsDownload.etaLabel}</div>
+                                <div className="mt-1 text-sm font-semibold tabular-nums text-foreground sm:text-base">
+                                    {etaSeconds == null
+                                        ? dict.hlsDownload.calculatingLabel
+                                        : formatEta(etaSeconds)}
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div className="rounded-md bg-background/60 px-3 py-2">
-                        <div>{dict.hlsDownload.etaLabel}</div>
-                        <div className="mt-1 font-medium text-foreground">
-                            {etaSeconds == null
-                                ? dict.hlsDownload.calculatingLabel
-                                : formatEta(etaSeconds)}
-                        </div>
-                    </div>
-                </div>
+                ) : null}
             </div>
 
-            {!isBusy && phase !== 'completed' ? (
-                <div className="flex justify-end">
+            {!isBusy && !completed ? (
+                <div className="flex justify-stretch sm:justify-end">
                     <Button
+                        className="min-h-11 w-full gap-2 px-5 shadow-sm transition-[transform,box-shadow,background-color] duration-150 active:scale-[0.98] sm:w-auto"
                         onClick={() => {
-                            if (phase === 'failed') {
+                            if (failed) {
                                 void preparePlaylist()
                                 return
                             }
 
                             void handleStart()
                         }}
-                        disabled={phase !== 'ready' && phase !== 'failed'}
+                        disabled={phase !== 'ready' && !failed}
                     >
-                        {isBusy ? dict.hlsDownload.downloadingButton : dict.hlsDownload.downloadButton}
+                        {failed ? (
+                            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                        ) : (
+                            <Download className="h-4 w-4" aria-hidden="true" />
+                        )}
+                        {failed ? dict.extractAudio.retry : dict.hlsDownload.downloadButton}
                     </Button>
                 </div>
             ) : null}
