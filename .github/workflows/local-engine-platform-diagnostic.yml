@@ -1,0 +1,115 @@
+name: Local Engine 33-Platform Diagnostic
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/local-engine-platform-diagnostic.py'
+      - 'scripts/platform-smoke.py'
+      - 'local-engine/install.ps1'
+      - 'local-engine/external_ytdlp.py'
+      - '.github/workflows/local-engine-platform-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install fixture discovery dependency
+        shell: pwsh
+        run: python -m pip install "yt-dlp[default]>=2026.8.0,<2027"
+
+      - name: Compile diagnostic sources
+        shell: pwsh
+        run: python -m py_compile scripts/local-engine-platform-diagnostic.py scripts/platform-smoke.py
+
+      - name: Install verified Local Engine yt-dlp and switch to nightly
+        id: extractor
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP 'GalaxyDiagnosticPackage'
+          $install = Join-Path $env:RUNNER_TEMP 'GalaxyDiagnosticInstall'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $install 'ffmpeg\bin') | Out-Null
+
+          Copy-Item local-engine/install.ps1 (Join-Path $package 'install.ps1')
+          Set-Content -Path (Join-Path $package 'GalaxyLocalEngine.exe') -Value 'diagnostic-placeholder'
+          Set-Content -Path (Join-Path $install 'ffmpeg\bin\ffmpeg.exe') -Value 'diagnostic-placeholder'
+
+          & (Join-Path $package 'install.ps1') -InstallDir $install -NoLaunch
+
+          $ytDlp = Join-Path $install 'yt-dlp.exe'
+          if (-not (Test-Path $ytDlp)) {
+            throw 'The Local Engine installer did not produce a verified yt-dlp.exe'
+          }
+
+          Write-Host 'Switching the verified official extractor to the same nightly channel used by Local Engine 0.2+'
+          & $ytDlp --update-to nightly
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning 'Nightly update was unavailable; continuing with the already SHA-verified installed yt-dlp.exe, matching Local Engine fallback behavior.'
+          }
+
+          $version = (& $ytDlp --version | Select-Object -Last 1).Trim()
+          if (-not $version) {
+            throw 'Installed yt-dlp.exe did not report a version'
+          }
+
+          "YT_DLP_EXE=$ytDlp" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "DIAG_INSTALL_DIR=$install" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Diagnostic extractor version: $version"
+
+      - name: Run 33-platform diagnostic matrix
+        shell: pwsh
+        run: |
+          python scripts/local-engine-platform-diagnostic.py `
+            --yt-dlp "$env:YT_DLP_EXE" `
+            --json artifacts/local-engine-platform-diagnostic.json `
+            --markdown artifacts/local-engine-platform-diagnostic.md `
+            --workers 5 `
+            --timeout 28 `
+            --max-candidates 2
+
+      - name: Publish matrix to job summary
+        if: always()
+        shell: pwsh
+        run: |
+          $report = 'artifacts/local-engine-platform-diagnostic.md'
+          if (Test-Path $report) {
+            Get-Content $report -Raw | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            'Diagnostic report was not generated.' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+
+      - name: Upload diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-engine-33-platform-diagnostic
+          path: |
+            artifacts/local-engine-platform-diagnostic.json
+            artifacts/local-engine-platform-diagnostic.md
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Cleanup diagnostic protocol registration
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:DIAG_INSTALL_DIR -and (Test-Path 'local-engine/uninstall.ps1')) {
+            & 'local-engine/uninstall.ps1' -InstallDir $env:DIAG_INSTALL_DIR
+          }
+          if ($env:DIAG_INSTALL_DIR) {
+            Remove-Item -Recurse -Force $env:DIAG_INSTALL_DIR -ErrorAction SilentlyContinue
+          }
