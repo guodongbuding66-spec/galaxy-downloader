@@ -158,9 +158,11 @@ function scopedSourceUrl(result: ResultData): string {
 export function LocalEngineDownloadCard({
   result,
   plan,
+  disabled = false,
 }: {
   result: ResultData;
   plan: LocalEngineDownloadPlan;
+  disabled?: boolean;
 }) {
   const pathname = usePathname();
   const copy = copyFor(pathname);
@@ -177,6 +179,7 @@ export function LocalEngineDownloadCard({
   if (!supported) return null;
 
   const handleLaunch = () => {
+    if (disabled) return;
     launchLocalDesktopEngine({
       sourceUrl,
       videoQuality: resolveLocalDesktopVideoQuality(plan.videoSelection),
@@ -207,7 +210,11 @@ export function LocalEngineDownloadCard({
 
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">{copy.cookieSource}</label>
-          <Select value={browser} onValueChange={(value) => setBrowser(value as LocalEngineBrowser)}>
+          <Select
+            value={browser}
+            onValueChange={(value) => setBrowser(value as LocalEngineBrowser)}
+            disabled={disabled}
+          >
             <SelectTrigger className="h-10 bg-background">
               <SelectValue />
             </SelectTrigger>
@@ -221,7 +228,12 @@ export function LocalEngineDownloadCard({
         </div>
 
         <div className="grid gap-2">
-          <Button type="button" className="min-h-11 w-full font-semibold" onClick={handleLaunch}>
+          <Button
+            type="button"
+            className="min-h-11 w-full font-semibold"
+            onClick={handleLaunch}
+            disabled={disabled}
+          >
             <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
             {copy.launch}
           </Button>
