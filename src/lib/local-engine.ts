@@ -81,7 +81,7 @@ export interface LocalDesktopJobOptions {
   playlist?: boolean
 }
 
-export const LOCAL_ENGINE_RELEASE_URL = 'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/latest'
+export const LOCAL_ENGINE_RELEASE_URL = 'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/latest/download/GalaxyLocalEngine-Windows.zip'
 
 export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): string {
   const params = new URLSearchParams()
