@@ -309,7 +309,7 @@ def diagnose_platform(
                 platform=platform,
                 status=STATUS_NO_EXTRACTOR,
                 matching_extractors=[],
-                note="No yt-dlp extractor currently matches this Galaxy platform catalog entry.",
+                note="No dedicated yt-dlp extractor currently matches this Galaxy platform catalog entry.",
             )
         return PlatformDiagnostic(
             platform=platform,
@@ -338,11 +338,14 @@ def diagnose_platform(
     best = max(attempts, key=lambda item: STATUS_PRIORITY.get(item.status, 0))
     note = None
     if best.status in {STATUS_COOKIE, STATUS_CLOUD, STATUS_GEO}:
-        note = "Extractor reached the platform, but this cloud-runner result is environment/session dependent and does not prove a user-local failure."
+        note = "The platform request reached a relevant extraction path, but this cloud-runner result is environment/session dependent and does not prove a user-local failure."
     elif best.status == STATUS_DEAD:
         note = "The public fixture appears stale; replace the fixture before judging platform support."
     elif best.status == STATUS_EXTRACTOR:
-        note = "yt-dlp did not route the fixture to a supported extractor."
+        if matching_extractors:
+            note = "A matching yt-dlp extractor exists, but it did not expose usable media for the tested public fixture."
+        else:
+            note = "No dedicated yt-dlp extractor matched this platform; the Generic extractor also failed for the tested public fixture."
 
     return PlatformDiagnostic(
         platform=platform,
@@ -366,7 +369,7 @@ def write_markdown(path: Path, results: list[PlatformDiagnostic], version: str) 
         f"yt-dlp: `{version}`",
         f"Platforms: **{len(results)}**",
         "",
-        "> `COOKIE_REQUIRED`, `CLOUD_IP_BLOCKED` and `GEO_RESTRICTED` mean the extractor reached the platform but the GitHub cloud runner could not complete the session. They must not be reported as proof that the user-local engine is broken.",
+        "> `COOKIE_REQUIRED`, `CLOUD_IP_BLOCKED` and `GEO_RESTRICTED` mean the platform request reached a relevant extraction path but the GitHub cloud runner could not complete the session. They must not be reported as proof that the user-local engine is broken.",
         "",
         "## Summary",
         "",
