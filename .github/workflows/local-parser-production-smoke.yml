@@ -6,14 +6,20 @@ on:
       - main
     paths:
       - 'src/app/api/local-parse/**'
+      - 'src/app/api/local-parse-v2/**'
       - 'src/app/api/local-media/**'
+      - 'src/app/api/vimeo-media/**'
+      - 'src/app/api/dailymotion-hls/**'
       - 'src/lib/config.ts'
       - 'scripts/local-parser-production-smoke.py'
       - '.github/workflows/local-parser-production-smoke.yml'
   pull_request:
     paths:
       - 'src/app/api/local-parse/**'
+      - 'src/app/api/local-parse-v2/**'
       - 'src/app/api/local-media/**'
+      - 'src/app/api/vimeo-media/**'
+      - 'src/app/api/dailymotion-hls/**'
       - 'src/lib/config.ts'
       - 'scripts/local-parser-production-smoke.py'
       - '.github/workflows/local-parser-production-smoke.yml'
@@ -37,7 +43,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses:
+          actions/setup-python@v5
         with:
           python-version: '3.12'
 
