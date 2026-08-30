@@ -5,6 +5,13 @@ const USER_AGENT =
 
 const JSON_HEADERS = {
     Accept: 'application/json,text/plain,*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'User-Agent': USER_AGENT,
+};
+
+const HTML_HEADERS = {
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
     'User-Agent': USER_AGENT,
 };
 
@@ -15,6 +22,11 @@ type VimeoProgressive = {
 };
 
 type VimeoConfig = {
+    video?: {
+        files?: {
+            progressive?: VimeoProgressive[];
+        };
+    };
     request?: {
         files?: {
             progressive?: VimeoProgressive[];
@@ -60,16 +72,96 @@ function failure(message: string, status: number) {
     return response;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
+function decodeHtml(value: string): string {
+    return value
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\\u0026/gi, '&')
+        .replace(/\\\//g, '/');
+}
+
+function extractBalancedJson(text: string, marker: RegExp): unknown | null {
+    const match = marker.exec(text);
+    if (!match) return null;
+    const start = text.indexOf('{', match.index + match[0].length);
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < text.length; index += 1) {
+        const char = text[index];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (char === '\\') escaped = true;
+            else if (char === '"') inString = false;
+            continue;
+        }
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+        if (char === '{') depth += 1;
+        if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                try {
+                    return JSON.parse(text.slice(start, index + 1));
+                } catch {
+                    return null;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+async function fetchJson<T>(url: string, headers: HeadersInit = JSON_HEADERS): Promise<T> {
     const response = await fetch(url, {
-        headers: JSON_HEADERS,
+        headers,
         redirect: 'follow',
         cache: 'no-store',
     });
-    if (!response.ok) {
-        throw new Error(`Metadata request failed (${response.status})`);
-    }
+    if (!response.ok) throw new Error(`Metadata request failed (${response.status})`);
     return response.json() as Promise<T>;
+}
+
+async function fetchVimeoConfig(id: string, sourceUrl?: string): Promise<VimeoConfig> {
+    const playerUrl = `https://player.vimeo.com/video/${encodeURIComponent(id)}`;
+    const referer = sourceUrl && !sourceUrl.includes('player.vimeo.com') ? sourceUrl : 'https://vimeo.com/';
+    const pageResponse = await fetch(playerUrl, {
+        headers: { ...HTML_HEADERS, Referer: referer },
+        redirect: 'follow',
+        cache: 'no-store',
+    });
+    if (pageResponse.ok) {
+        const html = await pageResponse.text();
+        for (const marker of [/\bplayerConfig\s*=\s*/i, /\bconfig\s*=\s*/i]) {
+            const embedded = extractBalancedJson(html, marker);
+            if (embedded && typeof embedded === 'object') return embedded as VimeoConfig;
+        }
+        const configValue = html.match(/\bdata-config-url=["']([^"']+)["']/i)?.[1]
+            || html.match(/["']config_url["']\s*:\s*["']([^"']+)["']/i)?.[1];
+        if (configValue) {
+            const configUrl = decodeHtml(configValue);
+            const response = await fetch(configUrl, {
+                headers: {
+                    ...JSON_HEADERS,
+                    Referer: playerUrl,
+                    Origin: 'https://player.vimeo.com',
+                },
+                redirect: 'follow',
+                cache: 'no-store',
+            });
+            if (response.ok) return response.json() as Promise<VimeoConfig>;
+        }
+    }
+
+    return fetchJson<VimeoConfig>(`${playerUrl}/config`, {
+        ...JSON_HEADERS,
+        Referer: playerUrl,
+        Origin: 'https://player.vimeo.com',
+    });
 }
 
 function requestedQuality(request: NextRequest): string {
@@ -77,33 +169,30 @@ function requestedQuality(request: NextRequest): string {
 }
 
 function pickVimeoProgressive(config: VimeoConfig, quality: string): VimeoProgressive | null {
-    const progressive = (config.request?.files?.progressive || [])
+    const progressive = (config.video?.files?.progressive || config.request?.files?.progressive || [])
         .filter((item) => typeof item.url === 'string' && item.url.length > 0)
         .sort((a, b) => (b.height || 0) - (a.height || 0));
     if (!progressive.length) return null;
     if (quality === 'best') return progressive[0];
-
     const targetHeight = Number.parseInt(quality, 10);
     if (Number.isFinite(targetHeight)) {
         return progressive.find((item) => item.height === targetHeight)
             || progressive.find((item) => (item.height || 0) <= targetHeight)
             || progressive[progressive.length - 1];
     }
-
     return progressive.find((item) => item.quality === quality) || progressive[0];
 }
 
 async function resolveVimeo(request: NextRequest): Promise<ResolvedMedia> {
     const id = request.nextUrl.searchParams.get('id')?.trim();
     if (!id || !/^\d{5,}$/.test(id)) throw new Error('Invalid Vimeo id');
-    const config = await fetchJson<VimeoConfig>(
-        `https://player.vimeo.com/video/${encodeURIComponent(id)}/config`,
-    );
+    const source = request.nextUrl.searchParams.get('source')?.trim() || undefined;
+    const config = await fetchVimeoConfig(id, source);
     const selected = pickVimeoProgressive(config, requestedQuality(request));
     if (!selected?.url) throw new Error('Vimeo progressive stream not available');
     return {
         url: selected.url,
-        referer: `https://player.vimeo.com/video/${id}`,
+        referer: source || `https://player.vimeo.com/video/${id}`,
         filename: `vimeo-${id}.mp4`,
     };
 }
@@ -130,7 +219,6 @@ async function resolveDailymotion(request: NextRequest): Promise<ResolvedMedia> 
     );
     const formats = dailymotionMp4Formats(metadata);
     if (!formats.length) throw new Error('Dailymotion progressive stream not available');
-
     const quality = requestedQuality(request);
     const target = quality === 'best'
         ? formats[0]
@@ -142,6 +230,48 @@ async function resolveDailymotion(request: NextRequest): Promise<ResolvedMedia> 
     };
 }
 
+function findFirstStringForKey(value: unknown, key: string): string | null {
+    if (!value || typeof value !== 'object') return null;
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            const found = findFirstStringForKey(item, key);
+            if (found) return found;
+        }
+        return null;
+    }
+    const record = value as Record<string, unknown>;
+    const direct = record[key];
+    if (typeof direct === 'string' && direct.startsWith('http')) return direct;
+    for (const child of Object.values(record)) {
+        const found = findFirstStringForKey(child, key);
+        if (found) return found;
+    }
+    return null;
+}
+
+async function streamUrlFromApplePage(sourceUrl: string): Promise<string | null> {
+    const response = await fetch(sourceUrl, {
+        headers: HTML_HEADERS,
+        redirect: 'follow',
+        cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const scriptMatch = html.match(/<script[^>]+id=["']serialized-server-data["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (scriptMatch?.[1]) {
+        try {
+            const payload = JSON.parse(scriptMatch[1]);
+            const streamUrl = findFirstStringForKey(payload, 'streamUrl');
+            if (streamUrl) return decodeHtml(streamUrl);
+        } catch {
+            // Fall through to tolerant regex extraction.
+        }
+    }
+    const raw = html.match(/["']streamUrl["']\s*:\s*["']([^"']+)["']/i)?.[1]
+        || html.match(/\\"streamUrl\\"\s*:\s*\\"([^"\\]+)\\"/i)?.[1];
+    return raw ? decodeHtml(raw) : null;
+}
+
 function isAppleEpisode(item: AppleLookupItem): boolean {
     return item.kind === 'podcast-episode'
         || item.wrapperType === 'podcastEpisode'
@@ -149,17 +279,32 @@ function isAppleEpisode(item: AppleLookupItem): boolean {
 }
 
 async function resolveApplePodcast(request: NextRequest): Promise<ResolvedMedia> {
-    const showId = request.nextUrl.searchParams.get('showId')?.trim();
+    const source = request.nextUrl.searchParams.get('source')?.trim();
     const episodeId = request.nextUrl.searchParams.get('episodeId')?.trim();
+    if (source && episodeId && /^\d+$/.test(episodeId)) {
+        const streamUrl = await streamUrlFromApplePage(source);
+        if (streamUrl) {
+            return {
+                url: streamUrl,
+                referer: source,
+                filename: `apple-podcast-${episodeId}.m4a`,
+            };
+        }
+    }
+
+    const showId = request.nextUrl.searchParams.get('showId')?.trim();
     if (!showId || !/^\d+$/.test(showId) || !episodeId || !/^\d+$/.test(episodeId)) {
         throw new Error('Invalid Apple Podcasts identifiers');
     }
-
     const lookup = new URL('https://itunes.apple.com/lookup');
     lookup.searchParams.set('id', showId);
     lookup.searchParams.set('entity', 'podcastEpisode');
     lookup.searchParams.set('limit', '200');
-    const payload = await fetchJson<AppleLookupPayload>(lookup.toString());
+    const payload = await fetchJson<AppleLookupPayload>(lookup.toString(), {
+        Accept: 'application/json,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': 'iTunes/12.13.2 (Windows; Microsoft Windows 10 x64) AppleWebKit/7606.3.2.30005.1',
+    });
     const episode = (payload.results || []).find((item) =>
         isAppleEpisode(item) && String(item.trackId || '') === episodeId && typeof item.episodeUrl === 'string'
     );
@@ -231,16 +376,9 @@ async function handle(request: NextRequest, headOnly: boolean) {
 
     if (headOnly) {
         void upstream.body.cancel();
-        return new NextResponse(null, {
-            status: upstream.status,
-            headers: responseHeaders,
-        });
+        return new NextResponse(null, { status: upstream.status, headers: responseHeaders });
     }
-
-    return new NextResponse(upstream.body, {
-        status: upstream.status,
-        headers: responseHeaders,
-    });
+    return new NextResponse(upstream.body, { status: upstream.status, headers: responseHeaders });
 }
 
 export async function GET(request: NextRequest) {
