@@ -291,7 +291,7 @@ export function VideoResultPanel({
     const displayDuration = effectiveResult.duration ?? result.duration;
 
     return (
-        <Card>
+        <Card className="overflow-hidden">
             <ResultCardHeader
                 title={displayTitle}
                 duration={displayDuration}
@@ -299,10 +299,10 @@ export function VideoResultPanel({
                 onCopyShareLink={() => void handleCopySharePlayLink()}
                 onClose={onClose}
             />
-            <CardContent className="px-3 pb-3 pt-0">
-                <div className="space-y-2">
+            <CardContent className="p-4 sm:p-5">
+                <div className="space-y-4">
                     {playerPreview && playerUrl ? (
-                        <div className="overflow-hidden rounded-lg bg-black">
+                        <div className="overflow-hidden rounded-xl bg-black shadow-sm ring-1 ring-border/60">
                             {playerPreview.mediaType === 'audio' ? (
                                 <audio
                                     key={playerUrl}
@@ -321,7 +321,7 @@ export function VideoResultPanel({
                                     playsInline
                                     preload="metadata"
                                     poster={coverSrc || undefined}
-                                    className="w-full min-h-[240px] max-h-[50vh] bg-black"
+                                    className="min-h-[220px] max-h-[56vh] w-full bg-black sm:min-h-[240px]"
                                 />
                             ) : (
                                 <video
@@ -333,7 +333,7 @@ export function VideoResultPanel({
                                     playsInline
                                     preload="metadata"
                                     poster={coverSrc || undefined}
-                                    className="w-full min-h-[240px] max-h-[50vh] bg-black"
+                                    className="min-h-[220px] max-h-[56vh] w-full bg-black sm:min-h-[240px]"
                                 />
                             )}
                         </div>
@@ -352,13 +352,14 @@ export function VideoResultPanel({
                                 onRequestPreview={onRequestPreview}
                             />
                             {(showMultiPartList || showSeasonList || hasBilibiliSourceSwitch) && (
-                                <div className="space-y-2">
+                                <div className="space-y-3 rounded-xl bg-muted/15 p-3 ring-1 ring-border/70 sm:p-4">
                                     {hasBilibiliSourceSwitch && (
-                                        <div className="flex items-center gap-2">
+                                        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center" role="group">
                                             <Button
                                                 variant={activeBiliList === 'pages' ? 'default' : 'outline'}
                                                 size="sm"
-                                                className="h-8 text-xs"
+                                                className="min-h-10 text-xs"
+                                                aria-pressed={activeBiliList === 'pages'}
                                                 onClick={() => setActiveBiliList('pages')}
                                             >
                                                 {pageTabLabel}
@@ -366,7 +367,8 @@ export function VideoResultPanel({
                                             <Button
                                                 variant={activeBiliList === 'season' ? 'default' : 'outline'}
                                                 size="sm"
-                                                className="h-8 text-xs"
+                                                className="min-h-10 text-xs"
+                                                aria-pressed={activeBiliList === 'season'}
                                                 onClick={() => setActiveBiliList('season')}
                                             >
                                                 {seasonTabLabel}
