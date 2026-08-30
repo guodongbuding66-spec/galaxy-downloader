@@ -13,7 +13,7 @@ import { replaceTemplate } from './result-card-utils';
 import { LOAD_MORE_BATCH, useChunkedMobileList } from './use-chunked-mobile-list';
 import { useTemporaryDownloadKeys } from './use-temporary-download-keys';
 
-const DEFAULT_VISIBLE_EPISODES = 100;
+const DEFAULT_VISIBLE_EPISODES = 36;
 
 export function PodcastEpisodeList({
     episodes,
@@ -35,9 +35,12 @@ export function PodcastEpisodeList({
     const itemRefs = useRef(new Map<string, HTMLDivElement>());
     const lastAutoScrolledKeyRef = useRef<string | null>(null);
     const normalizedQuery = searchQuery.trim().toLowerCase();
-    const filteredEpisodes = normalizedQuery
-        ? episodes.filter((episode) => episode.title.toLowerCase().includes(normalizedQuery))
-        : episodes;
+    const filteredEpisodes = useMemo(
+        () => normalizedQuery
+            ? episodes.filter((episode) => episode.title.toLowerCase().includes(normalizedQuery))
+            : episodes,
+        [episodes, normalizedQuery]
+    );
     const autoScrollIndex = useMemo(
         () => filteredEpisodes.findIndex((episode) => episode.id === autoScrollEpisodeId),
         [autoScrollEpisodeId, filteredEpisodes]
@@ -85,6 +88,7 @@ export function PodcastEpisodeList({
                 <div className="relative w-full sm:w-64">
                     <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                     <Input
+                        type="search"
                         value={searchQuery}
                         onChange={(event) => {
                             setSearchQuery(event.target.value);
@@ -101,7 +105,7 @@ export function PodcastEpisodeList({
                 ref={containerRef}
                 className="max-h-[min(58vh,32rem)] overflow-y-auto overscroll-contain pe-1 md:max-h-[min(62vh,38rem)]"
             >
-                <div className="space-y-2 pe-2">
+                <div className="space-y-2 pe-2" role="list">
                     {filteredEpisodes.length === 0 && (
                         <p className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
                             {dict.result.collectionNoSearchResults}
@@ -123,6 +127,7 @@ export function PodcastEpisodeList({
                                         itemRefs.current.delete(episode.id);
                                     }
                                 }}
+                                role="listitem"
                                 aria-current={isCurrentItem ? 'true' : undefined}
                                 className={`flex w-full max-w-full flex-col gap-3 overflow-hidden rounded-xl border bg-background p-3 text-start transition-colors duration-150 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-3 ${
                                     isCurrentItem
