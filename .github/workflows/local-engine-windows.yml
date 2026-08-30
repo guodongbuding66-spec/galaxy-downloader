@@ -69,7 +69,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist/package | Out-Null
           Copy-Item dist/GalaxyLocalEngine.exe dist/package/GalaxyLocalEngine.exe
+          Copy-Item local-engine/install.cmd dist/package/install.cmd
           Copy-Item local-engine/install.ps1 dist/package/install.ps1
+          Copy-Item local-engine/uninstall.cmd dist/package/uninstall.cmd
           Copy-Item local-engine/uninstall.ps1 dist/package/uninstall.ps1
           Copy-Item local-engine/README.md dist/package/README.md
           Copy-Item local-engine/VERSION dist/package/VERSION
