@@ -10,6 +10,10 @@ function Write-Step([string]$Message) {
     Write-Host "[Galaxy] $Message" -ForegroundColor Cyan
 }
 
+function Write-Warn([string]$Message) {
+    Write-Host "[Galaxy] $Message" -ForegroundColor Yellow
+}
+
 $SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $EngineSource = Join-Path $SourceDir 'GalaxyLocalEngine.exe'
 if (-not (Test-Path $EngineSource)) {
@@ -64,6 +68,43 @@ if (-not (Test-Path $FfmpegExe)) {
     }
 }
 
+$ExternalYtDlp = Join-Path $InstallDir 'yt-dlp.exe'
+if (-not (Test-Path $ExternalYtDlp)) {
+    Write-Step 'Installing the official self-updatable yt-dlp extractor'
+    $YtDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+    $YtDlpChecksumsUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS'
+    $YtDlpTemp = Join-Path $env:TEMP ('galaxy-ytdlp-' + [guid]::NewGuid().ToString('N'))
+    $YtDlpTempExe = Join-Path $YtDlpTemp 'yt-dlp.exe'
+    $YtDlpChecksums = Join-Path $YtDlpTemp 'SHA2-256SUMS'
+
+    try {
+        New-Item -ItemType Directory -Force -Path $YtDlpTemp | Out-Null
+        Invoke-WebRequest -UseBasicParsing -Uri $YtDlpUrl -OutFile $YtDlpTempExe
+        Invoke-WebRequest -UseBasicParsing -Uri $YtDlpChecksumsUrl -OutFile $YtDlpChecksums
+
+        $ChecksumText = Get-Content $YtDlpChecksums -Raw
+        $Match = [regex]::Match($ChecksumText, '(?im)^([0-9a-f]{64})\s+\*?yt-dlp\.exe\s*$')
+        if (-not $Match.Success) {
+            throw 'The official yt-dlp checksum list did not contain yt-dlp.exe.'
+        }
+        $ExpectedYtDlpHash = $Match.Groups[1].Value.ToLowerInvariant()
+        $ActualYtDlpHash = (Get-FileHash $YtDlpTempExe -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($ActualYtDlpHash -ne $ExpectedYtDlpHash) {
+            throw "yt-dlp SHA-256 verification failed. Expected $ExpectedYtDlpHash but received $ActualYtDlpHash."
+        }
+
+        Move-Item -Force $YtDlpTempExe $ExternalYtDlp
+        Write-Step 'Official yt-dlp SHA-256 verified'
+    }
+    catch {
+        Write-Warn "Could not install the external yt-dlp updater: $($_.Exception.Message)"
+        Write-Warn 'Galaxy will continue with its embedded yt-dlp fallback.'
+    }
+    finally {
+        Remove-Item -Recurse -Force $YtDlpTemp -ErrorAction SilentlyContinue
+    }
+}
+
 Write-Step 'Registering the galaxy-downloader:// protocol for this Windows account'
 $ProtocolRoot = 'HKCU:\Software\Classes\galaxy-downloader'
 New-Item -Force $ProtocolRoot | Out-Null
@@ -91,6 +132,7 @@ if (Test-Path $VersionSource) {
 Write-Step 'Installation complete'
 Write-Host ''
 Write-Host 'The Galaxy website can now launch local downloads with one click.' -ForegroundColor Green
+Write-Host 'Galaxy will prefer the verified external yt-dlp extractor and keep it on the nightly channel.' -ForegroundColor Green
 Write-Host "Download folder: $env:USERPROFILE\Downloads\Galaxy Downloader"
 Write-Host ''
 if (-not $NoLaunch) {
