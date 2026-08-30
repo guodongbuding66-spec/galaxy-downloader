@@ -76,18 +76,18 @@ export function HlsDownloadDialog({
         <>
             <Dialog open={open} onOpenChange={handleOpenChange}>
                 <DialogContent
-                    className="flex max-h-[calc(100vh-2rem)] max-w-2xl flex-col overflow-hidden p-4 sm:max-h-[90vh] sm:p-6"
+                    className="flex max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl p-4 sm:max-h-[90dvh] sm:max-w-2xl sm:p-6"
                     onInteractOutside={(event) => {
                         event.preventDefault()
                     }}
                 >
-                    <DialogHeader>
+                    <DialogHeader className="pe-8">
                         <DialogTitle>{dict.result.browserDownloadVideo}</DialogTitle>
-                        <DialogDescription>{dict.hlsDownload.description}</DialogDescription>
+                        <DialogDescription className="leading-5">{dict.hlsDownload.description}</DialogDescription>
                     </DialogHeader>
 
                     <div
-                        className="min-h-0 flex-1 overflow-y-auto pr-1"
+                        className="min-h-0 flex-1 overflow-y-auto pe-1"
                         style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0px)' }}
                     >
                         <HlsBrowserDownloadPanel
@@ -102,14 +102,14 @@ export function HlsDownloadDialog({
             </Dialog>
 
             <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
-                <AlertDialogContent className="sm:max-w-md">
+                <AlertDialogContent className="max-w-[calc(100vw-1rem)] rounded-xl sm:max-w-md">
                     <AlertDialogHeader>
                         <AlertDialogTitle>{dict.hlsDownload.confirmCloseTitle}</AlertDialogTitle>
-                        <AlertDialogDescription>{dict.hlsDownload.confirmCloseDescription}</AlertDialogDescription>
+                        <AlertDialogDescription className="leading-5">{dict.hlsDownload.confirmCloseDescription}</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel>{dict.errors.cancel}</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleConfirmClose}>
+                        <AlertDialogCancel className="min-h-10">{dict.errors.cancel}</AlertDialogCancel>
+                        <AlertDialogAction className="min-h-10" onClick={handleConfirmClose}>
                             {dict.hlsDownload.confirmCloseAction}
                         </AlertDialogAction>
                     </AlertDialogFooter>
