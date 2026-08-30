@@ -4,7 +4,10 @@
 
 const DEFAULT_DEV_API_BASE_URL = 'http://localhost:8788'
 const DEFAULT_PROD_API_BASE_URL = 'https://downloader-api.bhwa233.com'
-const FIRST_PARTY_LOCAL_PARSE_ENDPOINT = '/api/local-parse'
+const FIRST_PARTY_LOCAL_PARSE_ENDPOINTS = [
+    '/api/local-parse-v2',
+    '/api/local-parse',
+] as const
 
 function normalizeBaseUrl(value: string): string {
     return value.endsWith('/') ? value.slice(0, -1) : value
@@ -56,7 +59,7 @@ function endpointCandidates(pathname: string): string[] {
 
 function parseEndpointCandidates(): string[] {
     return [
-        FIRST_PARTY_LOCAL_PARSE_ENDPOINT,
+        ...FIRST_PARTY_LOCAL_PARSE_ENDPOINTS,
         ...endpointCandidates('/api/parse'),
     ].filter((value, index, list) => list.indexOf(value) === index)
 }
@@ -79,10 +82,11 @@ export const API_ENDPOINTS = {
 /**
  * Ordered media backend candidates.
  *
- * Parsing tries Galaxy's same-origin lightweight parser first. It handles a
- * small set of public platforms without API keys and deliberately returns an
- * error for everything else; requestUnifiedParse then falls back to the
- * existing shared/container backends. Download candidates remain unchanged.
+ * Parsing tries Galaxy's same-origin lightweight parsers first. V2 contains
+ * newer platform-specific paths that can fail independently and deliberately
+ * falls through to the stable V1 route. Unsupported platforms then continue
+ * to the existing shared/container backends. Download candidates remain
+ * unchanged.
  */
 export const API_ENDPOINT_CANDIDATES = {
     unified: {
