@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildLocalDesktopEngineUri,
   detectLocalProcessingCapabilities,
+  resolveLocalDesktopVideoQuality,
   shouldUseFileBackedInputs,
 } from './local-engine';
 
@@ -23,6 +24,29 @@ describe('local engine capabilities', () => {
     expect(capabilities.multiThreadFFmpeg).toBe(true);
     expect(capabilities.opfs).toBe(true);
     expect(shouldUseFileBackedInputs(capabilities)).toBe(true);
+  });
+});
+
+describe('desktop yt-dlp quality selection', () => {
+  it('prefers the parser height over a numeric format id', () => {
+    expect(resolveLocalDesktopVideoQuality({
+      quality: '137',
+      label: 'MP4 · H264',
+      height: 1080,
+    })).toBe('1080');
+  });
+
+  it('reads an explicit resolution label when height metadata is absent', () => {
+    expect(resolveLocalDesktopVideoQuality({
+      quality: 'dash-video',
+      label: 'Full HD · 1080p · 60fps',
+    })).toBe('1080');
+  });
+
+  it('accepts known resolution presets but does not treat arbitrary format ids as heights', () => {
+    expect(resolveLocalDesktopVideoQuality({ quality: '720' })).toBe('720');
+    expect(resolveLocalDesktopVideoQuality({ quality: '1440p' })).toBe('1440');
+    expect(resolveLocalDesktopVideoQuality({ quality: '137' })).toBe('best');
   });
 });
 
