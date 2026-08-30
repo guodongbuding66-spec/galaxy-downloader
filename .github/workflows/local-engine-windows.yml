@@ -34,11 +34,8 @@ jobs:
       - name: Compile-check engine source
         run: python -m py_compile local-engine/engine.py
 
-      - name: Validate protocol parsing
-        shell: pwsh
-        run: |
-          $env:PYTHONPATH = (Resolve-Path 'local-engine')
-          python -c "from engine import parse_job; j=parse_job('galaxy-downloader://download?url=https%3A%2F%2Fexample.com%2Fwatch%3Fv%3D1&video=1080&audio=best&cover=1&browser=edge'); assert j.source_url.startswith('https://example.com/'); assert j.video_quality == '1080'; assert j.include_cover; assert j.browser == 'edge'"
+      - name: Validate source self-test
+        run: python local-engine/engine.py --self-test
 
       - name: Build portable executable
         run: >-
@@ -50,6 +47,14 @@ jobs:
           --name GalaxyLocalEngine
           --collect-all yt_dlp
           local-engine/engine.py
+
+      - name: Validate packaged executable
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "GalaxyLocalEngine.exe self-test exited with $($process.ExitCode)"
+          }
 
       - name: Assemble release package
         shell: pwsh
