@@ -69,6 +69,12 @@ export function shouldUseFileBackedInputs(
 
 export type LocalEngineBrowser = 'none' | 'edge' | 'chrome' | 'firefox'
 
+export interface LocalDesktopVideoSelection {
+  quality?: string | null
+  label?: string | null
+  height?: number | null
+}
+
 export interface LocalDesktopJobOptions {
   sourceUrl: string
   videoQuality?: string
@@ -82,6 +88,41 @@ export interface LocalDesktopJobOptions {
 }
 
 export const LOCAL_ENGINE_RELEASE_URL = 'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/latest/download/GalaxyLocalEngine-Windows.zip'
+
+const COMMON_VIDEO_HEIGHTS = new Set([144, 240, 360, 480, 540, 720, 1080, 1440, 2160, 4320])
+
+function validHeight(value: number): boolean {
+  return Number.isFinite(value) && value >= 100 && value <= 10000
+}
+
+export function resolveLocalDesktopVideoQuality(
+  selection?: LocalDesktopVideoSelection | null,
+): string {
+  if (!selection) return 'best'
+
+  if (typeof selection.height === 'number' && validHeight(selection.height)) {
+    return String(Math.round(selection.height))
+  }
+
+  const quality = selection.quality?.trim() || ''
+  if (!quality || quality.toLowerCase() === 'best') return 'best'
+
+  const labelMatch = selection.label?.match(/(?:^|\D)(\d{3,4})\s*p(?:\D|$)/i)
+  if (labelMatch) return labelMatch[1]
+
+  const explicitQuality = quality.match(/^(\d{3,4})p$/i)
+  if (explicitQuality) return explicitQuality[1]
+
+  const numericQuality = quality.match(/^\d{3,4}$/)
+  if (numericQuality && COMMON_VIDEO_HEIGHTS.has(Number(quality))) {
+    return quality
+  }
+
+  // Parser format IDs such as YouTube 137 are not resolutions. When the
+  // parser does not expose a height/label, let yt-dlp choose the best stream
+  // rather than accidentally treating a format ID as a pixel height.
+  return 'best'
+}
 
 export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): string {
   const params = new URLSearchParams()
