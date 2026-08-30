@@ -39,11 +39,11 @@ export function DeferredChangelogDialog({
         <Button
             variant="ghost"
             size={triggerIconOnly ? 'icon' : 'sm'}
-            className={cn('text-sm', triggerClassName)}
+            className={cn('min-h-10 text-sm', triggerIconOnly && 'h-10 w-10', triggerClassName)}
             onClick={() => setMounted(true)}
             aria-label={title}
         >
-            <ScrollText className={cn('h-4 w-4', !triggerIconOnly && 'mr-1')} />
+            <ScrollText className={cn('h-4 w-4', !triggerIconOnly && 'me-1')} aria-hidden="true" />
             {triggerIconOnly ? <span className="sr-only">{title}</span> : title}
         </Button>
     )
