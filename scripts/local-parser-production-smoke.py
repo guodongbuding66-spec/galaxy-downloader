@@ -15,13 +15,14 @@ from typing import Any
 
 DEFAULT_BASE_URL = "https://galaxy-downloader.guodongbuding66.workers.dev"
 READ_BYTES = 64 * 1024
-USER_AGENT = "GalaxyDownloaderProductionSmoke/1.2 (+GitHub Actions)"
+USER_AGENT = "GalaxyDownloaderProductionSmoke/1.3 (+GitHub Actions)"
 HLS_CONTENT_TYPES = {
     "application/vnd.apple.mpegurl",
     "application/x-mpegurl",
     "audio/mpegurl",
     "audio/x-mpegurl",
 }
+PARSE_PATHS = ("/api/local-parse-v2", "/api/local-parse")
 
 
 @dataclass(frozen=True)
@@ -68,9 +69,27 @@ def read_prefix(url: str, timeout: int, *, use_range: bool = True) -> tuple[int,
         )
 
 
-def parse_endpoint(base_url: str, source_url: str) -> str:
+def parse_endpoint(base_url: str, path: str, source_url: str) -> str:
     query = urllib.parse.urlencode({"url": source_url})
-    return f"{base_url.rstrip('/')}/api/local-parse?{query}"
+    return f"{base_url.rstrip('/')}{path}?{query}"
+
+
+def request_parse_candidate(base_url: str, source_url: str, timeout: int) -> tuple[int, dict[str, str], Any, str]:
+    failures: list[str] = []
+    for path in PARSE_PATHS:
+        endpoint = parse_endpoint(base_url, path, source_url)
+        try:
+            status, headers, payload = request_json(endpoint, timeout)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read(4096).decode("utf-8", errors="replace")
+            if exc.code in (404, 422, 502, 503):
+                failures.append(f"{path} HTTP {exc.code}: {detail[:240]}")
+                continue
+            raise
+        if isinstance(payload, dict) and payload.get("success") is True:
+            return status, headers, payload, path
+        failures.append(f"{path} HTTP {status}: {str(payload)[:240]}")
+    raise RuntimeError("; ".join(failures) or "no first-party parser candidate succeeded")
 
 
 def absolute_media_url(base_url: str, value: str) -> str:
@@ -105,7 +124,7 @@ def first_playlist_uri(text: str) -> str | None:
 
 def read_real_media(url: str, timeout: int) -> tuple[int, str, int, str]:
     current = url
-    for depth in range(3):
+    for depth in range(4):
         status, content_type, body = read_prefix(current, timeout, use_range=depth == 0)
         looks_hls = (
             current.lower().split("?", 1)[0].endswith(".m3u8")
@@ -115,10 +134,7 @@ def read_real_media(url: str, timeout: int) -> tuple[int, str, int, str]:
         if not looks_hls:
             return status, content_type, len(body), current
 
-        try:
-            playlist = body.decode("utf-8", errors="replace")
-        except Exception as exc:
-            raise RuntimeError(f"unable to decode HLS playlist: {exc}") from exc
+        playlist = body.decode("utf-8", errors="replace")
         child = first_playlist_uri(playlist)
         if not child:
             raise RuntimeError("HLS playlist has no media URI")
@@ -129,10 +145,7 @@ def read_real_media(url: str, timeout: int) -> tuple[int, str, int, str]:
 
 def probe_fixture(base_url: str, fixture: Fixture, timeout: int) -> tuple[bool, str]:
     try:
-        status, _headers, payload = request_json(parse_endpoint(base_url, fixture.url), timeout)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read(4096).decode("utf-8", errors="replace")
-        return False, f"parse HTTP {exc.code}: {detail[:500]}"
+        status, _headers, payload, parser_path = request_parse_candidate(base_url, fixture.url, timeout)
     except Exception as exc:
         return False, f"parse error: {type(exc).__name__}: {exc}"
 
@@ -166,7 +179,10 @@ def probe_fixture(base_url: str, fixture: Fixture, timeout: int) -> tuple[bool, 
     if "json" in content_type or content_type.startswith("text/"):
         return False, f"final media returned non-media content type {content_type!r}"
 
-    return True, f"HTTP {media_status} {content_type or 'unknown'} {bytes_read} bytes from {final_url[:120]}"
+    return True, (
+        f"parser={parser_path} HTTP {media_status} {content_type or 'unknown'} "
+        f"{bytes_read} bytes from {final_url[:120]}"
+    )
 
 
 def run_once(base_url: str, timeout: int) -> bool:
