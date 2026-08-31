@@ -360,7 +360,7 @@ export function VideoResultPanel({
                                     </section>
                                 ) : null}
 
-                                <aside className="min-w-0 lg:sticky lg:top-20">
+                                <aside className="min-w-0">
                                     <div className="rounded-2xl border border-border/75 bg-card/90 p-3 shadow-[0_1px_2px_hsl(var(--shadow-color)/0.04),0_12px_30px_hsl(var(--shadow-color)/0.05)] sm:p-4">
                                         <SinglePartButtons
                                             result={effectiveResult}
