@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import bridge
-from web_document import parse_web_document, should_try_web_document
+from document_policy import install_document_policy, parse_web_document, should_try_web_document
 
+install_document_policy()
 _original_media_parse = bridge.parse_with_bundled_ytdlp
 
 
