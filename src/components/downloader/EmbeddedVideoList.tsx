@@ -134,7 +134,7 @@ export function EmbeddedVideoList({
                                 }}
                                 aria-current={isCurrentItem ? 'true' : undefined}
                                 className={`grid min-h-10 w-full min-w-0 gap-1.5 px-1.5 py-1.5 text-left transition-colors md:grid-cols-[minmax(0,1fr)_auto] md:items-center ${
-                                    isCurrentItem ? 'bg-muted font-medium' : 'hover:bg-muted/50'
+                                    isCurrentItem ? 'border-s-2 border-primary bg-primary/5 font-medium' : 'hover:bg-muted/50'
                                 }`}
                                 style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 48px' }}
                             >
