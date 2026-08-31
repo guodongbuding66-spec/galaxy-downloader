@@ -56,6 +56,7 @@ export function ImageResultPanel({
                 <DocumentTextActions
                     title={result.title}
                     text={documentText}
+                    markdown={result.markdownContent}
                     author={result.author}
                     publishedAt={result.publishedAt}
                     sourceUrl={result.url}
@@ -71,6 +72,7 @@ export function ImageResultPanel({
                                 images={displayImages}
                                 title={result.title}
                                 description={documentText}
+                                markdownContent={result.markdownContent}
                                 author={result.author}
                                 publishedAt={result.publishedAt}
                                 sourceUrl={result.url}
