@@ -6,6 +6,7 @@ on:
     paths:
       - 'local-engine/**'
       - 'scripts/test-dynamic-document.py'
+      - 'scripts/test-local-document-policy.py'
       - '.github/workflows/local-engine-windows.yml'
   push:
     branches:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'local-engine/**'
       - 'scripts/test-dynamic-document.py'
+      - 'scripts/test-local-document-policy.py'
       - '.github/workflows/local-engine-windows.yml'
 
 permissions:
@@ -45,6 +47,9 @@ jobs:
           if ($actual -ne $expected) {
             throw "Engine version '$actual' does not match VERSION '$expected'"
           }
+
+      - name: Validate document routing and Markdown policies
+        run: python scripts/test-local-document-policy.py
 
       - name: Exercise Edge or Chrome CDP renderer
         run: python scripts/test-dynamic-document.py
