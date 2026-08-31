@@ -2,7 +2,7 @@ import type { LocalEngineBrowser } from '@/lib/local-engine'
 
 export const LOCAL_ENGINE_BRIDGE_BASE_URL = 'http://127.0.0.1:17836'
 const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1400
-const MIN_LOCAL_ENGINE_VERSION = '0.4.0'
+const MIN_LOCAL_ENGINE_VERSION = '0.4.3'
 
 export interface LocalEngineBridgeStatus {
   ok: boolean
@@ -74,10 +74,9 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
     const payload = await response.json() as Partial<LocalEngineBridgeStatus>
     if (!payload.ok || typeof payload.version !== 'string') return null
 
-    // v0.3.x can answer the localhost bridge but does not contain the portable
-    // offline package/runtime fixes used by the current website. Treat it as
-    // disconnected so the user is prompted to download the current engine
-    // instead of silently sending jobs to an incompatible resident process.
+    // Older bridge versions may still answer localhost, but are intentionally
+    // treated as incompatible when the current website depends on newer runtime
+    // behavior (for example reliable yt-dlp progress reporting in v0.4.3).
     if (!versionAtLeast(payload.version, MIN_LOCAL_ENGINE_VERSION)) return null
 
     return {
