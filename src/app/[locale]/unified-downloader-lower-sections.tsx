@@ -47,7 +47,7 @@ export function UnifiedDownloaderLowerSections({
     const hasDownloadHistory = downloadHistory.length > 0;
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-3">
             {parseResult && (
                 <section aria-live="polite">
                     <ResultCard
@@ -62,7 +62,7 @@ export function UnifiedDownloaderLowerSections({
             )}
 
             {mobileAd && (
-                <div className="lg:hidden min-h-[250px] overflow-hidden rounded-2xl">
+                <div className="lg:hidden min-h-[250px] overflow-hidden rounded-lg">
                     {mobileAd}
                 </div>
             )}
@@ -75,11 +75,11 @@ export function UnifiedDownloaderLowerSections({
                         onRedownload={onRedownload}
                     />
                 ) : !historyHydrated ? (
-                    <div className="min-h-[84px]" aria-hidden />
+                    <div className="min-h-[48px]" aria-hidden />
                 ) : null}
             </section>
 
-            {mobileGuides && <div className="flex flex-col gap-4 lg:hidden">{mobileGuides}</div>}
+            {mobileGuides && <div className="flex flex-col gap-3 lg:hidden">{mobileGuides}</div>}
         </div>
     );
 }
