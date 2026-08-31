@@ -2,6 +2,7 @@ import type { LocalEngineBrowser } from '@/lib/local-engine'
 
 export const LOCAL_ENGINE_BRIDGE_BASE_URL = 'http://127.0.0.1:17836'
 const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1400
+const MIN_LOCAL_ENGINE_VERSION = '0.4.0'
 
 export interface LocalEngineBridgeStatus {
   ok: boolean
@@ -31,6 +32,23 @@ export interface LocalEngineBridgeJob {
   playlist?: boolean
 }
 
+function versionParts(value: string): number[] | null {
+  const match = value.trim().match(/^(\d+)\.(\d+)\.(\d+)/)
+  if (!match) return null
+  return match.slice(1, 4).map(Number)
+}
+
+function versionAtLeast(value: string, minimum: string): boolean {
+  const current = versionParts(value)
+  const required = versionParts(minimum)
+  if (!current || !required) return false
+  for (let index = 0; index < 3; index += 1) {
+    if (current[index] > required[index]) return true
+    if (current[index] < required[index]) return false
+  }
+  return true
+}
+
 async function bridgeFetch(
   path: string,
   init?: RequestInit,
@@ -55,6 +73,13 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
     if (!response.ok) return null
     const payload = await response.json() as Partial<LocalEngineBridgeStatus>
     if (!payload.ok || typeof payload.version !== 'string') return null
+
+    // v0.3.x can answer the localhost bridge but does not contain the portable
+    // offline package/runtime fixes used by the current website. Treat it as
+    // disconnected so the user is prompted to download the current engine
+    // instead of silently sending jobs to an incompatible resident process.
+    if (!versionAtLeast(payload.version, MIN_LOCAL_ENGINE_VERSION)) return null
+
     return {
       ok: true,
       bridgeProtocol: Number(payload.bridgeProtocol || 1),
@@ -84,6 +109,11 @@ async function postBridgeAction(path: string, body?: unknown): Promise<Response>
 }
 
 export async function submitLocalEngineBridgeJob(job: LocalEngineBridgeJob): Promise<void> {
+  const status = await getLocalEngineBridgeStatus()
+  if (!status) {
+    throw new Error(`Galaxy Local Engine ${MIN_LOCAL_ENGINE_VERSION}+ is required`)
+  }
+
   const response = await postBridgeAction('/download', job)
   if (response.ok) return
   let message = `Local engine rejected the job (${response.status})`
