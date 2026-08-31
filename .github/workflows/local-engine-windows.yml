@@ -32,14 +32,14 @@ jobs:
         run: python -m pip install -r local-engine/requirements.txt
 
       - name: Compile-check engine source
-        run: python -m py_compile local-engine/engine.py local-engine/bridge.py local-engine/external_ytdlp.py local-engine/wechat_channels.py
+        run: python -m py_compile local-engine/entrypoint.py local-engine/engine.py local-engine/bridge.py local-engine/web_document.py local-engine/external_ytdlp.py local-engine/wechat_channels.py
 
       - name: Validate source self-test and version
         shell: pwsh
         run: |
-          python local-engine/engine.py --self-test
+          python local-engine/entrypoint.py --self-test
           $expected = (Get-Content 'local-engine/VERSION' -Raw).Trim()
-          $actual = (python local-engine/engine.py --version | Select-Object -Last 1).Trim()
+          $actual = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
           if ($actual -ne $expected) {
             throw "Engine version '$actual' does not match VERSION '$expected'"
           }
@@ -54,7 +54,7 @@ jobs:
           --name GalaxyLocalEngine
           --collect-all yt_dlp
           --add-data "local-engine/VERSION;."
-          local-engine/engine.py
+          local-engine/entrypoint.py
 
       - name: Validate packaged executable
         shell: pwsh
