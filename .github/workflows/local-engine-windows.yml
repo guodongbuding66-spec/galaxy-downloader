@@ -32,7 +32,7 @@ jobs:
         run: python -m pip install -r local-engine/requirements.txt
 
       - name: Compile-check engine source
-        run: python -m py_compile local-engine/engine.py local-engine/external_ytdlp.py
+        run: python -m py_compile local-engine/engine.py local-engine/bridge.py local-engine/external_ytdlp.py
 
       - name: Validate source self-test and version
         shell: pwsh
@@ -74,7 +74,24 @@ jobs:
           Copy-Item local-engine/uninstall.cmd dist/package/uninstall.cmd
           Copy-Item local-engine/uninstall.ps1 dist/package/uninstall.ps1
           Copy-Item local-engine/README.md dist/package/README.md
+          Copy-Item 'local-engine/使用说明.txt' 'dist/package/使用说明.txt'
           Copy-Item local-engine/VERSION dist/package/VERSION
+
+          $required = @(
+            'GalaxyLocalEngine.exe',
+            'install.cmd',
+            'install.ps1',
+            'uninstall.cmd',
+            'uninstall.ps1',
+            'README.md',
+            '使用说明.txt',
+            'VERSION'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path (Join-Path 'dist/package' $file))) {
+              throw "Release package is missing $file"
+            }
+          }
 
       - name: Validate installer and protocol lifecycle
         shell: pwsh
