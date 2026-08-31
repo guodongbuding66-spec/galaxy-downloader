@@ -23,7 +23,7 @@ DEFAULT_BASE_URL = "https://galaxy-downloader.guodongbuding66.workers.dev"
 READ_BYTES = 64 * 1024
 MAX_PLAYLIST_BYTES = 2 * 1024 * 1024
 MAX_HLS_DEPTH = 8
-USER_AGENT = "GalaxyDownloaderProductionSmoke/2.0 (+GitHub Actions)"
+USER_AGENT = "GalaxyDownloaderProductionSmoke/2.1 (+GitHub Actions)"
 HLS_CONTENT_TYPES = {
     "application/vnd.apple.mpegurl",
     "application/x-mpegurl",
@@ -37,11 +37,19 @@ class Fixture:
     platform: str
     url: str
     media_type: str
+    parse_path: str = "/api/local-parse"
 
 
 FIXTURES = (
-    # Current yt-dlp Vimeo extractor test fixture.
-    Fixture("vimeo", "https://vimeo.com/56015672", "video"),
+    # Real Vimeo URL reported by the Galaxy Downloader user on 2026-08-31.
+    # It previously fell into browser-cookie extraction and surfaced
+    # "ERROR: no such table: meta". Keep it as a permanent regression fixture.
+    Fixture(
+        "vimeo",
+        "https://vimeo.com/1222036529?share=copy&fl=cl&fe=ci",
+        "video",
+        "/api/vimeo-native",
+    ),
     # Current yt-dlp Dailymotion extractor test fixture.
     Fixture("dailymotion", "https://www.dailymotion.com/video/x5kesuj", "video"),
     Fixture(
@@ -52,9 +60,9 @@ FIXTURES = (
 )
 
 
-def parse_endpoint(base_url: str, source_url: str) -> str:
-    query = urllib.parse.urlencode({"url": source_url})
-    return f"{base_url.rstrip('/')}/api/local-parse?{query}"
+def parse_endpoint(base_url: str, fixture: Fixture) -> str:
+    query = urllib.parse.urlencode({"url": fixture.url})
+    return f"{base_url.rstrip('/')}{fixture.parse_path}?{query}"
 
 
 def absolute_url(base_url: str, value: str) -> str:
@@ -161,7 +169,7 @@ def compact_http_error(exc: urllib.error.HTTPError) -> str:
 
 def probe_fixture(base_url: str, fixture: Fixture, timeout: int) -> tuple[bool, str]:
     try:
-        status, payload = request_json(parse_endpoint(base_url, fixture.url), timeout)
+        status, payload = request_json(parse_endpoint(base_url, fixture), timeout)
     except urllib.error.HTTPError as exc:
         return False, f"parse {compact_http_error(exc)}"
     except Exception as exc:
