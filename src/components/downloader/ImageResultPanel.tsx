@@ -1,6 +1,8 @@
 import type { AudioExtractTask } from '@/components/audio-tool/types';
 import type { UnifiedParseResult } from '@/lib/types';
 
+import { DocumentTextActions } from './DocumentTextActions';
+import { EmbeddedVideoList } from './EmbeddedVideoList';
 import { ImageNoteGrid } from './ImageNoteGrid';
 import { type MediaPreviewRequest } from './media-preview';
 import { ResultCardHeader } from './ResultCardHeader';
@@ -28,6 +30,8 @@ export function ImageResultPanel({
         images: result.images,
         coverUrl: result.cover,
     });
+    const documentText = result.textContent || result.desc || '';
+    const embeddedVideos = result.videos || [];
 
     const { audioAction } = getResultMediaActions({
         videoAudioMode: result.videoAudioMode,
@@ -48,13 +52,33 @@ export function ImageResultPanel({
                 onCopyShareLink={() => {}}
                 onClose={onClose}
             />
-            <div className="p-2 sm:p-2.5">
+            <div className="space-y-2.5 p-2 sm:p-2.5">
+                <DocumentTextActions
+                    title={result.title}
+                    text={documentText}
+                    author={result.author}
+                    publishedAt={result.publishedAt}
+                    sourceUrl={result.url}
+                />
+
                 <div className={showAudioActions
                     ? 'grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:items-start'
                     : 'min-w-0'}
                 >
-                    <div className="min-w-0">
-                        <ImageNoteGrid images={displayImages} title={result.title} />
+                    <div className="min-w-0 space-y-2.5">
+                        {displayImages.length > 0 ? (
+                            <ImageNoteGrid
+                                images={displayImages}
+                                title={result.title}
+                                description={documentText}
+                                author={result.author}
+                                publishedAt={result.publishedAt}
+                                sourceUrl={result.url}
+                            />
+                        ) : null}
+                        {embeddedVideos.length > 0 ? (
+                            <EmbeddedVideoList videos={embeddedVideos} />
+                        ) : null}
                     </div>
                     {showAudioActions ? (
                         <aside className="min-w-0 border-t pt-2.5 lg:sticky lg:top-2.5 lg:border-s lg:border-t-0 lg:ps-2.5 lg:pt-0">
