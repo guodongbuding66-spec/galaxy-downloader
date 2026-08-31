@@ -1,5 +1,4 @@
 import type { AudioExtractTask } from '@/components/audio-tool/types';
-import { Card, CardContent } from '@/components/ui/card';
 import { useDictionary } from '@/i18n/client';
 import { toast } from '@/lib/deferred-toast';
 import type { UnifiedParseResult } from '@/lib/types';
@@ -74,7 +73,7 @@ export function AudioResultPanel({
     };
 
     return (
-        <Card className="overflow-hidden">
+        <section className="overflow-hidden rounded-lg border bg-card">
             <ResultCardHeader
                 title={result.title}
                 duration={result.duration}
@@ -82,30 +81,34 @@ export function AudioResultPanel({
                 onCopyShareLink={() => void handleCopySharePlayLink()}
                 onClose={onClose}
             />
-            <CardContent className="p-4 sm:p-5">
-                <div className="space-y-4">
-                    {playerPreview && playerUrl ? (
-                        <div className="overflow-hidden rounded-xl bg-black ring-1 ring-border/70">
-                            <audio
-                                key={playerUrl}
-                                src={playerUrl}
-                                controls
-                                autoPlay={playerPreview.autoplay}
-                                preload="metadata"
-                                className="w-full"
-                            />
-                        </div>
-                    ) : coverSrc ? (
-                        <ImageNoteGrid images={[coverSrc]} title={result.title} singleImageMode />
-                    ) : null}
-                    <SinglePartButtons
-                        result={result}
-                        onOpenExtractAudio={onOpenExtractAudio}
-                        onOpenHlsDownload={() => {}}
-                        onRequestPreview={onRequestPreview}
-                    />
+            <div className="p-2 sm:p-2.5">
+                <div className={coverSrc ? 'grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:items-start' : 'space-y-2.5'}>
+                    <div className="min-w-0 space-y-2">
+                        {playerPreview && playerUrl ? (
+                            <div className="overflow-hidden rounded-md bg-black outline outline-1 outline-black/10 dark:outline-white/10">
+                                <audio
+                                    key={playerUrl}
+                                    src={playerUrl}
+                                    controls
+                                    autoPlay={playerPreview.autoplay}
+                                    preload="metadata"
+                                    className="w-full"
+                                />
+                            </div>
+                        ) : coverSrc ? (
+                            <ImageNoteGrid images={[coverSrc]} title={result.title} singleImageMode />
+                        ) : null}
+                    </div>
+                    <aside className="min-w-0 lg:sticky lg:top-2.5">
+                        <SinglePartButtons
+                            result={result}
+                            onOpenExtractAudio={onOpenExtractAudio}
+                            onOpenHlsDownload={() => {}}
+                            onRequestPreview={onRequestPreview}
+                        />
+                    </aside>
                 </div>
-            </CardContent>
-        </Card>
+            </div>
+        </section>
     );
 }
