@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import type { EmbeddedVideoInfo, UnifiedParseResult } from '@/lib/types'
 import { extractDocumentMarkdown } from '@/lib/document-markdown'
-import { extractWebDocumentFromHtml } from '@/lib/web-document'
+import { extractWebDocumentFromHtml, type ParsedWebDocument } from '@/lib/web-document'
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
 const MAX_HTML_BYTES = 8 * 1024 * 1024
@@ -14,6 +14,8 @@ const VIDEO_FIRST_HOSTS = [
     'twitch.tv', 'soundcloud.com', 'reddit.com', 'pinterest.com', 'streamable.com',
     'nicovideo.jp', 'niconico.com', 'vk.com', 'tumblr.com', 'threads.net',
 ]
+
+const CHALLENGE_RE = /(?:wappoc_appmsgcaptcha|captcha\.gtimg\.com|verify you are human|are you a human|robot check|security check|unusual traffic|automated access|enter the characters you see below|press and hold|cf-chl-|challenge-platform)/i
 
 function noStoreJson(payload: UnifiedParseResult, status = 200) {
     const response = NextResponse.json(payload, { status })
@@ -110,6 +112,16 @@ async function fetchHtml(startUrl: URL): Promise<{ html: string; finalUrl: URL }
     throw new Error('Too many redirects')
 }
 
+function hasMeaningfulDocumentSignal(document: ParsedWebDocument, markdownContent: string): boolean {
+    const text = (document.textContent || document.description || '').trim()
+    const images = document.images.length
+    const videos = document.videos.length
+    if (document.documentType === 'product') return images >= 1 || videos >= 1 || text.length >= 20
+    if (document.documentType === 'article') return Boolean(markdownContent) || text.length >= 20 || images >= 2 || videos >= 1
+    if (document.documentType === 'post' || document.documentType === 'gallery') return images >= 1 || videos >= 1 || text.length >= 20
+    return images >= 2 || videos >= 1 || (images >= 1 && text.length >= 20)
+}
+
 function proxiedEmbeddedVideos(
     request: NextRequest,
     sourceUrl: string,
@@ -147,15 +159,36 @@ export async function GET(request: NextRequest) {
 
     try {
         const { html, finalUrl } = await fetchHtml(parsed)
+        if (CHALLENGE_RE.test(`${finalUrl.toString()}\n${html.slice(0, 1_500_000)}`)) {
+            return noStoreJson({
+                success: false,
+                code: 'AUTH_REQUIRED',
+                status: 401,
+                error: 'The target page returned a CAPTCHA or automated-access challenge.',
+                details: { parser: 'web-document', documentChallenge: true },
+                url: sourceUrl,
+            }, 401)
+        }
+
         const document = extractWebDocumentFromHtml(finalUrl.toString(), html)
         if (!document) {
             return noStoreJson({ success: false, code: 'UNSUPPORTED_PLATFORM', status: 422, error: 'No downloadable document media found', url: sourceUrl }, 422)
+        }
+        const markdownContent = extractDocumentMarkdown(finalUrl.toString(), html, document.platform)
+        if (!hasMeaningfulDocumentSignal(document, markdownContent)) {
+            return noStoreJson({
+                success: false,
+                code: 'UNSUPPORTED_PLATFORM',
+                status: 422,
+                error: 'The static page is only a shell; try local dynamic rendering.',
+                details: { parser: 'web-document', staticShell: true },
+                url: sourceUrl,
+            }, 422)
         }
 
         const images = document.images
         const videos = proxiedEmbeddedVideos(request, sourceUrl, document.videos)
         const cover = images[0]?.downloadUrl || images[0]?.url || null
-        const markdownContent = extractDocumentMarkdown(finalUrl.toString(), html, document.platform)
         return noStoreJson({
             success: true,
             data: {
