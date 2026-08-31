@@ -37,6 +37,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate Python media policies
+        run: |
+          python3 -m py_compile \
+            local-engine/bridge.py \
+            local-engine/external_ytdlp.py \
+            container-backend/app/main.py \
+            container-backend/app/playback.py \
+            container-backend/app/server.py
+          python3 scripts/test-local-engine-policy.py
+
       - name: Run tests
         run: pnpm test
 
