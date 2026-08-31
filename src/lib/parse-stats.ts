@@ -38,7 +38,7 @@ function isTodayParseStats(value: unknown): value is TodayParseStats {
 }
 
 /**
- * 拉取今日解析次数。展示型数据，失败时返回 null 由调用方静默隐藏。
+ * 拉取 Galaxy 自己的今日解析次数。展示型数据，失败时返回 null 由调用方静默隐藏。
  */
 export async function fetchTodayParseStats(
     options?: { signal?: AbortSignal; cacheBuster?: string | number }
@@ -50,6 +50,7 @@ export async function fetchTodayParseStats(
             : `${API_ENDPOINTS.stats.today}${API_ENDPOINTS.stats.today.includes('?') ? '&' : '?'}refresh=${encodeURIComponent(String(cacheBuster))}`
         const response = await fetch(requestUrl, {
             signal: options?.signal,
+            cache: 'no-store',
         })
 
         if (!response.ok) {
@@ -67,7 +68,7 @@ export async function fetchTodayParseStats(
     }
 }
 
-export function notifyTodayParseStatsChanged(): void {
+function dispatchTodayParseStatsRefresh() {
     if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
         return
     }
@@ -75,4 +76,21 @@ export function notifyTodayParseStatsChanged(): void {
     window.dispatchEvent(new CustomEvent(TODAY_PARSE_STATS_REFRESH_EVENT, {
         detail: Date.now(),
     }))
+}
+
+/**
+ * A successful parse is counted only after the parser has returned usable data.
+ * Recording is fire-and-forget so statistics can never block the download flow.
+ */
+export function notifyTodayParseStatsChanged(): void {
+    if (typeof window === 'undefined') {
+        return
+    }
+
+    void fetch(API_ENDPOINTS.stats.today, {
+        method: 'POST',
+        cache: 'no-store',
+    })
+        .catch(() => undefined)
+        .finally(dispatchTodayParseStatsRefresh)
 }
