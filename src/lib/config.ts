@@ -35,10 +35,6 @@ function resolveContainerApiBaseUrl(): string {
     return normalizeBaseUrl(value)
 }
 
-function resolvePlaybackApiBaseUrl(): string {
-    return resolveContainerApiBaseUrl() || resolvePublicApiBaseUrl()
-}
-
 function buildApiUrl(pathname: string, baseUrl = resolvePublicApiBaseUrl()): string {
     const normalizedPathname = pathname.startsWith('/') ? pathname : `/${pathname}`
 
@@ -47,6 +43,18 @@ function buildApiUrl(pathname: string, baseUrl = resolvePublicApiBaseUrl()): str
     }
 
     return new URL(normalizedPathname, `${baseUrl}/`).toString()
+}
+
+function buildPlaybackApiUrl(): string {
+    const containerBase = resolveContainerApiBaseUrl()
+    if (containerBase) {
+        return buildApiUrl('/api/play', containerBase)
+    }
+
+    // The existing shared backend may not have Galaxy's new range-aware
+    // /api/play route yet. Preserve its established /api/download playback
+    // behavior when no first-party Container backend is configured.
+    return buildApiUrl('/api/download')
 }
 
 function endpointCandidates(pathname: string): string[] {
@@ -73,11 +81,12 @@ export const API_ENDPOINTS = {
     unified: {
         parse: buildApiUrl('/api/parse'),
         download: buildApiUrl('/api/download'),
-        // Preview is deliberately separate from final-file download. The
-        // container /api/play route resolves one browser-playable progressive
-        // stream and relays Range requests, while /api/download remains the
-        // best-video + best-audio + FFmpeg finished-file path.
-        play: buildApiUrl('/api/play', resolvePlaybackApiBaseUrl()),
+        // Preview is deliberately separate from final-file download whenever
+        // Galaxy's Container backend is configured. /api/play resolves one
+        // browser-playable progressive stream and relays Range requests, while
+        // /api/download remains best-video + best-audio + FFmpeg. Without the
+        // Container backend we retain the legacy shared endpoint as a fallback.
+        play: buildPlaybackApiUrl(),
     },
     feedback: buildApiUrl('/api/feedback'),
     stats: {
