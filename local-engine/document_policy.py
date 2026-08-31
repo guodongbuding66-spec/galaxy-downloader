@@ -31,6 +31,17 @@ base.EXTENSIONLESS_IMAGE_HOSTS = tuple(dict.fromkeys(
     (*base.EXTENSIONLESS_IMAGE_HOSTS, *_EXTRA_EXTENSIONLESS_IMAGE_HOSTS)
 ))
 
+_original_looks_like_image = base._looks_like_image
+
+
+def _looks_like_image(url: str, key: str = "") -> bool:
+    # CDN domains such as twimg.com serve both photos and MP4 clips. A known
+    # video extension must win before extensionless-host heuristics classify the
+    # URL as an image.
+    if base.VIDEO_EXT_RE.search(url):
+        return False
+    return _original_looks_like_image(url, key)
+
 
 def _host_matches(host: str, suffix: str) -> bool:
     return host == suffix or host.endswith(f".{suffix}")
@@ -148,6 +159,7 @@ def _document_payload(
 def install_document_policy() -> None:
     # These are intentionally installed once at process start by entrypoint.py;
     # no request-time monkeypatching, so ThreadingHTTPServer has no race here.
+    base._looks_like_image = _looks_like_image
     base.should_try_web_document = should_try_web_document
     base._classify = _classify
     base._document_payload = _document_payload
