@@ -7,27 +7,61 @@ Galaxy Local Engine 用于在本机调用 yt-dlp + FFmpeg 下载和合并视频�
 适合 YouTube、B站、小红书、快手、Dailymotion 等存在登录、反爬或 IP 绑定限制的平台。
 视频、Cookie 和 FFmpeg 处理都留在本机，不上传 Galaxy 服务器。
 
+重要变化
+--------
+1. Galaxy Local Engine 现在采用“便携式原地安装”。
+2. 程序直接安装在你解压 GalaxyLocalEngine-Windows.zip 的文件夹，不再复制到 AppData。
+3. FFmpeg、ffprobe 和 yt-dlp.exe 已经内置在压缩包里。
+4. 双击 install.cmd 时不需要再访问 GitHub，也不需要另外下载 FFmpeg / yt-dlp。
+5. 下载的视频默认保存在解压目录中的 downloads 文件夹。
+
 一、首次安装
 ------------
-1. 从 Galaxy Downloader 网站点击“下载 / 更新 Galaxy Local Engine”。
+1. 从 Galaxy Downloader 网站点击“下载 Galaxy Local Engine（官网线路）”。
 2. 下载 GalaxyLocalEngine-Windows.zip。
 3. 右键 ZIP → “全部解压”。不要直接在压缩包里面运行程序。
-4. 打开解压后的文件夹，双击 install.cmd。
-5. 安装器会自动：
-   - 安装 / 更新 Galaxy Local Engine；
-   - 下载并校验 FFmpeg；
-   - 下载并校验官方 yt-dlp.exe；
+4. 建议把解压后的整个文件夹放到一个长期不移动的位置，例如 D:\GalaxyLocalEngine-Windows。
+5. 打开解压后的文件夹，双击 install.cmd。
+6. 安装器会自动：
+   - 使用当前解压文件夹作为程序目录；
+   - 检查内置的 FFmpeg / ffprobe；
+   - 检查内置的 yt-dlp.exe；
    - 注册 galaxy-downloader:// 协议；
+   - 创建 downloads 下载目录；
    - 启动 Galaxy Local Engine。
-6. 安装成功后，Galaxy Local Engine 窗口顶部会显示当前版本号。
+7. 安装完成后，Galaxy Local Engine 窗口顶部会显示当前版本号。
 
-默认安装位置：
-%LOCALAPPDATA%\GalaxyDownloader\LocalEngine
+程序位置：
+当前解压文件夹
 
-默认下载位置：
-%USERPROFILE%\Downloads\Galaxy Downloader
+下载位置：
+当前解压文件夹\downloads
 
-二、在网站中使用
+示例：
+D:\GalaxyLocalEngine-Windows\GalaxyLocalEngine.exe
+D:\GalaxyLocalEngine-Windows\yt-dlp.exe
+D:\GalaxyLocalEngine-Windows\ffmpeg\bin\ffmpeg.exe
+D:\GalaxyLocalEngine-Windows\downloads\
+
+二、为什么安装时不再需要联网下载组件
+------------------------------------
+新版安装包已经直接包含：
+- GalaxyLocalEngine.exe
+- yt-dlp.exe
+- ffmpeg\bin\ffmpeg.exe
+- ffmpeg\bin\ffprobe.exe
+- install.cmd / install.ps1
+- uninstall.cmd / uninstall.ps1
+- VERSION
+- README.md
+- 使用说明.txt
+
+这些依赖会在 GitHub Actions 打包阶段下载并进行 SHA-256 校验，然后一起放入最终 ZIP。
+因此用户电脑即使无法访问 GitHub，仍可以完成安装和使用。
+
+注意：yt-dlp 后续会尝试检查新版解析器。如果更新服务器无法访问，现有内置版本仍可继续使用，不会影响本次安装。
+
+三、在网站中使用
 ----------------
 1. 在 Galaxy Downloader 网站解析视频。
 2. 在“当前成品方案”中选择画质、音质、字幕和封面。
@@ -42,28 +76,38 @@ Galaxy Local Engine 用于在本机调用 yt-dlp + FFmpeg 下载和合并视频�
 7. 网站与 Galaxy Local Engine 会同步显示下载状态和进度。
 8. 下载完成后可点击“打开下载文件夹”。
 
-三、升级
+四、升级
 --------
 1. 再次点击网站上的“下载 / 更新 Galaxy Local Engine”。
-2. 下载最新版 ZIP 并完整解压。
-3. 双击新的 install.cmd。
-4. 安装器会自动关闭旧版 Galaxy Local Engine，然后覆盖升级并重新启动。
-5. 返回网站，确认显示新的版本号和“本地引擎已连接”。
+2. 下载最新版 ZIP。
+3. 完整解压到你想长期保留的位置。
+4. 双击新版 install.cmd。
+5. 安装器会自动关闭正在运行的旧版，并重新注册当前文件夹中的新版程序。
+6. 返回网站，确认显示新版本号和“本地引擎已连接”。
 
-四、如果网站显示“本地引擎未连接”
+如果你把整个 Galaxy Local Engine 文件夹移动到了其他磁盘或目录：
+只需要在新位置重新双击一次 install.cmd，Windows 协议路径会自动刷新。
+
+五、官网线路与 GitHub 备用线路
+----------------------------
+网站优先提供“官网线路”下载，浏览器只需要访问 Galaxy Downloader 网站，不需要直接访问 GitHub。
+如果官网线路临时不可用，页面同时保留 GitHub Release 作为备用下载线路。
+
+六、如果网站显示“本地引擎未连接”
 --------------------------------
 请依次检查：
 1. Galaxy Local Engine 是否正在运行。
-2. 是否安装的是 v0.3.1 或更高版本。
+2. 是否安装的是 v0.4.0 或更高版本。
 3. 是否完整解压 ZIP 后运行了 install.cmd。
-4. 刷新 Galaxy Downloader 网站。
-5. 在浏览器地址栏打开：
+4. 是否在安装后移动过整个程序文件夹；如果移动过，请重新运行 install.cmd。
+5. 刷新 Galaxy Downloader 网站。
+6. 在浏览器地址栏打开：
    http://127.0.0.1:17836/health
 
 如果能看到 JSON 状态，说明本地引擎通信服务已经启动。
 如果打不开，请重新运行 install.cmd 或重新启动 Galaxy Local Engine。
 
-五、登录状态 / Cookie
+七、登录状态 / Cookie
 ---------------------
 当 YouTube、B站或其他平台需要登录时，可以在网站中选择 Edge / Chrome / Firefox 登录状态。
 yt-dlp 会直接从本机浏览器配置中读取 Cookie；Cookie 不会上传 Galaxy 服务器。
@@ -73,26 +117,33 @@ yt-dlp 会直接从本机浏览器配置中读取 Cookie；Cookie 不会上传 G
 2. 关闭可能锁定 Cookie 数据库的浏览器窗口后重试；
 3. 或选择“不读取浏览器 Cookie”测试公开视频。
 
-六、常见问题
+八、常见问题
 ------------
 Q：需要管理员权限吗？
-A：通常不需要。程序安装在当前 Windows 用户目录。
+A：通常不需要。程序直接使用当前解压目录，只注册当前 Windows 用户的协议。
 
 Q：为什么一定要完整解压？
-A：install.cmd、install.ps1、GalaxyLocalEngine.exe 等文件需要位于同一个解压目录，直接在 ZIP 内运行可能导致安装失败。
+A：新版已经把 FFmpeg、yt-dlp 和安装脚本全部放在 ZIP 中。缺少任何文件都会导致安装校验失败。
 
-Q：安装时为什么会联网？
-A：安装器需要下载 FFmpeg 和官方 yt-dlp.exe，并进行 SHA-256 校验。
+Q：双击 install.cmd 时还会去 GitHub 下载 FFmpeg 或 yt-dlp 吗？
+A：不会。安装所需组件已经全部内置。
+
+Q：为什么安装包比以前大？
+A：因为现在把 FFmpeg、ffprobe 和 yt-dlp.exe 一起打包，换来的是更可靠的离线安装体验。
 
 Q：本地引擎打开后显示 Waiting for a download job 正常吗？
-A：正常。表示本地引擎已经启动并正在等待网站发送任务。新版网站检测成功后会显示“本地引擎已连接”。
+A：正常。表示本地引擎已经启动并正在等待网站发送任务。网站检测成功后会显示“本地引擎已连接”。
 
 Q：下载文件在哪里？
-A：默认在：%USERPROFILE%\Downloads\Galaxy Downloader
+A：解压文件夹里的 downloads 目录。
 
-七、卸载
+Q：可以移动整个程序文件夹吗？
+A：可以。移动后在新位置重新运行一次 install.cmd 即可。
+
+九、卸载
 --------
-在安装包或安装目录中运行 uninstall.cmd。
+双击 uninstall.cmd 会移除 Windows 的 galaxy-downloader:// 协议注册。
+程序文件和已经下载的视频仍保留在当前文件夹中；不再需要时直接删除整个文件夹即可。
 
 Galaxy Local Engine
 https://github.com/guodongbuding66-spec/galaxy-downloader/releases/latest
