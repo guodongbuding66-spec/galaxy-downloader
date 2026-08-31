@@ -68,72 +68,99 @@ type Copy = {
   sent: string;
   cancel: string;
   openFolder: string;
+  guideTitle: string;
+  guideSteps: string[];
+  guideTip: string;
 };
 
 const COPY: Record<string, Copy> = {
   zh: {
-    title: '本机 yt-dlp 强力下载',
-    intro: '遇到 YouTube、B站、小红书、快手、Dailymotion 等反爬、登录或 IP 绑定限制时，直接调用你电脑上的 yt-dlp + FFmpeg。',
-    planSync: '将使用上方“当前成品方案”的同一组画质、音质、字幕和封面设置。',
+    title: 'Galaxy Local Engine 本机强力下载',
+    intro: '适合 YouTube、B站、小红书、快手、Dailymotion 等存在反爬、登录或 IP 绑定限制的平台，直接调用本机 yt-dlp + FFmpeg。',
+    planSync: '会沿用上方“当前成品方案”的画质、音质、字幕和封面设置。',
     cookieSource: '登录状态',
     noCookies: '不读取浏览器 Cookie',
     edge: '使用 Edge 登录状态',
     chrome: '使用 Chrome 登录状态',
     firefox: '使用 Firefox 登录状态',
     launch: '按当前方案本机下载',
-    install: '安装 / 更新本地引擎',
-    privacy: 'Cookie、视频和 FFmpeg 处理全部留在你的电脑，不上传 Galaxy 服务器。',
-    launchHint: '尚未检测到本地引擎通信服务。请安装或更新 Galaxy Local Engine 后重试。',
+    install: '下载 / 更新 Galaxy Local Engine',
+    privacy: 'Cookie、视频下载和 FFmpeg 处理全部留在你的电脑，不上传 Galaxy 服务器。',
+    launchHint: '尚未检测到本地引擎通信服务。请下载最新版、完整解压并运行 install.cmd，然后返回本页重试。',
     connected: '本地引擎已连接',
     disconnected: '本地引擎未连接',
-    bridgeRequired: '需要 Galaxy Local Engine v0.3.0 或更高版本',
+    bridgeRequired: '请安装最新版 Galaxy Local Engine（v0.3.1 或更高版本）。',
     sent: '任务已发送到 Galaxy Local Engine',
     cancel: '取消本机任务',
     openFolder: '打开下载文件夹',
+    guideTitle: 'Galaxy Local Engine 使用步骤',
+    guideSteps: [
+      '点击“下载 / 更新 Galaxy Local Engine”，下载最新 Windows ZIP。',
+      '完整解压 ZIP，不能直接在压缩包里运行；双击 install.cmd，等待 FFmpeg 与 yt-dlp 安装完成。',
+      '安装完成后保持 Galaxy Local Engine 运行，返回本页；状态会自动变成“本地引擎已连接”。',
+      '按需选择 Edge / Chrome / Firefox 登录状态，再点击“按当前方案本机下载”。',
+    ],
+    guideTip: '首次安装只需一次。以后网站会自动检测已运行的本地引擎；升级时重新下载最新版并运行 install.cmd 即可。',
   },
   'zh-tw': {
-    title: '本機 yt-dlp 強力下載',
-    intro: '遇到反爬、登入或 IP 綁定限制時，直接呼叫電腦上的 yt-dlp + FFmpeg。',
-    planSync: '會沿用上方「目前成品方案」相同的畫質、音訊、字幕與封面設定。',
+    title: 'Galaxy Local Engine 本機強力下載',
+    intro: '適合存在反爬、登入或 IP 綁定限制的平台，直接呼叫本機 yt-dlp + FFmpeg。',
+    planSync: '會沿用上方「目前成品方案」的畫質、音訊、字幕與封面設定。',
     cookieSource: '登入狀態',
     noCookies: '不讀取瀏覽器 Cookie',
     edge: '使用 Edge 登入狀態',
     chrome: '使用 Chrome 登入狀態',
     firefox: '使用 Firefox 登入狀態',
     launch: '依目前方案本機下載',
-    install: '安裝 / 更新本地引擎',
+    install: '下載 / 更新 Galaxy Local Engine',
     privacy: 'Cookie、影片與 FFmpeg 處理全部保留在你的電腦。',
-    launchHint: '尚未偵測到本地引擎通訊服務，請安裝或更新後重試。',
+    launchHint: '尚未偵測到本地引擎。請下載最新版、完整解壓並執行 install.cmd。',
     connected: '本地引擎已連線',
     disconnected: '本地引擎未連線',
-    bridgeRequired: '需要 Galaxy Local Engine v0.3.0 或更新版本',
+    bridgeRequired: '請安裝最新版 Galaxy Local Engine（v0.3.1 或更新版本）。',
     sent: '工作已傳送到 Galaxy Local Engine',
     cancel: '取消本機工作',
     openFolder: '開啟下載資料夾',
+    guideTitle: 'Galaxy Local Engine 使用步驟',
+    guideSteps: [
+      '下載最新 Windows ZIP。',
+      '完整解壓 ZIP，雙擊 install.cmd 並等待安裝完成。',
+      '保持 Galaxy Local Engine 執行並返回本頁，等待顯示「本地引擎已連線」。',
+      '選擇登入狀態後，點擊「依目前方案本機下載」。',
+    ],
+    guideTip: '首次安裝只需一次；升級時重新下載最新版並執行 install.cmd 即可。',
   },
   en: {
-    title: 'Local yt-dlp power download',
-    intro: 'For anti-bot, login, or IP-bound platforms, run yt-dlp + FFmpeg directly on this computer.',
-    planSync: 'Uses the same video, audio, subtitle, and cover choices shown in the current output plan above.',
+    title: 'Galaxy Local Engine',
+    intro: 'Use local yt-dlp + FFmpeg for sites with anti-bot, login, or IP-bound media restrictions.',
+    planSync: 'It uses the same video, audio, subtitle, and cover choices shown in the current output plan.',
     cookieSource: 'Login session',
     noCookies: 'Do not read browser cookies',
     edge: 'Use Edge login session',
     chrome: 'Use Chrome login session',
     firefox: 'Use Firefox login session',
     launch: 'Download current plan locally',
-    install: 'Install / update local engine',
-    privacy: 'Cookies, media and FFmpeg processing stay on this computer and are not uploaded to Galaxy servers.',
-    launchHint: 'The local bridge was not detected. Install or update Galaxy Local Engine and try again.',
+    install: 'Download / update Galaxy Local Engine',
+    privacy: 'Cookies, media downloads and FFmpeg processing stay on this computer.',
+    launchHint: 'The local engine was not detected. Download the latest ZIP, extract it fully, run install.cmd, then return here.',
     connected: 'Local engine connected',
     disconnected: 'Local engine not connected',
-    bridgeRequired: 'Galaxy Local Engine v0.3.0 or newer is required',
+    bridgeRequired: 'Install the latest Galaxy Local Engine (v0.3.1 or newer).',
     sent: 'Job sent to Galaxy Local Engine',
     cancel: 'Cancel local job',
     openFolder: 'Open download folder',
+    guideTitle: 'How to use Galaxy Local Engine',
+    guideSteps: [
+      'Download the latest Windows ZIP.',
+      'Extract the complete ZIP and double-click install.cmd. Do not run it from inside the ZIP.',
+      'Keep Galaxy Local Engine running and return to this page until the status shows connected.',
+      'Choose a browser login session if needed, then start the local download.',
+    ],
+    guideTip: 'Installation is normally required only once. To upgrade, download the latest ZIP and run install.cmd again.',
   },
   ja: {
-    title: 'ローカル yt-dlp 強力ダウンロード',
-    intro: 'ログイン、Bot 対策、IP 制限があるサイトでは、この PC の yt-dlp + FFmpeg を直接使用します。',
+    title: 'Galaxy Local Engine',
+    intro: 'ログイン、Bot 対策、IP 制限があるサイトでは、この PC の yt-dlp + FFmpeg を使用します。',
     planSync: '上の出力プランと同じ画質・音質・字幕・カバー設定を使用します。',
     cookieSource: 'ログイン状態',
     noCookies: 'ブラウザー Cookie を使用しない',
@@ -141,55 +168,64 @@ const COPY: Record<string, Copy> = {
     chrome: 'Chrome のログイン状態を使用',
     firefox: 'Firefox のログイン状態を使用',
     launch: '現在のプランをローカル保存',
-    install: 'ローカルエンジンをインストール / 更新',
+    install: 'Galaxy Local Engine をダウンロード / 更新',
     privacy: 'Cookie、メディア、FFmpeg 処理はこの PC 内だけで行われます。',
-    launchHint: 'ローカル通信サービスを検出できません。エンジンを更新して再試行してください。',
+    launchHint: 'ローカルエンジンを検出できません。最新版 ZIP を展開して install.cmd を実行してください。',
     connected: 'ローカルエンジン接続済み',
     disconnected: 'ローカルエンジン未接続',
-    bridgeRequired: 'Galaxy Local Engine v0.3.0 以降が必要です',
+    bridgeRequired: 'Galaxy Local Engine v0.3.1 以降をインストールしてください。',
     sent: 'ジョブをローカルエンジンへ送信しました',
     cancel: 'ローカルジョブをキャンセル',
     openFolder: 'ダウンロードフォルダーを開く',
+    guideTitle: 'Galaxy Local Engine の使い方',
+    guideSteps: ['最新 Windows ZIP をダウンロードします。', 'ZIP を完全に展開し install.cmd を実行します。', 'アプリを起動したままこのページへ戻り、接続表示を確認します。', '必要ならブラウザーのログイン状態を選び、ローカルダウンロードを開始します。'],
+    guideTip: '通常、初回インストールは一度だけです。更新時は最新版を再インストールしてください。',
   },
   es: {
-    title: 'Descarga local avanzada con yt-dlp',
-    intro: 'Para sitios con inicio de sesión, anti-bot o bloqueo por IP, usa yt-dlp + FFmpeg directamente en este equipo.',
-    planSync: 'Usa las mismas opciones de vídeo, audio, subtítulos y portada del plan de salida actual.',
+    title: 'Galaxy Local Engine',
+    intro: 'Usa yt-dlp + FFmpeg localmente para sitios con inicio de sesión, anti-bot o bloqueo por IP.',
+    planSync: 'Usa las mismas opciones de vídeo, audio, subtítulos y portada del plan actual.',
     cookieSource: 'Sesión del navegador',
     noCookies: 'No usar cookies del navegador',
     edge: 'Usar sesión de Edge',
     chrome: 'Usar sesión de Chrome',
     firefox: 'Usar sesión de Firefox',
     launch: 'Descargar el plan actual localmente',
-    install: 'Instalar / actualizar motor local',
-    privacy: 'Las cookies, el contenido y FFmpeg permanecen en este equipo.',
-    launchHint: 'No se detectó el puente local. Instala o actualiza Galaxy Local Engine.',
+    install: 'Descargar / actualizar Galaxy Local Engine',
+    privacy: 'Cookies, contenido y FFmpeg permanecen en este equipo.',
+    launchHint: 'No se detectó el motor local. Descarga el ZIP más reciente, extráelo y ejecuta install.cmd.',
     connected: 'Motor local conectado',
     disconnected: 'Motor local no conectado',
-    bridgeRequired: 'Se requiere Galaxy Local Engine v0.3.0 o posterior',
+    bridgeRequired: 'Instala Galaxy Local Engine v0.3.1 o posterior.',
     sent: 'Tarea enviada a Galaxy Local Engine',
     cancel: 'Cancelar tarea local',
     openFolder: 'Abrir carpeta de descargas',
+    guideTitle: 'Cómo usar Galaxy Local Engine',
+    guideSteps: ['Descarga el ZIP más reciente para Windows.', 'Extrae todo el ZIP y ejecuta install.cmd.', 'Mantén Galaxy Local Engine abierto y vuelve a esta página hasta ver el estado conectado.', 'Selecciona la sesión del navegador si la necesitas e inicia la descarga local.'],
+    guideTip: 'Normalmente solo se instala una vez. Para actualizar, ejecuta install.cmd desde el ZIP más reciente.',
   },
   ru: {
-    title: 'Локальная загрузка через yt-dlp',
-    intro: 'Для сайтов с авторизацией, антибот-защитой или привязкой к IP используйте yt-dlp + FFmpeg прямо на этом компьютере.',
-    planSync: 'Используются те же настройки видео, аудио, субтитров и обложки, что указаны в текущем плане выше.',
+    title: 'Galaxy Local Engine',
+    intro: 'Используйте локальные yt-dlp + FFmpeg для сайтов с авторизацией, антибот-защитой или IP-ограничениями.',
+    planSync: 'Используются те же настройки видео, аудио, субтитров и обложки, что и в текущем плане.',
     cookieSource: 'Сеанс браузера',
     noCookies: 'Не использовать cookies браузера',
     edge: 'Использовать сеанс Edge',
     chrome: 'Использовать сеанс Chrome',
     firefox: 'Использовать сеанс Firefox',
     launch: 'Скачать текущий план локально',
-    install: 'Установить / обновить локальный движок',
-    privacy: 'Cookies, медиа и обработка FFmpeg остаются только на этом компьютере.',
-    launchHint: 'Локальный мост не обнаружен. Установите или обновите Galaxy Local Engine.',
+    install: 'Скачать / обновить Galaxy Local Engine',
+    privacy: 'Cookies, медиа и FFmpeg остаются только на этом компьютере.',
+    launchHint: 'Локальный движок не обнаружен. Скачайте последний ZIP, распакуйте его и запустите install.cmd.',
     connected: 'Локальный движок подключён',
     disconnected: 'Локальный движок не подключён',
-    bridgeRequired: 'Требуется Galaxy Local Engine v0.3.0 или новее',
+    bridgeRequired: 'Установите Galaxy Local Engine v0.3.1 или новее.',
     sent: 'Задание отправлено в Galaxy Local Engine',
     cancel: 'Отменить локальную задачу',
     openFolder: 'Открыть папку загрузок',
+    guideTitle: 'Как использовать Galaxy Local Engine',
+    guideSteps: ['Скачайте последний Windows ZIP.', 'Полностью распакуйте ZIP и запустите install.cmd.', 'Оставьте Galaxy Local Engine запущенным и вернитесь на страницу до появления статуса подключения.', 'При необходимости выберите сеанс браузера и начните локальную загрузку.'],
+    guideTip: 'Обычно установка нужна один раз. Для обновления снова запустите install.cmd из последнего ZIP.',
   },
 };
 
@@ -287,8 +323,6 @@ export function LocalEngineDownloadCard({
         return;
       }
 
-      // Backward-compatible bootstrap: the custom protocol starts the app.
-      // v0.3.0+ then exposes the localhost bridge so the page can track it.
       launchLocalDesktopEngine({
         sourceUrl,
         videoQuality: localJob.videoQuality,
@@ -360,7 +394,7 @@ export function LocalEngineDownloadCard({
               )}
               {bridge ? copy.connected : copy.disconnected}
             </span>
-            <span className="tabular-nums text-muted-foreground">{bridge ? `v${bridge.version}` : 'v0.3.0+'}</span>
+            <span className="tabular-nums text-muted-foreground">{bridge ? `v${bridge.version}` : 'v0.3.1+'}</span>
           </div>
           {bridge ? (
             <div className="mt-2 space-y-2">
@@ -435,6 +469,21 @@ export function LocalEngineDownloadCard({
               </a>
             </Button>
           )}
+        </div>
+
+        <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
+          <div className="text-xs font-semibold text-foreground">{copy.guideTitle}</div>
+          <ol className="mt-2 space-y-2">
+            {copy.guideSteps.map((step, index) => (
+              <li key={step} className="flex gap-2 text-[11px] leading-4 text-muted-foreground">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                  {index + 1}
+                </span>
+                <span className="pt-0.5">{step}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-2 border-t pt-2 text-[11px] leading-4 text-muted-foreground">{copy.guideTip}</p>
         </div>
 
         <div className="flex items-start gap-2 border-t border-primary/10 pt-3 text-xs leading-5 text-muted-foreground">
