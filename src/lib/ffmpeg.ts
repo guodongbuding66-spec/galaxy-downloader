@@ -34,12 +34,27 @@ export function getFFmpegCoreBaseUrls(): readonly string[] {
 
 export function getPreferredFFmpegCoreCandidates(): readonly CoreCandidate[] {
   const capabilities = detectLocalProcessingCapabilities();
-  const candidates: CoreCandidate[] = [];
-  if (capabilities.multiThreadFFmpeg) {
-    candidates.push(...FFMPEG_MULTI_CORE_BASE_URLS.map((baseURL) => ({ baseURL, multithread: true })));
+  const singleThreadCandidates = FFMPEG_SINGLE_CORE_BASE_URLS.map((baseURL) => ({
+    baseURL,
+    multithread: false,
+  }));
+
+  // Reliability first: the app-hosted single-thread core is generated during
+  // every build and avoids the large cross-origin multi-thread core startup.
+  // Previously isolated browsers tried two remote core-mt bundles before the
+  // local core, which could leave the finished-video flow sitting at 64% for
+  // minutes. Only use multi-thread CDN builds as last-resort fallbacks.
+  if (!capabilities.multiThreadFFmpeg) {
+    return singleThreadCandidates;
   }
-  candidates.push(...FFMPEG_SINGLE_CORE_BASE_URLS.map((baseURL) => ({ baseURL, multithread: false })));
-  return candidates;
+
+  return [
+    ...singleThreadCandidates,
+    ...FFMPEG_MULTI_CORE_BASE_URLS.map((baseURL) => ({
+      baseURL,
+      multithread: true,
+    })),
+  ];
 }
 
 async function fetchBlobURL(url: string, mimeType: string, signal: AbortSignal): Promise<string> {
