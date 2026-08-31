@@ -35,6 +35,10 @@ function resolveContainerApiBaseUrl(): string {
     return normalizeBaseUrl(value)
 }
 
+function resolvePlaybackApiBaseUrl(): string {
+    return resolveContainerApiBaseUrl() || resolvePublicApiBaseUrl()
+}
+
 function buildApiUrl(pathname: string, baseUrl = resolvePublicApiBaseUrl()): string {
     const normalizedPathname = pathname.startsWith('/') ? pathname : `/${pathname}`
 
@@ -69,7 +73,11 @@ export const API_ENDPOINTS = {
     unified: {
         parse: buildApiUrl('/api/parse'),
         download: buildApiUrl('/api/download'),
-        play: buildApiUrl('/api/play'),
+        // Playback uses the same source-aware media route as downloads instead
+        // of the legacy /api/play endpoint. Prefer the user's container backend
+        // when configured so preview and download share the same yt-dlp/network
+        // identity and do not fail on short-lived or IP-bound media URLs.
+        play: buildApiUrl('/api/download', resolvePlaybackApiBaseUrl()),
     },
     feedback: buildApiUrl('/api/feedback'),
     stats: {
