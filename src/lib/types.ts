@@ -119,6 +119,8 @@ export interface UnifiedParseResult {
         desc?: string;
         /** Full post/article text when the parser can extract more than a short description. */
         textContent?: string;
+        /** Structure-preserving Markdown for article/document archives when available. */
+        markdownContent?: string;
         author?: string;
         publishedAt?: string;
         siteName?: string;
