@@ -8,6 +8,12 @@ export type PreviewMediaType = 'video' | 'audio'
 export interface MediaPreviewRequest {
     mediaType: PreviewMediaType
     sourceUrl: string
+    /**
+     * Exact media URL returned by the parser. Local Engine URLs are normally
+     * signed for the user's own IP/browser and should be played directly rather
+     * than asking a remote backend to resolve the source URL again.
+     */
+    directUrl?: string | null
     title: string
     item?: string
     autoplay?: boolean
@@ -16,7 +22,20 @@ export interface MediaPreviewRequest {
 
 type ParsedResultData = NonNullable<UnifiedParseResult['data']>
 
+function usableDirectUrl(value?: string | null): string | null {
+    const url = value?.trim()
+    if (!url) return null
+    // Generated /api/download URLs are download jobs, not lightweight preview
+    // streams. Let the source-aware play endpoint handle those instead.
+    if (/\/api\/download(?:\?|$)/i.test(url)) return null
+    if (url.startsWith('/') || /^https?:\/\//i.test(url)) return url
+    return null
+}
+
 export function buildMediaPreviewUrl(request: MediaPreviewRequest): string {
+    const direct = usableDirectUrl(request.directUrl)
+    if (direct) return direct
+
     const params = new URLSearchParams({
         url: request.sourceUrl,
         type: request.mediaType,
@@ -85,6 +104,7 @@ export function buildPrimaryResultPreview(
             return {
                 mediaType,
                 sourceUrl,
+                directUrl: result.downloadVideoUrl || result.originDownloadVideoUrl || null,
                 title: result.title,
                 autoplay: options.autoplay,
             }
@@ -94,6 +114,7 @@ export function buildPrimaryResultPreview(
             return {
                 mediaType,
                 sourceUrl,
+                directUrl: result.downloadAudioUrl || result.originDownloadAudioUrl || null,
                 title: result.title,
                 autoplay: options.autoplay,
             }
@@ -124,6 +145,7 @@ export function buildPagePreview(
             return {
                 mediaType,
                 sourceUrl,
+                directUrl: page.downloadVideoUrl,
                 title: page.part,
                 item: String(page.page),
                 autoplay: options.autoplay,
@@ -134,6 +156,7 @@ export function buildPagePreview(
             return {
                 mediaType,
                 sourceUrl,
+                directUrl: page.downloadAudioUrl,
                 title: page.part,
                 item: String(page.page),
                 autoplay: options.autoplay,
@@ -165,6 +188,7 @@ export function buildEmbeddedVideoPreview(
             return {
                 mediaType,
                 sourceUrl,
+                directUrl: video.downloadVideoUrl || video.originDownloadVideoUrl || null,
                 title: video.title,
                 item: video.id,
                 autoplay: options.autoplay,
@@ -175,6 +199,7 @@ export function buildEmbeddedVideoPreview(
             return {
                 mediaType,
                 sourceUrl,
+                directUrl: video.downloadAudioUrl || video.originDownloadAudioUrl || null,
                 title: video.title,
                 item: video.id,
                 autoplay: options.autoplay,
@@ -237,6 +262,7 @@ export function buildEpisodePreview(
     return {
         mediaType: 'audio',
         sourceUrl,
+        directUrl: episode.downloadAudioUrl || episode.originDownloadAudioUrl || null,
         title: episode.title,
         item: episode.id,
         autoplay: options.autoplay,
@@ -275,11 +301,13 @@ export function buildResultPreviewForSelection(
         mediaType: PreviewMediaType,
         title: string,
         item: string | undefined,
-        canPreview: boolean
+        canPreview: boolean,
+        directUrl?: string | null,
     ): MediaPreviewRequest | null => canPreview
         ? {
               mediaType,
               sourceUrl,
+              directUrl,
               title,
               item,
               autoplay: options.autoplay,
@@ -297,7 +325,8 @@ export function buildResultPreviewForSelection(
                 options.mediaType,
                 page.part,
                 String(page.page),
-                options.mediaType === 'video' ? canPreviewPageVideo(page) : canPreviewPageAudio(page)
+                options.mediaType === 'video' ? canPreviewPageVideo(page) : canPreviewPageAudio(page),
+                options.mediaType === 'video' ? page.downloadVideoUrl : page.downloadAudioUrl,
             )
         }
 
@@ -313,7 +342,10 @@ export function buildResultPreviewForSelection(
                 video.id,
                 options.mediaType === 'video'
                     ? canPreviewEmbeddedVideoVideo(video)
-                    : canPreviewEmbeddedVideoAudio(video)
+                    : canPreviewEmbeddedVideoAudio(video),
+                options.mediaType === 'video'
+                    ? video.downloadVideoUrl || video.originDownloadVideoUrl
+                    : video.downloadAudioUrl || video.originDownloadAudioUrl,
             )
         }
 
@@ -337,6 +369,9 @@ export function buildResultPreviewForSelection(
         options.mediaType,
         result.title,
         undefined,
-        options.mediaType === 'video' ? canPreviewResultVideo(result) : canPreviewResultAudio(result)
+        options.mediaType === 'video' ? canPreviewResultVideo(result) : canPreviewResultAudio(result),
+        options.mediaType === 'video'
+            ? result.downloadVideoUrl || result.originDownloadVideoUrl
+            : result.downloadAudioUrl || result.originDownloadAudioUrl,
     )
 }
