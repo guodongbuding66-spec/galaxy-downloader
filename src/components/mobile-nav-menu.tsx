@@ -23,38 +23,24 @@ interface MobileNavMenuProps {
     defaultOpen?: boolean
 }
 
-const COPY: Record<string, { engine: string; other: string }> = {
-    zh: { engine: '下载 Galaxy Local Engine', other: '其他工具' },
-    'zh-tw': { engine: '下載 Galaxy Local Engine', other: '其他工具' },
-    en: { engine: 'Download Galaxy Local Engine', other: 'More tools' },
-    ja: { engine: 'Galaxy Local Engine をダウンロード', other: 'その他のツール' },
-    es: { engine: 'Descargar Galaxy Local Engine', other: 'Más herramientas' },
-    ru: { engine: 'Скачать Galaxy Local Engine', other: 'Другие инструменты' },
+const COPY: Record<string, { engine: string; other: string; settings: string }> = {
+    zh: { engine: '下载 Galaxy Local Engine', other: '其他工具', settings: '设置' },
+    'zh-tw': { engine: '下載 Galaxy Local Engine', other: '其他工具', settings: '設定' },
+    en: { engine: 'Download Galaxy Local Engine', other: 'More tools', settings: 'Settings' },
+    ja: { engine: 'Galaxy Local Engine をダウンロード', other: 'その他のツール', settings: '設定' },
+    es: { engine: 'Descargar Galaxy Local Engine', other: 'Más herramientas', settings: 'Ajustes' },
+    ru: { engine: 'Скачать Galaxy Local Engine', other: 'Другие инструменты', settings: 'Настройки' },
 }
 
 const RELATED_SITES = [
-    {
-        href: 'https://ai-foreign-trade-os.pages.dev/',
-        label: 'AI 外贸工作台',
-        icon: BriefcaseBusiness,
-    },
-    {
-        href: 'https://container-load-planner.pages.dev/',
-        label: '外贸装柜智算',
-        icon: Box,
-    },
-    {
-        href: 'https://isunor-industry-daily.pages.dev/',
-        label: 'iSUNOR 决策级情报',
-        icon: Newspaper,
-    },
+    { href: 'https://ai-foreign-trade-os.pages.dev/', label: 'AI 外贸工作台', icon: BriefcaseBusiness },
+    { href: 'https://container-load-planner.pages.dev/', label: '外贸装柜智算', icon: Box },
+    { href: 'https://isunor-industry-daily.pages.dev/', label: 'iSUNOR 决策级情报', icon: Newspaper },
 ] as const
 
-export function MobileNavMenu({
-    defaultOpen = false,
-}: MobileNavMenuProps) {
+export function MobileNavMenu({ defaultOpen = false }: MobileNavMenuProps) {
     const dict = useDictionary()
-    const pathname = usePathname()
+    const pathname = usePathname() || ''
     const firstSegment = pathname.split('/').filter(Boolean)[0]
     const locale = i18n.locales.includes(firstSegment as (typeof i18n.locales)[number])
         ? firstSegment
@@ -65,74 +51,75 @@ export function MobileNavMenu({
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label={dict.page.openMenuLabel}>
-                    <Menu className="h-5 w-5" aria-hidden="true" />
+                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={dict.page.openMenuLabel}>
+                    <Menu className="h-4 w-4" aria-hidden="true" />
                 </Button>
             </DialogTrigger>
             <DialogContent
                 showCloseButton={false}
-                className="top-auto bottom-4 left-1/2 w-[calc(100%-2rem)] max-w-sm translate-x-[-50%] translate-y-0 rounded-xl p-4"
+                className="bottom-3 left-1/2 top-auto w-[calc(100%-1.5rem)] max-w-sm -translate-x-1/2 translate-y-0 gap-2 rounded-md p-3"
             >
                 <DialogHeader className="sr-only">
                     <DialogTitle>{dict.page.openMenuLabel}</DialogTitle>
                 </DialogHeader>
 
-                <div className="space-y-3">
-                    <Button className="w-full justify-start" asChild>
-                        <a href={LOCAL_ENGINE_RELEASE_URL} onClick={() => setOpen(false)}>
-                            <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
-                            <span>{copy.engine}</span>
-                        </a>
-                    </Button>
+                <Button size="sm" className="h-9 w-full justify-start" asChild>
+                    <a href={LOCAL_ENGINE_RELEASE_URL} onClick={() => setOpen(false)}>
+                        <HardDriveDownload className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>{copy.engine}</span>
+                    </a>
+                </Button>
 
-                    <div className="rounded-xl border border-border bg-muted/20 p-2">
-                        <div className="px-2 pb-1.5 text-xs font-semibold text-muted-foreground">{copy.other}</div>
-                        <div className="space-y-1">
-                            {RELATED_SITES.map((site) => {
-                                const Icon = site.icon
-                                return (
-                                    <Button key={site.href} variant="ghost" className="w-full justify-start gap-2" asChild>
-                                        <a
-                                            href={site.href}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            onClick={() => setOpen(false)}
-                                        >
-                                            <Icon className="h-4 w-4" aria-hidden="true" />
-                                            <span className="min-w-0 flex-1 truncate text-left">{site.label}</span>
-                                            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                                        </a>
-                                    </Button>
-                                )
-                            })}
-                        </div>
+                <section className="border-t pt-2">
+                    <div className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{copy.other}</div>
+                    <div className="divide-y">
+                        {RELATED_SITES.map((site) => {
+                            const Icon = site.icon
+                            return (
+                                <a
+                                    key={site.href}
+                                    href={site.href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={() => setOpen(false)}
+                                    className="flex h-9 items-center gap-2 px-1 text-xs transition-colors duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+                                >
+                                    <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                    <span className="min-w-0 flex-1 truncate text-left">{site.label}</span>
+                                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                </a>
+                            )
+                        })}
                     </div>
+                </section>
 
-                    <div className="space-y-1 rounded-xl border border-border bg-muted/20 p-1">
+                <section className="border-t pt-2">
+                    <div className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{copy.settings}</div>
+                    <div className="space-y-0.5">
                         <DeferredLanguageSwitcher fullWidth />
                         <ThemeSwitcher fullWidth />
                         <DeferredChangelogDialog triggerClassName="w-full justify-start" />
                     </div>
+                </section>
 
-                    <Button variant="outline" className="w-full justify-start" asChild>
-                        <a
-                            href="https://github.com/guodongbuding66-spec/galaxy-downloader"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={() => setOpen(false)}
-                        >
-                            <Image
-                                src="/platform-icons/github.svg"
-                                alt=""
-                                width={16}
-                                height={16}
-                                aria-hidden="true"
-                                className="dark:invert"
-                            />
-                            <span>GitHub</span>
-                        </a>
-                    </Button>
-                </div>
+                <Button variant="ghost" size="sm" className="h-9 w-full justify-start border-t rounded-none pt-2" asChild>
+                    <a
+                        href="https://github.com/guodongbuding66-spec/galaxy-downloader"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setOpen(false)}
+                    >
+                        <Image
+                            src="/platform-icons/github.svg"
+                            alt=""
+                            width={14}
+                            height={14}
+                            aria-hidden="true"
+                            className="dark:invert"
+                        />
+                        <span>GitHub</span>
+                    </a>
+                </Button>
             </DialogContent>
         </Dialog>
     )
