@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import web_document as base
+from document_markdown import extract_document_markdown
 
 
 SOCIAL_POST_PLATFORMS = {
@@ -144,6 +145,10 @@ def _document_payload(
     data = result.get("data")
     if not isinstance(data, dict):
         return result
+
+    markdown = extract_document_markdown(final_url, raw_html, str(data.get("platform") or ""))
+    if markdown:
+        data["markdownContent"] = markdown
 
     if data.get("documentType") == "post":
         images = data.get("images") if isinstance(data.get("images"), list) else []
