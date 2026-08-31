@@ -60,30 +60,15 @@ function ImageNoteGridContent({
     };
 
     const handleImageLoad = (index: number) => {
-        updateImageState(index, (state) => ({
-            ...state,
-            loading: false,
-            error: false,
-        }));
+        updateImageState(index, (state) => ({ ...state, loading: false, error: false }));
     };
 
     const handleImageError = (index: number, originalUrl: string) => {
         updateImageState(index, (state) => {
             if (!state.usedFallback && state.src !== originalUrl) {
-                return {
-                    ...state,
-                    loading: true,
-                    error: false,
-                    src: originalUrl,
-                    usedFallback: true,
-                };
+                return { ...state, loading: true, error: false, src: originalUrl, usedFallback: true };
             }
-
-            return {
-                ...state,
-                loading: false,
-                error: true,
-            };
+            return { ...state, loading: false, error: true };
         });
     };
 
@@ -115,7 +100,6 @@ function ImageNoteGridContent({
             for (let index = 0; index < images.length; index++) {
                 const state = imageStates[index];
                 const hasError = state?.error ?? false;
-
                 if (!hasError) {
                     try {
                         const { blob, sourceUrl } = await fetchImageBlobCandidates([
@@ -129,7 +113,6 @@ function ImageNoteGridContent({
                         console.error(`Failed to add image ${index} to zip:`, error);
                     }
                 }
-
                 setPackagingProgress(Math.round(((index + 1) / images.length) * 100));
             }
 
@@ -155,48 +138,37 @@ function ImageNoteGridContent({
     const singleImageState = singleImageMode ? imageStates[0] : undefined;
     const shouldHideSingleImage = shouldHideSingleImagePreview(singleImageMode, singleImageState);
 
-    if (shouldHideSingleImage) {
-        return null;
-    }
+    if (shouldHideSingleImage) return null;
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-2">
             {!singleImageMode && (
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-sm text-foreground/75">
-                        <span className="font-medium">{dict.result.imageNote}</span>
-                        <span className="ms-2 text-muted-foreground">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">{dict.result.imageNote}</span>
+                        <span className="ms-1.5 tabular-nums">
                             {replaceTemplate(dict.result.imageCount, '{count}', String(images.length))}
                         </span>
                         {!allLoaded && (
-                            <span className="ms-2 text-xs text-muted-foreground" role="status" aria-live="polite">
-                                ({dict.result.imageLoadingProgress.replace('{loaded}', String(loadedCount)).replace('{total}', String(images.length))})
+                            <span className="ms-1.5 text-[10px]" role="status" aria-live="polite">
+                                {dict.result.imageLoadingProgress.replace('{loaded}', String(loadedCount)).replace('{total}', String(images.length))}
                             </span>
                         )}
                     </div>
                     <Button
-                        size="sm"
+                        size="xs"
                         variant="outline"
                         disabled={!allLoaded || isPackaging || successCount === 0}
                         onClick={handlePackageDownload}
-                        className="min-h-10 shrink-0 gap-1.5 px-3 text-sm"
+                        className="shrink-0"
                     >
-                        {isPackaging ? (
-                            <>
-                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                                <span>{dict.result.packaging} {packagingProgress}%</span>
-                            </>
-                        ) : (
-                            <>
-                                <Package className="h-4 w-4" aria-hidden="true" />
-                                <span>{dict.result.packageDownload}</span>
-                            </>
-                        )}
+                        {isPackaging ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Package className="h-3.5 w-3.5" aria-hidden="true" />}
+                        <span>{isPackaging ? `${dict.result.packaging} ${packagingProgress}%` : dict.result.packageDownload}</span>
                     </Button>
                 </div>
             )}
 
-            <div className={`${singleImageMode ? 'grid grid-cols-1' : 'grid grid-cols-2'} max-h-[34rem] gap-3 overflow-y-auto pe-1`}>
+            <div className={`${singleImageMode ? 'grid grid-cols-1' : 'grid grid-cols-2'} max-h-[34rem] gap-2 overflow-y-auto pe-0.5`}>
                 {images.map((imageUrl, index) => {
                     const state = imageStates[index];
                     const isLoading = state?.loading ?? true;
@@ -206,60 +178,51 @@ function ImageNoteGridContent({
                     return (
                         <div
                             key={index}
-                            className="group relative overflow-hidden rounded-xl border bg-muted/20"
+                            className="group relative overflow-hidden rounded-md bg-muted outline outline-1 outline-black/10 dark:outline-white/10"
                         >
                             <div className={`${singleImageMode ? 'aspect-video' : 'aspect-square'} relative flex items-center justify-center bg-muted`}>
                                 {!hasError && (
                                     <Image
                                         src={displaySrc}
-                                        alt={
-                                            singleImageMode
-                                                ? (title || dict.result.coverLabel)
-                                                : replaceTemplate(dict.result.imageAlt, '{index}', String(index + 1))
-                                        }
+                                        alt={singleImageMode ? (title || dict.result.coverLabel) : replaceTemplate(dict.result.imageAlt, '{index}', String(index + 1))}
                                         fill
                                         unoptimized
                                         sizes={singleImageMode ? '(max-width: 1024px) 100vw, 720px' : '(max-width: 768px) 50vw, 33vw'}
-                                        className={`object-cover transition-opacity duration-200 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
+                                        className={`object-cover transition-opacity duration-150 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
                                         onLoad={() => handleImageLoad(index)}
                                         onError={() => handleImageError(index, imageUrl)}
                                     />
                                 )}
                                 {isLoading && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center" role="status">
-                                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
-                                        <p className="mt-2 text-xs text-muted-foreground">{dict.result.loading}</p>
+                                    <div className="absolute inset-0 flex items-center justify-center" role="status">
+                                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+                                        <span className="sr-only">{dict.result.loading}</span>
                                     </div>
                                 )}
                                 {!isLoading && hasError && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
-                                        <div className="text-2xl" aria-hidden="true">🖼️</div>
-                                        <p className="mt-2 text-xs">
-                                            {singleImageMode
-                                                ? dict.result.coverLabel
-                                                : replaceTemplate(dict.result.imageIndexLabel, '{index}', String(index + 1))}
-                                        </p>
-                                        <p className="mt-1 text-[11px] opacity-70">{dict.result.loadFailed}</p>
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center px-3 text-center text-[11px] text-muted-foreground">
+                                        <span>{singleImageMode ? dict.result.coverLabel : replaceTemplate(dict.result.imageIndexLabel, '{index}', String(index + 1))}</span>
+                                        <span className="mt-1 opacity-70">{dict.result.loadFailed}</span>
                                     </div>
                                 )}
                             </div>
 
                             {!isLoading && !hasError && (
-                                <div className="absolute bottom-2 end-2">
+                                <div className="absolute bottom-1.5 end-1.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
                                     <Button
                                         size="icon"
                                         variant="secondary"
-                                        className="h-10 w-10 shadow-md"
+                                        className="h-8 w-8 rounded-md bg-background/90 backdrop-blur-sm"
                                         onClick={() => void handleDownload(index, imageUrl)}
                                         aria-label={singleImageMode ? dict.result.downloadCover : dict.result.downloadImage}
                                     >
-                                        <Download className="h-4 w-4" aria-hidden="true" />
+                                        <Download className="h-3.5 w-3.5" aria-hidden="true" />
                                     </Button>
                                 </div>
                             )}
 
                             {!singleImageMode && (
-                                <div className="absolute end-2 top-2 rounded-md bg-black/65 px-2 py-1 text-xs font-medium tabular-nums text-white">
+                                <div className="absolute end-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white">
                                     {index + 1}
                                 </div>
                             )}
