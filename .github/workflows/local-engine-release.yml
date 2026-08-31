@@ -59,7 +59,7 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
-          python -m py_compile local-engine/entrypoint.py local-engine/engine.py local-engine/bridge.py local-engine/web_document.py local-engine/external_ytdlp.py local-engine/wechat_channels.py
+          python -m py_compile local-engine/entrypoint.py local-engine/engine.py local-engine/bridge.py local-engine/web_document.py local-engine/document_policy.py local-engine/dynamic_document.py local-engine/external_ytdlp.py local-engine/wechat_channels.py
           python local-engine/entrypoint.py --self-test
           $engineVersion = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
           $releaseVersion = '${{ steps.release.outputs.version }}'
