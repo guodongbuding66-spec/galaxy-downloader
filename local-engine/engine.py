@@ -27,6 +27,8 @@ from wechat_channels import WeChatChannelsError, download_wechat_channels, is_we
 APP_NAME = "Galaxy Local Engine"
 PROTOCOL = "galaxy-downloader"
 SUPPORTED_BROWSERS = {"none", "edge", "chrome", "firefox", "brave", "chromium", "opera", "vivaldi"}
+COLLECTION_MODES = {"single", "all", "selected"}
+MAX_SELECTED_COLLECTION_ITEMS = 500
 
 
 def resource_path(name: str) -> Path:
@@ -58,7 +60,13 @@ class Job:
     subtitle_lang: str | None = None
     include_cover: bool = False
     browser: str = "none"
-    playlist: bool = False
+    collection_mode: str = "single"
+    collection_items: tuple[int, ...] = ()
+
+    @property
+    def playlist(self) -> bool:
+        """Backward-compatible view used by older download helpers."""
+        return self.collection_mode != "single"
 
 
 def _bool(value: str | None, default: bool = False) -> bool:
@@ -80,6 +88,53 @@ def _validated_browser(value: str | None) -> str:
     return browser if browser in SUPPORTED_BROWSERS else "none"
 
 
+def _validated_collection_items(value: object) -> tuple[int, ...]:
+    if value is None:
+        return ()
+    raw_values: list[object]
+    if isinstance(value, str):
+        raw_values = [item.strip() for item in value.split(",") if item.strip()]
+    elif isinstance(value, (list, tuple, set)):
+        raw_values = list(value)
+    else:
+        raw_values = [value]
+
+    result: list[int] = []
+    for raw in raw_values:
+        try:
+            item = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if item <= 0 or item in result:
+            continue
+        result.append(item)
+        if len(result) >= MAX_SELECTED_COLLECTION_ITEMS:
+            break
+    return tuple(result)
+
+
+def _validated_collection_mode(
+    value: object,
+    *,
+    legacy_playlist: bool = False,
+    selected_items: tuple[int, ...] = (),
+) -> str:
+    mode = str(value or "").strip().lower()
+    if mode not in COLLECTION_MODES:
+        mode = "all" if legacy_playlist else "single"
+    if mode == "selected" and not selected_items:
+        return "single"
+    return mode
+
+
+def _collection_item_spec(job: Job) -> str | None:
+    if job.collection_mode == "single":
+        return "1"
+    if job.collection_mode == "selected":
+        return ",".join(str(item) for item in job.collection_items) or "1"
+    return None
+
+
 def parse_job(raw: str) -> Job:
     parsed = urlparse(raw)
     if parsed.scheme.lower() != PROTOCOL:
@@ -91,6 +146,13 @@ def parse_job(raw: str) -> Job:
     query = parse_qs(parsed.query)
     source_url = _validated_source_url(unquote(query.get("url", [""])[0]))
     subtitle_lang = query.get("subtitle_lang", [""])[0].strip() or None
+    selected_items = _validated_collection_items(query.get("items", [""])[0])
+    legacy_playlist = _bool(query.get("playlist", ["0"])[0])
+    collection_mode = _validated_collection_mode(
+        query.get("collection", [""])[0],
+        legacy_playlist=legacy_playlist,
+        selected_items=selected_items,
+    )
     return Job(
         source_url=source_url,
         video_quality=query.get("video", ["best"])[0].strip() or "best",
@@ -100,7 +162,8 @@ def parse_job(raw: str) -> Job:
         subtitle_lang=subtitle_lang,
         include_cover=_bool(query.get("cover", ["0"])[0]),
         browser=_validated_browser(query.get("browser", ["none"])[0]),
-        playlist=_bool(query.get("playlist", ["0"])[0]),
+        collection_mode=collection_mode,
+        collection_items=selected_items if collection_mode == "selected" else (),
     )
 
 
@@ -108,6 +171,13 @@ def job_from_payload(payload: dict[str, Any]) -> Job:
     source_url = _validated_source_url(str(payload.get("sourceUrl") or ""))
     subtitle_value = payload.get("subtitleLanguage")
     subtitle_lang = str(subtitle_value).strip() if subtitle_value else None
+    selected_items = _validated_collection_items(payload.get("selectedItems"))
+    legacy_playlist = bool(payload.get("playlist", False))
+    collection_mode = _validated_collection_mode(
+        payload.get("collectionMode"),
+        legacy_playlist=legacy_playlist,
+        selected_items=selected_items,
+    )
     return Job(
         source_url=source_url,
         video_quality=str(payload.get("videoQuality") or "best").strip() or "best",
@@ -117,7 +187,8 @@ def job_from_payload(payload: dict[str, Any]) -> Job:
         subtitle_lang=subtitle_lang,
         include_cover=bool(payload.get("includeCover", False)),
         browser=_validated_browser(str(payload.get("browser") or "none")),
-        playlist=bool(payload.get("playlist", False)),
+        collection_mode=collection_mode,
+        collection_items=selected_items if collection_mode == "selected" else (),
     )
 
 
@@ -131,6 +202,9 @@ def job_to_payload(job: Job) -> dict[str, Any]:
         "subtitleLanguage": job.subtitle_lang,
         "includeCover": job.include_cover,
         "browser": job.browser,
+        "collectionMode": job.collection_mode,
+        "selectedItems": list(job.collection_items),
+        # Keep the old field so pre-0.5 website builds remain understandable.
         "playlist": job.playlist,
     }
 
@@ -151,18 +225,25 @@ def human_speed(value: float | int | None) -> str:
 
 
 def format_selector(job: Job) -> str:
+    """Select one best video stream and one best audio stream, then merge them.
+
+    `bv*` is intentionally avoided here. It is allowed to select a muxed stream
+    that already contains audio, which can make a `bv*+ba` expression request an
+    unnecessary extra stream. `bv+ba/b` is yt-dlp's canonical one-video + one-
+    audio pattern with a muxed fallback.
+    """
     raw_height = re.search(r"(\d{3,4})", job.video_quality)
     height = int(raw_height.group(1)) if raw_height else None
     abr_match = re.search(r"(\d{2,3})", job.audio_quality)
     abr = int(abr_match.group(1)) if abr_match else None
 
     if not job.include_audio:
-        return f"bv*[height<={height}]/bv*" if height else "bv*/b"
+        return f"bv[height<={height}]/b[height<={height}]/b" if height else "bv/b"
 
     audio = f"ba[abr<={abr}]/ba" if abr else "ba"
     if height:
-        return f"bv*[height<={height}]+{audio}/b[height<={height}]/b"
-    return f"bv*+{audio}/b"
+        return f"bv[height<={height}]+{audio}/b[height<={height}]/b"
+    return f"bv+{audio}/b"
 
 
 def app_dir() -> Path:
@@ -194,7 +275,7 @@ def run_self_test() -> int:
         "galaxy-downloader://download?"
         "url=https%3A%2F%2Fexample.com%2Fwatch%3Fv%3Dabc123%26list%3Ddemo"
         "&video=1080p&audio=192&include_audio=1&subtitle=1&subtitle_lang=zh-Hans"
-        "&cover=1&browser=edge&playlist=0"
+        "&cover=1&browser=edge&collection=selected&items=2%2C4"
     )
     job = parse_job(sample)
     assert job.source_url == "https://example.com/watch?v=abc123&list=demo"
@@ -205,10 +286,13 @@ def run_self_test() -> int:
     assert job.subtitle_lang == "zh-Hans"
     assert job.include_cover is True
     assert job.browser == "edge"
-    assert job.playlist is False
+    assert job.collection_mode == "selected"
+    assert job.collection_items == (2, 4)
+    assert job.playlist is True
     selector = format_selector(job)
     assert "height<=1080" in selector
     assert "abr<=192" in selector
+    assert selector.startswith("bv[")
 
     payload_job = job_from_payload(job_to_payload(job))
     assert payload_job == job
@@ -224,12 +308,37 @@ def run_self_test() -> int:
         include_subtitle=job.include_subtitle,
         subtitle_language=job.subtitle_lang,
         include_cover=job.include_cover,
+        collection_mode=job.collection_mode,
+        selected_items=job.collection_items,
     )
+    assert "--ignore-config" in external_command
     assert "--cookies-from-browser" in external_command
     assert "edge" in external_command
     assert "--embed-subs" in external_command
     assert "--embed-thumbnail" in external_command
+    assert "--write-thumbnail" not in external_command
+    assert "--playlist-items" in external_command
+    assert "2,4" in external_command
     assert external_command[-1] == job.source_url
+
+    single_job = job_from_payload({"sourceUrl": "https://example.com/gallery"})
+    single_command = build_external_command(
+        Path("yt-dlp.exe"),
+        single_job.source_url,
+        format_selector=format_selector(single_job),
+        output_template="%(title)s.%(ext)s",
+        ffmpeg_location=None,
+        browser="none",
+        playlist=single_job.playlist,
+        include_subtitle=False,
+        subtitle_language=None,
+        include_cover=False,
+        collection_mode=single_job.collection_mode,
+        selected_items=single_job.collection_items,
+    )
+    assert "--no-playlist" in single_command
+    assert single_command[single_command.index("--playlist-items") + 1] == "1"
+    assert "--no-write-thumbnail" in single_command
 
     assert is_wechat_channels_url("https://weixin.qq.com/sph/A8cRzSpWAi")
     assert is_wechat_channels_url(
@@ -574,20 +683,22 @@ class EngineWindow(tk.Tk):
                 ]
             )
         if self.job.include_cover:
-            postprocessors.append({"key": "EmbedThumbnail"})
+            # Match yt-dlp's --embed-thumbnail behavior: download a temporary
+            # thumbnail for the postprocessor, but delete it after embedding.
+            postprocessors.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
 
-        options = {
+        options: dict[str, Any] = {
             "format": format_selector(self.job),
             "outtmpl": str(output_dir / "%(title).180B [%(id)s].%(ext)s"),
             "windowsfilenames": True,
-            "noplaylist": not self.job.playlist,
+            "noplaylist": self.job.collection_mode == "single",
             "continuedl": True,
             "retries": 10,
             "fragment_retries": 10,
             "extractor_retries": 5,
             "file_access_retries": 5,
             "concurrent_fragment_downloads": 4,
-            "merge_output_format": "mp4",
+            "merge_output_format": "mp4/mkv",
             "writethumbnail": self.job.include_cover,
             "writesubtitles": self.job.include_subtitle,
             "writeautomaticsub": self.job.include_subtitle,
@@ -605,6 +716,9 @@ class EngineWindow(tk.Tk):
             "noprogress": True,
             "socket_timeout": 30,
         }
+        item_spec = _collection_item_spec(self.job)
+        if item_spec:
+            options["playlist_items"] = item_spec
         ffmpeg = ffmpeg_dir()
         if ffmpeg:
             options["ffmpeg_location"] = str(ffmpeg)
@@ -701,6 +815,8 @@ class EngineWindow(tk.Tk):
                 include_subtitle=self.job.include_subtitle,
                 subtitle_language=self.job.subtitle_lang,
                 include_cover=self.job.include_cover,
+                collection_mode=self.job.collection_mode,
+                selected_items=self.job.collection_items,
                 cancelled=self.cancel_event.is_set,
                 on_progress=self.external_progress_hook,
                 on_status=self.external_status_hook,
@@ -717,6 +833,14 @@ class EngineWindow(tk.Tk):
         self._update_bridge(progress=100.0)
         return True
 
+    def _completed_detail(self) -> str:
+        assert self.job is not None
+        if self.job.collection_mode == "all":
+            return "All requested collection items were saved; each item is one finished media file"
+        if self.job.collection_mode == "selected":
+            return "Selected collection items were saved; each item is one finished media file"
+        return "The finished media file is saved in the portable downloads folder"
+
     def _run_job(self) -> None:
         assert self.job is not None
         try:
@@ -730,7 +854,7 @@ class EngineWindow(tk.Tk):
 
             external = external_ytdlp_path(app_dir())
             if external and self._run_external_job(external):
-                self.set_status("Completed", "The finished media file is saved in the portable downloads folder")
+                self.set_status("Completed", self._completed_detail())
                 return
 
             with YoutubeDL(self.build_options()) as ydl:
@@ -740,7 +864,7 @@ class EngineWindow(tk.Tk):
                     self.last_path = Path(path)
             self.ui(self.percent_var.set, 100)
             self._update_bridge(progress=100.0)
-            self.set_status("Completed", "The finished media file is saved in the portable downloads folder")
+            self.set_status("Completed", self._completed_detail())
         except DownloadCancelled:
             self.set_status("Cancelled", "The local download was cancelled")
         except WeChatChannelsError as exc:
