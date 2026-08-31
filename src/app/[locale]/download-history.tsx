@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
     AlertDialog,
@@ -16,7 +15,7 @@ import {
     AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
-import { ChevronsUpDown, ExternalLink, History, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { ChevronDown, ExternalLink, History, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { toast } from '@/lib/deferred-toast';
 import { useDictionary } from '@/i18n/client';
 import { PlatformBadge } from '@/components/platform-badge';
@@ -53,7 +52,7 @@ export function DownloadHistory({
     downloadHistory,
     clearHistory,
     onRedownload,
-    defaultOpen = true,
+    defaultOpen = false,
 }: DownloadHistoryProps) {
     const dict = useDictionary();
     const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -64,9 +63,7 @@ export function DownloadHistory({
         toast.success(dict.history.cleared);
     };
 
-    if (!downloadHistory || downloadHistory.length === 0) {
-        return null;
-    }
+    if (!downloadHistory || downloadHistory.length === 0) return null;
 
     const normalizedQuery = searchQuery.trim().toLowerCase();
     const filteredHistory = normalizedQuery
@@ -74,49 +71,42 @@ export function DownloadHistory({
         : downloadHistory;
 
     return (
-        <Card className="overflow-hidden">
+        <section className="border-t">
             <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-                <CardHeader className="border-b bg-muted/20 p-4 sm:p-5">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <CollapsibleTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                className="min-h-11 w-full justify-start gap-3 px-2 text-start lg:w-auto"
-                            >
-                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background ring-1 ring-border">
-                                    <History className="h-4 w-4" aria-hidden="true" />
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                    <span className="block text-base font-semibold tracking-tight">
-                                        {dict.history.title}
-                                    </span>
-                                    <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground">
-                                        {filteredHistory.length} / {downloadHistory.length}
-                                    </span>
-                                </span>
-                                <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                            </Button>
-                        </CollapsibleTrigger>
+                <CollapsibleTrigger asChild>
+                    <button
+                        type="button"
+                        className="flex min-h-10 w-full items-center gap-2 px-1 py-2 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                        <History className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                        <span className="min-w-0 flex-1 text-sm font-medium">{dict.history.title}</span>
+                        <span className="text-[11px] tabular-nums text-muted-foreground">{downloadHistory.length}</span>
+                        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                    </button>
+                </CollapsibleTrigger>
 
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
-                                <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <CollapsibleContent>
+                    <div className="pb-2 pt-1">
+                        <div className="mb-2 flex items-center gap-1.5">
+                            <div className="relative min-w-0 flex-1 sm:max-w-64">
+                                <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                                 <Input
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder={dict.history.searchPlaceholder}
                                     aria-label={dict.history.searchPlaceholder}
-                                    className="min-h-11 w-full ps-9 text-base sm:text-sm"
+                                    className="h-8 ps-8 text-xs"
                                 />
                             </div>
 
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                     <Button
-                                        variant="outline"
-                                        className="min-h-11 gap-2 border-destructive/25 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                        variant="ghost"
+                                        size="xs"
+                                        className="shrink-0 text-muted-foreground hover:text-destructive"
                                     >
-                                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                                         {dict.history.clear}
                                     </Button>
                                 </AlertDialogTrigger>
@@ -137,49 +127,43 @@ export function DownloadHistory({
                                 </AlertDialogContent>
                             </AlertDialog>
                         </div>
-                    </div>
-                </CardHeader>
 
-                <CollapsibleContent>
-                    <CardContent className="p-3 sm:p-4">
-                        <div className="max-h-[min(58vh,34rem)] overflow-y-auto overscroll-contain pe-1">
+                        <div className="max-h-[min(52vh,30rem)] overflow-y-auto overscroll-contain border-y">
                             {filteredHistory.length === 0 ? (
-                                <p className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                                <p className="px-3 py-8 text-center text-xs text-muted-foreground">
                                     {dict.history.noSearchResults}
                                 </p>
                             ) : (
-                                <div className="space-y-2">
+                                <div className="divide-y">
                                     {filteredHistory.map((record: DownloadRecord) => (
                                         <article
                                             key={`${record.url}-${record.timestamp}`}
-                                            className="group flex min-w-0 flex-col gap-3 rounded-xl border bg-background p-3 transition-colors duration-150 hover:bg-muted/25 md:flex-row md:items-center md:justify-between"
+                                            className="grid min-h-11 min-w-0 gap-1.5 px-1.5 py-1.5 transition-colors hover:bg-muted/50 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
                                         >
-                                            <div className="min-w-0 flex-1 space-y-1.5">
-                                                <h3 className="line-clamp-2 text-sm font-medium leading-5" title={record.title}>
+                                            <div className="flex min-w-0 items-center gap-2">
+                                                <PlatformBadge platform={record.platform} />
+                                                <h3 className="min-w-0 flex-1 truncate text-xs font-medium" title={record.title}>
                                                     {record.title}
                                                 </h3>
-                                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                                    <PlatformBadge platform={record.platform} />
-                                                    <time dateTime={new Date(record.timestamp).toISOString()} className="tabular-nums">
-                                                        {formatRecordTimestamp(record.timestamp)}
-                                                    </time>
-                                                </div>
+                                                <time dateTime={new Date(record.timestamp).toISOString()} className="hidden shrink-0 text-[10px] tabular-nums text-muted-foreground sm:inline">
+                                                    {formatRecordTimestamp(record.timestamp)}
+                                                </time>
                                             </div>
 
-                                            <div className="grid grid-cols-2 gap-2 md:flex md:shrink-0">
-                                                <Button variant="outline" size="sm" className="min-h-10 gap-1.5" asChild>
+                                            <div className="flex items-center gap-1 md:justify-end">
+                                                <Button variant="ghost" size="xs" className="text-muted-foreground" asChild>
                                                     <a href={record.url} target="_blank" rel="noopener noreferrer">
-                                                        <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                                                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                                                         {dict.history.viewSource}
                                                     </a>
                                                 </Button>
                                                 <Button
-                                                    variant="secondary"
-                                                    size="sm"
-                                                    className="min-h-10 gap-1.5"
+                                                    variant="ghost"
+                                                    size="xs"
+                                                    className="text-muted-foreground"
                                                     onClick={() => onRedownload?.(record.url)}
                                                 >
-                                                    <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                                                    <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                                                     {dict.history.redownload}
                                                 </Button>
                                             </div>
@@ -188,9 +172,9 @@ export function DownloadHistory({
                                 </div>
                             )}
                         </div>
-                    </CardContent>
+                    </div>
                 </CollapsibleContent>
             </Collapsible>
-        </Card>
+        </section>
     );
 }
