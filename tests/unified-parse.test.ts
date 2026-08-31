@@ -30,6 +30,14 @@ describe('requestUnifiedParse reload guard', () => {
         },
     }))
 
+    const parseRequestCount = () => fetchMock.mock.calls.filter(([input]) => (
+        typeof input === 'string' && !input.startsWith('/api/site-stats')
+    )).length
+
+    const statsRequestCount = () => fetchMock.mock.calls.filter(([input]) => (
+        typeof input === 'string' && input.startsWith('/api/site-stats')
+    )).length
+
     beforeEach(() => {
         resetUnifiedParseAttemptCountForTests()
         reload.mockClear()
@@ -51,25 +59,32 @@ describe('requestUnifiedParse reload guard', () => {
         resetUnifiedParseAttemptCountForTests()
     })
 
-    it('reloads on the 61st parse attempt before sending another request', async () => {
+    it('reloads on the 61st parse attempt before sending another parse request', async () => {
         for (let index = 0; index < 60; index += 1) {
             await requestUnifiedParse('https://example.com/watch?v=1')
         }
 
-        expect(fetchMock).toHaveBeenCalledTimes(60)
+        expect(parseRequestCount()).toBe(60)
+        expect(statsRequestCount()).toBe(60)
 
         await expect(requestUnifiedParse('https://example.com/watch?v=1')).rejects.toBeInstanceOf(
             UnifiedParseReloadError
         )
 
         expect(reload).toHaveBeenCalledTimes(1)
-        expect(fetchMock).toHaveBeenCalledTimes(60)
+        expect(parseRequestCount()).toBe(60)
+        expect(statsRequestCount()).toBe(60)
     })
 
-    it('notifies today stats after a successful parse', async () => {
+    it('records and refreshes today stats after a successful parse', async () => {
         await requestUnifiedParse('https://example.com/watch?v=1')
 
-        expect(dispatchEvent).toHaveBeenCalledTimes(1)
+        expect(parseRequestCount()).toBe(1)
+        expect(statsRequestCount()).toBe(1)
+
+        await vi.waitFor(() => {
+            expect(dispatchEvent).toHaveBeenCalledTimes(1)
+        })
         expect(dispatchEvent.mock.calls[0][0]).toBeInstanceOf(CustomEvent)
         expect(dispatchEvent.mock.calls[0][0].type).toBe(TODAY_PARSE_STATS_REFRESH_EVENT)
     })
