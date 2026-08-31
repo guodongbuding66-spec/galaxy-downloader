@@ -11,12 +11,12 @@ export function PlatformSupportGrid({ dict }: PlatformSupportGridProps) {
     const items = getPlatformSupportItems(dict);
 
     return (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {items.map((item) => (
-                <div key={item.key} className="flex min-w-0 items-center gap-2 rounded-lg px-0.5 py-1">
+                <div key={item.key} className="group flex min-w-0 items-center gap-2.5 rounded-xl border border-border/70 bg-background/70 px-3 py-2.5 shadow-sm transition-[border-color,background-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/[0.025] hover:shadow-md motion-reduce:transform-none">
                     <div
                         className={cn(
-                            'relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border',
+                            'relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-card',
                             item.visual.frameClassName,
                         )}
                     >
@@ -38,7 +38,7 @@ export function PlatformSupportGrid({ dict }: PlatformSupportGridProps) {
                             </span>
                         ) : null}
                     </div>
-                    <p className="min-w-0 truncate text-[14px] font-semibold leading-4 text-foreground">{item.name}</p>
+                    <p className="min-w-0 truncate text-sm font-semibold leading-5 text-foreground">{item.name}</p>
                 </div>
             ))}
         </div>

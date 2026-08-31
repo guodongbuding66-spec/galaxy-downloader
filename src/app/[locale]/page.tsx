@@ -25,18 +25,20 @@ export default async function HomePage({
             <StructuredData locale={locale} dict={dict} />
             <UnifiedDownloaderClient
                 leftRail={
-                    <>
+                    <div className="grid gap-4 md:col-span-2 md:grid-cols-3 xl:col-span-3">
                         <TodayStatsCard dict={dict} />
                         <QuickStartCard dict={dict} />
                         <FreeSupportCard dict={dict} />
-                        <ViewportSideRailAd slot="1341604736" showOn="desktop" height={250} />
-                    </>
+                        <div className="md:col-span-3">
+                            <ViewportSideRailAd slot="1341604736" showOn="desktop" height={250} />
+                        </div>
+                    </div>
                 }
                 rightRail={
-                    <>
+                    <div className="space-y-4 md:col-span-2 xl:col-span-3">
                         <PlatformGuideCard dict={dict} />
                         <ViewportSideRailAd slot="6380909506" showOn="desktop" height={250} />
-                    </>
+                    </div>
                 }
                 mobileAd={
                     <ViewportSideRailAd slot="5740014745" showOn="mobile" height={250} />

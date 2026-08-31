@@ -575,9 +575,9 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                 </div>
             </div>
 
-            <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)] lg:items-start">
+            <div className="grid gap-5 p-4 sm:p-5">
                 <div className="space-y-5">
-                    <div className="grid gap-4 rounded-xl bg-muted/20 p-4 ring-1 ring-border/70 md:grid-cols-2">
+                    <div className="grid gap-4 rounded-xl bg-muted/20 p-4 ring-1 ring-border/70">
                         <div className="space-y-2">
                             <div className="flex items-center gap-2 text-sm font-medium">
                                 <Video className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -618,7 +618,7 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                     </div>
 
                     <div className="space-y-3">
-                        <div className="grid gap-2 md:grid-cols-3">
+                        <div className="grid gap-2">
                             <CheckboxRow
                                 checked={includeAudio}
                                 disabled={running}
@@ -665,7 +665,7 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                     </div>
                 </div>
 
-                <div className="space-y-3 lg:sticky lg:top-20">
+                <div className="space-y-3">
                     <div className="rounded-xl border bg-background p-4 shadow-sm">
                         <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
                             <Film className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
