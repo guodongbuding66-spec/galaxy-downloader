@@ -43,7 +43,7 @@ export function DocumentTextActions({
     publishedAt?: string | null
     sourceUrl?: string | null
 }) {
-    const pathname = usePathname()
+    const pathname = usePathname() || ''
     const locale = pathname.split('/').filter(Boolean)[0] || 'en'
     const copy = COPY[locale] || COPY.en
     const [expanded, setExpanded] = useState(false)
