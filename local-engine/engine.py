@@ -9,11 +9,13 @@ import tkinter as tk
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox, ttk
+from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadCancelled, DownloadError
 
+from bridge import LocalBridge, bridge_is_running, post_job_to_running_engine
 from external_ytdlp import (
     ExternalYtDlpError,
     build_external_command,
@@ -65,6 +67,19 @@ def _bool(value: str | None, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def _validated_source_url(value: str) -> str:
+    source_url = value.strip()
+    source = urlparse(source_url)
+    if source.scheme not in {"http", "https"} or not source.netloc:
+        raise ValueError("A valid http(s) media URL is required")
+    return source_url
+
+
+def _validated_browser(value: str | None) -> str:
+    browser = (value or "none").lower().strip()
+    return browser if browser in SUPPORTED_BROWSERS else "none"
+
+
 def parse_job(raw: str) -> Job:
     parsed = urlparse(raw)
     if parsed.scheme.lower() != PROTOCOL:
@@ -74,15 +89,7 @@ def parse_job(raw: str) -> Job:
         raise ValueError("Unsupported action")
 
     query = parse_qs(parsed.query)
-    source_url = unquote(query.get("url", [""])[0]).strip()
-    source = urlparse(source_url)
-    if source.scheme not in {"http", "https"} or not source.netloc:
-        raise ValueError("A valid http(s) media URL is required")
-
-    browser = query.get("browser", ["none"])[0].lower().strip()
-    if browser not in SUPPORTED_BROWSERS:
-        browser = "none"
-
+    source_url = _validated_source_url(unquote(query.get("url", [""])[0]))
     subtitle_lang = query.get("subtitle_lang", [""])[0].strip() or None
     return Job(
         source_url=source_url,
@@ -92,9 +99,40 @@ def parse_job(raw: str) -> Job:
         include_subtitle=_bool(query.get("subtitle", ["0"])[0]),
         subtitle_lang=subtitle_lang,
         include_cover=_bool(query.get("cover", ["0"])[0]),
-        browser=browser,
+        browser=_validated_browser(query.get("browser", ["none"])[0]),
         playlist=_bool(query.get("playlist", ["0"])[0]),
     )
+
+
+def job_from_payload(payload: dict[str, Any]) -> Job:
+    source_url = _validated_source_url(str(payload.get("sourceUrl") or ""))
+    subtitle_value = payload.get("subtitleLanguage")
+    subtitle_lang = str(subtitle_value).strip() if subtitle_value else None
+    return Job(
+        source_url=source_url,
+        video_quality=str(payload.get("videoQuality") or "best").strip() or "best",
+        audio_quality=str(payload.get("audioQuality") or "best").strip() or "best",
+        include_audio=bool(payload.get("includeAudio", True)),
+        include_subtitle=bool(payload.get("includeSubtitle", False)),
+        subtitle_lang=subtitle_lang,
+        include_cover=bool(payload.get("includeCover", False)),
+        browser=_validated_browser(str(payload.get("browser") or "none")),
+        playlist=bool(payload.get("playlist", False)),
+    )
+
+
+def job_to_payload(job: Job) -> dict[str, Any]:
+    return {
+        "sourceUrl": job.source_url,
+        "videoQuality": job.video_quality,
+        "audioQuality": job.audio_quality,
+        "includeAudio": job.include_audio,
+        "includeSubtitle": job.include_subtitle,
+        "subtitleLanguage": job.subtitle_lang,
+        "includeCover": job.include_cover,
+        "browser": job.browser,
+        "playlist": job.playlist,
+    }
 
 
 def human_bytes(value: float | int | None) -> str:
@@ -172,6 +210,9 @@ def run_self_test() -> int:
     assert "height<=1080" in selector
     assert "abr<=192" in selector
 
+    payload_job = job_from_payload(job_to_payload(job))
+    assert payload_job == job
+
     external_command = build_external_command(
         Path("yt-dlp.exe"),
         job.source_url,
@@ -207,6 +248,20 @@ class EngineWindow(tk.Tk):
         self.job = job
         self.cancel_event = threading.Event()
         self.last_path: Path | None = None
+        self.running = False
+        self._state_lock = threading.Lock()
+        self._bridge_snapshot: dict[str, Any] = {
+            "version": VERSION,
+            "state": "ready",
+            "status": "Ready",
+            "detail": "Waiting for a download job",
+            "busy": False,
+            "progress": 0.0,
+            "speed": "—",
+            "eta": "—",
+            "downloaded": "—",
+        }
+
         self.title(APP_NAME)
         self.geometry("620x420")
         self.minsize(520, 360)
@@ -220,6 +275,24 @@ class EngineWindow(tk.Tk):
         self.size_var = tk.StringVar(value="—")
 
         self._build_ui()
+        self.protocol("WM_DELETE_WINDOW", self.close_app)
+
+        self.bridge = LocalBridge(
+            status_provider=self.bridge_status,
+            submit_job=self.submit_bridge_job,
+            cancel_job=self.cancel_from_bridge,
+            open_folder=self.open_folder_from_bridge,
+        )
+        try:
+            self.bridge.start()
+        except OSError as exc:
+            messagebox.showerror(
+                APP_NAME,
+                f"Could not start the local website bridge on 127.0.0.1.\n\n{exc}",
+            )
+            self.after(50, self.destroy)
+            return
+
         if self.job:
             self.after(120, self.start_job)
 
@@ -234,24 +307,76 @@ class EngineWindow(tk.Tk):
         wrapper = tk.Frame(self, bg="#f6f8fc", padx=26, pady=24)
         wrapper.pack(fill="both", expand=True)
 
-        tk.Label(wrapper, text=APP_NAME, font=("Segoe UI Variable Display", 20, "bold"), bg="#f6f8fc", fg="#14213d").pack(anchor="w")
-        tk.Label(wrapper, text=f"Local yt-dlp + FFmpeg · v{VERSION}", font=("Segoe UI", 9), bg="#f6f8fc", fg="#667085").pack(anchor="w", pady=(2, 20))
+        tk.Label(
+            wrapper,
+            text=APP_NAME,
+            font=("Segoe UI Variable Display", 20, "bold"),
+            bg="#f6f8fc",
+            fg="#14213d",
+        ).pack(anchor="w")
+        tk.Label(
+            wrapper,
+            text=f"Local yt-dlp + FFmpeg · v{VERSION}",
+            font=("Segoe UI", 9),
+            bg="#f6f8fc",
+            fg="#667085",
+        ).pack(anchor="w", pady=(2, 20))
 
-        card = tk.Frame(wrapper, bg="#ffffff", highlightthickness=1, highlightbackground="#dfe5f0", padx=20, pady=18)
+        card = tk.Frame(
+            wrapper,
+            bg="#ffffff",
+            highlightthickness=1,
+            highlightbackground="#dfe5f0",
+            padx=20,
+            pady=18,
+        )
         card.pack(fill="both", expand=True)
 
-        tk.Label(card, textvariable=self.status_var, font=("Segoe UI", 12, "bold"), bg="#ffffff", fg="#172b4d").pack(anchor="w")
-        tk.Label(card, textvariable=self.detail_var, font=("Segoe UI", 9), bg="#ffffff", fg="#667085", wraplength=540, justify="left").pack(anchor="w", pady=(5, 14))
-        ttk.Progressbar(card, variable=self.percent_var, maximum=100, style="Galaxy.Horizontal.TProgressbar").pack(fill="x")
+        tk.Label(
+            card,
+            textvariable=self.status_var,
+            font=("Segoe UI", 12, "bold"),
+            bg="#ffffff",
+            fg="#172b4d",
+        ).pack(anchor="w")
+        tk.Label(
+            card,
+            textvariable=self.detail_var,
+            font=("Segoe UI", 9),
+            bg="#ffffff",
+            fg="#667085",
+            wraplength=540,
+            justify="left",
+        ).pack(anchor="w", pady=(5, 14))
+        ttk.Progressbar(
+            card,
+            variable=self.percent_var,
+            maximum=100,
+            style="Galaxy.Horizontal.TProgressbar",
+        ).pack(fill="x")
 
         stats = tk.Frame(card, bg="#ffffff")
         stats.pack(fill="x", pady=(16, 0))
-        for index, (title, var) in enumerate((("Speed", self.speed_var), ("ETA", self.eta_var), ("Downloaded", self.size_var))):
+        for index, (title, var) in enumerate(
+            (("Speed", self.speed_var), ("ETA", self.eta_var), ("Downloaded", self.size_var))
+        ):
             cell = tk.Frame(stats, bg="#ffffff")
             cell.grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 8, 0))
             stats.grid_columnconfigure(index, weight=1)
-            tk.Label(cell, text=title, font=("Segoe UI", 8), bg="#ffffff", fg="#98a2b3").pack(anchor="w")
-            tk.Label(cell, textvariable=var, font=("Segoe UI", 10, "bold"), bg="#ffffff", fg="#344054").pack(anchor="w", pady=(2, 0))
+            tk.Label(
+                cell,
+                text=title,
+                font=("Segoe UI", 8),
+                bg="#ffffff",
+                fg="#98a2b3",
+            ).pack(anchor="w")
+            tk.Label(
+                cell,
+                textvariable=var,
+                font=("Segoe UI", 10, "bold"),
+                bg="#ffffff",
+                fg="#344054",
+            ).pack(anchor="w", pady=(2, 0))
 
         actions = tk.Frame(wrapper, bg="#f6f8fc")
         actions.pack(fill="x", pady=(16, 0))
@@ -264,7 +389,47 @@ class EngineWindow(tk.Tk):
     def ui(self, fn, *args) -> None:
         self.after(0, fn, *args)
 
+    def _update_bridge(self, **changes: Any) -> None:
+        with self._state_lock:
+            self._bridge_snapshot.update(changes)
+
+    def bridge_status(self) -> dict[str, Any]:
+        with self._state_lock:
+            snapshot = dict(self._bridge_snapshot)
+        snapshot.update(
+            {
+                "version": VERSION,
+                "ffmpegReady": ffmpeg_dir() is not None,
+                "ytDlpReady": external_ytdlp_path(app_dir()) is not None,
+            }
+        )
+        return snapshot
+
     def set_status(self, title: str, detail: str | None = None) -> None:
+        state_by_title = {
+            "Ready": "ready",
+            "Starting": "starting",
+            "Updating extractor": "starting",
+            "Extractor ready": "starting",
+            "Preparing media": "starting",
+            "Retrying with embedded extractor": "starting",
+            "Downloading": "downloading",
+            "Download finished": "processing",
+            "Processing": "processing",
+            "Finalizing": "processing",
+            "Completed": "completed",
+            "Cancelling": "cancelling",
+            "Cancelled": "cancelled",
+            "Download failed": "failed",
+        }
+        changes: dict[str, Any] = {
+            "status": title,
+            "state": state_by_title.get(title, "working" if self.running else "ready"),
+            "busy": self.running,
+        }
+        if detail is not None:
+            changes["detail"] = detail
+        self._update_bridge(**changes)
         self.ui(self.status_var.set, title)
         if detail is not None:
             self.ui(self.detail_var.set, detail)
@@ -277,17 +442,28 @@ class EngineWindow(tk.Tk):
             downloaded = data.get("downloaded_bytes") or 0
             total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
             percent = (downloaded / total * 100) if total else 0
-            self.ui(self.percent_var.set, max(0, min(100, percent)))
-            self.ui(self.speed_var.set, human_speed(data.get("speed")))
+            speed = human_speed(data.get("speed"))
             eta = data.get("eta")
-            self.ui(self.eta_var.set, "—" if eta is None else f"{int(eta)} s")
-            self.ui(self.size_var.set, human_bytes(downloaded))
+            eta_text = "—" if eta is None else f"{int(eta)} s"
+            size_text = human_bytes(downloaded)
+            self._update_bridge(
+                progress=max(0, min(100, percent)),
+                speed=speed,
+                eta=eta_text,
+                downloaded=size_text,
+                busy=True,
+            )
+            self.ui(self.percent_var.set, max(0, min(100, percent)))
+            self.ui(self.speed_var.set, speed)
+            self.ui(self.eta_var.set, eta_text)
+            self.ui(self.size_var.set, size_text)
             filename = data.get("filename") or "Downloading media"
             self.set_status("Downloading", Path(filename).name)
         elif status == "finished":
             filename = data.get("filename")
             if filename:
                 self.last_path = Path(filename)
+            self._update_bridge(progress=100.0, busy=True)
             self.ui(self.percent_var.set, 100)
             self.set_status("Download finished", "Preparing final file with FFmpeg")
 
@@ -313,12 +489,19 @@ class EngineWindow(tk.Tk):
         downloaded: str,
         total: str,
     ) -> None:
-        self.ui(self.percent_var.set, percent)
-        self.ui(self.speed_var.set, speed or "—")
-        self.ui(self.eta_var.set, eta or "—")
         size = downloaded or "—"
         if total and total != "—":
             size = f"{size} / {total}"
+        self._update_bridge(
+            progress=max(0, min(100, percent)),
+            speed=speed or "—",
+            eta=eta or "—",
+            downloaded=size,
+            busy=True,
+        )
+        self.ui(self.percent_var.set, percent)
+        self.ui(self.speed_var.set, speed or "—")
+        self.ui(self.eta_var.set, eta or "—")
         self.ui(self.size_var.set, size)
         self.set_status("Downloading", "Using the current yt-dlp extractor on this computer")
 
@@ -330,12 +513,21 @@ class EngineWindow(tk.Tk):
     def build_options(self) -> dict:
         assert self.job is not None
         output_dir = default_download_dir()
-        postprocessors = [{"key": "FFmpegMetadata", "add_metadata": True, "add_chapters": True, "add_infojson": False}]
+        postprocessors = [
+            {
+                "key": "FFmpegMetadata",
+                "add_metadata": True,
+                "add_chapters": True,
+                "add_infojson": False,
+            }
+        ]
         if self.job.include_subtitle:
-            postprocessors.extend([
-                {"key": "FFmpegSubtitlesConvertor", "format": "srt", "when": "before_dl"},
-                {"key": "FFmpegEmbedSubtitle"},
-            ])
+            postprocessors.extend(
+                [
+                    {"key": "FFmpegSubtitlesConvertor", "format": "srt", "when": "before_dl"},
+                    {"key": "FFmpegEmbedSubtitle"},
+                ]
+            )
         if self.job.include_cover:
             postprocessors.append({"key": "EmbedThumbnail"})
 
@@ -355,7 +547,11 @@ class EngineWindow(tk.Tk):
             "writesubtitles": self.job.include_subtitle,
             "writeautomaticsub": self.job.include_subtitle,
             "subtitlesformat": "srt/best",
-            "subtitleslangs": [self.job.subtitle_lang] if self.job.subtitle_lang else ["zh-Hans", "zh-Hant", "zh", "en", "ja", "es", "ru"],
+            "subtitleslangs": (
+                [self.job.subtitle_lang]
+                if self.job.subtitle_lang
+                else ["zh-Hans", "zh-Hant", "zh", "en", "ja", "es", "ru"]
+            ),
             "postprocessors": postprocessors,
             "progress_hooks": [self.progress_hook],
             "postprocessor_hooks": [self.postprocessor_hook],
@@ -371,13 +567,61 @@ class EngineWindow(tk.Tk):
             options["cookiesfrombrowser"] = (self.job.browser, None, None, None)
         return options
 
+    def _reset_job_ui(self) -> None:
+        self.percent_var.set(0)
+        self.speed_var.set("—")
+        self.eta_var.set("—")
+        self.size_var.set("—")
+        self._update_bridge(progress=0.0, speed="—", eta="—", downloaded="—")
+
     def start_job(self) -> None:
-        if not self.job:
+        if not self.job or self.running:
             return
+        self.running = True
         self.cancel_event.clear()
+        self._reset_job_ui()
         self.cancel_button.state(["!disabled"])
+        self._update_bridge(busy=True, state="starting")
         self.set_status("Starting", self.job.source_url)
         threading.Thread(target=self._run_job, daemon=True).start()
+
+    def submit_bridge_job(self, payload: dict[str, Any]) -> tuple[bool, str]:
+        try:
+            job = job_from_payload(payload)
+        except ValueError as exc:
+            return False, str(exc)
+
+        completed = threading.Event()
+        result: dict[str, Any] = {"accepted": False, "message": "Local engine did not accept the job"}
+
+        def accept() -> None:
+            if self.running:
+                result.update(
+                    accepted=False,
+                    message="Galaxy Local Engine is already processing another job",
+                )
+            else:
+                self.job = job
+                self.deiconify()
+                self.lift()
+                try:
+                    self.focus_force()
+                except tk.TclError:
+                    pass
+                self.start_job()
+                result.update(accepted=True, message="Download job accepted")
+            completed.set()
+
+        self.after(0, accept)
+        if not completed.wait(timeout=2.0):
+            return False, "Timed out while handing the job to the desktop window"
+        return bool(result["accepted"]), str(result["message"])
+
+    def cancel_from_bridge(self) -> None:
+        self.after(0, self.cancel)
+
+    def open_folder_from_bridge(self) -> None:
+        self.after(0, self.open_folder)
 
     def _run_external_job(self, executable: Path) -> bool:
         assert self.job is not None
@@ -415,6 +659,7 @@ class EngineWindow(tk.Tk):
         if final_path:
             self.last_path = final_path
         self.ui(self.percent_var.set, 100)
+        self._update_bridge(progress=100.0)
         return True
 
     def _run_job(self) -> None:
@@ -431,6 +676,7 @@ class EngineWindow(tk.Tk):
                 if path:
                     self.last_path = Path(path)
             self.ui(self.percent_var.set, 100)
+            self._update_bridge(progress=100.0)
             self.set_status("Completed", "The finished media file is saved on this computer")
         except DownloadCancelled:
             self.set_status("Cancelled", "The local download was cancelled")
@@ -439,9 +685,13 @@ class EngineWindow(tk.Tk):
         except Exception as exc:  # noqa: BLE001
             self.set_status("Download failed", str(exc))
         finally:
+            self.running = False
+            self._update_bridge(busy=False)
             self.ui(self.cancel_button.state, ["disabled"])
 
     def cancel(self) -> None:
+        if not self.running:
+            return
         self.cancel_event.set()
         self.set_status("Cancelling", "Stopping at the next safe download checkpoint")
 
@@ -456,6 +706,14 @@ class EngineWindow(tk.Tk):
                 subprocess.Popen(["xdg-open", str(target)])
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror(APP_NAME, f"Could not open the folder:\n{exc}")
+
+    def close_app(self) -> None:
+        if self.running:
+            self.cancel_event.set()
+        try:
+            self.bridge.stop()
+        finally:
+            self.destroy()
 
 
 def main() -> int:
@@ -476,6 +734,15 @@ def main() -> int:
             messagebox.showerror(APP_NAME, f"Invalid Galaxy download request:\n{exc}")
             root.destroy()
             return 2
+
+        # If the desktop app is already open, hand the protocol job to that
+        # instance instead of showing a second window.
+        if post_job_to_running_engine(job_to_payload(job)):
+            return 0
+    elif bridge_is_running():
+        # Installer/start-menu launches should keep a single resident window.
+        return 0
+
     app = EngineWindow(job)
     app.mainloop()
     return 0
