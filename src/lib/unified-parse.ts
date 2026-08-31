@@ -1,5 +1,6 @@
 import { ApiRequestError } from '@/lib/api-errors'
 import { API_ENDPOINT_CANDIDATES } from '@/lib/config'
+import { parseWithLocalEngine } from '@/lib/local-engine-bridge'
 import { normalizeParserCapabilities } from '@/lib/parser-capabilities'
 import { notifyTodayParseStatsChanged } from '@/lib/parse-stats'
 import type { UnifiedParseResult } from '@/lib/types'
@@ -38,6 +39,16 @@ function maybeReloadUnifiedParsePage(): boolean {
     return false
 }
 
+function normalizeSuccessPayload(payload: UnifiedParseResult): UnifiedParseSuccessResult {
+    return {
+        ...payload,
+        success: true,
+        data: normalizeParserCapabilities(
+            payload.data as unknown as Record<string, unknown>
+        ) as NonNullable<UnifiedParseResult['data']>,
+    } as UnifiedParseSuccessResult
+}
+
 async function requestParseCandidate(endpoint: string, params: URLSearchParams): Promise<UnifiedParseSuccessResult> {
     const separator = endpoint.includes('?') ? '&' : '?'
     const requestUrl = `${endpoint}${separator}${params.toString()}`
@@ -73,17 +84,24 @@ async function requestParseCandidate(endpoint: string, params: URLSearchParams):
         })
     }
 
-    return {
-        ...payload,
-        data: normalizeParserCapabilities(
-            payload.data as unknown as Record<string, unknown>
-        ) as NonNullable<UnifiedParseResult['data']>,
-    } as UnifiedParseSuccessResult
+    return normalizeSuccessPayload(payload)
 }
 
 export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedParseSuccessResult> {
     if (maybeReloadUnifiedParsePage()) {
         throw new UnifiedParseReloadError()
+    }
+
+    // When the portable Galaxy Local Engine is available, let its bundled
+    // yt-dlp resolve the original source first. This removes the website's
+    // dependency on the shared parser service for platforms such as Instagram,
+    // YouTube and TikTok and keeps parsing on the user's own connection/IP.
+    if (typeof window !== 'undefined') {
+        const localPayload = await parseWithLocalEngine(videoUrl)
+        if (localPayload?.success && localPayload.data) {
+            notifyTodayParseStatsChanged()
+            return normalizeSuccessPayload(localPayload)
+        }
     }
 
     const params = new URLSearchParams({ url: videoUrl })
