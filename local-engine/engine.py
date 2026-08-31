@@ -22,6 +22,7 @@ from external_ytdlp import (
     download_with_external_ytdlp,
     external_ytdlp_path,
 )
+from wechat_channels import WeChatChannelsError, download_wechat_channels, is_wechat_channels_url
 
 APP_NAME = "Galaxy Local Engine"
 PROTOCOL = "galaxy-downloader"
@@ -230,6 +231,12 @@ def run_self_test() -> int:
     assert "--embed-thumbnail" in external_command
     assert external_command[-1] == job.source_url
 
+    assert is_wechat_channels_url("https://weixin.qq.com/sph/A8cRzSpWAi")
+    assert is_wechat_channels_url(
+        "https://channels.weixin.qq.com/finder-preview/pages/sph?id=A8cRzSpWAi"
+    )
+    assert not is_wechat_channels_url("https://channels.weixin.qq.com/")
+
     try:
         parse_job("galaxy-downloader://download?url=file%3A%2F%2FC%3A%2Fsecret.txt")
     except ValueError:
@@ -315,7 +322,7 @@ class EngineWindow(tk.Tk):
         ).pack(anchor="w")
         tk.Label(
             wrapper,
-            text=f"Local yt-dlp + FFmpeg · v{VERSION}",
+            text=f"Local media engine · v{VERSION}",
             font=("Segoe UI", 9),
             bg="#f6f8fc",
             fg="#667085",
@@ -479,13 +486,14 @@ class EngineWindow(tk.Tk):
                 self.last_path = Path(filepath)
             self.set_status("Finalizing", f"{name} completed")
 
-    def external_progress_hook(
+    def _local_stream_progress_hook(
         self,
         percent: float,
         speed: str,
         eta: str,
         downloaded: str,
         total: str,
+        detail: str,
     ) -> None:
         size = downloaded or "—"
         if total and total != "—":
@@ -497,13 +505,52 @@ class EngineWindow(tk.Tk):
             downloaded=size,
             busy=True,
         )
-        self.ui(self.percent_var.set, percent)
+        self.ui(self.percent_var.set, max(0, min(100, percent)))
         self.ui(self.speed_var.set, speed or "—")
         self.ui(self.eta_var.set, eta or "—")
         self.ui(self.size_var.set, size)
-        self.set_status("Downloading", "Using the bundled yt-dlp extractor on this computer")
+        self.set_status("Downloading", detail)
+
+    def external_progress_hook(
+        self,
+        percent: float,
+        speed: str,
+        eta: str,
+        downloaded: str,
+        total: str,
+    ) -> None:
+        self._local_stream_progress_hook(
+            percent,
+            speed,
+            eta,
+            downloaded,
+            total,
+            "Using the bundled yt-dlp extractor on this computer",
+        )
+
+    def wechat_progress_hook(
+        self,
+        percent: float,
+        speed: str,
+        eta: str,
+        downloaded: str,
+        total: str,
+    ) -> None:
+        self._local_stream_progress_hook(
+            percent,
+            speed,
+            eta,
+            downloaded,
+            total,
+            "Downloading WeChat Channels media on this computer",
+        )
 
     def external_status_hook(self, line: str) -> None:
+        if not line:
+            return
+        self.set_status("Preparing media", line[:220])
+
+    def wechat_status_hook(self, line: str) -> None:
         if not line:
             return
         self.set_status("Preparing media", line[:220])
@@ -621,6 +668,22 @@ class EngineWindow(tk.Tk):
     def open_folder_from_bridge(self) -> None:
         self.after(0, self.open_folder)
 
+    def _run_wechat_channels_job(self) -> bool:
+        assert self.job is not None
+        self.set_status("Preparing media", "Resolving WeChat Channels with your local browser login")
+        final_path = download_wechat_channels(
+            self.job.source_url,
+            default_download_dir(),
+            self.job.browser,
+            cancelled=self.cancel_event.is_set,
+            on_progress=self.wechat_progress_hook,
+            on_status=self.wechat_status_hook,
+        )
+        self.last_path = final_path
+        self.ui(self.percent_var.set, 100)
+        self._update_bridge(progress=100.0)
+        return True
+
     def _run_external_job(self, executable: Path) -> bool:
         assert self.job is not None
         self.set_status("Extractor ready", "Using the verified yt-dlp bundled with Galaxy Local Engine")
@@ -657,6 +720,14 @@ class EngineWindow(tk.Tk):
     def _run_job(self) -> None:
         assert self.job is not None
         try:
+            if is_wechat_channels_url(self.job.source_url):
+                self._run_wechat_channels_job()
+                self.set_status(
+                    "Completed",
+                    "The finished WeChat Channels MP4 is saved in the portable downloads folder",
+                )
+                return
+
             external = external_ytdlp_path(app_dir())
             if external and self._run_external_job(external):
                 self.set_status("Completed", "The finished media file is saved in the portable downloads folder")
@@ -672,6 +743,11 @@ class EngineWindow(tk.Tk):
             self.set_status("Completed", "The finished media file is saved in the portable downloads folder")
         except DownloadCancelled:
             self.set_status("Cancelled", "The local download was cancelled")
+        except WeChatChannelsError as exc:
+            if self.cancel_event.is_set():
+                self.set_status("Cancelled", "The local download was cancelled")
+            else:
+                self.set_status("Download failed", str(exc))
         except DownloadError as exc:
             self.set_status("Download failed", str(exc))
         except Exception as exc:  # noqa: BLE001
