@@ -358,7 +358,7 @@ describe('ResultCard current collection item highlighting', () => {
     )
 
     expect(html).toContain('<video')
-    expect(html).toContain('/api/play?url=')
+    expect(html).toContain('/api/download?url=')
     expect(html).toContain('autoPlay=""')
   })
 })
