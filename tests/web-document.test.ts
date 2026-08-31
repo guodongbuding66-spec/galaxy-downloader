@@ -28,6 +28,7 @@ describe('web document parser', () => {
 
         const parsed = extractWebDocumentFromHtml('https://example-shop.com/products/garden-shed', html)
         expect(parsed).not.toBeNull()
+        expect(parsed?.platform).toBe('shopify')
         expect(parsed?.documentType).toBe('product')
         expect(parsed?.title).toBe('Garden Storage Shed')
         expect(parsed?.description).toContain('Weather-resistant')
@@ -83,5 +84,84 @@ describe('web document parser', () => {
         expect(parsed?.documentType).toBe('post')
         expect(parsed?.description).toContain('周末花园改造')
         expect(parsed?.images).toHaveLength(3)
+    })
+
+    it('extracts an Instagram photo carousel and caption from hydration JSON', () => {
+        const html = `
+            <html><head>
+              <meta property="og:title" content="Backyard project">
+              <meta property="og:description" content="Finished the backyard project today.">
+              <script id="__DATA__" type="application/json">
+                {
+                  "shortcode_media": {
+                    "edge_media_to_caption": {"edges":[{"node":{"text":"Finished the backyard project today."}}]},
+                    "edge_sidecar_to_children": {"edges":[
+                      {"node":{"display_url":"https://scontent.cdninstagram.com/photo-a.jpg","is_video":false}},
+                      {"node":{"display_url":"https://scontent.cdninstagram.com/photo-b.jpg","is_video":false}},
+                      {"node":{"display_url":"https://scontent.cdninstagram.com/photo-c.jpg","is_video":false}}
+                    ]}
+                  }
+                }
+              </script>
+            </head></html>`
+
+        const parsed = extractWebDocumentFromHtml('https://www.instagram.com/p/ABC123/', html)
+        expect(parsed?.platform).toBe('instagram')
+        expect(parsed?.documentType).toBe('post')
+        expect(parsed?.description).toContain('backyard project')
+        expect(parsed?.images).toHaveLength(3)
+    })
+
+    it('does not convert a video-only social post into a one-image document result', () => {
+        const html = `
+            <html><head>
+              <meta property="og:title" content="Video post">
+              <meta property="og:description" content="This is a normal video post.">
+              <meta property="og:image" content="https://scontent.cdninstagram.com/video-poster.jpg">
+              <meta property="og:video" content="https://video.cdninstagram.com/post.mp4">
+              <meta property="og:type" content="video.other">
+            </head></html>`
+
+        expect(extractWebDocumentFromHtml('https://www.instagram.com/p/VIDEO123/', html)).toBeNull()
+    })
+
+    it('keeps mixed media carousels in the document result', () => {
+        const html = `
+            <html><head>
+              <meta property="og:title" content="Mixed carousel">
+              <meta property="og:description" content="Two photos and one short clip.">
+              <script type="application/json">
+                {
+                  "items": [
+                    {"image_url":"https://pbs.twimg.com/media/photo-a.jpg"},
+                    {"image_url":"https://pbs.twimg.com/media/photo-b.jpg"},
+                    {"video_url":"https://video.twimg.com/ext_tw_video/clip.mp4"}
+                  ]
+                }
+              </script>
+            </head></html>`
+
+        const parsed = extractWebDocumentFromHtml('https://x.com/example/status/123', html)
+        expect(parsed?.platform).toBe('x')
+        expect(parsed?.images).toHaveLength(2)
+        expect(parsed?.videos).toHaveLength(1)
+    })
+
+    it('labels major commerce platforms instead of collapsing them into generic', () => {
+        const fixtures: Array<[string, string]> = [
+            ['https://www.amazon.com/dp/B000000001', 'amazon'],
+            ['https://www.ebay.com/itm/123456', 'ebay'],
+            ['https://www.aliexpress.com/item/100500000000.html', 'aliexpress'],
+            ['https://www.alibaba.com/product-detail/example_1600000000000.html', 'alibaba'],
+        ]
+        const html = `
+            <meta property="og:title" content="Product">
+            <meta property="og:description" content="A product description with enough text for document parsing.">
+            <meta property="og:image" content="https://cdn.example.com/product.jpg">
+        `
+
+        for (const [url, platform] of fixtures) {
+            expect(extractWebDocumentFromHtml(url, html)?.platform).toBe(platform)
+        }
     })
 })
