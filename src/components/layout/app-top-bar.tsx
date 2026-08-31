@@ -3,14 +3,16 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { Download, History, Home, MessageSquare, Music } from 'lucide-react'
+import { Download, HardDriveDownload, History, Home, MessageSquare, Music } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DeferredLanguageSwitcher } from '@/components/deferred-language-switcher'
 import { DeferredChangelogDialog } from '@/components/deferred-changelog-dialog'
+import { ExternalToolsMenu } from '@/components/external-tools-menu'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { DeferredMobileNavMenu } from '@/components/deferred-mobile-nav-menu'
 import { useDictionary } from '@/i18n/client'
 import { i18n } from '@/lib/i18n/config'
+import { LOCAL_ENGINE_RELEASE_URL } from '@/lib/local-engine'
 import { useTopBarActions } from './top-bar-actions'
 
 interface AppTopBarProps {
@@ -22,13 +24,13 @@ interface AppTopBarProps {
     homeHref?: string
 }
 
-const NAV_COPY: Record<string, { skip: string; subtitle: string; tools: string }> = {
-    zh: { skip: '跳到主要内容', subtitle: '本地媒体工作台', tools: '工具' },
-    'zh-tw': { skip: '跳到主要內容', subtitle: '本機媒體工作台', tools: '工具' },
-    en: { skip: 'Skip to main content', subtitle: 'Local media workbench', tools: 'Tools' },
-    ja: { skip: 'メインコンテンツへ移動', subtitle: 'ローカルメディアワークベンチ', tools: 'ツール' },
-    es: { skip: 'Saltar al contenido principal', subtitle: 'Mesa de medios local', tools: 'Herramientas' },
-    ru: { skip: 'Перейти к основному содержимому', subtitle: 'Локальная медиамастерская', tools: 'Инструменты' },
+const NAV_COPY: Record<string, { skip: string; subtitle: string; tools: string; engine: string }> = {
+    zh: { skip: '跳到主要内容', subtitle: '本地媒体工作台', tools: '工具', engine: '下载本地引擎' },
+    'zh-tw': { skip: '跳到主要內容', subtitle: '本機媒體工作台', tools: '工具', engine: '下載本機引擎' },
+    en: { skip: 'Skip to main content', subtitle: 'Local media workbench', tools: 'Tools', engine: 'Download Local Engine' },
+    ja: { skip: 'メインコンテンツへ移動', subtitle: 'ローカルメディアワークベンチ', tools: 'ツール', engine: 'Local Engine をダウンロード' },
+    es: { skip: 'Saltar al contenido principal', subtitle: 'Mesa de medios local', tools: 'Herramientas', engine: 'Descargar Local Engine' },
+    ru: { skip: 'Перейти к основному содержимому', subtitle: 'Локальная медиамастерская', tools: 'Инструменты', engine: 'Скачать Local Engine' },
 }
 
 export function AppTopBar({
@@ -67,7 +69,7 @@ export function AppTopBar({
                 {navCopy.skip}
             </a>
 
-            <div className="mx-auto flex min-h-14 w-full max-w-6xl items-center gap-2 px-3 sm:px-5 md:px-6">
+            <div className="mx-auto flex min-h-14 w-full max-w-7xl items-center gap-2 px-3 sm:px-5 md:px-6">
                 <Link
                     href={resolvedHomeHref}
                     className="group flex min-w-0 shrink-0 items-center gap-2 rounded-lg py-1.5 pr-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -103,6 +105,16 @@ export function AppTopBar({
                             <span>{dict.audioTool.triggerButton}</span>
                         </Button>
                     )}
+
+                    <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                        <a href={LOCAL_ENGINE_RELEASE_URL}>
+                            <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
+                            <span className="hidden xl:inline">{navCopy.engine}</span>
+                            <span className="xl:hidden">Local Engine</span>
+                        </a>
+                    </Button>
+
+                    <ExternalToolsMenu />
                 </nav>
 
                 <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -116,6 +128,12 @@ export function AppTopBar({
                             <Music className="h-4 w-4" aria-hidden="true" />
                         </Button>
                     )}
+
+                    <Button variant="ghost" size="icon" className="md:hidden" asChild>
+                        <a href={LOCAL_ENGINE_RELEASE_URL} aria-label={navCopy.engine} title={navCopy.engine}>
+                            <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
+                        </a>
+                    </Button>
 
                     <Button variant="ghost" size="icon" className="sm:hidden" asChild>
                         <Link href={feedbackHref} aria-label={dict.feedback.triggerButton}>
