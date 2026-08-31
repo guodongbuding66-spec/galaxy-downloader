@@ -28,7 +28,7 @@ const DATE_KEY_RE = /^(?:datepublished|date_published|publishdate|publish_date|p
 const IMAGE_EXT_RE = /\.(?:avif|bmp|gif|jpe?g|png|webp)(?:$|[?#])/i
 const VIDEO_EXT_RE = /\.(?:m4v|mov|mp4|webm)(?:$|[?#])/i
 const TRACKING_ASSET_RE = /(?:sprite|favicon|icon[-_/]|logo[-_/]|avatar[-_/]|badge|placeholder|loading|spacer|pixel)[^/]*\.(?:gif|jpe?g|png|webp)/i
-const EXTENSIONLESS_IMAGE_HOST_RE = /(?:^|\.)(?:mmbiz\.qpic\.cn|qpic\.cn|douyinpic\.com|xhscdn\.com|alicdn\.com|shopifycdn\.net)$/i
+const EXTENSIONLESS_IMAGE_HOST_RE = /(?:^|\.)(?:mmbiz\.qpic\.cn|qpic\.cn|douyinpic\.com|xhscdn\.com|alicdn\.com|shopifycdn\.net|fbcdn\.net|cdninstagram\.com|twimg\.com|redd\.it|pinimg\.com)$/i
 
 function decodeHtml(value: string): string {
     return value
@@ -248,18 +248,38 @@ function wechatArticleText(html: string): string {
     return cleanText(tail.slice(0, end))
 }
 
+function hostMatches(host: string, domain: string): boolean {
+    return host === domain || host.endsWith(`.${domain}`)
+}
+
 function classifyPlatform(base: URL, html: string): { platform: string; documentType: WebDocumentType } {
     const host = base.hostname.toLowerCase()
-    if (/(^|\.)xiaohongshu\.com$/.test(host) || host === 'xhslink.com') return { platform: 'xiaohongshu', documentType: 'post' }
-    if (/(^|\.)douyin\.com$/.test(host)) return { platform: 'douyin', documentType: 'post' }
-    if (/(^|\.)mp\.weixin\.qq\.com$/.test(host) || /(^|\.)weixin\.qq\.com$/.test(host)) return { platform: 'wechat', documentType: 'article' }
-    if (/(^|\.)amazon\./.test(host) || host.includes('.amazon.')) return { platform: 'generic', documentType: 'product' }
-    if (/(^|\.)ebay\./.test(host) || host.includes('.ebay.')) return { platform: 'generic', documentType: 'product' }
-    if (/(^|\.)aliexpress\./.test(host) || host.includes('.aliexpress.')) return { platform: 'generic', documentType: 'product' }
-    if (/(^|\.)alibaba\.com$/.test(host)) return { platform: 'generic', documentType: 'product' }
-    if (/shopify/i.test(html) || /cdn\.shopify\.com/i.test(html)) return { platform: 'generic', documentType: 'product' }
+    if (hostMatches(host, 'xiaohongshu.com') || host === 'xhslink.com') return { platform: 'xiaohongshu', documentType: 'post' }
+    if (hostMatches(host, 'douyin.com')) return { platform: 'douyin', documentType: 'post' }
+    if (hostMatches(host, 'instagram.com')) return { platform: 'instagram', documentType: 'post' }
+    if (hostMatches(host, 'tiktok.com')) return { platform: 'tiktok', documentType: 'post' }
+    if (hostMatches(host, 'twitter.com') || hostMatches(host, 'x.com')) return { platform: 'x', documentType: 'post' }
+    if (hostMatches(host, 'reddit.com') || hostMatches(host, 'redd.it')) return { platform: 'reddit', documentType: 'post' }
+    if (hostMatches(host, 'pinterest.com') || hostMatches(host, 'pin.it')) return { platform: 'pinterest', documentType: 'post' }
+    if (hostMatches(host, 'threads.net')) return { platform: 'threads', documentType: 'post' }
+    if (hostMatches(host, 'tumblr.com')) return { platform: 'tumblr', documentType: 'post' }
+    if (hostMatches(host, 'weibo.com') || hostMatches(host, 'weibo.cn')) return { platform: 'weibo', documentType: 'post' }
+    if (hostMatches(host, 't.me') || hostMatches(host, 'telegram.me')) return { platform: 'telegram', documentType: 'post' }
+    if (hostMatches(host, 'mp.weixin.qq.com') || hostMatches(host, 'weixin.qq.com')) return { platform: 'wechat', documentType: 'article' }
+    if (/(^|\.)amazon\./.test(host) || host.includes('.amazon.')) return { platform: 'amazon', documentType: 'product' }
+    if (/(^|\.)ebay\./.test(host) || host.includes('.ebay.')) return { platform: 'ebay', documentType: 'product' }
+    if (/(^|\.)aliexpress\./.test(host) || host.includes('.aliexpress.')) return { platform: 'aliexpress', documentType: 'product' }
+    if (hostMatches(host, 'alibaba.com')) return { platform: 'alibaba', documentType: 'product' }
+    if (/shopify/i.test(html) || /cdn\.shopify\.com/i.test(html)) return { platform: 'shopify', documentType: 'product' }
     if (/<article\b/i.test(html)) return { platform: 'generic', documentType: 'article' }
     return { platform: 'generic', documentType: 'webpage' }
+}
+
+function pageDeclaresVideo(html: string, usefulVideos: string[]): boolean {
+    if (usefulVideos.length > 0) return true
+    const ogType = firstMeta(html, ['og:type']).toLowerCase()
+    if (ogType.includes('video')) return true
+    return /(?:"is_video"\s*:\s*true|"media_type"\s*:\s*2|"product_type"\s*:\s*"video"|"__typename"\s*:\s*"(?:GraphVideo|Video)")/i.test(html)
 }
 
 export function extractWebDocumentFromHtml(sourceUrl: string, html: string): ParsedWebDocument | null {
@@ -312,7 +332,18 @@ export function extractWebDocumentFromHtml(sourceUrl: string, html: string): Par
     const usefulImages = images.filter((url, index) => index === 0 || !TRACKING_ASSET_RE.test(url)).slice(0, MAX_IMAGES)
     const usefulVideos = videos.filter((url) => VIDEO_EXT_RE.test(url) || /(?:video|vod|media)/i.test(url)).slice(0, MAX_VIDEOS)
 
-    // Do not hijack ordinary video pages that yt-dlp/shared parsers handle better.
+    // A post URL can contain either a gallery or a normal video. If the page
+    // explicitly declares video and exposes no meaningful gallery, hand it back
+    // to yt-dlp/the dedicated media parser instead of turning its poster into an
+    // incorrect one-image document result. Mixed media carousels stay here.
+    if (
+        classification.documentType === 'post'
+        && pageDeclaresVideo(html, usefulVideos)
+        && usefulImages.length <= 1
+    ) {
+        return null
+    }
+
     const hasDocumentSignal = classification.documentType !== 'webpage'
         || usefulImages.length >= 2
         || (usefulImages.length >= 1 && textContent.length >= 20)
