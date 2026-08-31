@@ -1,4 +1,4 @@
-import type { LocalEngineBrowser } from '@/lib/local-engine'
+import type { LocalEngineBrowser, LocalEngineCollectionMode } from '@/lib/local-engine'
 import type { UnifiedParseResult } from '@/lib/types'
 
 const LOCAL_ENGINE_BRIDGE_BASE_URLS = [
@@ -8,8 +8,8 @@ const LOCAL_ENGINE_BRIDGE_BASE_URLS = [
 
 export const LOCAL_ENGINE_BRIDGE_BASE_URL = LOCAL_ENGINE_BRIDGE_BASE_URLS[0]
 const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1800
-const MIN_LOCAL_ENGINE_VERSION = '0.4.7'
-const MIN_PARSE_BRIDGE_PROTOCOL = 3
+const MIN_LOCAL_ENGINE_VERSION = '0.5.0'
+const MIN_PARSE_BRIDGE_PROTOCOL = 4
 
 export interface LocalEngineBridgeStatus {
   ok: boolean
@@ -36,6 +36,9 @@ export interface LocalEngineBridgeJob {
   subtitleLanguage?: string | null
   includeCover?: boolean
   browser?: LocalEngineBrowser
+  collectionMode?: LocalEngineCollectionMode
+  selectedItems?: number[]
+  /** @deprecated Use collectionMode. */
   playlist?: boolean
 }
 
@@ -298,6 +301,9 @@ export async function submitLocalEngineBridgeJob(job: LocalEngineBridgeJob): Pro
   const status = await getLocalEngineBridgeStatus()
   if (!status) {
     throw new Error(lastBridgeDiagnostic || `Galaxy Local Engine ${MIN_LOCAL_ENGINE_VERSION}+ is required`)
+  }
+  if (status.bridgeProtocol < MIN_PARSE_BRIDGE_PROTOCOL) {
+    throw new Error(`Galaxy Local Engine bridge protocol ${MIN_PARSE_BRIDGE_PROTOCOL}+ is required`)
   }
 
   const response = await postBridgeAction('/download', job)
