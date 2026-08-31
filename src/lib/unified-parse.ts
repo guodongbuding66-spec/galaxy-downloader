@@ -1,5 +1,5 @@
 import { ApiRequestError } from '@/lib/api-errors'
-import { API_ENDPOINT_CANDIDATES } from '@/lib/config'
+import { API_ENDPOINT_CANDIDATES, API_ENDPOINTS } from '@/lib/config'
 import {
     getLastLocalEngineBridgeDiagnostic,
     parseWithLocalEngine,
@@ -110,6 +110,21 @@ async function tryVimeoNative(videoUrl: string): Promise<UnifiedParseSuccessResu
     }
 }
 
+async function tryDocumentFirst(sourceUrl: string): Promise<UnifiedParseSuccessResult | null> {
+    try {
+        return await requestParseCandidate(
+            API_ENDPOINTS.unified.documentParse,
+            new URLSearchParams({ url: sourceUrl }),
+        )
+    } catch {
+        // The document route deliberately returns UNSUPPORTED_PLATFORM for
+        // video-first sites and pages without a meaningful gallery/article.
+        // Network blocks and anti-bot responses also fall through so the local
+        // engine can retry with the user's IP/login state.
+        return null
+    }
+}
+
 export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedParseSuccessResult> {
     if (maybeReloadUnifiedParsePage()) {
         throw new UnifiedParseReloadError()
@@ -122,6 +137,16 @@ export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedPars
     if (vimeoNative) {
         notifyTodayParseStatsChanged()
         return vimeoNative
+    }
+
+    // Product pages, image posts and articles must be inspected before a generic
+    // video extractor. Otherwise one embedded product video can cause us to
+    // return early and silently lose the page gallery, caption and article text.
+    // The same-origin route quickly declines normal video-first platforms.
+    const documentPayload = await tryDocumentFirst(videoUrl)
+    if (documentPayload) {
+        notifyTodayParseStatsChanged()
+        return documentPayload
     }
 
     let localDiagnostic: string | null = null
