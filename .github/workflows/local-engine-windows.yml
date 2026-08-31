@@ -19,7 +19,7 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -77,8 +77,18 @@ jobs:
           Copy-Item 'local-engine/使用说明.txt' 'dist/package/使用说明.txt'
           Copy-Item local-engine/VERSION dist/package/VERSION
 
+      - name: Add verified offline FFmpeg and yt-dlp
+        shell: pwsh
+        run: ./local-engine/prepare-bundle.ps1 -PackageDir dist/package
+
+      - name: Validate release package contents
+        shell: pwsh
+        run: |
           $required = @(
             'GalaxyLocalEngine.exe',
+            'yt-dlp.exe',
+            'ffmpeg\bin\ffmpeg.exe',
+            'ffmpeg\bin\ffprobe.exe',
             'install.cmd',
             'install.ps1',
             'uninstall.cmd',
@@ -97,10 +107,6 @@ jobs:
         shell: pwsh
         run: |
           $testInstall = Join-Path $env:RUNNER_TEMP 'GalaxyLocalEngineTest'
-          $fakeFfmpeg = Join-Path $testInstall 'ffmpeg\bin'
-          New-Item -ItemType Directory -Force -Path $fakeFfmpeg | Out-Null
-          Set-Content -Path (Join-Path $fakeFfmpeg 'ffmpeg.exe') -Value 'ci-placeholder'
-
           & 'dist/package/install.ps1' -InstallDir $testInstall -NoLaunch
 
           $protocolCommandPath = 'HKCU:\Software\Classes\galaxy-downloader\shell\open\command'
@@ -112,19 +118,22 @@ jobs:
           if ($registeredCommand -notlike "*$expectedExe*") {
             throw "Protocol command does not target the installed executable: $registeredCommand"
           }
-          if (-not (Test-Path (Join-Path $testInstall 'VERSION'))) {
-            throw 'Installed VERSION file is missing'
+
+          foreach ($file in @('VERSION', 'yt-dlp.exe', 'ffmpeg\bin\ffmpeg.exe', 'ffmpeg\bin\ffprobe.exe')) {
+            if (-not (Test-Path (Join-Path $testInstall $file))) {
+              throw "Portable install is missing $file"
+            }
+          }
+          if (-not (Test-Path (Join-Path $testInstall 'downloads'))) {
+            throw 'Portable installer did not create downloads folder'
           }
 
           $externalYtDlp = Join-Path $testInstall 'yt-dlp.exe'
-          if (-not (Test-Path $externalYtDlp)) {
-            throw 'Verified external yt-dlp.exe was not installed'
-          }
           $externalVersion = (& $externalYtDlp --version | Select-Object -Last 1).Trim()
           if (-not $externalVersion) {
-            throw 'Installed external yt-dlp.exe did not report a version'
+            throw 'Bundled yt-dlp.exe did not report a version'
           }
-          Write-Host "External yt-dlp version: $externalVersion"
+          Write-Host "Bundled yt-dlp version: $externalVersion"
 
           & 'dist/package/uninstall.ps1' -InstallDir $testInstall
           if (Test-Path 'HKCU:\Software\Classes\galaxy-downloader') {
