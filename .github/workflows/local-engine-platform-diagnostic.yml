@@ -7,6 +7,7 @@ on:
       - 'scripts/local-engine-platform-diagnostic.py'
       - 'scripts/platform-smoke.py'
       - 'local-engine/install.ps1'
+      - 'local-engine/prepare-bundle.ps1'
       - 'local-engine/external_ytdlp.py'
       - '.github/workflows/local-engine-platform-diagnostic.yml'
 
@@ -34,30 +35,34 @@ jobs:
         shell: pwsh
         run: python -m py_compile scripts/local-engine-platform-diagnostic.py scripts/platform-smoke.py
 
-      - name: Install verified Local Engine yt-dlp and switch to nightly
+      - name: Assemble and install verified Local Engine dependencies
         id: extractor
         shell: pwsh
         run: |
           $package = Join-Path $env:RUNNER_TEMP 'GalaxyDiagnosticPackage'
           $install = Join-Path $env:RUNNER_TEMP 'GalaxyDiagnosticInstall'
           New-Item -ItemType Directory -Force -Path $package | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $install 'ffmpeg\bin') | Out-Null
 
+          # The production installer is intentionally offline-only: a release ZIP
+          # must already contain the verified yt-dlp + FFmpeg bundle. Build the
+          # diagnostic fixture the same way as a real release instead of relying
+          # on the old installer behavior that downloaded dependencies at install time.
           Copy-Item local-engine/install.ps1 (Join-Path $package 'install.ps1')
+          Copy-Item local-engine/VERSION (Join-Path $package 'VERSION')
           Set-Content -Path (Join-Path $package 'GalaxyLocalEngine.exe') -Value 'diagnostic-placeholder'
-          Set-Content -Path (Join-Path $install 'ffmpeg\bin\ffmpeg.exe') -Value 'diagnostic-placeholder'
+          & ./local-engine/prepare-bundle.ps1 -PackageDir $package
 
           & (Join-Path $package 'install.ps1') -InstallDir $install -NoLaunch
 
           $ytDlp = Join-Path $install 'yt-dlp.exe'
           if (-not (Test-Path $ytDlp)) {
-            throw 'The Local Engine installer did not produce a verified yt-dlp.exe'
+            throw 'The Local Engine installer did not copy the verified bundled yt-dlp.exe'
           }
 
-          Write-Host 'Switching the verified official extractor to the same nightly channel used by Local Engine 0.2+'
+          Write-Host 'Switching the verified official extractor to nightly for the live platform diagnostic'
           & $ytDlp --update-to nightly
           if ($LASTEXITCODE -ne 0) {
-            Write-Warning 'Nightly update was unavailable; continuing with the already SHA-verified installed yt-dlp.exe, matching Local Engine fallback behavior.'
+            Write-Warning 'Nightly update was unavailable; continuing with the already SHA-verified bundled yt-dlp.exe, matching Local Engine fallback behavior.'
           }
 
           $version = (& $ytDlp --version | Select-Object -Last 1).Trim()
