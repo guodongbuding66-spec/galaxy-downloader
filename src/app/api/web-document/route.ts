@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import type { EmbeddedVideoInfo, UnifiedParseResult } from '@/lib/types'
+import { extractDocumentMarkdown } from '@/lib/document-markdown'
 import { extractWebDocumentFromHtml } from '@/lib/web-document'
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
@@ -54,32 +55,16 @@ function isVideoFirstHost(url: URL): boolean {
     const host = url.hostname.toLowerCase()
     const path = url.pathname
 
-    // Xiaohongshu already has a dedicated resolver that reliably distinguishes
-    // video works from image notes and returns the post caption. Keep it
-    // authoritative rather than treating a video thumbnail as an image note.
     if (hostMatches(host, 'xiaohongshu.com') || host === 'xhslink.com') return true
-
-    // Explicit photo/note URL families should get the document probe first.
     if (hostMatches(host, 'douyin.com')) return !/(?:^|\/)note(?:\/|$)/i.test(path)
     if (hostMatches(host, 'tiktok.com')) return !/(?:^|\/)photo(?:\/|$)/i.test(path)
-
-    // Instagram /p/ is shared by photos, carousels and some videos. The
-    // document parser checks actual video declarations and falls back when the
-    // post is video-only. Reels/TV remain media-first.
     if (hostMatches(host, 'instagram.com')) {
         if (/(?:^|\/)(?:reel|reels|tv)(?:\/|$)/i.test(path)) return true
         return !/(?:^|\/)p(?:\/|$)/i.test(path)
     }
-
-    // Reddit galleries and normal post permalinks can be image/carousel posts.
-    // Video posts are rejected by the document parser's media-type guard.
     if (hostMatches(host, 'reddit.com') || hostMatches(host, 'redd.it')) {
         return !/(?:^|\/)(?:gallery|comments)(?:\/|$)/i.test(path)
     }
-
-    // Pin, X status, Threads post and Tumblr permalink pages are mixed-media
-    // families. Probe their document metadata first; video-only results fall
-    // through to the existing yt-dlp/shared parser.
     if (hostMatches(host, 'pinterest.com') || host === 'pin.it') return false
     if (hostMatches(host, 'twitter.com') || hostMatches(host, 'x.com')) {
         return !/(?:^|\/)status(?:\/|$)/i.test(path)
@@ -170,12 +155,14 @@ export async function GET(request: NextRequest) {
         const images = document.images
         const videos = proxiedEmbeddedVideos(request, sourceUrl, document.videos)
         const cover = images[0]?.downloadUrl || images[0]?.url || null
+        const markdownContent = extractDocumentMarkdown(finalUrl.toString(), html, document.platform)
         return noStoreJson({
             success: true,
             data: {
                 title: document.title,
                 desc: document.description || document.textContent.slice(0, 1200),
                 textContent: document.textContent,
+                markdownContent: markdownContent || undefined,
                 author: document.author,
                 publishedAt: document.publishedAt,
                 siteName: document.siteName,
