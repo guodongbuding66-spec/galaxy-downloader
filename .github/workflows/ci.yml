@@ -43,6 +43,7 @@ jobs:
             local-engine/entrypoint.py \
             local-engine/bridge.py \
             local-engine/web_document.py \
+            local-engine/document_policy.py \
             local-engine/external_ytdlp.py \
             container-backend/app/main.py \
             container-backend/app/playback.py \
