@@ -41,47 +41,17 @@ const EXTERNAL_TOOLS = [
     },
 ] as const
 
-const COPY: Record<string, { trigger: string; title: string; description: string; open: string }> = {
-    zh: {
-        trigger: '其他工具',
-        title: '我们的其他工具',
-        description: '快速打开同一套工作流中的其他业务工具。',
-        open: '打开网站',
-    },
-    'zh-tw': {
-        trigger: '其他工具',
-        title: '我們的其他工具',
-        description: '快速開啟同一套工作流程中的其他業務工具。',
-        open: '開啟網站',
-    },
-    en: {
-        trigger: 'More tools',
-        title: 'More tools',
-        description: 'Open the other tools in this workflow.',
-        open: 'Open site',
-    },
-    ja: {
-        trigger: 'その他のツール',
-        title: 'その他のツール',
-        description: '関連する業務ツールを開きます。',
-        open: 'サイトを開く',
-    },
-    es: {
-        trigger: 'Más herramientas',
-        title: 'Más herramientas',
-        description: 'Abre las demás herramientas de este flujo de trabajo.',
-        open: 'Abrir sitio',
-    },
-    ru: {
-        trigger: 'Другие инструменты',
-        title: 'Другие инструменты',
-        description: 'Откройте другие инструменты этого рабочего процесса.',
-        open: 'Открыть сайт',
-    },
+const COPY: Record<string, { trigger: string; title: string; description: string }> = {
+    zh: { trigger: '其他工具', title: '其他工具', description: '打开同一工作流中的其他业务工具。' },
+    'zh-tw': { trigger: '其他工具', title: '其他工具', description: '開啟同一工作流程中的其他業務工具。' },
+    en: { trigger: 'More tools', title: 'More tools', description: 'Open other tools in this workflow.' },
+    ja: { trigger: 'その他のツール', title: 'その他のツール', description: '関連する業務ツールを開きます。' },
+    es: { trigger: 'Más herramientas', title: 'Más herramientas', description: 'Abre las demás herramientas de este flujo.' },
+    ru: { trigger: 'Другие инструменты', title: 'Другие инструменты', description: 'Откройте другие инструменты этого процесса.' },
 }
 
 export function ExternalToolsMenu({ triggerClassName = '' }: { triggerClassName?: string }) {
-    const pathname = usePathname()
+    const pathname = usePathname() || ''
     const firstSegment = pathname.split('/').filter(Boolean)[0]
     const locale = i18n.locales.includes(firstSegment as (typeof i18n.locales)[number])
         ? firstSegment
@@ -92,18 +62,18 @@ export function ExternalToolsMenu({ triggerClassName = '' }: { triggerClassName?
     return (
         <Dialog>
             <DialogTrigger asChild>
-                <Button variant="ghost" size="sm" className={`gap-1.5 ${triggerClassName}`.trim()}>
-                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                <Button variant="ghost" size="xs" className={`gap-1.5 ${triggerClassName}`.trim()}>
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>{copy.trigger}</span>
                 </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
-                <DialogHeader>
+            <DialogContent className="max-w-md">
+                <DialogHeader className="pr-7">
                     <DialogTitle>{copy.title}</DialogTitle>
                     <DialogDescription>{copy.description}</DialogDescription>
                 </DialogHeader>
 
-                <div className="grid gap-2">
+                <div className="divide-y border-y">
                     {EXTERNAL_TOOLS.map((tool) => {
                         const Icon = tool.icon
                         const name = useChineseNames ? tool.zhName : tool.enName
@@ -114,17 +84,15 @@ export function ExternalToolsMenu({ triggerClassName = '' }: { triggerClassName?
                                 href={tool.href}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="group flex min-w-0 items-start gap-3 rounded-xl border bg-card p-3 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                className="group flex min-w-0 items-start gap-2.5 px-1 py-2.5 transition-colors duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
                             >
-                                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                                    <Icon className="h-4 w-4" aria-hidden="true" />
-                                </span>
+                                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                                 <span className="min-w-0 flex-1">
-                                    <span className="flex items-center justify-between gap-2 text-sm font-semibold">
+                                    <span className="flex items-center justify-between gap-2 text-xs font-medium">
                                         <span>{name}</span>
-                                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden="true" />
+                                        <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
                                     </span>
-                                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">{description}</span>
+                                    <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">{description}</span>
                                 </span>
                             </a>
                         )
