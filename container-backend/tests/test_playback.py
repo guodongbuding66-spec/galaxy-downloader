@@ -24,8 +24,14 @@ def muxed_format(url: str, *, height: int = 720, ext: str = "mp4") -> dict[str, 
 
 
 def test_server_registers_dedicated_playback_route():
-    route = next(route for route in app.routes if getattr(route, "path", None) == "/api/play")
-    assert {"GET", "HEAD"}.issubset(route.methods)
+    response = client.get(
+        "/api/play",
+        params={"url": "https://example.com/watch/1", "type": "invalid"},
+    )
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["code"] == "BAD_REQUEST"
+    assert payload["error"] == "type must be video or audio"
 
 
 def test_video_preview_prefers_one_muxed_progressive_stream():
