@@ -51,46 +51,45 @@ jobs:
         shell: pwsh
         run: python -m py_compile scripts/local-engine-full-download-qa.py scripts/platform-smoke.py
 
-      - name: Ensure ffprobe is available
+      - name: Download and install the actual v0.4.6 Windows release
+        id: release
         shell: pwsh
         run: |
-          $probe = Get-Command ffprobe -ErrorAction SilentlyContinue
-          if (-not $probe) {
-            choco install ffmpeg -y --no-progress
+          $zip = Join-Path $env:RUNNER_TEMP 'GalaxyLocalEngine-Windows.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'GalaxyLocalEngine-v0.4.6'
+          $url = 'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/download/local-engine-v0.4.6/GalaxyLocalEngine-Windows.zip'
+
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          if ((Get-Item $zip).Length -lt 100MB) {
+            throw 'Downloaded v0.4.6 release ZIP is unexpectedly small.'
           }
-          ffprobe -version | Select-Object -First 1
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
 
-      - name: Install the same verified yt-dlp used by Local Engine
-        id: extractor
-        shell: pwsh
-        run: |
-          $package = Join-Path $env:RUNNER_TEMP 'GalaxyFullDownloadPackage'
-          $install = Join-Path $env:RUNNER_TEMP 'GalaxyFullDownloadInstall'
-          New-Item -ItemType Directory -Force -Path $package | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $install 'ffmpeg\bin') | Out-Null
+          $installer = Get-ChildItem -Path $extract -Recurse -Filter install.ps1 | Select-Object -First 1
+          if (-not $installer) { throw 'install.ps1 not found in v0.4.6 release ZIP' }
+          $root = Split-Path -Parent $installer.FullName
+          & $installer.FullName -NoLaunch
 
-          Copy-Item local-engine/install.ps1 (Join-Path $package 'install.ps1')
-          Set-Content -Path (Join-Path $package 'GalaxyLocalEngine.exe') -Value 'qa-placeholder'
-          Set-Content -Path (Join-Path $install 'ffmpeg\bin\ffmpeg.exe') -Value 'qa-placeholder'
-
-          & (Join-Path $package 'install.ps1') -InstallDir $install -NoLaunch
-
-          $ytDlp = Join-Path $install 'yt-dlp.exe'
-          if (-not (Test-Path $ytDlp)) {
-            throw 'Local Engine installer did not produce yt-dlp.exe'
+          $ytDlp = Join-Path $root 'yt-dlp.exe'
+          $ffprobe = Join-Path $root 'ffmpeg\bin\ffprobe.exe'
+          $ffmpeg = Join-Path $root 'ffmpeg\bin\ffmpeg.exe'
+          $versionFile = Join-Path $root 'VERSION'
+          foreach ($required in @($ytDlp, $ffprobe, $ffmpeg, $versionFile)) {
+            if (-not (Test-Path $required)) { throw "Release validation missing: $required" }
           }
 
-          & $ytDlp --update-to nightly
-          if ($LASTEXITCODE -ne 0) {
-            Write-Warning 'Nightly update unavailable; using the verified installed yt-dlp.exe.'
-          }
+          $engineVersion = (Get-Content $versionFile -Raw).Trim()
+          if ($engineVersion -ne '0.4.6') { throw "Expected Local Engine 0.4.6, found $engineVersion" }
+          $ytVersion = (& $ytDlp --version | Select-Object -Last 1).Trim()
+          if (-not $ytVersion) { throw 'Bundled yt-dlp.exe did not report a version' }
+          & $ffprobe -version | Select-Object -First 1
 
-          $version = (& $ytDlp --version | Select-Object -Last 1).Trim()
-          if (-not $version) { throw 'yt-dlp did not report a version' }
           "YT_DLP_EXE=$ytDlp" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "DIAG_INSTALL_DIR=$install" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          Write-Host "Testing Local Engine extractor: $version"
+          "FFPROBE_EXE=$ffprobe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "DIAG_INSTALL_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "version=$engineVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "yt_version=$ytVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Testing Galaxy Local Engine $engineVersion / yt-dlp $ytVersion"
 
       - name: Download and validate all 33 platform fixtures
         shell: pwsh
@@ -99,7 +98,7 @@ jobs:
         run: |
           python scripts/local-engine-full-download-qa.py `
             --yt-dlp "$env:YT_DLP_EXE" `
-            --ffprobe ffprobe `
+            --ffprobe "$env:FFPROBE_EXE" `
             --output-dir artifacts/full-download-qa `
             --workers 3 `
             --timeout 150 `
