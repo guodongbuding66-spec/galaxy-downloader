@@ -82,7 +82,7 @@ const COPY: Record<string, Copy> = {
     intro: '适合 YouTube、B站、小红书、快手、Dailymotion 等存在反爬、登录或 IP 绑定限制的平台，直接调用本机 yt-dlp + FFmpeg。',
     planSync: '会沿用上方“当前成品方案”的画质、音质、字幕和封面设置。',
     cookieSource: '登录状态',
-    cookieHelp: '默认不读取浏览器 Cookie。只有视频明确需要登录、年龄验证或账号权限时再选择浏览器；如果浏览器 Cookie 被占用，请关闭对应浏览器后重试。',
+    cookieHelp: '默认不读取浏览器 Cookie。微信视频号需要登录时请选择 Edge、Chrome 或 Firefox；若 Edge/Chrome 正在占用日常 Cookie 数据库，本地引擎会自动打开 Galaxy 专用腾讯元宝登录窗口。首次登录后可在本机复用，不需要关闭日常浏览器。',
     noCookies: '不读取浏览器 Cookie（推荐默认）',
     edge: '使用 Edge 登录状态',
     chrome: '使用 Chrome 登录状态',
@@ -383,7 +383,7 @@ export function LocalEngineDownloadCard({
   };
 
   return (
-    <section className="overflow-hidden rounded-xl border border-primary/20 bg-primary/[0.035] shadow-sm">
+    <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-primary/20 bg-primary/[0.035] shadow-sm">
       <div className="space-y-3 p-3.5">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
@@ -438,7 +438,7 @@ export function LocalEngineDownloadCard({
             onValueChange={(value) => setBrowser(value as LocalEngineBrowser)}
             disabled={disabled || bridge?.busy}
           >
-            <SelectTrigger className="h-10 bg-background">
+            <SelectTrigger className="h-10 min-w-0 max-w-full bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -453,14 +453,14 @@ export function LocalEngineDownloadCard({
 
         <div className="grid gap-2">
           {bridge?.busy ? (
-            <Button type="button" variant="destructive" className="min-h-11 w-full font-semibold" onClick={() => void handleCancel()}>
+            <Button type="button" variant="destructive" className="min-h-11 w-full min-w-0 whitespace-normal text-center font-semibold leading-5" onClick={() => void handleCancel()}>
               <X className="h-4 w-4" aria-hidden="true" />
               {copy.cancel}
             </Button>
           ) : (
             <Button
               type="button"
-              className="min-h-11 w-full font-semibold"
+              className="min-h-11 w-full min-w-0 whitespace-normal text-center font-semibold leading-5"
               onClick={() => void handleLaunch()}
               disabled={disabled || launching}
             >
@@ -470,19 +470,19 @@ export function LocalEngineDownloadCard({
           )}
 
           {bridge ? (
-            <Button type="button" variant="outline" className="min-h-10 w-full" onClick={() => void handleOpenFolder()}>
+            <Button type="button" variant="outline" className="min-h-10 w-full min-w-0 whitespace-normal text-center leading-5" onClick={() => void handleOpenFolder()}>
               <FolderOpen className="h-4 w-4" aria-hidden="true" />
               {copy.openFolder}
             </Button>
           ) : (
             <div className="grid gap-2">
-              <Button type="button" variant="outline" className="min-h-10 w-full" asChild>
+              <Button type="button" variant="outline" className="min-h-10 w-full min-w-0 whitespace-normal text-center leading-5" asChild>
                 <a href={LOCAL_ENGINE_RELEASE_URL}>
                   <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
                   {copy.install}
                 </a>
               </Button>
-              <Button type="button" variant="ghost" className="min-h-9 w-full text-xs" asChild>
+              <Button type="button" variant="ghost" className="min-h-9 w-full min-w-0 whitespace-normal text-center text-xs leading-5" asChild>
                 <a href={LOCAL_ENGINE_GITHUB_URL} target="_blank" rel="noreferrer">
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                   {copy.githubMirror}

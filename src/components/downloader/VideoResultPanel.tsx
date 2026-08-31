@@ -350,7 +350,7 @@ export function VideoResultPanel({
                             <div
                                 className={
                                     hasPrimaryVisual
-                                        ? 'grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(330px,0.85fr)] lg:items-start xl:grid-cols-[minmax(0,1.62fr)_minmax(370px,0.82fr)]'
+                                        ? 'grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.78fr)] xl:items-start 2xl:grid-cols-[minmax(0,1.62fr)_minmax(340px,0.82fr)]'
                                         : 'grid gap-4'
                                 }
                             >
