@@ -175,6 +175,15 @@ class LocalBridge:
         self._thread = None
 
 
+def bridge_is_running(timeout: float = 0.45) -> bool:
+    request = urllib.request.Request(f"{BRIDGE_BASE_URL}/health", method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False
+
+
 def post_job_to_running_engine(payload: dict[str, Any], timeout: float = 0.8) -> bool:
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
