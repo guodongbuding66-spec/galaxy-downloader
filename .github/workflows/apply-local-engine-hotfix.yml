@@ -1,0 +1,46 @@
+name: Apply Local Engine Regression Hotfix
+
+on:
+  push:
+    branches:
+      - hotfix/local-engine-cookie-ui-regression
+    paths:
+      - '.hotfix/local-engine-cookie-ui.patch'
+      - '.github/workflows/apply-local-engine-hotfix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: hotfix/local-engine-cookie-ui-regression
+
+      - name: Apply regression hotfix
+        run: |
+          git apply --check .hotfix/local-engine-cookie-ui.patch
+          git apply .hotfix/local-engine-cookie-ui.patch
+          rm -f .hotfix/local-engine-cookie-ui.patch
+          rmdir .hotfix 2>/dev/null || true
+          rm -f .github/workflows/apply-local-engine-hotfix.yml
+
+      - name: Validate patched sources
+        run: |
+          python -m py_compile local-engine/wechat_channels.py local-engine/engine.py
+          grep -q 'if requested == "none"' local-engine/wechat_channels.py
+          grep -q 'xl:grid-cols-\[minmax(0,1.45fr)_minmax(300px,0.78fr)\]' src/components/downloader/VideoResultPanel.tsx
+          grep -q 'workbench-shadow aside .ui-pressable' src/app/globals.css
+
+      - name: Commit hotfix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: restore cookie opt-in and responsive download rail'
+          git push origin HEAD:hotfix/local-engine-cookie-ui-regression
