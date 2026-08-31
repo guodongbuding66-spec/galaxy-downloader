@@ -55,6 +55,7 @@ type Copy = {
   intro: string;
   planSync: string;
   cookieSource: string;
+  cookieHelp: string;
   noCookies: string;
   edge: string;
   chrome: string;
@@ -81,7 +82,8 @@ const COPY: Record<string, Copy> = {
     intro: '适合 YouTube、B站、小红书、快手、Dailymotion 等存在反爬、登录或 IP 绑定限制的平台，直接调用本机 yt-dlp + FFmpeg。',
     planSync: '会沿用上方“当前成品方案”的画质、音质、字幕和封面设置。',
     cookieSource: '登录状态',
-    noCookies: '不读取浏览器 Cookie',
+    cookieHelp: '默认不读取浏览器 Cookie。只有视频明确需要登录、年龄验证或账号权限时再选择浏览器；如果浏览器 Cookie 被占用，请关闭对应浏览器后重试。',
+    noCookies: '不读取浏览器 Cookie（推荐默认）',
     edge: '使用 Edge 登录状态',
     chrome: '使用 Chrome 登录状态',
     firefox: '使用 Firefox 登录状态',
@@ -89,7 +91,7 @@ const COPY: Record<string, Copy> = {
     install: '下载 Galaxy Local Engine（官网线路）',
     githubMirror: 'GitHub 备用下载',
     privacy: 'Cookie、视频下载和 FFmpeg 处理全部留在你的电脑，不上传 Galaxy 服务器。',
-    launchHint: '尚未检测到本地引擎通信服务。请下载最新版、完整解压并运行 install.cmd，然后返回本页重试。',
+    launchHint: '尚未检测到兼容的本地引擎。请下载最新版、完整解压并运行 install.cmd；旧的 v0.3.x 会被网站视为不兼容。',
     connected: '本地引擎已连接',
     disconnected: '本地引擎未连接',
     bridgeRequired: '请安装最新版 Galaxy Local Engine（v0.4.0 或更高版本）。',
@@ -101,7 +103,7 @@ const COPY: Record<string, Copy> = {
       '优先点击“官网线路”下载最新 Windows ZIP；如果官网线路异常，可使用 GitHub 备用下载。',
       '完整解压 ZIP，不能直接在压缩包里运行。新版已内置 FFmpeg、ffprobe 和 yt-dlp.exe，安装时无需再访问 GitHub。',
       '把解压文件夹放在准备长期使用的位置，然后双击 install.cmd。当前解压文件夹就是安装目录，视频会保存到其中的 downloads 文件夹。',
-      '保持 Galaxy Local Engine 运行并返回本页，等待显示“本地引擎已连接”；按需选择浏览器登录状态后即可本机下载。',
+      '保持 Galaxy Local Engine 运行并返回本页，等待显示“本地引擎已连接”；公开视频保持“不读取 Cookie”，确实需要登录时再选择浏览器登录状态。',
     ],
     guideTip: '如果以后把整个 Galaxy Local Engine 文件夹移动到其他磁盘或目录，只需在新位置重新运行一次 install.cmd 以刷新 Windows 协议路径。',
   },
@@ -110,7 +112,8 @@ const COPY: Record<string, Copy> = {
     intro: '適合存在反爬、登入或 IP 綁定限制的平台，直接呼叫本機 yt-dlp + FFmpeg。',
     planSync: '會沿用上方「目前成品方案」的畫質、音訊、字幕與封面設定。',
     cookieSource: '登入狀態',
-    noCookies: '不讀取瀏覽器 Cookie',
+    cookieHelp: '預設不讀取瀏覽器 Cookie。只有影片確實需要登入或帳號權限時再選瀏覽器；Cookie 被占用時請先關閉對應瀏覽器。',
+    noCookies: '不讀取瀏覽器 Cookie（建議預設）',
     edge: '使用 Edge 登入狀態',
     chrome: '使用 Chrome 登入狀態',
     firefox: '使用 Firefox 登入狀態',
@@ -118,7 +121,7 @@ const COPY: Record<string, Copy> = {
     install: '下載 Galaxy Local Engine（官網線路）',
     githubMirror: 'GitHub 備用下載',
     privacy: 'Cookie、影片與 FFmpeg 處理全部保留在你的電腦。',
-    launchHint: '尚未偵測到本地引擎。請下載最新版、完整解壓並執行 install.cmd。',
+    launchHint: '尚未偵測到相容的本地引擎。請下載最新版、完整解壓並執行 install.cmd；舊 v0.3.x 不再相容。',
     connected: '本地引擎已連線',
     disconnected: '本地引擎未連線',
     bridgeRequired: '請安裝最新版 Galaxy Local Engine（v0.4.0 或更新版本）。',
@@ -130,7 +133,7 @@ const COPY: Record<string, Copy> = {
       '優先使用官網線路下載 Windows ZIP；需要時可改用 GitHub 備用線路。',
       '完整解壓 ZIP。FFmpeg、ffprobe 與 yt-dlp.exe 已內置，安裝時不需要再從 GitHub 下載。',
       '把解壓資料夾放到長期使用位置後執行 install.cmd；該資料夾就是安裝目錄，影片保存在 downloads。',
-      '保持程式執行並返回本頁，看到「本地引擎已連線」後即可開始下載。',
+      '保持程式執行並返回本頁；公開影片維持不讀取 Cookie，需要登入時再選瀏覽器。',
     ],
     guideTip: '日後若移動整個資料夾，請在新位置重新執行一次 install.cmd。',
   },
@@ -139,7 +142,8 @@ const COPY: Record<string, Copy> = {
     intro: 'Use local yt-dlp + FFmpeg for sites with anti-bot, login, or IP-bound media restrictions.',
     planSync: 'It uses the same video, audio, subtitle, and cover choices shown in the current output plan.',
     cookieSource: 'Login session',
-    noCookies: 'Do not read browser cookies',
+    cookieHelp: 'Browser cookies are off by default. Select a browser only when the media actually requires login, age verification, or account access. Close that browser if its cookie database is locked.',
+    noCookies: 'Do not read browser cookies (recommended)',
     edge: 'Use Edge login session',
     chrome: 'Use Chrome login session',
     firefox: 'Use Firefox login session',
@@ -147,7 +151,7 @@ const COPY: Record<string, Copy> = {
     install: 'Download Galaxy Local Engine (site)',
     githubMirror: 'GitHub mirror',
     privacy: 'Cookies, media downloads and FFmpeg processing stay on this computer.',
-    launchHint: 'The local engine was not detected. Download the latest ZIP, extract it fully, run install.cmd, then return here.',
+    launchHint: 'No compatible local engine was detected. Download the latest ZIP, extract it fully and run install.cmd. Legacy v0.3.x engines are no longer accepted by the website.',
     connected: 'Local engine connected',
     disconnected: 'Local engine not connected',
     bridgeRequired: 'Install Galaxy Local Engine v0.4.0 or newer.',
@@ -159,7 +163,7 @@ const COPY: Record<string, Copy> = {
       'Prefer the Galaxy website download. Use the GitHub mirror only if needed.',
       'Extract the full ZIP. FFmpeg, ffprobe and yt-dlp.exe are already bundled, so first-time installation does not need GitHub access.',
       'Place the extracted folder where you want to keep it, then run install.cmd. That folder is the install folder and downloads are saved under its downloads directory.',
-      'Keep Galaxy Local Engine running, return here until the status shows connected, choose a browser session if needed, then start the local download.',
+      'Keep Galaxy Local Engine running and return here. Leave cookies disabled for public media and choose a browser session only when login is actually required.',
     ],
     guideTip: 'If you move the whole folder later, run install.cmd once again from the new location to refresh the Windows protocol path.',
   },
@@ -168,7 +172,8 @@ const COPY: Record<string, Copy> = {
     intro: 'ログイン、Bot 対策、IP 制限があるサイトでは、この PC の yt-dlp + FFmpeg を使用します。',
     planSync: '上の出力プランと同じ画質・音質・字幕・カバー設定を使用します。',
     cookieSource: 'ログイン状態',
-    noCookies: 'ブラウザー Cookie を使用しない',
+    cookieHelp: 'Cookie は既定で使用しません。ログインが必要な動画だけブラウザーを選択し、Cookie データベースが使用中ならそのブラウザーを終了してください。',
+    noCookies: 'ブラウザー Cookie を使用しない（推奨）',
     edge: 'Edge のログイン状態を使用',
     chrome: 'Chrome のログイン状態を使用',
     firefox: 'Firefox のログイン状態を使用',
@@ -176,7 +181,7 @@ const COPY: Record<string, Copy> = {
     install: 'Galaxy Local Engine をサイトからダウンロード',
     githubMirror: 'GitHub ミラー',
     privacy: 'Cookie、メディア、FFmpeg 処理はこの PC 内だけで行われます。',
-    launchHint: 'ローカルエンジンを検出できません。最新版 ZIP を展開して install.cmd を実行してください。',
+    launchHint: '互換性のあるローカルエンジンを検出できません。最新版 ZIP を展開して install.cmd を実行してください。',
     connected: 'ローカルエンジン接続済み',
     disconnected: 'ローカルエンジン未接続',
     bridgeRequired: 'Galaxy Local Engine v0.4.0 以降をインストールしてください。',
@@ -184,7 +189,7 @@ const COPY: Record<string, Copy> = {
     cancel: 'ローカルジョブをキャンセル',
     openFolder: 'ダウンロードフォルダーを開く',
     guideTitle: 'Galaxy Local Engine の使い方',
-    guideSteps: ['まず公式サイト経由で ZIP をダウンロードします。必要な場合のみ GitHub ミラーを使用します。', 'ZIP を完全に展開します。FFmpeg と yt-dlp は同梱済みです。', '保存したい場所にフォルダーを置き install.cmd を実行します。downloads フォルダーに動画が保存されます。', 'アプリを起動したままこのページへ戻り、接続表示を確認してからダウンロードします。'],
+    guideSteps: ['まず公式サイト経由で ZIP をダウンロードします。必要な場合のみ GitHub ミラーを使用します。', 'ZIP を完全に展開します。FFmpeg と yt-dlp は同梱済みです。', '保存したい場所にフォルダーを置き install.cmd を実行します。downloads フォルダーに動画が保存されます。', '公開動画では Cookie を使わず、ログインが必要な場合だけブラウザーセッションを選択します。'],
     guideTip: 'フォルダーを移動した場合は、新しい場所で install.cmd をもう一度実行してください。',
   },
   es: {
@@ -192,7 +197,8 @@ const COPY: Record<string, Copy> = {
     intro: 'Usa yt-dlp + FFmpeg localmente para sitios con inicio de sesión, anti-bot o bloqueo por IP.',
     planSync: 'Usa las mismas opciones de vídeo, audio, subtítulos y portada del plan actual.',
     cookieSource: 'Sesión del navegador',
-    noCookies: 'No usar cookies del navegador',
+    cookieHelp: 'Las cookies están desactivadas por defecto. Selecciona un navegador solo cuando el contenido requiera inicio de sesión; ciérralo si su base de cookies está bloqueada.',
+    noCookies: 'No usar cookies del navegador (recomendado)',
     edge: 'Usar sesión de Edge',
     chrome: 'Usar sesión de Chrome',
     firefox: 'Usar sesión de Firefox',
@@ -200,7 +206,7 @@ const COPY: Record<string, Copy> = {
     install: 'Descargar Galaxy Local Engine (sitio)',
     githubMirror: 'Espejo de GitHub',
     privacy: 'Cookies, contenido y FFmpeg permanecen en este equipo.',
-    launchHint: 'No se detectó el motor local. Descarga el ZIP más reciente, extráelo y ejecuta install.cmd.',
+    launchHint: 'No se detectó un motor local compatible. Descarga el ZIP más reciente, extráelo y ejecuta install.cmd.',
     connected: 'Motor local conectado',
     disconnected: 'Motor local no conectado',
     bridgeRequired: 'Instala Galaxy Local Engine v0.4.0 o posterior.',
@@ -208,7 +214,7 @@ const COPY: Record<string, Copy> = {
     cancel: 'Cancelar tarea local',
     openFolder: 'Abrir carpeta de descargas',
     guideTitle: 'Cómo usar Galaxy Local Engine',
-    guideSteps: ['Usa primero la descarga del sitio y deja GitHub como alternativa.', 'Extrae todo el ZIP. FFmpeg y yt-dlp ya vienen incluidos.', 'Coloca la carpeta donde quieras conservarla y ejecuta install.cmd; los vídeos se guardan en downloads.', 'Mantén el motor abierto, vuelve a esta página y empieza la descarga cuando aparezca conectado.'],
+    guideSteps: ['Usa primero la descarga del sitio y deja GitHub como alternativa.', 'Extrae todo el ZIP. FFmpeg y yt-dlp ya vienen incluidos.', 'Coloca la carpeta donde quieras conservarla y ejecuta install.cmd; los vídeos se guardan en downloads.', 'Para contenido público deja las cookies desactivadas y usa una sesión del navegador solo si hace falta iniciar sesión.'],
     guideTip: 'Si mueves la carpeta completa, ejecuta install.cmd de nuevo desde la nueva ubicación.',
   },
   ru: {
@@ -216,7 +222,8 @@ const COPY: Record<string, Copy> = {
     intro: 'Используйте локальные yt-dlp + FFmpeg для сайтов с авторизацией, антибот-защитой или IP-ограничениями.',
     planSync: 'Используются те же настройки видео, аудио, субтитров и обложки, что и в текущем плане.',
     cookieSource: 'Сеанс браузера',
-    noCookies: 'Не использовать cookies браузера',
+    cookieHelp: 'Cookies браузера по умолчанию отключены. Выбирайте браузер только если контент требует входа; закройте его, если база cookies заблокирована.',
+    noCookies: 'Не использовать cookies браузера (рекомендуется)',
     edge: 'Использовать сеанс Edge',
     chrome: 'Использовать сеанс Chrome',
     firefox: 'Использовать сеанс Firefox',
@@ -224,7 +231,7 @@ const COPY: Record<string, Copy> = {
     install: 'Скачать Galaxy Local Engine с сайта',
     githubMirror: 'Зеркало GitHub',
     privacy: 'Cookies, медиа и FFmpeg остаются только на этом компьютере.',
-    launchHint: 'Локальный движок не обнаружен. Скачайте последний ZIP, распакуйте его и запустите install.cmd.',
+    launchHint: 'Совместимый локальный движок не обнаружен. Скачайте последний ZIP, распакуйте его и запустите install.cmd.',
     connected: 'Локальный движок подключён',
     disconnected: 'Локальный движок не подключён',
     bridgeRequired: 'Установите Galaxy Local Engine v0.4.0 или новее.',
@@ -232,7 +239,7 @@ const COPY: Record<string, Copy> = {
     cancel: 'Отменить локальную задачу',
     openFolder: 'Открыть папку загрузок',
     guideTitle: 'Как использовать Galaxy Local Engine',
-    guideSteps: ['Сначала используйте загрузку с сайта, GitHub оставьте как резерв.', 'Полностью распакуйте ZIP. FFmpeg и yt-dlp уже включены.', 'Поместите папку в постоянное место и запустите install.cmd; файлы сохраняются в downloads.', 'Оставьте приложение запущенным, вернитесь на страницу и начните загрузку после появления статуса подключения.'],
+    guideSteps: ['Сначала используйте загрузку с сайта, GitHub оставьте как резерв.', 'Полностью распакуйте ZIP. FFmpeg и yt-dlp уже включены.', 'Поместите папку в постоянное место и запустите install.cmd; файлы сохраняются в downloads.', 'Для публичного контента оставьте cookies выключенными и выбирайте браузер только когда нужен вход.'],
     guideTip: 'После перемещения всей папки снова запустите install.cmd из нового места.',
   },
 };
@@ -273,10 +280,7 @@ export function LocalEngineDownloadCard({
   const pathname = usePathname();
   const copy = copyFor(pathname);
   const sourceUrl = scopedSourceUrl(result);
-  const [browser, setBrowser] = useState<LocalEngineBrowser>(() => {
-    if (typeof navigator === 'undefined') return 'none';
-    return /Windows/i.test(navigator.userAgent) ? 'edge' : 'none';
-  });
+  const [browser, setBrowser] = useState<LocalEngineBrowser>('none');
   const [bridge, setBridge] = useState<LocalEngineBridgeStatus | null>(null);
   const [launching, setLaunching] = useState(false);
 
@@ -444,6 +448,7 @@ export function LocalEngineDownloadCard({
               <SelectItem value="firefox">{copy.firefox}</SelectItem>
             </SelectContent>
           </Select>
+          <p className="text-[11px] leading-4 text-muted-foreground">{copy.cookieHelp}</p>
         </div>
 
         <div className="grid gap-2">
