@@ -4,7 +4,6 @@ import type { AudioExtractTask } from '@/components/audio-tool/types';
 import { DeferredHlsDownloadDialog } from '@/components/deferred-hls-download-dialog';
 import type { HlsDownloadDialogRequest } from '@/components/hls-download-dialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { HlsVideoPlayer } from '@/components/hls-video-player';
 import { useDictionary } from '@/i18n/client';
 import { toast } from '@/lib/deferred-toast';
@@ -129,9 +128,7 @@ export function VideoResultPanel({
     const [hlsDownloadRequest, setHlsDownloadRequest] = useState<HlsDownloadDialogRequest | null>(null);
 
     const activeBiliList = activeBiliListState.key === activeListKey ? activeBiliListState.value : defaultBiliList;
-    const setActiveBiliList = (value: 'pages' | 'season') => {
-        setActiveBiliListState({ key: activeListKey, value });
-    };
+    const setActiveBiliList = (value: 'pages' | 'season') => setActiveBiliListState({ key: activeListKey, value });
 
     const displayImages = resolveResultDisplayImages({
         noteType: result.noteType,
@@ -166,20 +163,17 @@ export function VideoResultPanel({
                 : isMultiPart
                     ? 'pages'
                     : 'result';
-    const previewItem =
-        activeCollectionSource === 'pages'
-            ? currentPage
-                ? String(currentPage.page)
-                : undefined
-            : activeCollectionSource === 'season'
-                ? currentVideo?.id
-                : undefined;
-    const effectiveResult =
-        activeCollectionSource === 'pages' && currentPage
-            ? buildPageScopedResult(result, currentPage)
-            : activeCollectionSource === 'season' && currentVideo
-                ? buildVideoScopedResult(result, currentVideo)
-                : result;
+    const previewItem = activeCollectionSource === 'pages'
+        ? currentPage ? String(currentPage.page) : undefined
+        : activeCollectionSource === 'season'
+            ? currentVideo?.id
+            : undefined;
+    const effectiveResult = activeCollectionSource === 'pages' && currentPage
+        ? buildPageScopedResult(result, currentPage)
+        : activeCollectionSource === 'season' && currentVideo
+            ? buildVideoScopedResult(result, currentVideo)
+            : result;
+
     const activePreviewMatchesSelection = Boolean(
         activePreview
         && activePreview.sourceUrl === shareSourceUrl
@@ -195,8 +189,7 @@ export function VideoResultPanel({
         { autoplay: false, preferAudio: previewPreference }
     );
     const canSharePlayLink = shareSourceUrl.length > 0 && Boolean(primaryPreview);
-    const selectedCoverUrl =
-        activeCollectionSource === 'season' && currentVideo?.cover ? currentVideo.cover.trim() : coverUrl;
+    const selectedCoverUrl = activeCollectionSource === 'season' && currentVideo?.cover ? currentVideo.cover.trim() : coverUrl;
     const coverSrc = selectedCoverUrl.length > 0 ? resolveCoverSrc(selectedCoverUrl) : '';
     const isActivePreviewForSelection = Boolean(
         activePreview
@@ -212,14 +205,17 @@ export function VideoResultPanel({
               origin: activePreview?.origin ?? primaryPreview.origin,
           }
         : null;
-    const hlsPlaybackUrl =
-        playerPreview?.mediaType === 'video'
+    const directHlsUrl = playerPreview?.mediaType === 'video' && isHlsPlaylistUrl(playerPreview.directUrl)
+        ? playerPreview.directUrl || null
+        : null;
+    const routedHlsUrl = playerPreview?.mediaType === 'video'
         && (
             effectiveResult.mediaActions?.video === 'browser-hls-download'
             || isHlsPlaylistUrl(effectiveResult.originDownloadVideoUrl)
         )
             ? effectiveResult.downloadVideoUrl
             : null;
+    const hlsPlaybackUrl = directHlsUrl || routedHlsUrl;
     const playerUrl = hlsPlaybackUrl || (playerPreview ? buildMediaPreviewUrl(playerPreview) : null);
     const hasPrimaryVisual = Boolean((playerPreview && playerUrl) || coverSrc);
 
@@ -231,11 +227,7 @@ export function VideoResultPanel({
             currentPage: pageNumber,
             currentItemId: previous.key === activeListKey ? previous.currentItemId : result.currentItemId,
         }));
-        const preview = buildResultPreviewForSelection(result, {
-            item: String(pageNumber),
-            mediaType,
-            autoplay: true,
-        });
+        const preview = buildResultPreviewForSelection(result, { item: String(pageNumber), mediaType, autoplay: true });
         if (preview) {
             onRequestPreview({ ...preview, origin: 'user' });
             return;
@@ -251,11 +243,7 @@ export function VideoResultPanel({
             currentPage: previous.key === activeListKey ? previous.currentPage : result.currentPage,
             currentItemId: itemId,
         }));
-        const preview = buildResultPreviewForSelection(result, {
-            item: itemId,
-            mediaType,
-            autoplay: true,
-        });
+        const preview = buildResultPreviewForSelection(result, { item: itemId, mediaType, autoplay: true });
         if (preview) {
             onRequestPreview({ ...preview, origin: 'user' });
             return;
@@ -266,18 +254,14 @@ export function VideoResultPanel({
     const handleCopySharePlayLink = async () => {
         if (!canSharePlayLink) return;
         try {
-            if (typeof window === 'undefined' || !navigator.clipboard?.writeText) {
-                throw new Error('Clipboard API unavailable');
-            }
+            if (typeof window === 'undefined' || !navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
             const pathnameSegments = window.location.pathname.split('/').filter((s) => s.length > 0);
             const localePrefix = pathnameSegments[0] ? `/${pathnameSegments[0]}` : '';
             const shareUrl = new URL(`${window.location.origin}${localePrefix}/play`);
             shareUrl.searchParams.set('play', shareSourceUrl);
             shareUrl.searchParams.set('autoplay', '1');
             shareUrl.searchParams.set('type', primaryPreview!.mediaType);
-            if (primaryPreview!.item) {
-                shareUrl.searchParams.set('item', primaryPreview!.item);
-            }
+            if (primaryPreview!.item) shareUrl.searchParams.set('item', primaryPreview!.item);
             await navigator.clipboard.writeText(shareUrl.toString());
             toast.success(dict.result.sharePlayLinkCopied);
         } catch (error) {
@@ -286,14 +270,13 @@ export function VideoResultPanel({
         }
     };
 
-    const displayTitle =
-        effectiveResult.title && effectiveResult.title !== result.title
-            ? `${result.title} · ${effectiveResult.title}`
-            : effectiveResult.title || result.title;
+    const displayTitle = effectiveResult.title && effectiveResult.title !== result.title
+        ? `${result.title} · ${effectiveResult.title}`
+        : effectiveResult.title || result.title;
     const displayDuration = effectiveResult.duration ?? result.duration;
 
     const primaryVisual = playerPreview && playerUrl ? (
-        <div className="overflow-hidden rounded-2xl bg-black shadow-sm ring-1 ring-border/60">
+        <div className="overflow-hidden rounded-xl bg-black ring-1 ring-black/10">
             {playerPreview.mediaType === 'audio' ? (
                 <audio
                     key={playerUrl}
@@ -312,7 +295,7 @@ export function VideoResultPanel({
                     playsInline
                     preload="metadata"
                     poster={coverSrc || undefined}
-                    className="min-h-[220px] max-h-[64vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-11rem)]"
+                    className="min-h-[220px] max-h-[68vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-8rem)]"
                 />
             ) : (
                 <video
@@ -324,7 +307,7 @@ export function VideoResultPanel({
                     playsInline
                     preload="metadata"
                     poster={coverSrc || undefined}
-                    className="min-h-[220px] max-h-[64vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-11rem)]"
+                    className="min-h-[220px] max-h-[68vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-8rem)]"
                 />
             )}
         </div>
@@ -332,8 +315,52 @@ export function VideoResultPanel({
         <ImageNoteGrid images={[coverSrc]} title={displayTitle} singleImageMode />
     ) : null;
 
+    const collectionPanel = showMultiPartList || showSeasonList || hasBilibiliSourceSwitch ? (
+        <section className="min-w-0 space-y-2 border-t border-border/60 pt-3">
+            {hasBilibiliSourceSwitch ? (
+                <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/40 p-1" role="group">
+                    <Button
+                        variant={activeBiliList === 'pages' ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="h-8 text-xs transition-transform duration-150 active:scale-[0.96]"
+                        aria-pressed={activeBiliList === 'pages'}
+                        onClick={() => setActiveBiliList('pages')}
+                    >
+                        {pageTabLabel}
+                    </Button>
+                    <Button
+                        variant={activeBiliList === 'season' ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="h-8 text-xs transition-transform duration-150 active:scale-[0.96]"
+                        aria-pressed={activeBiliList === 'season'}
+                        onClick={() => setActiveBiliList('season')}
+                    >
+                        {seasonTabLabel}
+                    </Button>
+                </div>
+            ) : null}
+            {showMultiPartList ? (
+                <MultiPartList
+                    key={`pages-${result.url ?? ''}-${result.pages?.length ?? 0}`}
+                    pages={result.pages!}
+                    currentPage={currentPage?.page}
+                    onSelectPage={handleSelectPage}
+                />
+            ) : showSeasonList ? (
+                <EmbeddedVideoList
+                    key={`videos-${result.url ?? ''}-${result.videos?.length ?? 0}`}
+                    videos={result.videos!}
+                    currentItemId={currentVideo?.id}
+                    autoScrollKey={activeListKey}
+                    autoScrollItemId={result.currentItemId}
+                    onSelectItem={handleSelectVideo}
+                />
+            ) : null}
+        </section>
+    ) : null;
+
     return (
-        <Card className="overflow-hidden border-border/80 bg-card/95 workbench-shadow">
+        <section className="overflow-hidden rounded-xl bg-card workbench-shadow ring-1 ring-border/70">
             <ResultCardHeader
                 title={displayTitle}
                 duration={displayDuration}
@@ -341,98 +368,43 @@ export function VideoResultPanel({
                 onCopyShareLink={() => void handleCopySharePlayLink()}
                 onClose={onClose}
             />
-            <CardContent className="p-3 sm:p-5">
-                <div className="space-y-4 sm:space-y-5">
-                    {isImageNote ? (
+
+            <div className="p-2.5 sm:p-3">
+                {isImageNote ? (
+                    <ImageNoteGrid images={displayImages} title={displayTitle} />
+                ) : (
+                    <div className={hasPrimaryVisual
+                        ? 'grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(360px,430px)] lg:items-start'
+                        : 'grid min-w-0 gap-3'}
+                    >
+                        {hasPrimaryVisual ? <div className="min-w-0">{primaryVisual}</div> : null}
+                        <aside className="min-w-0 space-y-3 lg:sticky lg:top-3">
+                            <SinglePartButtons
+                                result={effectiveResult}
+                                previewItem={previewItem}
+                                onOpenExtractAudio={onOpenExtractAudio}
+                                onOpenHlsDownload={setHlsDownloadRequest}
+                                onRequestPreview={onRequestPreview}
+                            />
+                            {collectionPanel}
+                        </aside>
+                    </div>
+                )}
+
+                {hasSupplementalImages ? (
+                    <section className="mt-3 border-t border-border/60 pt-3">
                         <ImageNoteGrid images={displayImages} title={displayTitle} />
-                    ) : (
-                        <>
-                            <div
-                                className={
-                                    hasPrimaryVisual
-                                        ? 'grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.78fr)] xl:items-start 2xl:grid-cols-[minmax(0,1.62fr)_minmax(340px,0.82fr)]'
-                                        : 'grid gap-4'
-                                }
-                            >
-                                {hasPrimaryVisual ? (
-                                    <section className="min-w-0 rounded-2xl border border-border/70 bg-muted/15 p-2 shadow-sm sm:p-3">
-                                        {primaryVisual}
-                                    </section>
-                                ) : null}
+                    </section>
+                ) : null}
+            </div>
 
-                                <aside className="min-w-0">
-                                    <div className="rounded-2xl border border-border/75 bg-card/90 p-3 shadow-[0_1px_2px_hsl(var(--shadow-color)/0.04),0_12px_30px_hsl(var(--shadow-color)/0.05)] sm:p-4">
-                                        <SinglePartButtons
-                                            result={effectiveResult}
-                                            previewItem={previewItem}
-                                            onOpenExtractAudio={onOpenExtractAudio}
-                                            onOpenHlsDownload={setHlsDownloadRequest}
-                                            onRequestPreview={onRequestPreview}
-                                        />
-                                    </div>
-                                </aside>
-                            </div>
-
-                            {(showMultiPartList || showSeasonList || hasBilibiliSourceSwitch) && (
-                                <section className="space-y-3 rounded-2xl border border-border/70 bg-muted/10 p-3 sm:p-4">
-                                    {hasBilibiliSourceSwitch && (
-                                        <div className="grid grid-cols-2 gap-2 sm:inline-grid sm:grid-cols-2" role="group">
-                                            <Button
-                                                variant={activeBiliList === 'pages' ? 'default' : 'outline'}
-                                                size="sm"
-                                                className="min-h-10 text-xs"
-                                                aria-pressed={activeBiliList === 'pages'}
-                                                onClick={() => setActiveBiliList('pages')}
-                                            >
-                                                {pageTabLabel}
-                                            </Button>
-                                            <Button
-                                                variant={activeBiliList === 'season' ? 'default' : 'outline'}
-                                                size="sm"
-                                                className="min-h-10 text-xs"
-                                                aria-pressed={activeBiliList === 'season'}
-                                                onClick={() => setActiveBiliList('season')}
-                                            >
-                                                {seasonTabLabel}
-                                            </Button>
-                                        </div>
-                                    )}
-                                    {showMultiPartList ? (
-                                        <MultiPartList
-                                            key={`pages-${result.url ?? ''}-${result.pages?.length ?? 0}`}
-                                            pages={result.pages!}
-                                            currentPage={currentPage?.page}
-                                            onSelectPage={handleSelectPage}
-                                        />
-                                    ) : showSeasonList ? (
-                                        <EmbeddedVideoList
-                                            key={`videos-${result.url ?? ''}-${result.videos?.length ?? 0}`}
-                                            videos={result.videos!}
-                                            currentItemId={currentVideo?.id}
-                                            autoScrollKey={activeListKey}
-                                            autoScrollItemId={result.currentItemId}
-                                            onSelectItem={handleSelectVideo}
-                                        />
-                                    ) : null}
-                                </section>
-                            )}
-
-                            {hasSupplementalImages && (
-                                <section className="rounded-2xl border border-border/70 bg-muted/10 p-3 sm:p-4">
-                                    <ImageNoteGrid images={displayImages} title={displayTitle} />
-                                </section>
-                            )}
-                        </>
-                    )}
-                </div>
-                <DeferredHlsDownloadDialog
-                    open={Boolean(hlsDownloadRequest)}
-                    onOpenChange={(open) => {
-                        if (!open) setHlsDownloadRequest(null);
-                    }}
-                    request={hlsDownloadRequest}
-                />
-            </CardContent>
-        </Card>
+            <DeferredHlsDownloadDialog
+                open={Boolean(hlsDownloadRequest)}
+                onOpenChange={(open) => {
+                    if (!open) setHlsDownloadRequest(null);
+                }}
+                request={hlsDownloadRequest}
+            />
+        </section>
     );
 }
