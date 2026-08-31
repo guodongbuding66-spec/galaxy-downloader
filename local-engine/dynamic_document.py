@@ -113,12 +113,41 @@ class _CdpClient:
             origin="http://127.0.0.1",
         )
         self._next_id = 1
+        self.blocked_document_url: str | None = None
 
     def close(self) -> None:
         try:
             self._socket.close()
         except Exception:
             pass
+
+    def _send_command_without_waiting(self, method: str, params: dict[str, Any]) -> None:
+        message_id = self._next_id
+        self._next_id += 1
+        self._socket.send(json.dumps({"id": message_id, "method": method, "params": params}))
+
+    def _handle_event(self, payload: dict[str, Any]) -> None:
+        if payload.get("method") != "Fetch.requestPaused":
+            return
+        params = payload.get("params")
+        if not isinstance(params, dict):
+            return
+        request_id = str(params.get("requestId") or "")
+        request = params.get("request")
+        request_url = str(request.get("url") or "") if isinstance(request, dict) else ""
+        if not request_id:
+            return
+
+        if not request_url or not base._safe_http_url(request_url):
+            if str(params.get("resourceType") or "") == "Document":
+                self.blocked_document_url = request_url or "unknown"
+            self._send_command_without_waiting(
+                "Fetch.failRequest",
+                {"requestId": request_id, "errorReason": "BlockedByClient"},
+            )
+            return
+
+        self._send_command_without_waiting("Fetch.continueRequest", {"requestId": request_id})
 
     def call(self, method: str, params: dict[str, Any] | None = None, timeout: float = 6.0) -> dict[str, Any]:
         message_id = self._next_id
@@ -130,6 +159,11 @@ class _CdpClient:
             try:
                 payload = json.loads(self._socket.recv())
             except websocket.WebSocketTimeoutException:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("method"):
+                self._handle_event(payload)
                 continue
             if payload.get("id") != message_id:
                 continue
@@ -242,6 +276,15 @@ def _render_html(source_url: str, browser: str) -> tuple[str, str, str]:
             client.call("Network.enable")
             client.call("Page.enable")
             client.call("Runtime.enable")
+            client.call(
+                "Fetch.enable",
+                {
+                    "patterns": [
+                        {"urlPattern": "http://*"},
+                        {"urlPattern": "https://*"},
+                    ]
+                },
+            )
             client.call("Network.setExtraHTTPHeaders", {
                 "headers": {
                     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
@@ -252,6 +295,10 @@ def _render_html(source_url: str, browser: str) -> tuple[str, str, str]:
 
             deadline = time.monotonic() + CDP_NAVIGATION_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
+                if client.blocked_document_url:
+                    raise DynamicDocumentError(
+                        f"Dynamic page attempted to navigate to a blocked private/local URL: {client.blocked_document_url}"
+                    )
                 try:
                     ready = _evaluate_value(client, "document.readyState", timeout=2.0)
                 except DynamicDocumentError:
@@ -273,6 +320,10 @@ def _render_html(source_url: str, browser: str) -> tuple[str, str, str]:
                 pass
             time.sleep(0.5)
 
+            if client.blocked_document_url:
+                raise DynamicDocumentError(
+                    f"Dynamic page attempted to navigate to a blocked private/local URL: {client.blocked_document_url}"
+                )
             final_url = str(_evaluate_value(client, "location.href", timeout=2.0) or source_url)
             if not base._safe_http_url(final_url):
                 raise DynamicDocumentError("Dynamic page redirected to a URL that is not allowed")
