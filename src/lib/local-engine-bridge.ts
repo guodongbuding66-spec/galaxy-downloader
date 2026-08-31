@@ -1,8 +1,13 @@
 import type { LocalEngineBrowser } from '@/lib/local-engine'
 import type { UnifiedParseResult } from '@/lib/types'
 
-export const LOCAL_ENGINE_BRIDGE_BASE_URL = 'http://127.0.0.1:17836'
-const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1400
+const LOCAL_ENGINE_BRIDGE_BASE_URLS = [
+  'http://localhost:17836',
+  'http://127.0.0.1:17836',
+] as const
+
+export const LOCAL_ENGINE_BRIDGE_BASE_URL = LOCAL_ENGINE_BRIDGE_BASE_URLS[0]
+const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1800
 const MIN_LOCAL_ENGINE_VERSION = '0.4.4'
 const MIN_PARSE_BRIDGE_PROTOCOL = 2
 
@@ -34,6 +39,13 @@ export interface LocalEngineBridgeJob {
   playlist?: boolean
 }
 
+type LoopbackRequestInit = RequestInit & {
+  targetAddressSpace?: 'loopback'
+}
+
+let preferredBridgeBaseUrl: string | null = null
+let lastBridgeDiagnostic: string | null = null
+
 function versionParts(value: string): number[] | null {
   const match = value.trim().match(/^(\d+)\.(\d+)\.(\d+)/)
   if (!match) return null
@@ -51,32 +63,93 @@ function versionAtLeast(value: string, minimum: string): boolean {
   return true
 }
 
+function detectBrowserForCookies(): LocalEngineBrowser {
+  if (typeof navigator === 'undefined') return 'none'
+  const userAgent = navigator.userAgent.toLowerCase()
+  if (userAgent.includes('edg/')) return 'edge'
+  if (userAgent.includes('firefox/')) return 'firefox'
+  if (userAgent.includes('chrome/') || userAgent.includes('crios/')) return 'chrome'
+  return 'none'
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return '连接本地引擎超时。请确认 Galaxy Local Engine 正在运行。'
+  }
+  if (error instanceof Error && error.message.trim()) return error.message
+  return '浏览器无法连接本地引擎。'
+}
+
+function localNetworkHelp(detail?: string): string {
+  const suffix = detail?.trim() ? `（${detail.trim()}）` : ''
+  return `无法访问 Galaxy Local Engine${suffix}。请确认本地引擎正在运行，并在浏览器的网站权限中允许“本地网络访问/Local network access”，然后重新点击解析。`
+}
+
+function candidateBaseUrls(): string[] {
+  const candidates = preferredBridgeBaseUrl
+    ? [preferredBridgeBaseUrl, ...LOCAL_ENGINE_BRIDGE_BASE_URLS]
+    : [...LOCAL_ENGINE_BRIDGE_BASE_URLS]
+  return [...new Set(candidates)]
+}
+
 async function bridgeFetch(
   path: string,
   init?: RequestInit,
   timeoutMs = LOCAL_ENGINE_REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    return await fetch(`${LOCAL_ENGINE_BRIDGE_BASE_URL}${path}`, {
-      cache: 'no-store',
-      ...init,
-      signal: controller.signal,
-    })
-  } finally {
-    window.clearTimeout(timeoutId)
+  let lastError: unknown = null
+
+  for (const baseUrl of candidateBaseUrls()) {
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      // Edge 143+ and current Chromium builds gate public-site -> localhost
+      // requests behind Local Network Access permission. targetAddressSpace makes
+      // the loopback intent explicit and allows the browser to surface the
+      // permission prompt instead of silently failing the request.
+      const requestInit: LoopbackRequestInit = {
+        cache: 'no-store',
+        ...init,
+        signal: controller.signal,
+        targetAddressSpace: 'loopback',
+      }
+      const response = await fetch(`${baseUrl}${path}`, requestInit)
+      preferredBridgeBaseUrl = baseUrl
+      return response
+    } catch (error) {
+      lastError = error
+    } finally {
+      window.clearTimeout(timeoutId)
+    }
   }
+
+  throw lastError instanceof Error ? lastError : new Error('Local engine bridge is unreachable')
+}
+
+export function getLastLocalEngineBridgeDiagnostic(): string | null {
+  return lastBridgeDiagnostic
 }
 
 export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeStatus | null> {
   try {
     const response = await bridgeFetch('/status')
-    if (!response.ok) return null
+    if (!response.ok) {
+      lastBridgeDiagnostic = response.status === 403
+        ? 'Galaxy Local Engine 拒绝了当前网站来源。请升级本地引擎或重新运行 install.cmd。'
+        : localNetworkHelp(`HTTP ${response.status}`)
+      return null
+    }
     const payload = await response.json() as Partial<LocalEngineBridgeStatus>
-    if (!payload.ok || typeof payload.version !== 'string') return null
-    if (!versionAtLeast(payload.version, MIN_LOCAL_ENGINE_VERSION)) return null
+    if (!payload.ok || typeof payload.version !== 'string') {
+      lastBridgeDiagnostic = 'Galaxy Local Engine 返回了无效状态，请重新启动本地引擎。'
+      return null
+    }
+    if (!versionAtLeast(payload.version, MIN_LOCAL_ENGINE_VERSION)) {
+      lastBridgeDiagnostic = `Galaxy Local Engine 版本过低（当前 ${payload.version}，需要 ${MIN_LOCAL_ENGINE_VERSION}+）。`
+      return null
+    }
 
+    lastBridgeDiagnostic = null
     return {
       ok: true,
       bridgeProtocol: Number(payload.bridgeProtocol || 1),
@@ -92,7 +165,8 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
       ffmpegReady: Boolean(payload.ffmpegReady),
       ytDlpReady: Boolean(payload.ytDlpReady),
     }
-  } catch {
+  } catch (error) {
+    lastBridgeDiagnostic = localNetworkHelp(errorText(error))
     return null
   }
 }
@@ -100,22 +174,43 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
 export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedParseResult | null> {
   try {
     const status = await getLocalEngineBridgeStatus()
-    if (!status || status.bridgeProtocol < MIN_PARSE_BRIDGE_PROTOCOL || !status.ytDlpReady) {
+    if (!status) return null
+    if (status.bridgeProtocol < MIN_PARSE_BRIDGE_PROTOCOL) {
+      lastBridgeDiagnostic = `本地引擎解析协议过低（当前 ${status.bridgeProtocol}，需要 ${MIN_PARSE_BRIDGE_PROTOCOL}+）。`
+      return null
+    }
+    if (!status.ytDlpReady) {
+      lastBridgeDiagnostic = '本地引擎中的 yt-dlp 尚未就绪，请重新启动 Galaxy Local Engine。'
       return null
     }
 
     const response = await bridgeFetch('/parse', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: sourceUrl }),
+      body: JSON.stringify({
+        url: sourceUrl,
+        browser: detectBrowserForCookies(),
+      }),
     }, 48_000)
 
-    const payload = await response.json() as UnifiedParseResult
-    if (!response.ok || !payload?.success || !payload.data) {
+    let payload: UnifiedParseResult | null = null
+    try {
+      payload = await response.json() as UnifiedParseResult
+    } catch {
+      lastBridgeDiagnostic = `本地解析返回了无效数据（HTTP ${response.status}）。`
       return null
     }
+
+    if (!response.ok || !payload?.success || !payload.data) {
+      const detail = payload?.error || payload?.message || `HTTP ${response.status}`
+      lastBridgeDiagnostic = `本地 yt-dlp 解析失败：${detail}`
+      return null
+    }
+
+    lastBridgeDiagnostic = null
     return payload
-  } catch {
+  } catch (error) {
+    lastBridgeDiagnostic = localNetworkHelp(errorText(error))
     return null
   }
 }
@@ -131,7 +226,7 @@ async function postBridgeAction(path: string, body?: unknown): Promise<Response>
 export async function submitLocalEngineBridgeJob(job: LocalEngineBridgeJob): Promise<void> {
   const status = await getLocalEngineBridgeStatus()
   if (!status) {
-    throw new Error(`Galaxy Local Engine ${MIN_LOCAL_ENGINE_VERSION}+ is required`)
+    throw new Error(lastBridgeDiagnostic || `Galaxy Local Engine ${MIN_LOCAL_ENGINE_VERSION}+ is required`)
   }
 
   const response = await postBridgeAction('/download', job)
