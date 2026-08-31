@@ -24,6 +24,7 @@ COOKIE_ACCESS_PATTERNS = (
     "failed to decrypt with dpapi",
     "failed to decrypt cookie",
 )
+COLLECTION_MODES = {"single", "all", "selected"}
 
 
 class ExternalYtDlpError(RuntimeError):
@@ -150,6 +151,25 @@ def _terminate_process(process: subprocess.Popen[str]) -> None:
             pass
 
 
+def _normalized_collection_mode(collection_mode: str | None, playlist: bool) -> str:
+    value = (collection_mode or "").strip().lower()
+    if value in COLLECTION_MODES:
+        return value
+    return "all" if playlist else "single"
+
+
+def _selected_item_spec(selected_items: tuple[int, ...] | list[int] | None) -> str | None:
+    values: list[int] = []
+    for raw in selected_items or ():
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and value not in values:
+            values.append(value)
+    return ",".join(str(value) for value in values) or None
+
+
 def build_external_command(
     executable: Path,
     source_url: str,
@@ -162,9 +182,15 @@ def build_external_command(
     include_subtitle: bool,
     subtitle_language: str | None,
     include_cover: bool,
+    collection_mode: str | None = None,
+    selected_items: tuple[int, ...] | list[int] | None = None,
 ) -> list[str]:
     command = [
         str(executable),
+        # Galaxy must be deterministic. A user's global yt-dlp config can turn
+        # on --write-thumbnail/--write-info-json or playlist behavior and create
+        # extra files that the UI never requested.
+        "--ignore-config",
         "--newline",
         "--no-colors",
         "--progress",
@@ -173,10 +199,15 @@ def build_external_command(
         "--fragment-retries", "10",
         "--extractor-retries", "5",
         "--concurrent-fragments", "4",
-        "--merge-output-format", "mp4",
+        "--merge-output-format", "mp4/mkv",
         "--windows-filenames",
         "--embed-metadata",
         "--embed-chapters",
+        "--no-keep-video",
+        "--no-write-description",
+        "--no-write-info-json",
+        "--no-write-comments",
+        "--no-write-playlist-metafiles",
         "--progress-template",
         f"download:{PROGRESS_PREFIX}%(progress._percent_str)s\t%(progress._speed_str)s\t%(progress._eta_str)s\t%(progress._downloaded_bytes_str)s\t%(progress._total_bytes_str)s",
         "--print",
@@ -185,7 +216,17 @@ def build_external_command(
         "-o", output_template,
     ]
 
-    command.append("--yes-playlist" if playlist else "--no-playlist")
+    mode = _normalized_collection_mode(collection_mode, playlist)
+    selected_spec = _selected_item_spec(selected_items)
+    if mode == "all":
+        command.append("--yes-playlist")
+    elif mode == "selected" and selected_spec:
+        command.extend(["--yes-playlist", "--playlist-items", selected_spec])
+    else:
+        # --no-playlist only affects URLs that represent both one video and a
+        # playlist. Instagram carousels and some gallery extractors can be a
+        # playlist object themselves, so cap them to the first entry as well.
+        command.extend(["--no-playlist", "--playlist-items", "1"])
 
     if ffmpeg_location:
         command.extend(["--ffmpeg-location", str(ffmpeg_location)])
@@ -203,9 +244,16 @@ def build_external_command(
             "--convert-subs", "srt",
             "--embed-subs",
         ])
+    else:
+        command.extend(["--no-write-subs", "--no-write-auto-subs", "--no-embed-subs"])
 
     if include_cover:
-        command.extend(["--write-thumbnail", "--embed-thumbnail"])
+        # --embed-thumbnail downloads a temporary cover when needed and embeds
+        # it. Do NOT combine it with --write-thumbnail: that explicitly asks
+        # yt-dlp to keep a separate .jpg/.webp next to the final video.
+        command.extend(["--embed-thumbnail"])
+    else:
+        command.extend(["--no-write-thumbnail", "--no-embed-thumbnail"])
 
     command.extend(["--", source_url])
     return command
@@ -223,6 +271,8 @@ def _run_external_once(
     include_subtitle: bool,
     subtitle_language: str | None,
     include_cover: bool,
+    collection_mode: str | None,
+    selected_items: tuple[int, ...] | list[int] | None,
     cancelled: Callable[[], bool],
     on_progress: Callable[[float, str, str, str, str], None],
     on_status: Callable[[str], None],
@@ -238,6 +288,8 @@ def _run_external_once(
         include_subtitle=include_subtitle,
         subtitle_language=subtitle_language,
         include_cover=include_cover,
+        collection_mode=collection_mode,
+        selected_items=selected_items,
     )
 
     on_status("[Galaxy] 正在连接源站并读取媒体信息…")
@@ -331,6 +383,8 @@ def download_with_external_ytdlp(
     cancelled: Callable[[], bool],
     on_progress: Callable[[float, str, str, str, str], None],
     on_status: Callable[[str], None],
+    collection_mode: str | None = None,
+    selected_items: tuple[int, ...] | list[int] | None = None,
 ) -> Path | None:
     # A selected browser session is a fallback, not the first step. Most public
     # videos do not require cookies at all, and Chromium browsers commonly keep
@@ -350,6 +404,8 @@ def download_with_external_ytdlp(
                 include_subtitle=include_subtitle,
                 subtitle_language=subtitle_language,
                 include_cover=include_cover,
+                collection_mode=collection_mode,
+                selected_items=selected_items,
                 cancelled=cancelled,
                 on_progress=on_progress,
                 on_status=on_status,
@@ -373,6 +429,8 @@ def download_with_external_ytdlp(
                     include_subtitle=include_subtitle,
                     subtitle_language=subtitle_language,
                     include_cover=include_cover,
+                    collection_mode=collection_mode,
+                    selected_items=selected_items,
                     cancelled=cancelled,
                     on_progress=on_progress,
                     on_status=on_status,
@@ -402,6 +460,8 @@ def download_with_external_ytdlp(
         include_subtitle=include_subtitle,
         subtitle_language=subtitle_language,
         include_cover=include_cover,
+        collection_mode=collection_mode,
+        selected_items=selected_items,
         cancelled=cancelled,
         on_progress=on_progress,
         on_status=on_status,
