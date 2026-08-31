@@ -2,23 +2,34 @@ from __future__ import annotations
 
 import bridge
 from document_policy import install_document_policy, parse_web_document, should_try_web_document
+from dynamic_document import parse_dynamic_web_document
 
 install_document_policy()
 _original_media_parse = bridge.parse_with_bundled_ytdlp
 
 
 def _hybrid_parse(source_url: str, browser: str = "none"):
-    """Prefer rich page metadata, then preserve the existing yt-dlp path.
+    """Prefer rich document parsing, then dynamic CDP, then yt-dlp.
 
-    The browser calls /parse once anonymously and only retries with browser
-    cookies after AUTH_REQUIRED. Returning the document parser's auth signal
-    here therefore reuses the bridge's existing explicit-cookie fallback flow.
+    Static HTML remains the cheap first choice. When modern commerce/social pages
+    return only a JS shell, the local engine renders the page with Edge/Chrome
+    and feeds the resulting DOM back through the same document normalizer.
     """
     if should_try_web_document(source_url):
         document = parse_web_document(source_url, browser)
         if document.get("success"):
             return document
-        if document.get("code") == "AUTH_REQUIRED":
+
+        static_auth_required = document.get("code") == "AUTH_REQUIRED"
+        dynamic = parse_dynamic_web_document(source_url, browser)
+        if dynamic.get("success"):
+            return dynamic
+        if dynamic.get("code") == "BROWSER_COOKIE_UNAVAILABLE":
+            return dynamic
+
+        # Anonymous 401/403 must survive the dynamic attempt so the browser-side
+        # bridge knows to retry explicitly with a logged-in browser profile.
+        if static_auth_required and browser == "none":
             return document
 
     return _original_media_parse(source_url, browser)
