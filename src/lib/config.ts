@@ -73,11 +73,11 @@ export const API_ENDPOINTS = {
     unified: {
         parse: buildApiUrl('/api/parse'),
         download: buildApiUrl('/api/download'),
-        // Playback uses the same source-aware media route as downloads instead
-        // of the legacy /api/play endpoint. Prefer the user's container backend
-        // when configured so preview and download share the same yt-dlp/network
-        // identity and do not fail on short-lived or IP-bound media URLs.
-        play: buildApiUrl('/api/download', resolvePlaybackApiBaseUrl()),
+        // Preview is deliberately separate from final-file download. The
+        // container /api/play route resolves one browser-playable progressive
+        // stream and relays Range requests, while /api/download remains the
+        // best-video + best-audio + FFmpeg finished-file path.
+        play: buildApiUrl('/api/play', resolvePlaybackApiBaseUrl()),
     },
     feedback: buildApiUrl('/api/feedback'),
     stats: {
