@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { useDictionary } from '@/i18n/client';
 import { toast } from '@/lib/deferred-toast';
+import { buildDocumentArchiveMarkdown, type ArchiveImageFile } from '@/lib/document-archive';
 import { sanitizeFilename } from '@/lib/utils';
 
 import { shouldHideSingleImagePreview } from './result-card-visibility';
@@ -20,6 +21,7 @@ import {
 
 type ArchiveMetadata = {
     description?: string | null;
+    markdownContent?: string | null;
     author?: string | null;
     publishedAt?: string | null;
     sourceUrl?: string | null;
@@ -30,6 +32,7 @@ export function ImageNoteGrid({
     title,
     singleImageMode = false,
     description,
+    markdownContent,
     author,
     publishedAt,
     sourceUrl,
@@ -38,6 +41,7 @@ export function ImageNoteGrid({
     title: string;
     singleImageMode?: boolean;
     description?: string | null;
+    markdownContent?: string | null;
     author?: string | null;
     publishedAt?: string | null;
     sourceUrl?: string | null;
@@ -51,6 +55,7 @@ export function ImageNoteGrid({
             title={title}
             singleImageMode={singleImageMode}
             description={description}
+            markdownContent={markdownContent}
             author={author}
             publishedAt={publishedAt}
             sourceUrl={sourceUrl}
@@ -69,26 +74,12 @@ function archiveText(title: string, metadata: ArchiveMetadata): string {
     ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])).join('\n').trim();
 }
 
-function archiveMarkdown(title: string, metadata: ArchiveMetadata, imageNames: string[]): string {
-    const lines = [
-        `# ${title.trim()}`,
-        '',
-        metadata.author ? `- Author: ${metadata.author}` : '',
-        metadata.publishedAt ? `- Published: ${metadata.publishedAt}` : '',
-        metadata.sourceUrl ? `- Source: ${metadata.sourceUrl}` : '',
-        '',
-        metadata.description?.trim() || '',
-        '',
-        ...imageNames.flatMap((name, index) => [`![${index + 1}](./${name})`, '']),
-    ];
-    return `${lines.filter((line, index, all) => line || all[index - 1] !== '').join('\n').trim()}\n`;
-}
-
 function ImageNoteGridContent({
     images,
     title,
     singleImageMode = false,
     description,
+    markdownContent,
     author,
     publishedAt,
     sourceUrl,
@@ -97,6 +88,7 @@ function ImageNoteGridContent({
     title: string;
     singleImageMode?: boolean;
     description?: string | null;
+    markdownContent?: string | null;
     author?: string | null;
     publishedAt?: string | null;
     sourceUrl?: string | null;
@@ -149,7 +141,7 @@ function ImageNoteGridContent({
             const { default: JSZip } = await import('jszip');
             const zip = new JSZip();
             let successCount = 0;
-            const imageNames: string[] = [];
+            const archiveImages: ArchiveImageFile[] = [];
             const safeTitle = sanitizeFilename(title);
 
             for (let index = 0; index < images.length; index++) {
@@ -164,7 +156,7 @@ function ImageNoteGridContent({
                         const extension = resolveImageDownloadExtension(downloadedSourceUrl, blob.type);
                         const filename = `${safeTitle}-${index + 1}.${extension}`;
                         zip.file(filename, blob);
-                        imageNames.push(filename);
+                        archiveImages.push({ sourceUrl: images[index]!, filename });
                         successCount++;
                     } catch (error) {
                         console.error(`Failed to add image ${index} to zip:`, error);
@@ -178,10 +170,10 @@ function ImageNoteGridContent({
                 return;
             }
 
-            const metadata = { description, author, publishedAt, sourceUrl };
+            const metadata = { description, markdownContent, author, publishedAt, sourceUrl };
             const text = archiveText(title, metadata);
             if (text) zip.file(`${safeTitle}.txt`, text);
-            zip.file(`${safeTitle}.md`, archiveMarkdown(title, metadata, imageNames));
+            zip.file(`${safeTitle}.md`, buildDocumentArchiveMarkdown(title, metadata, archiveImages));
 
             const zipBlob = await zip.generateAsync({ type: 'blob' });
             triggerBlobDownload(zipBlob, `${safeTitle}.zip`);
