@@ -24,13 +24,13 @@ interface AppTopBarProps {
     homeHref?: string
 }
 
-const NAV_COPY: Record<string, { skip: string; subtitle: string; tools: string; engine: string }> = {
-    zh: { skip: '跳到主要内容', subtitle: '本地媒体工作台', tools: '工具', engine: '下载本地引擎' },
-    'zh-tw': { skip: '跳到主要內容', subtitle: '本機媒體工作台', tools: '工具', engine: '下載本機引擎' },
-    en: { skip: 'Skip to main content', subtitle: 'Local media workbench', tools: 'Tools', engine: 'Download Local Engine' },
-    ja: { skip: 'メインコンテンツへ移動', subtitle: 'ローカルメディアワークベンチ', tools: 'ツール', engine: 'Local Engine をダウンロード' },
-    es: { skip: 'Saltar al contenido principal', subtitle: 'Mesa de medios local', tools: 'Herramientas', engine: 'Descargar Local Engine' },
-    ru: { skip: 'Перейти к основному содержимому', subtitle: 'Локальная медиамастерская', tools: 'Инструменты', engine: 'Скачать Local Engine' },
+const NAV_COPY: Record<string, { skip: string; tools: string; engine: string }> = {
+    zh: { skip: '跳到主要内容', tools: '工具', engine: '本地引擎' },
+    'zh-tw': { skip: '跳到主要內容', tools: '工具', engine: '本機引擎' },
+    en: { skip: 'Skip to main content', tools: 'Tools', engine: 'Local Engine' },
+    ja: { skip: 'メインコンテンツへ移動', tools: 'ツール', engine: 'Local Engine' },
+    es: { skip: 'Saltar al contenido principal', tools: 'Herramientas', engine: 'Local Engine' },
+    ru: { skip: 'Перейти к основному содержимому', tools: 'Инструменты', engine: 'Local Engine' },
 }
 
 export function AppTopBar({
@@ -59,112 +59,98 @@ export function AppTopBar({
 
     return (
         <header
-            className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur-xl supports-[backdrop-filter]:bg-background/75"
+            className="sticky top-0 z-40 border-b bg-background/96 supports-[backdrop-filter]:backdrop-blur-sm"
             style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
             <a
                 href="#main-content"
-                className="sr-only fixed left-3 top-3 z-[60] rounded-lg bg-background px-3 py-2 text-sm font-medium shadow-lg ring-2 ring-ring focus:not-sr-only"
+                className="sr-only fixed left-3 top-3 z-[60] rounded-md border bg-background px-2.5 py-1.5 text-xs font-medium focus:not-sr-only"
             >
                 {navCopy.skip}
             </a>
 
-            <div className="mx-auto flex min-h-14 w-full max-w-7xl items-center gap-2 px-3 sm:px-5 md:px-6">
+            <div className="mx-auto flex h-11 w-full max-w-[1380px] items-center gap-1.5 px-3 sm:px-4 md:px-5">
                 <Link
                     href={resolvedHomeHref}
-                    className="group flex min-w-0 shrink-0 items-center gap-2 rounded-lg py-1.5 pr-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="ui-pressable flex min-w-0 shrink-0 items-center gap-2 rounded-md px-1.5 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={dict.metadata.siteName}
                 >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-transform duration-150 group-active:scale-[0.96]">
-                        <Download className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                    <span className="hidden min-w-0 sm:block">
-                        <span className="block truncate text-sm font-semibold tracking-tight">Galaxy Downloader</span>
-                        <span className="hidden text-[11px] leading-4 text-muted-foreground lg:block">{navCopy.subtitle}</span>
-                    </span>
+                    <Download className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="hidden truncate text-sm font-semibold tracking-[-0.015em] sm:block">Galaxy Downloader</span>
                 </Link>
 
-                <nav className="ml-1 hidden min-w-0 flex-1 items-center gap-1 md:flex" aria-label={navCopy.tools}>
+                <div className="mx-1 hidden h-4 w-px bg-border md:block" aria-hidden="true" />
+
+                <nav className="hidden min-w-0 flex-1 items-center gap-0.5 md:flex" aria-label={navCopy.tools}>
                     {shouldShowHomeButton && (
-                        <Button variant="ghost" size="sm" className="gap-1.5" asChild>
+                        <Button variant="ghost" size="xs" asChild>
                             <Link href={resolvedHomeHref}>
-                                <Home className="h-4 w-4" aria-hidden="true" />
+                                <Home className="h-3.5 w-3.5" aria-hidden="true" />
                                 <span>{dict.common.home}</span>
                             </Link>
                         </Button>
                     )}
                     {effectiveShowHistoryShortcut && effectiveHistoryClick && (
-                        <Button variant="ghost" size="sm" className="gap-1.5" onClick={effectiveHistoryClick}>
-                            <History className="h-4 w-4" aria-hidden="true" />
+                        <Button variant="ghost" size="xs" onClick={effectiveHistoryClick}>
+                            <History className="h-3.5 w-3.5" aria-hidden="true" />
                             <span>{dict.history.title}</span>
                         </Button>
                     )}
                     {effectiveShowAudioTool && effectiveAudioToolClick && (
-                        <Button variant="ghost" size="sm" className="gap-1.5" onClick={effectiveAudioToolClick}>
-                            <Music className="h-4 w-4" aria-hidden="true" />
+                        <Button variant="ghost" size="xs" onClick={effectiveAudioToolClick}>
+                            <Music className="h-3.5 w-3.5" aria-hidden="true" />
                             <span>{dict.audioTool.triggerButton}</span>
                         </Button>
                     )}
-
-                    <Button variant="outline" size="sm" className="gap-1.5" asChild>
-                        <a href={LOCAL_ENGINE_RELEASE_URL}>
-                            <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
-                            <span className="hidden xl:inline">{navCopy.engine}</span>
-                            <span className="xl:hidden">Local Engine</span>
-                        </a>
-                    </Button>
-
                     <ExternalToolsMenu />
                 </nav>
 
-                <div className="ml-auto flex shrink-0 items-center gap-1">
+                <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                    <Button variant="ghost" size="xs" className="hidden lg:inline-flex" asChild>
+                        <a href={LOCAL_ENGINE_RELEASE_URL}>
+                            <HardDriveDownload className="h-3.5 w-3.5" aria-hidden="true" />
+                            <span>{navCopy.engine}</span>
+                        </a>
+                    </Button>
+
                     {effectiveShowHistoryShortcut && effectiveHistoryClick && (
-                        <Button variant="ghost" size="icon" className="md:hidden" onClick={effectiveHistoryClick} aria-label={dict.history.title}>
-                            <History className="h-4 w-4" aria-hidden="true" />
+                        <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden" onClick={effectiveHistoryClick} aria-label={dict.history.title}>
+                            <History className="h-3.5 w-3.5" aria-hidden="true" />
                         </Button>
                     )}
                     {effectiveShowAudioTool && effectiveAudioToolClick && (
-                        <Button variant="ghost" size="icon" className="md:hidden" onClick={effectiveAudioToolClick} aria-label={dict.audioTool.triggerButton}>
-                            <Music className="h-4 w-4" aria-hidden="true" />
+                        <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden" onClick={effectiveAudioToolClick} aria-label={dict.audioTool.triggerButton}>
+                            <Music className="h-3.5 w-3.5" aria-hidden="true" />
                         </Button>
                     )}
-
-                    <Button variant="ghost" size="icon" className="md:hidden" asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 lg:hidden" asChild>
                         <a href={LOCAL_ENGINE_RELEASE_URL} aria-label={navCopy.engine} title={navCopy.engine}>
-                            <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
+                            <HardDriveDownload className="h-3.5 w-3.5" aria-hidden="true" />
                         </a>
                     </Button>
 
-                    <Button variant="ghost" size="icon" className="sm:hidden" asChild>
-                        <Link href={feedbackHref} aria-label={dict.feedback.triggerButton}>
-                            <MessageSquare className="h-4 w-4" aria-hidden="true" />
+                    <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                        <Link href={feedbackHref} aria-label={dict.feedback.triggerButton} title={dict.feedback.triggerButton}>
+                            <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
                         </Link>
                     </Button>
 
-                    <Button variant="ghost" size="sm" className="hidden gap-1.5 sm:inline-flex" asChild>
-                        <Link href={feedbackHref}>
-                            <MessageSquare className="h-4 w-4" aria-hidden="true" />
-                            <span>{dict.feedback.triggerButton}</span>
-                        </Link>
-                    </Button>
-
-                    <Button variant="ghost" size="sm" className="hidden gap-1.5 lg:inline-flex" asChild>
-                        <a href="https://github.com/guodongbuding66-spec/galaxy-downloader" target="_blank" rel="noopener noreferrer">
+                    <Button variant="ghost" size="icon" className="hidden h-8 w-8 lg:inline-flex" asChild>
+                        <a href="https://github.com/guodongbuding66-spec/galaxy-downloader" target="_blank" rel="noopener noreferrer" aria-label="GitHub" title="GitHub">
                             <Image
                                 src="/platform-icons/github.svg"
                                 alt=""
-                                width={16}
-                                height={16}
+                                width={15}
+                                height={15}
                                 aria-hidden="true"
                                 className="dark:invert"
                             />
-                            <span>GitHub</span>
                         </a>
                     </Button>
 
-                    <div className="hidden items-center gap-1 md:flex">
+                    <div className="hidden items-center gap-0.5 md:flex">
                         <ThemeSwitcher />
-                        <DeferredChangelogDialog triggerIconOnly triggerClassName="h-10 w-10" />
+                        <DeferredChangelogDialog triggerIconOnly triggerClassName="h-8 w-8" />
                         <DeferredLanguageSwitcher iconOnly />
                     </div>
                     <div className="md:hidden">
