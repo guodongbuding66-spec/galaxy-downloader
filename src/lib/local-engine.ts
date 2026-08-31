@@ -87,7 +87,12 @@ export interface LocalDesktopJobOptions {
   playlist?: boolean
 }
 
-export const LOCAL_ENGINE_RELEASE_URL = 'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/latest/download/GalaxyLocalEngine-Windows.zip'
+// Primary route goes through the Galaxy website so users whose network cannot
+// directly reach GitHub can still download the official release package.
+export const LOCAL_ENGINE_RELEASE_URL = '/api/local-engine/download'
+
+// Keep the original GitHub Latest Release as a visible backup mirror.
+export const LOCAL_ENGINE_GITHUB_URL = 'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/latest/download/GalaxyLocalEngine-Windows.zip'
 
 const COMMON_VIDEO_HEIGHTS = new Set([144, 240, 360, 480, 540, 720, 1080, 1440, 2160, 4320])
 
