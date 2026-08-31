@@ -14,6 +14,22 @@
   "images": {
     "binding": "IMAGES"
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PARSE_STATS",
+        "class_name": "ParseStats"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "ParseStats"
+      ]
+    }
+  ],
   "observability": {
     "logs": {
       "enabled": true,
@@ -22,4 +38,5 @@
     "traces": {
       "enabled": true
     }
-  }}
+  }
+}
