@@ -90,17 +90,46 @@ async function requestParseCandidate(endpoint: string, params: URLSearchParams):
     return normalizeSuccessPayload(payload)
 }
 
+function isVimeoUrl(value: string): boolean {
+    try {
+        const url = new URL(value)
+        return /(^|\.)vimeo\.com$/i.test(url.hostname)
+    } catch {
+        return false
+    }
+}
+
+async function tryVimeoNative(videoUrl: string): Promise<UnifiedParseSuccessResult | null> {
+    if (!isVimeoUrl(videoUrl)) return null
+    try {
+        return await requestParseCandidate('/api/vimeo-native', new URLSearchParams({ url: videoUrl }))
+    } catch {
+        // Keep the normal Local Engine + remote fallback chain available for
+        // private/password-protected Vimeo links or a temporary Vimeo player change.
+        return null
+    }
+}
+
 export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedParseSuccessResult> {
     if (maybeReloadUnifiedParsePage()) {
         throw new UnifiedParseReloadError()
     }
 
+    // Vimeo currently has an upstream yt-dlp anonymous-auth regression. Try
+    // Vimeo's own player/config data first so public videos never touch browser
+    // Cookie SQLite databases. This route supports both progressive MP4 and HLS.
+    const vimeoNative = await tryVimeoNative(videoUrl)
+    if (vimeoNative) {
+        notifyTodayParseStatsChanged()
+        return vimeoNative
+    }
+
     let localDiagnostic: string | null = null
 
-    // Prefer the portable local engine. On current Chromium/Edge builds this
-    // request may require explicit Local Network Access permission; the bridge
-    // layer now requests loopback access explicitly and records a useful
-    // diagnostic instead of silently hiding the failure.
+    // Prefer the portable local engine for platforms that benefit from local
+    // IP/login state. On current Chromium/Edge builds this request may require
+    // explicit Local Network Access permission; the bridge layer requests
+    // loopback access explicitly and records a useful diagnostic.
     if (typeof window !== 'undefined') {
         const localPayload = await parseWithLocalEngine(videoUrl)
         if (localPayload?.success && localPayload.data) {
@@ -126,7 +155,7 @@ export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedPars
     // Do not replace a useful local failure with the old generic remote
     // "service unavailable" message. This is especially important when the
     // browser denied localhost/LNA permission or yt-dlp returned an actionable
-    // Instagram authentication error.
+    // authentication error.
     if (localDiagnostic) {
         throw new ApiRequestError({
             code: 'LOCAL_ENGINE_PARSE_FAILED',
