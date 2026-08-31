@@ -52,9 +52,20 @@ function hostMatches(hostname: string, domain: string): boolean {
 
 function isVideoFirstHost(url: URL): boolean {
     const host = url.hostname.toLowerCase()
-    // Xiaohongshu and Douyin have first-class image-note/post modes, so the
-    // document parser is deliberately allowed to inspect them before yt-dlp.
-    if (hostMatches(host, 'xiaohongshu.com') || host === 'xhslink.com' || hostMatches(host, 'douyin.com')) return false
+
+    // Xiaohongshu already has a dedicated resolver that reliably distinguishes
+    // video works from image notes and also returns the post caption. Let that
+    // resolver remain authoritative instead of mistaking a video thumbnail for
+    // a one-image note.
+    if (hostMatches(host, 'xiaohongshu.com') || host === 'xhslink.com') return true
+
+    // Douyin's /note/ URLs are explicitly image/text works. Normal /video/
+    // pages continue to yt-dlp/shared media parsing so a cover image can never
+    // hide the actual video result.
+    if (hostMatches(host, 'douyin.com')) {
+        return !/(?:^|\/)note(?:\/|$)/i.test(url.pathname)
+    }
+
     return VIDEO_FIRST_HOSTS.some((domain) => hostMatches(host, domain))
 }
 
