@@ -40,8 +40,27 @@ jobs:
           PLATFORM_SMOKE_API_BASE: https://downloader-api.bhwa233.com
           PLATFORM_SMOKE_WORKERS: '3'
           PLATFORM_SMOKE_TIMEOUT: '35'
-          PLATFORM_SMOKE_FIXTURES_JSON: ${{ secrets.PLATFORM_SMOKE_FIXTURES_JSON }}
+          PLATFORM_SMOKE_FIXTURES_JSON: >-
+            {"threads":"https://www.threads.net/t/CuXnwmrMIZL","wechat":"https://weixin.qq.com/sph/Axv548mzBF","kuaishou":"https://www.kuaishou.com/f/X3t3Ee6o1L7gqHe"}
         run: python scripts/platform-smoke.py --strict --output-dir production-33-platform-artifacts
+
+      - name: Enforce exactly 33 reported entries and zero SKIP
+        if: always()
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          path = Path("production-33-platform-artifacts/platform-smoke.json")
+          if not path.exists():
+              raise SystemExit("platform-smoke.json was not generated")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          results = data.get("results") or []
+          if len(results) != 33:
+              raise SystemExit(f"expected 33 platform results, got {len(results)}")
+          skipped = [item.get("platform") for item in results if item.get("status") == "SKIP"]
+          if skipped:
+              raise SystemExit(f"SKIP is forbidden in 33-platform QA: {skipped}")
+          print("33 platform entries reported; zero SKIP")
 
       - name: Publish matrix
         if: always()
