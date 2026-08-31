@@ -8,8 +8,8 @@ const LOCAL_ENGINE_BRIDGE_BASE_URLS = [
 
 export const LOCAL_ENGINE_BRIDGE_BASE_URL = LOCAL_ENGINE_BRIDGE_BASE_URLS[0]
 const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1800
-const MIN_LOCAL_ENGINE_VERSION = '0.4.4'
-const MIN_PARSE_BRIDGE_PROTOCOL = 2
+const MIN_LOCAL_ENGINE_VERSION = '0.4.5'
+const MIN_PARSE_BRIDGE_PROTOCOL = 3
 
 export interface LocalEngineBridgeStatus {
   ok: boolean
@@ -103,10 +103,6 @@ async function bridgeFetch(
     const controller = new AbortController()
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
     try {
-      // Edge 143+ and current Chromium builds gate public-site -> localhost
-      // requests behind Local Network Access permission. targetAddressSpace makes
-      // the loopback intent explicit and allows the browser to surface the
-      // permission prompt instead of silently failing the request.
       const requestInit: LoopbackRequestInit = {
         cache: 'no-store',
         ...init,
@@ -145,7 +141,7 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
       return null
     }
     if (!versionAtLeast(payload.version, MIN_LOCAL_ENGINE_VERSION)) {
-      lastBridgeDiagnostic = `Galaxy Local Engine 版本过低（当前 ${payload.version}，需要 ${MIN_LOCAL_ENGINE_VERSION}+）。`
+      lastBridgeDiagnostic = `Galaxy Local Engine 版本过低（当前 ${payload.version}，需要 ${MIN_LOCAL_ENGINE_VERSION}+）。请下载最新版并重新运行 install.cmd。`
       return null
     }
 
@@ -176,7 +172,7 @@ export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedPa
     const status = await getLocalEngineBridgeStatus()
     if (!status) return null
     if (status.bridgeProtocol < MIN_PARSE_BRIDGE_PROTOCOL) {
-      lastBridgeDiagnostic = `本地引擎解析协议过低（当前 ${status.bridgeProtocol}，需要 ${MIN_PARSE_BRIDGE_PROTOCOL}+）。`
+      lastBridgeDiagnostic = `本地引擎解析协议过低（当前 ${status.bridgeProtocol}，需要 ${MIN_PARSE_BRIDGE_PROTOCOL}+）。请升级 Galaxy Local Engine。`
       return null
     }
     if (!status.ytDlpReady) {
@@ -184,12 +180,13 @@ export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedPa
       return null
     }
 
+    const browser = detectBrowserForCookies()
     const response = await bridgeFetch('/parse', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url: sourceUrl,
-        browser: detectBrowserForCookies(),
+        browser,
       }),
     }, 48_000)
 
@@ -203,7 +200,7 @@ export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedPa
 
     if (!response.ok || !payload?.success || !payload.data) {
       const detail = payload?.error || payload?.message || `HTTP ${response.status}`
-      lastBridgeDiagnostic = `本地 yt-dlp 解析失败：${detail}`
+      lastBridgeDiagnostic = detail
       return null
     }
 
