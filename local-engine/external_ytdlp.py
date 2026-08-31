@@ -29,6 +29,10 @@ class ExternalYtDlpError(RuntimeError):
     pass
 
 
+class BrowserCookieAccessError(RuntimeError):
+    """Raised when a user-selected browser session cannot be read safely."""
+
+
 def external_ytdlp_path(app_dir: Path) -> Path | None:
     candidates = [
         app_dir / "yt-dlp.exe",
@@ -76,8 +80,8 @@ def update_external_ytdlp_if_due(
     """Optionally update yt-dlp without making normal downloads depend on GitHub.
 
     Galaxy release ZIPs already contain a verified yt-dlp.exe. Automatic online
-    updates are therefore disabled by default so users who cannot reach GitHub
-    do not wait for a network timeout every time they start a download.
+    updates are disabled by default so users who cannot reach GitHub do not wait
+    for a network timeout before downloading media.
 
     Advanced users can opt in by setting GALAXY_YTDLP_AUTO_UPDATE=1.
     """
@@ -94,7 +98,7 @@ def update_external_ytdlp_if_due(
         pass
 
     try:
-        result = subprocess.run(
+        subprocess.run(
             [str(executable), "--update-to", "nightly"],
             capture_output=True,
             text=True,
@@ -315,32 +319,12 @@ def download_with_external_ytdlp(
     on_progress: Callable[[float, str, str, str, str], None],
     on_status: Callable[[str], None],
 ) -> Path | None:
-    try:
-        return _run_external_once(
-            executable,
-            source_url,
-            format_selector=format_selector,
-            output_template=output_template,
-            ffmpeg_location=ffmpeg_location,
-            browser=browser,
-            playlist=playlist,
-            include_subtitle=include_subtitle,
-            subtitle_language=subtitle_language,
-            include_cover=include_cover,
-            cancelled=cancelled,
-            on_progress=on_progress,
-            on_status=on_status,
-        )
-    except ExternalYtDlpError as exc:
-        if browser == "none" or not is_cookie_access_error(str(exc)):
-            raise
-
-        # Chromium based browsers may lock their cookie SQLite database while
-        # they are running. For public media, cookies are unnecessary, so retry
-        # automatically without them instead of failing the whole task at 0%.
-        on_status(
-            "[Galaxy] 浏览器 Cookie 数据库正在被占用，已自动改为不读取 Cookie 重试。"
-        )
+    # A selected browser session is a fallback, not the first step. Most public
+    # videos do not require cookies at all, and Chromium browsers commonly keep
+    # their cookie SQLite database locked while the browser is open. Trying the
+    # public path first avoids that entire failure mode for ordinary downloads.
+    if browser and browser != "none":
+        on_status("[Galaxy] 正在先尝试无需浏览器 Cookie 的公开下载。")
         try:
             return _run_external_once(
                 executable,
@@ -357,11 +341,55 @@ def download_with_external_ytdlp(
                 on_progress=on_progress,
                 on_status=on_status,
             )
-        except ExternalYtDlpError as retry_exc:
-            detail = str(retry_exc)
-            raise ExternalYtDlpError(
-                "浏览器 Cookie 当前无法读取，且无 Cookie 重试也没有成功。"
-                "如果该视频必须登录才能访问，请先关闭对应浏览器后重试；"
-                "如果是公开视频，请在网站的‘登录状态’中选择‘不读取浏览器 Cookie’。\n"
-                + detail
-            ) from retry_exc
+        except ExternalYtDlpError as public_error:
+            if cancelled():
+                raise
+
+            on_status(
+                f"[Galaxy] 公开下载未成功，正在尝试读取 {browser} 登录状态。"
+            )
+            try:
+                return _run_external_once(
+                    executable,
+                    source_url,
+                    format_selector=format_selector,
+                    output_template=output_template,
+                    ffmpeg_location=ffmpeg_location,
+                    browser=browser,
+                    playlist=playlist,
+                    include_subtitle=include_subtitle,
+                    subtitle_language=subtitle_language,
+                    include_cover=include_cover,
+                    cancelled=cancelled,
+                    on_progress=on_progress,
+                    on_status=on_status,
+                )
+            except ExternalYtDlpError as browser_error:
+                if is_cookie_access_error(str(browser_error)):
+                    raise BrowserCookieAccessError(
+                        f"无法读取 {browser} 的浏览器 Cookie。通常是浏览器正在占用 Cookie 数据库。"
+                        f"请先完全关闭 {browser} 后重试；如果是公开视频，也可以在网站登录状态中选择“不读取浏览器 Cookie”。\n"
+                        f"原始错误：{browser_error}"
+                    ) from browser_error
+
+                raise ExternalYtDlpError(
+                    "无需 Cookie 与浏览器登录状态两种方式都未成功。\n"
+                    f"公开下载错误：{public_error}\n"
+                    f"浏览器登录状态错误：{browser_error}"
+                ) from browser_error
+
+    return _run_external_once(
+        executable,
+        source_url,
+        format_selector=format_selector,
+        output_template=output_template,
+        ffmpeg_location=ffmpeg_location,
+        browser="none",
+        playlist=playlist,
+        include_subtitle=include_subtitle,
+        subtitle_language=subtitle_language,
+        include_cover=include_cover,
+        cancelled=cancelled,
+        on_progress=on_progress,
+        on_status=on_status,
+    )
