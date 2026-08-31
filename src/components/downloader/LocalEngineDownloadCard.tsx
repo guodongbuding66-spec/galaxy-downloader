@@ -1,8 +1,16 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { ExternalLink, HardDriveDownload, ShieldCheck } from 'lucide-react';
+import {
+  CircleCheck,
+  ExternalLink,
+  FolderOpen,
+  HardDriveDownload,
+  Loader2,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -13,6 +21,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/lib/deferred-toast';
+import {
+  cancelLocalEngineBridgeJob,
+  getLocalEngineBridgeStatus,
+  openLocalEngineDownloadFolder,
+  submitLocalEngineBridgeJob,
+  type LocalEngineBridgeJob,
+  type LocalEngineBridgeStatus,
+} from '@/lib/local-engine-bridge';
 import {
   LOCAL_ENGINE_RELEASE_URL,
   launchLocalDesktopEngine,
@@ -46,6 +62,12 @@ type Copy = {
   install: string;
   privacy: string;
   launchHint: string;
+  connected: string;
+  disconnected: string;
+  bridgeRequired: string;
+  sent: string;
+  cancel: string;
+  openFolder: string;
 };
 
 const COPY: Record<string, Copy> = {
@@ -59,9 +81,15 @@ const COPY: Record<string, Copy> = {
     chrome: '使用 Chrome 登录状态',
     firefox: '使用 Firefox 登录状态',
     launch: '按当前方案本机下载',
-    install: '安装本地引擎',
+    install: '安装 / 更新本地引擎',
     privacy: 'Cookie、视频和 FFmpeg 处理全部留在你的电脑，不上传 Galaxy 服务器。',
-    launchHint: '如果点击后没有打开程序，请先安装 Galaxy Local Engine。',
+    launchHint: '尚未检测到本地引擎通信服务。请安装或更新 Galaxy Local Engine 后重试。',
+    connected: '本地引擎已连接',
+    disconnected: '本地引擎未连接',
+    bridgeRequired: '需要 Galaxy Local Engine v0.3.0 或更高版本',
+    sent: '任务已发送到 Galaxy Local Engine',
+    cancel: '取消本机任务',
+    openFolder: '打开下载文件夹',
   },
   'zh-tw': {
     title: '本機 yt-dlp 強力下載',
@@ -73,9 +101,15 @@ const COPY: Record<string, Copy> = {
     chrome: '使用 Chrome 登入狀態',
     firefox: '使用 Firefox 登入狀態',
     launch: '依目前方案本機下載',
-    install: '安裝本地引擎',
+    install: '安裝 / 更新本地引擎',
     privacy: 'Cookie、影片與 FFmpeg 處理全部保留在你的電腦。',
-    launchHint: '如果點擊後沒有開啟程式，請先安裝 Galaxy Local Engine。',
+    launchHint: '尚未偵測到本地引擎通訊服務，請安裝或更新後重試。',
+    connected: '本地引擎已連線',
+    disconnected: '本地引擎未連線',
+    bridgeRequired: '需要 Galaxy Local Engine v0.3.0 或更新版本',
+    sent: '工作已傳送到 Galaxy Local Engine',
+    cancel: '取消本機工作',
+    openFolder: '開啟下載資料夾',
   },
   en: {
     title: 'Local yt-dlp power download',
@@ -87,9 +121,15 @@ const COPY: Record<string, Copy> = {
     chrome: 'Use Chrome login session',
     firefox: 'Use Firefox login session',
     launch: 'Download current plan locally',
-    install: 'Install local engine',
+    install: 'Install / update local engine',
     privacy: 'Cookies, media and FFmpeg processing stay on this computer and are not uploaded to Galaxy servers.',
-    launchHint: 'If no app opens, install Galaxy Local Engine first.',
+    launchHint: 'The local bridge was not detected. Install or update Galaxy Local Engine and try again.',
+    connected: 'Local engine connected',
+    disconnected: 'Local engine not connected',
+    bridgeRequired: 'Galaxy Local Engine v0.3.0 or newer is required',
+    sent: 'Job sent to Galaxy Local Engine',
+    cancel: 'Cancel local job',
+    openFolder: 'Open download folder',
   },
   ja: {
     title: 'ローカル yt-dlp 強力ダウンロード',
@@ -101,9 +141,15 @@ const COPY: Record<string, Copy> = {
     chrome: 'Chrome のログイン状態を使用',
     firefox: 'Firefox のログイン状態を使用',
     launch: '現在のプランをローカル保存',
-    install: 'ローカルエンジンをインストール',
+    install: 'ローカルエンジンをインストール / 更新',
     privacy: 'Cookie、メディア、FFmpeg 処理はこの PC 内だけで行われます。',
-    launchHint: 'アプリが開かない場合は Galaxy Local Engine を先にインストールしてください。',
+    launchHint: 'ローカル通信サービスを検出できません。エンジンを更新して再試行してください。',
+    connected: 'ローカルエンジン接続済み',
+    disconnected: 'ローカルエンジン未接続',
+    bridgeRequired: 'Galaxy Local Engine v0.3.0 以降が必要です',
+    sent: 'ジョブをローカルエンジンへ送信しました',
+    cancel: 'ローカルジョブをキャンセル',
+    openFolder: 'ダウンロードフォルダーを開く',
   },
   es: {
     title: 'Descarga local avanzada con yt-dlp',
@@ -115,9 +161,15 @@ const COPY: Record<string, Copy> = {
     chrome: 'Usar sesión de Chrome',
     firefox: 'Usar sesión de Firefox',
     launch: 'Descargar el plan actual localmente',
-    install: 'Instalar motor local',
+    install: 'Instalar / actualizar motor local',
     privacy: 'Las cookies, el contenido y FFmpeg permanecen en este equipo.',
-    launchHint: 'Si no se abre ninguna aplicación, instala primero Galaxy Local Engine.',
+    launchHint: 'No se detectó el puente local. Instala o actualiza Galaxy Local Engine.',
+    connected: 'Motor local conectado',
+    disconnected: 'Motor local no conectado',
+    bridgeRequired: 'Se requiere Galaxy Local Engine v0.3.0 o posterior',
+    sent: 'Tarea enviada a Galaxy Local Engine',
+    cancel: 'Cancelar tarea local',
+    openFolder: 'Abrir carpeta de descargas',
   },
   ru: {
     title: 'Локальная загрузка через yt-dlp',
@@ -129,9 +181,15 @@ const COPY: Record<string, Copy> = {
     chrome: 'Использовать сеанс Chrome',
     firefox: 'Использовать сеанс Firefox',
     launch: 'Скачать текущий план локально',
-    install: 'Установить локальный движок',
+    install: 'Установить / обновить локальный движок',
     privacy: 'Cookies, медиа и обработка FFmpeg остаются только на этом компьютере.',
-    launchHint: 'Если приложение не открылось, сначала установите Galaxy Local Engine.',
+    launchHint: 'Локальный мост не обнаружен. Установите или обновите Galaxy Local Engine.',
+    connected: 'Локальный движок подключён',
+    disconnected: 'Локальный движок не подключён',
+    bridgeRequired: 'Требуется Galaxy Local Engine v0.3.0 или новее',
+    sent: 'Задание отправлено в Galaxy Local Engine',
+    cancel: 'Отменить локальную задачу',
+    openFolder: 'Открыть папку загрузок',
   },
 };
 
@@ -155,6 +213,10 @@ function scopedSourceUrl(result: ResultData): string {
   return source;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export function LocalEngineDownloadCard({
   result,
   plan,
@@ -171,27 +233,107 @@ export function LocalEngineDownloadCard({
     if (typeof navigator === 'undefined') return 'none';
     return /Windows/i.test(navigator.userAgent) ? 'edge' : 'none';
   });
+  const [bridge, setBridge] = useState<LocalEngineBridgeStatus | null>(null);
+  const [launching, setLaunching] = useState(false);
 
   const supported = useMemo(
     () => sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://'),
     [sourceUrl],
   );
+
+  const refreshBridge = useCallback(async () => {
+    const next = await getLocalEngineBridgeStatus();
+    setBridge(next);
+    return next;
+  }, []);
+
+  useEffect(() => {
+    if (!supported) return;
+    let active = true;
+    const refresh = async () => {
+      const next = await getLocalEngineBridgeStatus();
+      if (active) setBridge(next);
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 2500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [supported]);
+
   if (!supported) return null;
 
-  const handleLaunch = () => {
-    if (disabled) return;
-    launchLocalDesktopEngine({
-      sourceUrl,
-      videoQuality: resolveLocalDesktopVideoQuality(plan.videoSelection),
-      audioQuality: plan.audioQuality || 'best',
-      includeAudio: plan.includeAudio,
-      includeSubtitle: plan.includeSubtitle,
-      subtitleLanguage: plan.includeSubtitle ? plan.subtitleLanguage || null : null,
-      includeCover: plan.includeCover,
-      browser,
-      playlist: false,
-    });
-    window.setTimeout(() => toast.message(copy.launchHint), 1200);
+  const localJob: LocalEngineBridgeJob = {
+    sourceUrl,
+    videoQuality: resolveLocalDesktopVideoQuality(plan.videoSelection),
+    audioQuality: plan.audioQuality || 'best',
+    includeAudio: plan.includeAudio,
+    includeSubtitle: plan.includeSubtitle,
+    subtitleLanguage: plan.includeSubtitle ? plan.subtitleLanguage || null : null,
+    includeCover: plan.includeCover,
+    browser,
+    playlist: false,
+  };
+
+  const handleLaunch = async () => {
+    if (disabled || launching) return;
+    setLaunching(true);
+    try {
+      if (bridge) {
+        await submitLocalEngineBridgeJob(localJob);
+        toast.success(copy.sent);
+        await refreshBridge();
+        return;
+      }
+
+      // Backward-compatible bootstrap: the custom protocol starts the app.
+      // v0.3.0+ then exposes the localhost bridge so the page can track it.
+      launchLocalDesktopEngine({
+        sourceUrl,
+        videoQuality: localJob.videoQuality,
+        audioQuality: localJob.audioQuality,
+        includeAudio: localJob.includeAudio,
+        includeSubtitle: localJob.includeSubtitle,
+        subtitleLanguage: localJob.subtitleLanguage,
+        includeCover: localJob.includeCover,
+        browser,
+        playlist: false,
+      });
+
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await sleep(attempt === 0 ? 500 : 700);
+        const next = await refreshBridge();
+        if (next) {
+          toast.success(copy.sent);
+          return;
+        }
+      }
+      toast.message(copy.launchHint);
+    } catch (error) {
+      toast.error(copy.title, {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    try {
+      await cancelLocalEngineBridgeJob();
+      await refreshBridge();
+    } catch (error) {
+      toast.error(copy.cancel, { description: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
+  const handleOpenFolder = async () => {
+    try {
+      await openLocalEngineDownloadFolder();
+    } catch (error) {
+      toast.error(copy.openFolder, { description: error instanceof Error ? error.message : String(error) });
+    }
   };
 
   return (
@@ -208,12 +350,47 @@ export function LocalEngineDownloadCard({
           </div>
         </div>
 
+        <div className="rounded-lg border bg-background/80 p-3">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="flex items-center gap-2 font-medium">
+              {bridge ? (
+                <CircleCheck className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+              ) : (
+                <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/40" />
+              )}
+              {bridge ? copy.connected : copy.disconnected}
+            </span>
+            <span className="tabular-nums text-muted-foreground">{bridge ? `v${bridge.version}` : 'v0.3.0+'}</span>
+          </div>
+          {bridge ? (
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span className="truncate">{bridge.status}</span>
+                <span className="tabular-nums">{Math.round(bridge.progress)}%</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${bridge.progress}%` }} />
+              </div>
+              {bridge.detail ? <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">{bridge.detail}</p> : null}
+              {bridge.busy ? (
+                <div className="grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
+                  <span className="truncate">{bridge.speed}</span>
+                  <span className="truncate text-center">ETA {bridge.eta}</span>
+                  <span className="truncate text-right">{bridge.downloaded}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{copy.bridgeRequired}</p>
+          )}
+        </div>
+
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">{copy.cookieSource}</label>
           <Select
             value={browser}
             onValueChange={(value) => setBrowser(value as LocalEngineBrowser)}
-            disabled={disabled}
+            disabled={disabled || bridge?.busy}
           >
             <SelectTrigger className="h-10 bg-background">
               <SelectValue />
@@ -228,21 +405,36 @@ export function LocalEngineDownloadCard({
         </div>
 
         <div className="grid gap-2">
-          <Button
-            type="button"
-            className="min-h-11 w-full font-semibold"
-            onClick={handleLaunch}
-            disabled={disabled}
-          >
-            <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
-            {copy.launch}
-          </Button>
-          <Button type="button" variant="outline" className="min-h-10 w-full" asChild>
-            <a href={LOCAL_ENGINE_RELEASE_URL} target="_blank" rel="noreferrer">
-              <ExternalLink className="h-4 w-4" aria-hidden="true" />
-              {copy.install}
-            </a>
-          </Button>
+          {bridge?.busy ? (
+            <Button type="button" variant="destructive" className="min-h-11 w-full font-semibold" onClick={() => void handleCancel()}>
+              <X className="h-4 w-4" aria-hidden="true" />
+              {copy.cancel}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              className="min-h-11 w-full font-semibold"
+              onClick={() => void handleLaunch()}
+              disabled={disabled || launching}
+            >
+              {launching ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <HardDriveDownload className="h-4 w-4" aria-hidden="true" />}
+              {copy.launch}
+            </Button>
+          )}
+
+          {bridge ? (
+            <Button type="button" variant="outline" className="min-h-10 w-full" onClick={() => void handleOpenFolder()}>
+              <FolderOpen className="h-4 w-4" aria-hidden="true" />
+              {copy.openFolder}
+            </Button>
+          ) : (
+            <Button type="button" variant="outline" className="min-h-10 w-full" asChild>
+              <a href={LOCAL_ENGINE_RELEASE_URL} target="_blank" rel="noreferrer">
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                {copy.install}
+              </a>
+            </Button>
+          )}
         </div>
 
         <div className="flex items-start gap-2 border-t border-primary/10 pt-3 text-xs leading-5 text-muted-foreground">
