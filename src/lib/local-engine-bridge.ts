@@ -1,8 +1,10 @@
 import type { LocalEngineBrowser } from '@/lib/local-engine'
+import type { UnifiedParseResult } from '@/lib/types'
 
 export const LOCAL_ENGINE_BRIDGE_BASE_URL = 'http://127.0.0.1:17836'
 const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1400
-const MIN_LOCAL_ENGINE_VERSION = '0.4.3'
+const MIN_LOCAL_ENGINE_VERSION = '0.4.4'
+const MIN_PARSE_BRIDGE_PROTOCOL = 2
 
 export interface LocalEngineBridgeStatus {
   ok: boolean
@@ -73,10 +75,6 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
     if (!response.ok) return null
     const payload = await response.json() as Partial<LocalEngineBridgeStatus>
     if (!payload.ok || typeof payload.version !== 'string') return null
-
-    // Older bridge versions may still answer localhost, but are intentionally
-    // treated as incompatible when the current website depends on newer runtime
-    // behavior (for example reliable yt-dlp progress reporting in v0.4.3).
     if (!versionAtLeast(payload.version, MIN_LOCAL_ENGINE_VERSION)) return null
 
     return {
@@ -94,6 +92,29 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
       ffmpegReady: Boolean(payload.ffmpegReady),
       ytDlpReady: Boolean(payload.ytDlpReady),
     }
+  } catch {
+    return null
+  }
+}
+
+export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedParseResult | null> {
+  try {
+    const status = await getLocalEngineBridgeStatus()
+    if (!status || status.bridgeProtocol < MIN_PARSE_BRIDGE_PROTOCOL || !status.ytDlpReady) {
+      return null
+    }
+
+    const response = await bridgeFetch('/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: sourceUrl }),
+    }, 48_000)
+
+    const payload = await response.json() as UnifiedParseResult
+    if (!response.ok || !payload?.success || !payload.data) {
+      return null
+    }
+    return payload
   } catch {
     return null
   }
