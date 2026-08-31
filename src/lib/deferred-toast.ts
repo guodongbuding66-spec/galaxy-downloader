@@ -6,12 +6,14 @@ type ToastSuccessArgs = Parameters<ToastApi['success']>
 type ToastErrorArgs = Parameters<ToastApi['error']>
 type ToastInfoArgs = Parameters<ToastApi['info']>
 type ToastWarningArgs = Parameters<ToastApi['warning']>
+type ToastMessageArgs = Parameters<ToastApi['message']>
 
 type DeferredToast = ((...args: ToastArgs) => void) & {
     success: (...args: ToastSuccessArgs) => void
     error: (...args: ToastErrorArgs) => void
     info: (...args: ToastInfoArgs) => void
     warning: (...args: ToastWarningArgs) => void
+    message: (...args: ToastMessageArgs) => void
 }
 
 let toastApiPromise: Promise<ToastApi> | null = null
@@ -56,6 +58,11 @@ export const toast: DeferredToast = Object.assign(baseToast, {
     warning: (...args: ToastWarningArgs) => {
         runToastTask((toastApi) => {
             toastApi.warning(...args)
+        })
+    },
+    message: (...args: ToastMessageArgs) => {
+        runToastTask((toastApi) => {
+            toastApi.message(...args)
         })
     },
 })

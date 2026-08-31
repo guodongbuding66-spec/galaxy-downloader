@@ -5,6 +5,7 @@
 const DEFAULT_DEV_API_BASE_URL = 'http://localhost:8788'
 const DEFAULT_PROD_API_BASE_URL = 'https://downloader-api.bhwa233.com'
 const FIRST_PARTY_LOCAL_PARSE_ENDPOINT = '/api/local-parse'
+const FIRST_PARTY_PARSE_STATS_ENDPOINT = '/api/site-stats'
 
 function normalizeBaseUrl(value: string): string {
     return value.endsWith('/') ? value.slice(0, -1) : value
@@ -72,7 +73,9 @@ export const API_ENDPOINTS = {
     },
     feedback: buildApiUrl('/api/feedback'),
     stats: {
-        today: buildApiUrl('/api/stats/today'),
+        // Keep Galaxy usage statistics first-party. Do not route this through
+        // the shared parser backend, otherwise the UI displays someone else's totals.
+        today: FIRST_PARTY_PARSE_STATS_ENDPOINT,
     },
 } as const
 
