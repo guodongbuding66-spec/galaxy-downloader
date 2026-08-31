@@ -6,15 +6,33 @@
  * directly in wrangler.jsonc: "main": "vinext/server/app-router-entry"
  */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
-import type { ImageConfig } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 
 interface WorkerFetcher {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
 
+interface DurableObjectStorageLike {
+  get<T>(key: string): Promise<T | undefined>;
+  put<T>(key: string, value: T): Promise<void>;
+}
+
+interface DurableObjectStateLike {
+  storage: DurableObjectStorageLike;
+}
+
+interface DurableObjectStubLike {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+}
+
+interface DurableObjectNamespaceLike {
+  idFromName(name: string): unknown;
+  get(id: unknown): DurableObjectStubLike;
+}
+
 interface Env {
   ASSETS: WorkerFetcher;
+  PARSE_STATS: DurableObjectNamespaceLike;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -27,6 +45,91 @@ interface Env {
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
   passThroughOnException(): void;
+}
+
+interface ParseStatsRecord {
+  date: string;
+  todayCount: number;
+  totalCount: number;
+}
+
+const STATS_TIMEZONE = "UTC+08:00";
+const STATS_TIMEZONE_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function resolveStatsWindow(now = new Date()) {
+  const shifted = new Date(now.getTime() + STATS_TIMEZONE_OFFSET_MS);
+  const date = shifted.toISOString().slice(0, 10);
+  const shiftedDayStartMs = Date.parse(`${date}T00:00:00.000Z`);
+  const windowStartMs = shiftedDayStartMs - STATS_TIMEZONE_OFFSET_MS;
+
+  return {
+    date,
+    timezone: STATS_TIMEZONE,
+    windowStart: new Date(windowStartMs).toISOString(),
+    windowEnd: new Date(windowStartMs + DAY_MS).toISOString(),
+  };
+}
+
+function parseStatsResponse(record: ParseStatsRecord | undefined, now = new Date()): Response {
+  const window = resolveStatsWindow(now);
+  const todayCount = record?.date === window.date ? record.todayCount : 0;
+  const totalCount = record?.totalCount ?? 0;
+
+  return Response.json({
+    success: true,
+    data: {
+      ...window,
+      count: todayCount,
+      totalCount,
+    },
+  }, {
+    headers: {
+      "cache-control": "private, no-store",
+    },
+  });
+}
+
+/**
+ * First-party Galaxy parse counter.
+ *
+ * One globally named Durable Object owns the counter, so all Worker isolates
+ * observe the same values. Counts start when this binding is first deployed;
+ * historical values from the old shared API are intentionally not imported.
+ */
+export class ParseStats {
+  private readonly state: DurableObjectStateLike;
+
+  constructor(state: DurableObjectStateLike) {
+    this.state = state;
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    if (request.method === "GET") {
+      const record = await this.state.storage.get<ParseStatsRecord>("counts");
+      return parseStatsResponse(record);
+    }
+
+    if (request.method === "POST") {
+      const window = resolveStatsWindow();
+      const existing = await this.state.storage.get<ParseStatsRecord>("counts");
+      const next: ParseStatsRecord = {
+        date: window.date,
+        todayCount: existing?.date === window.date ? existing.todayCount + 1 : 1,
+        totalCount: (existing?.totalCount ?? 0) + 1,
+      };
+      await this.state.storage.put("counts", next);
+      return parseStatsResponse(next);
+    }
+
+    return Response.json({ success: false, error: "Method not allowed" }, {
+      status: 405,
+      headers: {
+        allow: "GET, POST",
+        "cache-control": "private, no-store",
+      },
+    });
+  }
 }
 
 function withLocalProcessingHeaders(response: Response): Response {
@@ -101,15 +204,17 @@ async function rewriteDailymotionPlaylistResponse(response: Response): Promise<R
   });
 }
 
-// Image security config. SVG sources with .svg extension auto-skip the
-// optimization endpoint on the client side (served directly, no proxy).
-// To route SVGs through the optimizer (with security headers), set
-// dangerouslyAllowSVG: true in next.config.js and uncomment below:
-// const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
-
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // Site-owned usage statistics stay on the Galaxy Worker and never hit the
+    // legacy shared API. A single named Durable Object provides global counts.
+    if (url.pathname === "/api/site-stats") {
+      const id = env.PARSE_STATS.idFromName("galaxy-global-parse-stats");
+      const response = await env.PARSE_STATS.get(id).fetch(request);
+      return withLocalProcessingHeaders(response);
+    }
 
     // Image optimization via Cloudflare Images binding.
     // The parseImageParams validation inside handleImageOptimization
