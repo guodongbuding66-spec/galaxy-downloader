@@ -1,5 +1,5 @@
 param(
-    [string]$InstallDir = "$env:LOCALAPPDATA\GalaxyDownloader\LocalEngine",
+    [string]$InstallDir = '',
     [switch]$NoLaunch
 )
 
@@ -14,18 +14,47 @@ function Write-Warn([string]$Message) {
     Write-Host "[Galaxy] $Message" -ForegroundColor Yellow
 }
 
-$SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$EngineSource = Join-Path $SourceDir 'GalaxyLocalEngine.exe'
-if (-not (Test-Path $EngineSource)) {
-    throw 'GalaxyLocalEngine.exe was not found next to install.ps1. Extract the complete release ZIP before running the installer.'
+function Same-Path([string]$Left, [string]$Right) {
+    try {
+        return ([System.IO.Path]::GetFullPath($Left)).TrimEnd('\') -ieq ([System.IO.Path]::GetFullPath($Right)).TrimEnd('\')
+    }
+    catch {
+        return $false
+    }
 }
 
-Write-Step "Installing to $InstallDir"
+$SourceDir = [System.IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+    # Default to a portable in-place installation. Everything stays inside the
+    # folder the user extracted, which is easier to understand and back up.
+    $InstallDir = $SourceDir
+}
+$InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
+
+$EngineSource = Join-Path $SourceDir 'GalaxyLocalEngine.exe'
+$YtDlpSource = Join-Path $SourceDir 'yt-dlp.exe'
+$FfmpegSourceDir = Join-Path $SourceDir 'ffmpeg'
+$FfmpegSource = Join-Path $FfmpegSourceDir 'bin\ffmpeg.exe'
+$FfprobeSource = Join-Path $FfmpegSourceDir 'bin\ffprobe.exe'
+
+$RequiredSources = @(
+    $EngineSource,
+    $YtDlpSource,
+    $FfmpegSource,
+    $FfprobeSource,
+    (Join-Path $SourceDir 'VERSION')
+)
+foreach ($required in $RequiredSources) {
+    if (-not (Test-Path $required)) {
+        throw "The release package is incomplete: missing $required. Re-download the complete GalaxyLocalEngine-Windows.zip and extract all files before running install.cmd."
+    }
+}
+
+Write-Step "Portable install folder: $InstallDir"
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 # Windows keeps a running executable locked. Stop an older Galaxy Local Engine
-# before replacing it so clicking “Install / update” works even when v0.2.x is
-# currently sitting in the Ready window.
+# before refreshing files or protocol registration.
 $ExistingEngine = Get-Process -Name 'GalaxyLocalEngine' -ErrorAction SilentlyContinue
 if ($ExistingEngine) {
     Write-Step 'Closing the currently running Galaxy Local Engine for upgrade'
@@ -33,88 +62,43 @@ if ($ExistingEngine) {
     Start-Sleep -Milliseconds 500
 }
 
-Copy-Item -Force $EngineSource (Join-Path $InstallDir 'GalaxyLocalEngine.exe')
+# Normal users install in-place, so no copy is needed. The optional InstallDir
+# parameter remains for CI/testing and advanced users who explicitly choose a
+# different folder.
+if (-not (Same-Path $SourceDir $InstallDir)) {
+    Write-Step 'Copying the portable package to the selected install folder'
+    Copy-Item -Force $EngineSource (Join-Path $InstallDir 'GalaxyLocalEngine.exe')
+    Copy-Item -Force $YtDlpSource (Join-Path $InstallDir 'yt-dlp.exe')
+    Copy-Item -Recurse -Force $FfmpegSourceDir (Join-Path $InstallDir 'ffmpeg')
 
-$FfmpegBin = Join-Path $InstallDir 'ffmpeg\bin'
-$FfmpegExe = Join-Path $FfmpegBin 'ffmpeg.exe'
-if (-not (Test-Path $FfmpegExe)) {
-    Write-Step 'Downloading the free FFmpeg essentials build'
-    $FfmpegUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
-    $ChecksumUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256'
-    $TempRoot = Join-Path $env:TEMP ('galaxy-ffmpeg-' + [guid]::NewGuid().ToString('N'))
-    $ZipPath = Join-Path $TempRoot 'ffmpeg.zip'
-    $ChecksumPath = Join-Path $TempRoot 'ffmpeg.zip.sha256'
-    $ExtractPath = Join-Path $TempRoot 'extract'
-
-    try {
-        New-Item -ItemType Directory -Force -Path $ExtractPath | Out-Null
-        Invoke-WebRequest -UseBasicParsing -Uri $FfmpegUrl -OutFile $ZipPath
-        Invoke-WebRequest -UseBasicParsing -Uri $ChecksumUrl -OutFile $ChecksumPath
-
-        $ExpectedHash = ((Get-Content $ChecksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-        if ($ExpectedHash -notmatch '^[0-9a-f]{64}$') {
-            throw "The FFmpeg publisher checksum was invalid: '$ExpectedHash'"
+    foreach ($name in @('install.cmd', 'install.ps1', 'uninstall.cmd', 'uninstall.ps1', 'README.md', '使用说明.txt', 'VERSION')) {
+        $source = Join-Path $SourceDir $name
+        if (Test-Path $source) {
+            Copy-Item -Force $source (Join-Path $InstallDir $name)
         }
-        $ActualHash = (Get-FileHash $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($ActualHash -ne $ExpectedHash) {
-            throw "FFmpeg SHA-256 verification failed. Expected $ExpectedHash but received $ActualHash."
-        }
-        Write-Step 'FFmpeg SHA-256 verified'
-
-        Expand-Archive -Force -Path $ZipPath -DestinationPath $ExtractPath
-        $SourceBin = Get-ChildItem -Path $ExtractPath -Directory | Select-Object -First 1 | ForEach-Object { Join-Path $_.FullName 'bin' }
-        if (-not $SourceBin -or -not (Test-Path (Join-Path $SourceBin 'ffmpeg.exe'))) {
-            throw 'FFmpeg download was extracted but ffmpeg.exe could not be found.'
-        }
-        if (-not (Test-Path (Join-Path $SourceBin 'ffprobe.exe'))) {
-            throw 'FFmpeg download was extracted but ffprobe.exe could not be found.'
-        }
-
-        New-Item -ItemType Directory -Force -Path $FfmpegBin | Out-Null
-        Copy-Item -Force (Join-Path $SourceBin 'ffmpeg.exe') $FfmpegBin
-        Copy-Item -Force (Join-Path $SourceBin 'ffprobe.exe') $FfmpegBin
-    }
-    finally {
-        Remove-Item -Recurse -Force $TempRoot -ErrorAction SilentlyContinue
     }
 }
 
+$EngineExe = Join-Path $InstallDir 'GalaxyLocalEngine.exe'
 $ExternalYtDlp = Join-Path $InstallDir 'yt-dlp.exe'
-if (-not (Test-Path $ExternalYtDlp)) {
-    Write-Step 'Installing the official self-updatable yt-dlp extractor'
-    $YtDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-    $YtDlpChecksumsUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS'
-    $YtDlpTemp = Join-Path $env:TEMP ('galaxy-ytdlp-' + [guid]::NewGuid().ToString('N'))
-    $YtDlpTempExe = Join-Path $YtDlpTemp 'yt-dlp.exe'
-    $YtDlpChecksums = Join-Path $YtDlpTemp 'SHA2-256SUMS'
+$FfmpegExe = Join-Path $InstallDir 'ffmpeg\bin\ffmpeg.exe'
+$FfprobeExe = Join-Path $InstallDir 'ffmpeg\bin\ffprobe.exe'
 
-    try {
-        New-Item -ItemType Directory -Force -Path $YtDlpTemp | Out-Null
-        Invoke-WebRequest -UseBasicParsing -Uri $YtDlpUrl -OutFile $YtDlpTempExe
-        Invoke-WebRequest -UseBasicParsing -Uri $YtDlpChecksumsUrl -OutFile $YtDlpChecksums
-
-        $ChecksumText = Get-Content $YtDlpChecksums -Raw
-        $Match = [regex]::Match($ChecksumText, '(?im)^([0-9a-f]{64})\s+\*?yt-dlp\.exe\s*$')
-        if (-not $Match.Success) {
-            throw 'The official yt-dlp checksum list did not contain yt-dlp.exe.'
-        }
-        $ExpectedYtDlpHash = $Match.Groups[1].Value.ToLowerInvariant()
-        $ActualYtDlpHash = (Get-FileHash $YtDlpTempExe -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($ActualYtDlpHash -ne $ExpectedYtDlpHash) {
-            throw "yt-dlp SHA-256 verification failed. Expected $ExpectedYtDlpHash but received $ActualYtDlpHash."
-        }
-
-        Move-Item -Force $YtDlpTempExe $ExternalYtDlp
-        Write-Step 'Official yt-dlp SHA-256 verified'
-    }
-    catch {
-        Write-Warn "Could not install the external yt-dlp updater: $($_.Exception.Message)"
-        Write-Warn 'Galaxy will continue with its embedded yt-dlp fallback.'
-    }
-    finally {
-        Remove-Item -Recurse -Force $YtDlpTemp -ErrorAction SilentlyContinue
+foreach ($required in @($EngineExe, $ExternalYtDlp, $FfmpegExe, $FfprobeExe)) {
+    if (-not (Test-Path $required)) {
+        throw "Installation validation failed: missing $required"
     }
 }
+
+$YtDlpVersion = (& $ExternalYtDlp --version | Select-Object -Last 1).Trim()
+if (-not $YtDlpVersion) {
+    throw 'Bundled yt-dlp.exe could not be started.'
+}
+Write-Step "Bundled yt-dlp ready: $YtDlpVersion"
+Write-Step 'Bundled FFmpeg ready - no first-run download required'
+
+$DownloadDir = Join-Path $InstallDir 'downloads'
+New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
 
 Write-Step 'Registering the galaxy-downloader:// protocol for this Windows account'
 $ProtocolRoot = 'HKCU:\Software\Classes\galaxy-downloader'
@@ -122,30 +106,20 @@ New-Item -Force $ProtocolRoot | Out-Null
 Set-Item -Path $ProtocolRoot -Value 'URL:Galaxy Downloader Local Engine'
 New-ItemProperty -Path $ProtocolRoot -Name 'URL Protocol' -Value '' -PropertyType String -Force | Out-Null
 New-Item -Force "$ProtocolRoot\DefaultIcon" | Out-Null
-Set-Item -Path "$ProtocolRoot\DefaultIcon" -Value ('"' + (Join-Path $InstallDir 'GalaxyLocalEngine.exe') + '",0')
+Set-Item -Path "$ProtocolRoot\DefaultIcon" -Value ('"' + $EngineExe + '",0')
 New-Item -Force "$ProtocolRoot\shell\open\command" | Out-Null
-$Command = '"' + (Join-Path $InstallDir 'GalaxyLocalEngine.exe') + '" "%1"'
+$Command = '"' + $EngineExe + '" "%1"'
 Set-Item -Path "$ProtocolRoot\shell\open\command" -Value $Command
-
-$UninstallSource = Join-Path $SourceDir 'uninstall.ps1'
-if (Test-Path $UninstallSource) {
-    Copy-Item -Force $UninstallSource (Join-Path $InstallDir 'uninstall.ps1')
-}
-$UninstallCmdSource = Join-Path $SourceDir 'uninstall.cmd'
-if (Test-Path $UninstallCmdSource) {
-    Copy-Item -Force $UninstallCmdSource (Join-Path $InstallDir 'uninstall.cmd')
-}
-$VersionSource = Join-Path $SourceDir 'VERSION'
-if (Test-Path $VersionSource) {
-    Copy-Item -Force $VersionSource (Join-Path $InstallDir 'VERSION')
-}
 
 Write-Step 'Installation complete'
 Write-Host ''
-Write-Host 'The Galaxy website can now launch local downloads with one click.' -ForegroundColor Green
-Write-Host 'Galaxy will prefer the verified external yt-dlp extractor and keep it on the nightly channel.' -ForegroundColor Green
-Write-Host "Download folder: $env:USERPROFILE\Downloads\Galaxy Downloader"
+Write-Host 'Galaxy Local Engine is now a portable in-place installation.' -ForegroundColor Green
+Write-Host 'FFmpeg and yt-dlp are already included in this folder; installation does not require GitHub access.' -ForegroundColor Green
+Write-Host "Program folder: $InstallDir"
+Write-Host "Download folder: $DownloadDir"
+Write-Host ''
+Write-Warn 'After installation, keep this folder in place. If you move it, run install.cmd again so Windows can refresh the protocol path.'
 Write-Host ''
 if (-not $NoLaunch) {
-    Start-Process (Join-Path $InstallDir 'GalaxyLocalEngine.exe')
+    Start-Process $EngineExe
 }
