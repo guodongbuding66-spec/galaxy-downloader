@@ -28,6 +28,7 @@ const DATE_KEY_RE = /^(?:datepublished|date_published|publishdate|publish_date|p
 const IMAGE_EXT_RE = /\.(?:avif|bmp|gif|jpe?g|png|webp)(?:$|[?#])/i
 const VIDEO_EXT_RE = /\.(?:m4v|mov|mp4|webm)(?:$|[?#])/i
 const TRACKING_ASSET_RE = /(?:sprite|favicon|icon[-_/]|logo[-_/]|avatar[-_/]|badge|placeholder|loading|spacer|pixel)[^/]*\.(?:gif|jpe?g|png|webp)/i
+const EXTENSIONLESS_IMAGE_HOST_RE = /(?:^|\.)(?:mmbiz\.qpic\.cn|qpic\.cn|douyinpic\.com|xhscdn\.com|alicdn\.com|shopifycdn\.net)$/i
 
 function decodeHtml(value: string): string {
     return value
@@ -113,7 +114,13 @@ function uniquePush(list: string[], seen: Set<string>, value: string | null, lim
 function looksLikeImage(url: string, key = ''): boolean {
     if (TRACKING_ASSET_RE.test(url)) return false
     if (IMAGE_EXT_RE.test(url)) return true
-    return IMAGE_KEY_RE.test(key) && /(?:image|img|photo|pic|qpic|alicdn|cloudfront|cdn|media)/i.test(url)
+    try {
+        if (EXTENSIONLESS_IMAGE_HOST_RE.test(new URL(url).hostname.toLowerCase())) return true
+    } catch {
+        // absoluteHttpUrl validates URLs before this helper is called.
+    }
+    return /(?:src|image|img|photo|pic|cover|poster|thumbnail)/i.test(key)
+        && /(?:image|img|photo|pic|qpic|alicdn|cloudfront|cdn|media)/i.test(url)
 }
 
 function looksLikeVideo(url: string, key = ''): boolean {
