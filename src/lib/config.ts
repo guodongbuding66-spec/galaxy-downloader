@@ -5,6 +5,7 @@
 const DEFAULT_DEV_API_BASE_URL = 'http://localhost:8788'
 const DEFAULT_PROD_API_BASE_URL = 'https://downloader-api.bhwa233.com'
 const FIRST_PARTY_LOCAL_PARSE_ENDPOINT = '/api/local-parse'
+const FIRST_PARTY_WEB_DOCUMENT_ENDPOINT = '/api/web-document'
 const FIRST_PARTY_PARSE_STATS_ENDPOINT = '/api/site-stats'
 
 function normalizeBaseUrl(value: string): string {
@@ -70,6 +71,10 @@ function endpointCandidates(pathname: string): string[] {
 function parseEndpointCandidates(): string[] {
     return [
         FIRST_PARTY_LOCAL_PARSE_ENDPOINT,
+        // Document/media pages are intentionally tried before the shared
+        // backend. The route declines video-first sites, but can extract image
+        // posts, product galleries, embedded product videos and public articles.
+        FIRST_PARTY_WEB_DOCUMENT_ENDPOINT,
         ...endpointCandidates('/api/parse'),
     ].filter((value, index, list) => list.indexOf(value) === index)
 }
@@ -99,10 +104,10 @@ export const API_ENDPOINTS = {
 /**
  * Ordered media backend candidates.
  *
- * Parsing tries Galaxy's same-origin lightweight parser first. Unsupported
+ * Parsing tries Galaxy's same-origin lightweight parsers first. Unsupported
  * platforms then continue to the existing shared/container backends. Keeping
- * one first-party endpoint avoids route-registration differences between
- * local vinext builds and the deployed Cloudflare Worker.
+ * these first-party endpoints same-origin avoids route-registration differences
+ * between local vinext builds and the deployed Cloudflare Worker.
  */
 export const API_ENDPOINT_CANDIDATES = {
     unified: {
