@@ -14,7 +14,7 @@ permissions:
 jobs:
   build-and-release:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,8 +103,20 @@ jobs:
           Copy-Item 'local-engine/使用说明.txt' 'dist/package/使用说明.txt'
           Copy-Item local-engine/VERSION dist/package/VERSION
 
+      - name: Add verified offline FFmpeg and yt-dlp
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        run: ./local-engine/prepare-bundle.ps1 -PackageDir dist/package
+
+      - name: Validate release package contents
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        run: |
           $required = @(
             'GalaxyLocalEngine.exe',
+            'yt-dlp.exe',
+            'ffmpeg\bin\ffmpeg.exe',
+            'ffmpeg\bin\ffprobe.exe',
             'install.cmd',
             'install.ps1',
             'uninstall.cmd',
@@ -124,10 +136,6 @@ jobs:
         shell: pwsh
         run: |
           $testInstall = Join-Path $env:RUNNER_TEMP 'GalaxyLocalEngineReleaseTest'
-          $fakeFfmpeg = Join-Path $testInstall 'ffmpeg\bin'
-          New-Item -ItemType Directory -Force -Path $fakeFfmpeg | Out-Null
-          Set-Content -Path (Join-Path $fakeFfmpeg 'ffmpeg.exe') -Value 'ci-placeholder'
-
           & 'dist/package/install.ps1' -InstallDir $testInstall -NoLaunch
 
           $protocolCommandPath = 'HKCU:\Software\Classes\galaxy-downloader\shell\open\command'
@@ -140,15 +148,21 @@ jobs:
             throw "Protocol command does not target the installed executable: $registeredCommand"
           }
 
-          $externalYtDlp = Join-Path $testInstall 'yt-dlp.exe'
-          if (-not (Test-Path $externalYtDlp)) {
-            throw 'Verified external yt-dlp.exe was not installed'
+          foreach ($file in @('yt-dlp.exe', 'ffmpeg\bin\ffmpeg.exe', 'ffmpeg\bin\ffprobe.exe')) {
+            if (-not (Test-Path (Join-Path $testInstall $file))) {
+              throw "Portable installer did not preserve bundled dependency: $file"
+            }
           }
+          if (-not (Test-Path (Join-Path $testInstall 'downloads'))) {
+            throw 'Portable installer did not create the local downloads folder'
+          }
+
+          $externalYtDlp = Join-Path $testInstall 'yt-dlp.exe'
           $externalVersion = (& $externalYtDlp --version | Select-Object -Last 1).Trim()
           if (-not $externalVersion) {
-            throw 'Installed external yt-dlp.exe did not report a version'
+            throw 'Bundled yt-dlp.exe did not report a version'
           }
-          Write-Host "External yt-dlp version: $externalVersion"
+          Write-Host "Bundled yt-dlp version: $externalVersion"
 
           & 'dist/package/uninstall.ps1' -InstallDir $testInstall
           if (Test-Path 'HKCU:\Software\Classes\galaxy-downloader') {
@@ -179,18 +193,20 @@ jobs:
           $notes = @"
           ## Galaxy Local Engine $env:RELEASE_TAG
 
-          Windows 本地 yt-dlp + FFmpeg 下载引擎。
+          Windows 便携式本地 yt-dlp + FFmpeg 下载引擎。
 
-          ### 安装
+          ### 这版安装方式
           1. 下载 `GalaxyLocalEngine-Windows.zip`。
           2. 完整解压 ZIP，不要直接在压缩包内运行。
           3. 双击 `install.cmd`。
-          4. 安装完成后返回 Galaxy Downloader，等待显示 **“本地引擎已连接”**。
-          5. 选择需要的浏览器登录状态，再点击 **“按当前方案本机下载”**。
+          4. 程序直接安装在当前解压文件夹，不再复制到 AppData。
+          5. FFmpeg 与 `yt-dlp.exe` 已内置，首次安装无需访问 GitHub，也无需另外下载依赖。
+          6. 下载的视频保存在解压目录下的 `downloads` 文件夹。
+          7. 返回 Galaxy Downloader，等待显示 **“本地引擎已连接”** 后即可使用。
 
-          安装包内已包含 `使用说明.txt` 和 `README.md`。
+          安装包内包含 `使用说明.txt` 和 `README.md`。如果以后移动整个解压文件夹，只需在新位置再运行一次 `install.cmd` 以刷新 Windows 协议路径。
 
-          安装器会校验 FFmpeg 和官方 `yt-dlp.exe` 的 SHA-256。Galaxy 会优先使用可更新的官方 yt-dlp，并保留内置解析器作为备用。视频、浏览器 Cookie 和 FFmpeg 处理均保留在用户电脑中。
+          发布流程会在打包阶段校验 FFmpeg 与官方 `yt-dlp.exe` 的 SHA-256，然后把已验证的可执行文件直接放入 ZIP。用户端安装过程不依赖 GitHub。
           "@
 
           gh release create $env:RELEASE_TAG dist/GalaxyLocalEngine-Windows.zip dist/SHA256SUMS.txt --title "Galaxy Local Engine $env:RELEASE_TAG" --notes $notes --verify-tag
