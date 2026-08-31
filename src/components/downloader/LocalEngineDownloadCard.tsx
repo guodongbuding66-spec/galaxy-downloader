@@ -5,12 +5,10 @@ import { usePathname } from 'next/navigation';
 import {
   Check,
   ChevronDown,
-  CircleCheck,
   ExternalLink,
   FolderOpen,
   HardDriveDownload,
   Loader2,
-  ShieldCheck,
   X,
 } from 'lucide-react';
 
@@ -84,45 +82,45 @@ type Copy = {
 const COPY: Record<string, Copy> = {
   zh: {
     title: '本机下载',
-    connected: '本地引擎已连接',
-    disconnected: '本地引擎未连接',
+    connected: '已连接',
+    disconnected: '未连接',
     cookieSource: '登录状态',
     noCookies: '不读取 Cookie（默认）',
     edge: 'Edge 登录状态',
     chrome: 'Chrome 登录状态',
     firefox: 'Firefox 登录状态',
     collection: '合集范围',
-    single: '只下载当前一项',
-    all: '下载整个合集',
+    single: '当前一项',
+    all: '整个合集',
     selected: '选择部分',
     selectedCount: '已选 {count} 项',
     selectAll: '全选',
     clear: '清空',
-    launch: '按当前方案下载',
+    launch: '下载最终成品',
     cancel: '取消任务',
     openFolder: '打开文件夹',
-    install: '下载本地引擎',
+    install: '安装本地引擎',
     githubMirror: 'GitHub 备用线路',
-    privacy: '默认只输出最终视频；封面仅在勾选时嵌入，不单独保存。Cookie 与 FFmpeg 处理留在本机。',
+    privacy: '默认只保存最终视频；Cookie 与 FFmpeg 处理留在本机。',
     sent: '任务已发送到 Galaxy Local Engine',
     launchHint: '需要 Galaxy Local Engine v0.5.0+。请下载最新版、完整解压并运行 install.cmd。',
-    setup: '首次使用 / 安装说明',
+    setup: '安装说明',
     setupHint: '完整解压 ZIP → 放到长期使用目录 → 运行 install.cmd → 保持本地引擎运行。',
   },
   'zh-tw': {
-    title: '本機下載', connected: '本機引擎已連線', disconnected: '本機引擎未連線', cookieSource: '登入狀態', noCookies: '不讀取 Cookie（預設）', edge: 'Edge 登入狀態', chrome: 'Chrome 登入狀態', firefox: 'Firefox 登入狀態', collection: '合輯範圍', single: '只下載目前一項', all: '下載整個合輯', selected: '選擇部分', selectedCount: '已選 {count} 項', selectAll: '全選', clear: '清空', launch: '依目前方案下載', cancel: '取消工作', openFolder: '開啟資料夾', install: '下載本機引擎', githubMirror: 'GitHub 備用線路', privacy: '預設只輸出最終影片；封面只在勾選時嵌入，不另外保存。Cookie 與 FFmpeg 處理留在本機。', sent: '工作已傳送到 Galaxy Local Engine', launchHint: '需要 Galaxy Local Engine v0.5.0+。請下載最新版、完整解壓並執行 install.cmd。', setup: '首次使用 / 安裝說明', setupHint: '完整解壓 ZIP → 放到長期使用目錄 → 執行 install.cmd → 保持本機引擎運行。',
+    title: '本機下載', connected: '已連線', disconnected: '未連線', cookieSource: '登入狀態', noCookies: '不讀取 Cookie（預設）', edge: 'Edge 登入狀態', chrome: 'Chrome 登入狀態', firefox: 'Firefox 登入狀態', collection: '合輯範圍', single: '目前一項', all: '整個合輯', selected: '選擇部分', selectedCount: '已選 {count} 項', selectAll: '全選', clear: '清空', launch: '下載最終成品', cancel: '取消工作', openFolder: '開啟資料夾', install: '安裝本機引擎', githubMirror: 'GitHub 備用線路', privacy: '預設只保存最終影片；Cookie 與 FFmpeg 處理留在本機。', sent: '工作已傳送到 Galaxy Local Engine', launchHint: '需要 Galaxy Local Engine v0.5.0+。請下載最新版、完整解壓並執行 install.cmd。', setup: '安裝說明', setupHint: '完整解壓 ZIP → 放到長期使用目錄 → 執行 install.cmd → 保持本機引擎運行。',
   },
   en: {
-    title: 'Local download', connected: 'Local engine connected', disconnected: 'Local engine offline', cookieSource: 'Login session', noCookies: 'No cookies (default)', edge: 'Edge session', chrome: 'Chrome session', firefox: 'Firefox session', collection: 'Collection range', single: 'Current item only', all: 'Entire collection', selected: 'Choose items', selectedCount: '{count} selected', selectAll: 'Select all', clear: 'Clear', launch: 'Download current plan', cancel: 'Cancel', openFolder: 'Open folder', install: 'Download local engine', githubMirror: 'GitHub mirror', privacy: 'The default output is one finished video. Covers are embedded only when enabled and are not kept as sidecar files.', sent: 'Job sent to Galaxy Local Engine', launchHint: 'Galaxy Local Engine v0.5.0+ is required. Download the latest ZIP, extract it fully, and run install.cmd.', setup: 'First-time setup', setupHint: 'Extract ZIP → move it to a permanent folder → run install.cmd → keep the engine running.',
+    title: 'Local download', connected: 'Connected', disconnected: 'Offline', cookieSource: 'Login session', noCookies: 'No cookies (default)', edge: 'Edge session', chrome: 'Chrome session', firefox: 'Firefox session', collection: 'Collection range', single: 'Current item', all: 'Entire collection', selected: 'Choose items', selectedCount: '{count} selected', selectAll: 'Select all', clear: 'Clear', launch: 'Download finished file', cancel: 'Cancel', openFolder: 'Open folder', install: 'Install local engine', githubMirror: 'GitHub mirror', privacy: 'Only the finished video is saved by default. Cookies and FFmpeg stay on this device.', sent: 'Job sent to Galaxy Local Engine', launchHint: 'Galaxy Local Engine v0.5.0+ is required. Download the latest ZIP, extract it fully, and run install.cmd.', setup: 'Setup', setupHint: 'Extract ZIP → move it to a permanent folder → run install.cmd → keep the engine running.',
   },
   ja: {
-    title: 'ローカル保存', connected: 'ローカルエンジン接続済み', disconnected: 'ローカルエンジン未接続', cookieSource: 'ログイン状態', noCookies: 'Cookie を使わない（既定）', edge: 'Edge セッション', chrome: 'Chrome セッション', firefox: 'Firefox セッション', collection: 'コレクション範囲', single: '現在の1件のみ', all: 'すべて', selected: '選択', selectedCount: '{count} 件選択', selectAll: 'すべて選択', clear: 'クリア', launch: '現在の設定で保存', cancel: 'キャンセル', openFolder: 'フォルダーを開く', install: 'ローカルエンジンを取得', githubMirror: 'GitHub ミラー', privacy: '既定では完成動画1本だけを保存します。カバーは有効時のみ埋め込み、別ファイルにはしません。', sent: 'ジョブを送信しました', launchHint: 'Galaxy Local Engine v0.5.0+ が必要です。ZIP を完全に展開し install.cmd を実行してください。', setup: '初回セットアップ', setupHint: 'ZIP を展開 → 保存場所へ移動 → install.cmd → エンジンを起動したまま使用。',
+    title: 'ローカル保存', connected: '接続済み', disconnected: '未接続', cookieSource: 'ログイン状態', noCookies: 'Cookie を使わない（既定）', edge: 'Edge セッション', chrome: 'Chrome セッション', firefox: 'Firefox セッション', collection: 'コレクション範囲', single: '現在の1件', all: 'すべて', selected: '選択', selectedCount: '{count} 件選択', selectAll: 'すべて選択', clear: 'クリア', launch: '完成ファイルを保存', cancel: 'キャンセル', openFolder: 'フォルダーを開く', install: 'ローカルエンジンを導入', githubMirror: 'GitHub ミラー', privacy: '既定では完成動画だけを保存します。Cookie と FFmpeg 処理は端末内に留まります。', sent: 'ジョブを送信しました', launchHint: 'Galaxy Local Engine v0.5.0+ が必要です。ZIP を完全に展開し install.cmd を実行してください。', setup: 'セットアップ', setupHint: 'ZIP を展開 → 保存場所へ移動 → install.cmd → エンジンを起動したまま使用。',
   },
   es: {
-    title: 'Descarga local', connected: 'Motor local conectado', disconnected: 'Motor local desconectado', cookieSource: 'Sesión', noCookies: 'Sin cookies (predeterminado)', edge: 'Sesión de Edge', chrome: 'Sesión de Chrome', firefox: 'Sesión de Firefox', collection: 'Rango de colección', single: 'Solo el elemento actual', all: 'Toda la colección', selected: 'Elegir elementos', selectedCount: '{count} seleccionados', selectAll: 'Seleccionar todo', clear: 'Limpiar', launch: 'Descargar plan actual', cancel: 'Cancelar', openFolder: 'Abrir carpeta', install: 'Descargar motor local', githubMirror: 'Espejo de GitHub', privacy: 'Por defecto solo se guarda el vídeo final. La portada se incrusta cuando se activa y no se conserva como archivo separado.', sent: 'Tarea enviada al motor local', launchHint: 'Se requiere Galaxy Local Engine v0.5.0+. Descarga el ZIP, extráelo y ejecuta install.cmd.', setup: 'Configuración inicial', setupHint: 'Extrae ZIP → mueve la carpeta → ejecuta install.cmd → mantén el motor abierto.',
+    title: 'Descarga local', connected: 'Conectado', disconnected: 'Sin conexión', cookieSource: 'Sesión', noCookies: 'Sin cookies (predeterminado)', edge: 'Sesión de Edge', chrome: 'Sesión de Chrome', firefox: 'Sesión de Firefox', collection: 'Rango de colección', single: 'Elemento actual', all: 'Toda la colección', selected: 'Elegir elementos', selectedCount: '{count} seleccionados', selectAll: 'Seleccionar todo', clear: 'Limpiar', launch: 'Descargar archivo final', cancel: 'Cancelar', openFolder: 'Abrir carpeta', install: 'Instalar motor local', githubMirror: 'Espejo de GitHub', privacy: 'Por defecto solo se guarda el vídeo final. Cookies y FFmpeg permanecen en este dispositivo.', sent: 'Tarea enviada al motor local', launchHint: 'Se requiere Galaxy Local Engine v0.5.0+. Descarga el ZIP, extráelo y ejecuta install.cmd.', setup: 'Instalación', setupHint: 'Extrae ZIP → mueve la carpeta → ejecuta install.cmd → mantén el motor abierto.',
   },
   ru: {
-    title: 'Локальная загрузка', connected: 'Локальный движок подключён', disconnected: 'Локальный движок не подключён', cookieSource: 'Сессия', noCookies: 'Без cookies (по умолчанию)', edge: 'Сессия Edge', chrome: 'Сессия Chrome', firefox: 'Сессия Firefox', collection: 'Диапазон коллекции', single: 'Только текущий элемент', all: 'Вся коллекция', selected: 'Выбрать элементы', selectedCount: 'Выбрано: {count}', selectAll: 'Выбрать всё', clear: 'Очистить', launch: 'Скачать текущий план', cancel: 'Отменить', openFolder: 'Открыть папку', install: 'Скачать локальный движок', githubMirror: 'Зеркало GitHub', privacy: 'По умолчанию сохраняется один итоговый видеофайл. Обложка встраивается только при включении и не сохраняется отдельно.', sent: 'Задание отправлено', launchHint: 'Требуется Galaxy Local Engine v0.5.0+. Распакуйте ZIP и запустите install.cmd.', setup: 'Первоначальная настройка', setupHint: 'Распаковать ZIP → переместить папку → запустить install.cmd → оставить движок запущенным.',
+    title: 'Локальная загрузка', connected: 'Подключено', disconnected: 'Не подключено', cookieSource: 'Сессия', noCookies: 'Без cookies (по умолчанию)', edge: 'Сессия Edge', chrome: 'Сессия Chrome', firefox: 'Сессия Firefox', collection: 'Диапазон коллекции', single: 'Текущий элемент', all: 'Вся коллекция', selected: 'Выбрать элементы', selectedCount: 'Выбрано: {count}', selectAll: 'Выбрать всё', clear: 'Очистить', launch: 'Скачать итоговый файл', cancel: 'Отменить', openFolder: 'Открыть папку', install: 'Установить локальный движок', githubMirror: 'Зеркало GitHub', privacy: 'По умолчанию сохраняется только итоговое видео. Cookies и FFmpeg остаются на устройстве.', sent: 'Задание отправлено', launchHint: 'Требуется Galaxy Local Engine v0.5.0+. Распакуйте ZIP и запустите install.cmd.', setup: 'Установка', setupHint: 'Распаковать ZIP → переместить папку → запустить install.cmd → оставить движок запущенным.',
   },
 };
 
@@ -297,7 +295,7 @@ export function LocalEngineDownloadCard({
       aria-pressed={collectionMode === mode}
       disabled={disabled || bridge?.busy}
       onClick={() => setMode(mode)}
-      className={`min-h-9 rounded-lg px-2.5 text-xs font-medium outline-none transition-[background-color,color,transform] duration-150 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-ring ${
+      className={`h-8 rounded-md px-2 text-[11px] font-medium outline-none transition-[background-color,color,transform] duration-150 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-ring ${
         collectionMode === mode
           ? 'bg-foreground text-background'
           : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -308,23 +306,20 @@ export function LocalEngineDownloadCard({
   );
 
   return (
-    <section className="min-w-0 rounded-xl bg-muted/20 p-3 ring-1 ring-border/70">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {bridge ? (
-            <CircleCheck className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-          ) : (
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/40" />
-          )}
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{copy.title}</div>
-            <div className="truncate text-[11px] text-muted-foreground">
-              {bridge ? `${copy.connected} · v${bridge.version}` : copy.disconnected}
-            </div>
-          </div>
+    <section className="min-w-0 border-t pt-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${bridge ? 'bg-emerald-600' : 'bg-muted-foreground/35'}`}
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1 truncate text-sm font-medium">
+          {copy.title}
+          <span className="ms-2 text-[11px] font-normal text-muted-foreground">
+            {bridge ? `${copy.connected} · v${bridge.version}` : copy.disconnected}
+          </span>
         </div>
         {bridge ? (
-          <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => void handleOpenFolder()}>
+          <Button type="button" variant="ghost" size="xs" className="shrink-0 text-muted-foreground hover:text-foreground" onClick={() => void handleOpenFolder()}>
             <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />
             {copy.openFolder}
           </Button>
@@ -337,19 +332,19 @@ export function LocalEngineDownloadCard({
             <span className="min-w-0 truncate">{bridge.detail || bridge.status}</span>
             <span className="shrink-0 tabular-nums">{Math.round(bridge.progress)}%</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-foreground transition-[width] duration-300" style={{ width: `${bridge.progress}%` }} />
+          <div className="h-1 overflow-hidden bg-muted">
+            <div className="h-full bg-foreground transition-[width] duration-300" style={{ width: `${bridge.progress}%` }} />
           </div>
           <div className="flex justify-between gap-3 text-[10px] tabular-nums text-muted-foreground">
             <span>{bridge.speed}</span><span>{bridge.downloaded}</span><span>ETA {bridge.eta}</span>
           </div>
         </div>
       ) : (
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-medium text-muted-foreground">{copy.cookieSource}</label>
+        <div className={`mt-3 grid gap-2 ${hasCollection ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]' : ''}`}>
+          <label className="space-y-1.5 text-[11px] font-medium text-muted-foreground">
+            <span>{copy.cookieSource}</span>
             <Select value={browser} onValueChange={(value) => setBrowser(value as LocalEngineBrowser)} disabled={disabled}>
-              <SelectTrigger className="h-9 bg-background text-xs">
+              <SelectTrigger className="h-8 bg-background text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -359,12 +354,12 @@ export function LocalEngineDownloadCard({
                 <SelectItem value="firefox">{copy.firefox}</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </label>
 
           {hasCollection ? (
             <div className="space-y-1.5">
               <div className="text-[11px] font-medium text-muted-foreground">{copy.collection}</div>
-              <div className="grid grid-cols-3 gap-1 rounded-xl bg-background p-1 ring-1 ring-border/70">
+              <div className="grid grid-cols-3 gap-0.5 rounded-md border bg-background p-0.5">
                 {modeButton('single', copy.single)}
                 {modeButton('all', copy.all)}
                 {modeButton('selected', copy.selected)}
@@ -375,22 +370,22 @@ export function LocalEngineDownloadCard({
       )}
 
       {!bridge?.busy && hasCollection && collectionMode === 'selected' ? (
-        <div className="mt-3 rounded-xl bg-background p-2 ring-1 ring-border/70">
-          <div className="mb-2 flex items-center justify-between gap-2 px-1">
-            <span className="text-xs font-medium">{copy.selectedCount.replace('{count}', String(selectedItems.length))}</span>
-            <div className="flex items-center gap-1">
-              <button type="button" className="rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => setSelectedItems(collectionItems.map((item) => item.page))}>{copy.selectAll}</button>
-              <button type="button" className="rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => setSelectedItems([])}>{copy.clear}</button>
+        <div className="mt-2 border-t pt-2">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium">{copy.selectedCount.replace('{count}', String(selectedItems.length))}</span>
+            <div className="flex items-center gap-1 text-[11px]">
+              <button type="button" className="rounded px-1.5 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => setSelectedItems(collectionItems.map((item) => item.page))}>{copy.selectAll}</button>
+              <button type="button" className="rounded px-1.5 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => setSelectedItems([])}>{copy.clear}</button>
             </div>
           </div>
-          <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+          <div className="max-h-36 divide-y overflow-y-auto border-y">
             {collectionItems.map((item, index) => {
               const checked = selectedItems.includes(item.page);
               return (
-                <label key={`${item.page}-${item.cid}`} className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted/70">
+                <label key={`${item.page}-${item.cid}`} className="flex min-h-8 cursor-pointer items-center gap-2 px-1 py-1 text-xs hover:bg-muted/60">
                   <input type="checkbox" checked={checked} onChange={() => toggleItem(item.page)} className="h-3.5 w-3.5 accent-foreground" />
                   <span className="w-8 shrink-0 tabular-nums text-muted-foreground">#{item.page}</span>
-                  <span className="min-w-0 flex-1 truncate">{compactItemTitle(item.part, index + 1)}</span>
+                  <span className={`min-w-0 flex-1 truncate ${checked ? 'font-medium' : ''}`}>{compactItemTitle(item.part, index + 1)}</span>
                   {checked ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
                 </label>
               );
@@ -399,15 +394,15 @@ export function LocalEngineDownloadCard({
         </div>
       ) : null}
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="mt-3 grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_auto]">
         {bridge?.busy ? (
-          <Button type="button" variant="destructive" className="min-h-10 transition-transform duration-150 active:scale-[0.98]" onClick={() => void handleCancel()}>
+          <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
             <X className="h-4 w-4" aria-hidden="true" />{copy.cancel}
           </Button>
         ) : (
           <Button
             type="button"
-            className="min-h-10 transition-transform duration-150 active:scale-[0.98]"
+            size="sm"
             onClick={() => void handleLaunch()}
             disabled={disabled || launching || (collectionMode === 'selected' && selectedItems.length === 0)}
           >
@@ -417,32 +412,29 @@ export function LocalEngineDownloadCard({
         )}
 
         {!bridge ? (
-          <Button type="button" variant="outline" className="min-h-10 transition-transform duration-150 active:scale-[0.98]" asChild>
+          <Button type="button" variant="outline" size="sm" asChild>
             <a href={LOCAL_ENGINE_RELEASE_URL}>{copy.install}</a>
           </Button>
         ) : null}
       </div>
 
       {!bridge ? (
-        <details className="group mt-2 rounded-lg text-xs text-muted-foreground">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-lg px-1 py-1.5 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+        <details className="group mt-2 border-t pt-1 text-[11px] text-muted-foreground">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-0.5 py-1.5 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
             <ChevronDown className="h-3.5 w-3.5 transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
             {copy.setup}
           </summary>
-          <div className="mt-1 space-y-2 rounded-lg bg-background p-2.5 ring-1 ring-border/70">
-            <p className="leading-5">{copy.setupHint}</p>
-            <a href={LOCAL_ENGINE_GITHUB_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline underline-offset-4">
+          <div className="ms-1.5 mt-1 space-y-1.5 border-s ps-3 leading-5">
+            <p>{copy.setupHint}</p>
+            <a href={LOCAL_ENGINE_GITHUB_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline underline-offset-4 hover:text-foreground">
               <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />{copy.githubMirror}
             </a>
-            <p className="leading-5">{copy.launchHint}</p>
+            <p>{copy.launchHint}</p>
           </div>
         </details>
       ) : null}
 
-      <div className="mt-2 flex items-start gap-1.5 text-[10px] leading-4 text-muted-foreground">
-        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span>{copy.privacy}</span>
-      </div>
+      <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{copy.privacy}</p>
     </section>
   );
 }
