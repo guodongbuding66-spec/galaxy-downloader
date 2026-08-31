@@ -5,7 +5,6 @@ on:
     branches:
       - hotfix/local-engine-cookie-ui-regression
     paths:
-      - '.hotfix/local-engine-cookie-ui.patch'
       - '.github/workflows/apply-local-engine-hotfix.yml'
 
 permissions:
@@ -15,32 +14,434 @@ jobs:
   apply:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: hotfix/local-engine-cookie-ui-regression
 
-      - name: Apply regression hotfix
+      - name: Write managed Chromium auth helper
+        shell: bash
         run: |
-          git apply --check .hotfix/local-engine-cookie-ui.patch
-          git apply .hotfix/local-engine-cookie-ui.patch
+          cat > local-engine/browser_auth.py <<'PYMODULE'
+          from __future__ import annotations
+
+          import json
+          import os
+          import shutil
+          import socket
+          import subprocess
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+          from typing import Callable, Iterable
+
+          import websocket
+          from yt_dlp import YoutubeDL
+
+          YUANBAO_URL = "https://yuanbao.tencent.com/"
+          AUTH_COOKIE_NAMES = {"hy_user", "hy_token"}
+
+
+          class BrowserAuthError(RuntimeError):
+              pass
+
+
+          def _app_dir() -> Path:
+              if getattr(sys, "frozen", False):
+                  return Path(sys.executable).resolve().parent
+              return Path(__file__).resolve().parent
+
+
+          def _browser_executable(browser: str) -> Path:
+              browser = browser.lower().strip()
+              candidates: list[Path] = []
+              if sys.platform == "win32":
+                  local = Path(os.environ.get("LOCALAPPDATA", ""))
+                  program_files = Path(os.environ.get("PROGRAMFILES", ""))
+                  program_files_x86 = Path(os.environ.get("PROGRAMFILES(X86)", ""))
+                  if browser == "edge":
+                      candidates.extend([
+                          program_files_x86 / "Microsoft/Edge/Application/msedge.exe",
+                          program_files / "Microsoft/Edge/Application/msedge.exe",
+                          local / "Microsoft/Edge/Application/msedge.exe",
+                      ])
+                  elif browser == "chrome":
+                      candidates.extend([
+                          program_files / "Google/Chrome/Application/chrome.exe",
+                          program_files_x86 / "Google/Chrome/Application/chrome.exe",
+                          local / "Google/Chrome/Application/chrome.exe",
+                      ])
+              executable_name = "msedge" if browser == "edge" else "chrome"
+              found = shutil.which(executable_name)
+              if found:
+                  candidates.append(Path(found))
+              for candidate in candidates:
+                  if candidate and candidate.exists():
+                      return candidate
+              raise BrowserAuthError(f"未找到 {browser.title()} 可执行文件，无法启动 Galaxy 专用登录窗口。")
+
+
+          def _free_port() -> int:
+              with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                  sock.bind(("127.0.0.1", 0))
+                  return int(sock.getsockname()[1])
+
+
+          def _read_json(url: str, timeout: float = 1.5):
+              request = urllib.request.Request(url, headers={"User-Agent": "Galaxy Local Engine"})
+              with urllib.request.urlopen(request, timeout=timeout) as response:
+                  return json.loads(response.read().decode("utf-8"))
+
+
+          def _wait_browser_ws(port: int, process: subprocess.Popen, timeout: float = 15.0) -> str:
+              deadline = time.monotonic() + timeout
+              last_error: Exception | None = None
+              while time.monotonic() < deadline:
+                  if process.poll() is not None:
+                      raise BrowserAuthError("Galaxy 专用浏览器窗口启动后立即退出。")
+                  try:
+                      payload = _read_json(f"http://127.0.0.1:{port}/json/version")
+                      ws_url = str(payload.get("webSocketDebuggerUrl") or "").strip()
+                      if ws_url:
+                          return ws_url
+                  except Exception as exc:  # noqa: BLE001
+                      last_error = exc
+                  time.sleep(0.2)
+              raise BrowserAuthError(f"无法连接 Galaxy 专用浏览器调试通道：{last_error or 'timeout'}")
+
+
+          def _page_ws_url(port: int) -> str:
+              try:
+                  targets = _read_json(f"http://127.0.0.1:{port}/json/list", timeout=2.0)
+              except Exception as exc:  # noqa: BLE001
+                  raise BrowserAuthError(f"无法读取 Galaxy 专用浏览器页面：{exc}") from exc
+              if not isinstance(targets, list):
+                  raise BrowserAuthError("Galaxy 专用浏览器没有返回可用页面。")
+              pages = [item for item in targets if isinstance(item, dict) and item.get("type") == "page"]
+              pages.sort(key=lambda item: "yuanbao.tencent.com" not in str(item.get("url") or ""))
+              for page in pages:
+                  ws_url = str(page.get("webSocketDebuggerUrl") or "").strip()
+                  if ws_url:
+                      return ws_url
+              raise BrowserAuthError("Galaxy 专用浏览器没有可连接的页面。")
+
+
+          def _cdp_call(ws_url: str, method: str, params: dict | None = None, timeout: float = 4.0) -> dict:
+              client = websocket.create_connection(
+                  ws_url,
+                  timeout=timeout,
+                  origin="http://127.0.0.1",
+                  suppress_origin=False,
+              )
+              try:
+                  message_id = 1
+                  client.send(json.dumps({"id": message_id, "method": method, "params": params or {}}))
+                  deadline = time.monotonic() + timeout
+                  while time.monotonic() < deadline:
+                      raw = client.recv()
+                      payload = json.loads(raw)
+                      if payload.get("id") != message_id:
+                          continue
+                      if payload.get("error"):
+                          raise BrowserAuthError(f"浏览器调试协议返回错误：{payload['error']}")
+                      result = payload.get("result")
+                      return result if isinstance(result, dict) else {}
+                  raise BrowserAuthError("浏览器调试协议响应超时。")
+              finally:
+                  client.close()
+
+
+          def _cookies_to_header(cookies: Iterable[dict]) -> str:
+              pairs: list[str] = []
+              seen: set[str] = set()
+              names: set[str] = set()
+              for cookie in cookies:
+                  domain = str(cookie.get("domain") or "").lstrip(".").lower()
+                  if domain != "tencent.com" and not domain.endswith(".tencent.com"):
+                      continue
+                  name = str(cookie.get("name") or "").strip()
+                  value = str(cookie.get("value") or "")
+                  if not name or name in seen:
+                      continue
+                  seen.add(name)
+                  names.add(name)
+                  pairs.append(f"{name}={value}")
+              if not AUTH_COOKIE_NAMES.issubset(names):
+                  return ""
+              return "; ".join(pairs)
+
+
+          def _cookies_from_debug_browser(port: int) -> str:
+              ws_url = _page_ws_url(port)
+              result = _cdp_call(
+                  ws_url,
+                  "Network.getCookies",
+                  {"urls": [YUANBAO_URL, "https://yuanbao.tencent.com/api/"]},
+              )
+              cookies = result.get("cookies")
+              return _cookies_to_header(cookies if isinstance(cookies, list) else [])
+
+
+          def _launch_debug_browser(browser: str, profile_dir: Path, *, headless: bool) -> tuple[subprocess.Popen, int, str]:
+              executable = _browser_executable(browser)
+              profile_dir.mkdir(parents=True, exist_ok=True)
+              port = _free_port()
+              args = [
+                  str(executable),
+                  f"--remote-debugging-port={port}",
+                  "--remote-allow-origins=*",
+                  f"--user-data-dir={profile_dir}",
+                  "--profile-directory=Default",
+                  "--no-first-run",
+                  "--no-default-browser-check",
+                  "--disable-component-update",
+              ]
+              if headless:
+                  args.extend(["--headless=new", "--disable-gpu", "--window-size=1200,900"])
+              else:
+                  args.extend(["--new-window", "--start-maximized"])
+              args.append(YUANBAO_URL)
+              creationflags = 0
+              if headless and sys.platform == "win32":
+                  creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+              process = subprocess.Popen(
+                  args,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+                  stdin=subprocess.DEVNULL,
+                  creationflags=creationflags,
+              )
+              browser_ws = _wait_browser_ws(port, process)
+              return process, port, browser_ws
+
+
+          def _close_debug_browser(process: subprocess.Popen, browser_ws: str) -> None:
+              try:
+                  _cdp_call(browser_ws, "Browser.close", timeout=2.0)
+              except Exception:
+                  pass
+              try:
+                  process.wait(timeout=5.0)
+              except subprocess.TimeoutExpired:
+                  try:
+                      process.terminate()
+                  except OSError:
+                      pass
+
+
+          def _managed_chromium_cookie_header(browser: str, on_status: Callable[[str], None]) -> str:
+              profile_dir = _app_dir() / "browser-auth" / browser
+
+              # Reuse a previously authenticated Galaxy-owned browser profile without showing a window.
+              if profile_dir.exists():
+                  process = None
+                  browser_ws = ""
+                  try:
+                      process, port, browser_ws = _launch_debug_browser(browser, profile_dir, headless=True)
+                      deadline = time.monotonic() + 8.0
+                      while time.monotonic() < deadline:
+                          header = _cookies_from_debug_browser(port)
+                          if header:
+                              return header
+                          time.sleep(0.5)
+                  except Exception:
+                      pass
+                  finally:
+                      if process is not None:
+                          _close_debug_browser(process, browser_ws)
+
+              on_status(
+                  f"{browser.title()} 正在占用 Cookie 数据库。已打开 Galaxy 专用元宝登录窗口；"
+                  "请在新窗口完成登录，成功后程序会自动继续，不需要关闭日常浏览器。"
+              )
+              process = None
+              browser_ws = ""
+              try:
+                  process, port, browser_ws = _launch_debug_browser(browser, profile_dir, headless=False)
+                  deadline = time.monotonic() + 180.0
+                  while time.monotonic() < deadline:
+                      if process.poll() is not None:
+                          raise BrowserAuthError("Galaxy 专用元宝登录窗口已关闭，尚未检测到登录状态。")
+                      try:
+                          header = _cookies_from_debug_browser(port)
+                      except BrowserAuthError:
+                          header = ""
+                      if header:
+                          on_status("已获取 Galaxy 专用元宝登录状态，正在继续解析视频号")
+                          time.sleep(1.5)
+                          return header
+                      time.sleep(0.7)
+                  raise BrowserAuthError("等待腾讯元宝登录超时。请重新发起下载并在专用窗口完成登录。")
+              finally:
+                  if process is not None:
+                      _close_debug_browser(process, browser_ws)
+
+
+          def _existing_browser_cookie_header(browser: str) -> str:
+              with YoutubeDL({
+                  "quiet": True,
+                  "no_warnings": True,
+                  "cookiesfrombrowser": (browser, None, None, None),
+              }) as ydl:
+                  cookies = [
+                      {
+                          "domain": str(getattr(cookie, "domain", "") or ""),
+                          "name": str(getattr(cookie, "name", "") or ""),
+                          "value": str(getattr(cookie, "value", "") or ""),
+                      }
+                      for cookie in ydl.cookiejar
+                  ]
+              return _cookies_to_header(cookies)
+
+
+          def get_yuanbao_cookie_header(browser: str, *, on_status: Callable[[str], None]) -> str:
+              requested = (browser or "none").strip().lower()
+              if requested == "none":
+                  raise BrowserAuthError(
+                      "微信视频号需要腾讯元宝登录状态。请在网页“登录状态”中明确选择 Edge、Chrome 或 Firefox。"
+                  )
+              if requested not in {"edge", "chrome", "firefox"}:
+                  raise BrowserAuthError(f"暂不支持从 {requested} 读取腾讯元宝登录状态。")
+
+              on_status(f"正在读取所选 {requested.title()} 的腾讯元宝登录状态")
+              existing_error: Exception | None = None
+              try:
+                  header = _existing_browser_cookie_header(requested)
+                  if header:
+                      return header
+              except Exception as exc:  # noqa: BLE001
+                  existing_error = exc
+
+              if requested in {"edge", "chrome"}:
+                  try:
+                      return _managed_chromium_cookie_header(requested, on_status)
+                  except BrowserAuthError as managed_error:
+                      raise BrowserAuthError(str(managed_error)) from managed_error
+
+              detail = ""
+              if existing_error:
+                  detail = " Firefox Cookie 当前不可读取，请完全退出 Firefox 后重试。"
+              raise BrowserAuthError(
+                  "所选 Firefox 中没有检测到有效的腾讯元宝登录状态。请先登录 yuanbao.tencent.com。" + detail
+              )
+          PYMODULE
+
+      - name: Patch local engine and responsive UI
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          wechat = Path('local-engine/wechat_channels.py')
+          text = wechat.read_text(encoding='utf-8')
+          text = text.replace('from yt_dlp import YoutubeDL\n', 'from browser_auth import BrowserAuthError, get_yuanbao_cookie_header\n')
+          text, count = re.subn(
+              r'def _cookie_header_from_browser\(browser: str\) -> str:\n.*?(?=\ndef _request_json)',
+              '''def _cookie_header_from_browser(browser: str, on_status: Callable[[str], None]) -> str:\n    try:\n        return get_yuanbao_cookie_header(browser, on_status=on_status)\n    except BrowserAuthError as exc:\n        raise WeChatChannelsAuthError(str(exc)) from exc\n\n''',
+              text,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'cookie function replacement count={count}')
+          text = text.replace(
+              'def _resolve_uncached(source_url: str, browser: str) -> WeChatChannelsMedia:\n    share_url = normalize_wechat_share_url(source_url)\n    cookie = _cookie_header_from_browser(browser)',
+              'def _resolve_uncached(source_url: str, browser: str, on_status: Callable[[str], None]) -> WeChatChannelsMedia:\n    share_url = normalize_wechat_share_url(source_url)\n    cookie = _cookie_header_from_browser(browser, on_status)',
+          )
+          text = text.replace(
+              'def resolve_wechat_channels(source_url: str, browser: str, *, use_cache: bool = True) -> WeChatChannelsMedia:',
+              'def resolve_wechat_channels(\n    source_url: str,\n    browser: str,\n    *,\n    use_cache: bool = True,\n    on_status: Callable[[str], None] | None = None,\n) -> WeChatChannelsMedia:',
+          )
+          text = text.replace(
+              '    media = _resolve_uncached(source_url, browser)\n',
+              '    status = on_status or (lambda _message: None)\n    media = _resolve_uncached(source_url, browser, status)\n',
+          )
+          text = text.replace(
+              '    media = resolve_wechat_channels(source_url, browser)\n',
+              '    media = resolve_wechat_channels(source_url, browser, on_status=on_status)\n',
+          )
+          wechat.write_text(text, encoding='utf-8')
+
+          version = Path('local-engine/VERSION')
+          version.write_text('0.4.7\n', encoding='utf-8')
+
+          requirements = Path('local-engine/requirements.txt')
+          req = requirements.read_text(encoding='utf-8')
+          if 'websocket-client' not in req:
+              req = req.rstrip() + '\nwebsocket-client>=1.8,<2\n'
+          requirements.write_text(req, encoding='utf-8')
+
+          panel = Path('src/components/downloader/VideoResultPanel.tsx')
+          ui = panel.read_text(encoding='utf-8')
+          old = "'grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(330px,0.85fr)] lg:items-start xl:grid-cols-[minmax(0,1.62fr)_minmax(370px,0.82fr)]'"
+          new = "'grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.78fr)] xl:items-start 2xl:grid-cols-[minmax(0,1.62fr)_minmax(340px,0.82fr)]'"
+          if old not in ui:
+              raise SystemExit('result workbench grid anchor missing')
+          panel.write_text(ui.replace(old, new), encoding='utf-8')
+
+          local_card = Path('src/components/downloader/LocalEngineDownloadCard.tsx')
+          ui = local_card.read_text(encoding='utf-8')
+          ui = ui.replace(
+              'cookieHelp: \'默认不读取浏览器 Cookie。只有视频明确需要登录、年龄验证或账号权限时再选择浏览器；如果浏览器 Cookie 被占用，请关闭对应浏览器后重试。\'',
+              'cookieHelp: \'默认不读取浏览器 Cookie。微信视频号需要登录时请选择 Edge、Chrome 或 Firefox；若 Edge/Chrome 正在占用 Cookie 数据库，本地引擎会自动打开 Galaxy 专用元宝登录窗口，首次登录后可在本机复用，不需要关闭日常浏览器。\'',
+          )
+          ui = ui.replace(
+              '<section className="overflow-hidden rounded-xl border border-primary/20 bg-primary/[0.035] shadow-sm">',
+              '<section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-primary/20 bg-primary/[0.035] shadow-sm">',
+          )
+          ui = ui.replace('SelectTrigger className="h-10 bg-background"', 'SelectTrigger className="h-10 min-w-0 max-w-full bg-background"')
+          ui = ui.replace('className="min-h-11 w-full font-semibold"', 'className="min-h-11 w-full min-w-0 whitespace-normal text-center font-semibold leading-5"')
+          ui = ui.replace('className="min-h-10 w-full"', 'className="min-h-10 w-full min-w-0 whitespace-normal text-center leading-5"')
+          ui = ui.replace('className="min-h-9 w-full text-xs"', 'className="min-h-9 w-full min-w-0 whitespace-normal text-center text-xs leading-5"')
+          local_card.write_text(ui, encoding='utf-8')
+
+          advanced = Path('src/components/downloader/AdvancedDownloadOptions.tsx')
+          ui = advanced.read_text(encoding='utf-8')
+          ui = ui.replace(
+              '<section className="overflow-hidden rounded-2xl border bg-card shadow-sm">',
+              '<section className="min-w-0 max-w-full overflow-hidden rounded-2xl border bg-card shadow-sm">',
+          )
+          ui = ui.replace('<div className="space-y-3">\n                    <div className="rounded-xl border bg-background p-4 shadow-sm">', '<div className="min-w-0 space-y-3">\n                    <div className="min-w-0 rounded-xl border bg-background p-4 shadow-sm">')
+          ui = ui.replace('className="min-h-11 w-full font-semibold"', 'className="min-h-11 w-full min-w-0 whitespace-normal text-center font-semibold leading-5"')
+          advanced.write_text(ui, encoding='utf-8')
+          PY
+
           rm -f .hotfix/local-engine-cookie-ui.patch
           rmdir .hotfix 2>/dev/null || true
-          rm -f .github/workflows/apply-local-engine-hotfix.yml
 
-      - name: Validate patched sources
+      - name: Validate Python source and auth boundaries
+        shell: bash
         run: |
-          python -m py_compile local-engine/wechat_channels.py local-engine/engine.py
-          grep -q 'if requested == "none"' local-engine/wechat_channels.py
-          grep -q 'xl:grid-cols-\[minmax(0,1.45fr)_minmax(300px,0.78fr)\]' src/components/downloader/VideoResultPanel.tsx
-          grep -q 'workbench-shadow aside .ui-pressable' src/app/globals.css
+          python -m py_compile local-engine/browser_auth.py local-engine/wechat_channels.py local-engine/engine.py
+          grep -q 'AUTH_COOKIE_NAMES = {"hy_user", "hy_token"}' local-engine/browser_auth.py
+          grep -q 'Network.getCookies' local-engine/browser_auth.py
+          grep -q 'Galaxy 专用元宝登录窗口' local-engine/browser_auth.py
+          grep -q '0.4.7' local-engine/VERSION
+
+      - name: Validate local engine self-test
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check 'yt-dlp[default]>=2026.8.0,<2027' 'websocket-client>=1.8,<2'
+          python local-engine/engine.py --self-test
+
+      - name: Validate web app
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.8.0 --activate
+          pnpm install --frozen-lockfile
+          pnpm lint
 
       - name: Commit hotfix
+        shell: bash
         run: |
+          rm -f .github/workflows/apply-local-engine-hotfix.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'fix: restore cookie opt-in and responsive download rail'
+          git commit -m 'fix: use managed Chromium auth for WeChat Channels and repair download rail'
           git push origin HEAD:hotfix/local-engine-cookie-ui-regression
