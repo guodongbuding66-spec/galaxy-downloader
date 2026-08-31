@@ -7,8 +7,11 @@ on:
     paths:
       - 'src/app/api/local-parse/**'
       - 'src/app/api/local-media/**'
+      - 'src/app/api/vimeo-native/**'
+      - 'src/app/api/vimeo-media/**'
       - 'src/components/downloader/SinglePartButtons.tsx'
       - 'src/lib/config.ts'
+      - 'src/lib/unified-parse.ts'
       - 'worker/index.ts'
       - 'scripts/local-parser-production-smoke.py'
       - '.github/workflows/local-parser-production-smoke.yml'
