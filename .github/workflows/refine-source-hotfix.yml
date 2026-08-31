@@ -1,0 +1,66 @@
+name: Refine Source Hotfix
+
+on:
+  push:
+    branches:
+      - hotfix/local-engine-cookie-ui-regression
+    paths:
+      - '.github/workflows/refine-source-hotfix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: hotfix/local-engine-cookie-ui-regression
+
+      - name: Align v0.4.7 compatibility copy
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/downloader/LocalEngineDownloadCard.tsx')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              "launchHint: '尚未检测到兼容的本地引擎。请下载最新版、完整解压并运行 install.cmd；旧的 v0.3.x 会被网站视为不兼容。'": "launchHint: '尚未检测到兼容的本地引擎。微信视频号修复需要 Galaxy Local Engine v0.4.7 或更高版本；请下载最新版、完整解压并运行 install.cmd。'",
+              "bridgeRequired: '请安装最新版 Galaxy Local Engine（v0.4.0 或更高版本）。'": "bridgeRequired: '请安装最新版 Galaxy Local Engine（v0.4.7 或更高版本）。'",
+              "bridgeRequired: '請安裝最新版 Galaxy Local Engine（v0.4.0 或更新版本）。'": "bridgeRequired: '請安裝最新版 Galaxy Local Engine（v0.4.7 或更新版本）。'",
+              "bridgeRequired: 'Install Galaxy Local Engine v0.4.0 or newer.'": "bridgeRequired: 'Install Galaxy Local Engine v0.4.7 or newer.'",
+              "bridgeRequired: 'Galaxy Local Engine v0.4.0 以降をインストールしてください。'": "bridgeRequired: 'Galaxy Local Engine v0.4.7 以降をインストールしてください。'",
+              "bridgeRequired: 'Instala Galaxy Local Engine v0.4.0 o posterior.'": "bridgeRequired: 'Instala Galaxy Local Engine v0.4.7 o posterior.'",
+              "bridgeRequired: 'Установите Galaxy Local Engine v0.4.0 или новее.'": "bridgeRequired: 'Установите Galaxy Local Engine v0.4.7 или новее.'",
+              "{bridge ? `v${bridge.version}` : 'v0.4.0+'}": "{bridge ? `v${bridge.version}` : 'v0.4.7+'}",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'missing copy anchor: {old}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate web application
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.8.0 --activate
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm build
+
+      - name: Commit refined source only
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/downloader/LocalEngineDownloadCard.tsx
+          git diff --cached --check
+          git commit -m 'fix: require Local Engine v0.4.7 in download UI'
+          git push origin HEAD:hotfix/local-engine-cookie-ui-regression
