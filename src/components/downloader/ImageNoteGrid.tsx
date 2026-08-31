@@ -18,14 +18,29 @@ import {
     type ImageLoadState,
 } from './result-card-utils';
 
+type ArchiveMetadata = {
+    description?: string | null;
+    author?: string | null;
+    publishedAt?: string | null;
+    sourceUrl?: string | null;
+};
+
 export function ImageNoteGrid({
     images,
     title,
     singleImageMode = false,
+    description,
+    author,
+    publishedAt,
+    sourceUrl,
 }: {
     images: string[];
     title: string;
     singleImageMode?: boolean;
+    description?: string | null;
+    author?: string | null;
+    publishedAt?: string | null;
+    sourceUrl?: string | null;
 }) {
     const imageSetKey = images.map(resolveImageSrc).join('\u0000');
 
@@ -35,18 +50,56 @@ export function ImageNoteGrid({
             images={images}
             title={title}
             singleImageMode={singleImageMode}
+            description={description}
+            author={author}
+            publishedAt={publishedAt}
+            sourceUrl={sourceUrl}
         />
     );
+}
+
+function archiveText(title: string, metadata: ArchiveMetadata): string {
+    return [
+        title.trim(),
+        metadata.author ? `Author: ${metadata.author}` : '',
+        metadata.publishedAt ? `Published: ${metadata.publishedAt}` : '',
+        metadata.sourceUrl ? `Source: ${metadata.sourceUrl}` : '',
+        '',
+        metadata.description?.trim() || '',
+    ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])).join('\n').trim();
+}
+
+function archiveMarkdown(title: string, metadata: ArchiveMetadata, imageNames: string[]): string {
+    const lines = [
+        `# ${title.trim()}`,
+        '',
+        metadata.author ? `- Author: ${metadata.author}` : '',
+        metadata.publishedAt ? `- Published: ${metadata.publishedAt}` : '',
+        metadata.sourceUrl ? `- Source: ${metadata.sourceUrl}` : '',
+        '',
+        metadata.description?.trim() || '',
+        '',
+        ...imageNames.flatMap((name, index) => [`![${index + 1}](./${name})`, '']),
+    ];
+    return `${lines.filter((line, index, all) => line || all[index - 1] !== '').join('\n').trim()}\n`;
 }
 
 function ImageNoteGridContent({
     images,
     title,
     singleImageMode = false,
+    description,
+    author,
+    publishedAt,
+    sourceUrl,
 }: {
     images: string[];
     title: string;
     singleImageMode?: boolean;
+    description?: string | null;
+    author?: string | null;
+    publishedAt?: string | null;
+    sourceUrl?: string | null;
 }) {
     const dict = useDictionary();
     const [imageStates, setImageStates] = useState<ImageLoadState[]>(() => createInitialImageStates(images));
@@ -75,11 +128,11 @@ function ImageNoteGridContent({
     const handleDownload = async (index: number, originalUrl: string) => {
         try {
             const state = imageStates[index];
-            const { blob, sourceUrl } = await fetchImageBlobCandidates([
+            const { blob, sourceUrl: downloadedSourceUrl } = await fetchImageBlobCandidates([
                 state?.src ?? resolveImageSrc(originalUrl),
                 originalUrl,
             ]);
-            const extension = resolveImageDownloadExtension(sourceUrl, blob.type);
+            const extension = resolveImageDownloadExtension(downloadedSourceUrl, blob.type);
             const filenameSuffix = singleImageMode ? 'cover' : String(index + 1);
             triggerBlobDownload(blob, `${sanitizeFilename(title)}-${filenameSuffix}.${extension}`);
         } catch (error) {
@@ -96,18 +149,22 @@ function ImageNoteGridContent({
             const { default: JSZip } = await import('jszip');
             const zip = new JSZip();
             let successCount = 0;
+            const imageNames: string[] = [];
+            const safeTitle = sanitizeFilename(title);
 
             for (let index = 0; index < images.length; index++) {
                 const state = imageStates[index];
                 const hasError = state?.error ?? false;
                 if (!hasError) {
                     try {
-                        const { blob, sourceUrl } = await fetchImageBlobCandidates([
+                        const { blob, sourceUrl: downloadedSourceUrl } = await fetchImageBlobCandidates([
                             state?.src ?? resolveImageSrc(images[index]!),
                             images[index]!,
                         ]);
-                        const extension = resolveImageDownloadExtension(sourceUrl, blob.type);
-                        zip.file(`${sanitizeFilename(title)}-${index + 1}.${extension}`, blob);
+                        const extension = resolveImageDownloadExtension(downloadedSourceUrl, blob.type);
+                        const filename = `${safeTitle}-${index + 1}.${extension}`;
+                        zip.file(filename, blob);
+                        imageNames.push(filename);
                         successCount++;
                     } catch (error) {
                         console.error(`Failed to add image ${index} to zip:`, error);
@@ -121,8 +178,13 @@ function ImageNoteGridContent({
                 return;
             }
 
+            const metadata = { description, author, publishedAt, sourceUrl };
+            const text = archiveText(title, metadata);
+            if (text) zip.file(`${safeTitle}.txt`, text);
+            zip.file(`${safeTitle}.md`, archiveMarkdown(title, metadata, imageNames));
+
             const zipBlob = await zip.generateAsync({ type: 'blob' });
-            triggerBlobDownload(zipBlob, `${sanitizeFilename(title)}.zip`);
+            triggerBlobDownload(zipBlob, `${safeTitle}.zip`);
         } catch (error) {
             console.error('Failed to package images:', error);
             toast.error(dict.errors.packageFailed);
