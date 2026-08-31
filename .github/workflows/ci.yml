@@ -40,7 +40,9 @@ jobs:
       - name: Validate Python media policies
         run: |
           python3 -m py_compile \
+            local-engine/entrypoint.py \
             local-engine/bridge.py \
+            local-engine/web_document.py \
             local-engine/external_ytdlp.py \
             container-backend/app/main.py \
             container-backend/app/playback.py \
