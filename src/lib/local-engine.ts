@@ -68,6 +68,7 @@ export function shouldUseFileBackedInputs(
 }
 
 export type LocalEngineBrowser = 'none' | 'edge' | 'chrome' | 'firefox'
+export type LocalEngineCollectionMode = 'single' | 'all' | 'selected'
 
 export interface LocalDesktopVideoSelection {
   quality?: string | null
@@ -84,6 +85,9 @@ export interface LocalDesktopJobOptions {
   subtitleLanguage?: string | null
   includeCover?: boolean
   browser?: LocalEngineBrowser
+  collectionMode?: LocalEngineCollectionMode
+  selectedItems?: number[]
+  /** @deprecated Use collectionMode. Kept for older call sites/releases. */
   playlist?: boolean
 }
 
@@ -129,8 +133,40 @@ export function resolveLocalDesktopVideoQuality(
   return 'best'
 }
 
+function normalizeSelectedItems(items?: number[]): number[] {
+  if (!items?.length) return []
+  const normalized: number[] = []
+  for (const raw of items) {
+    const value = Math.trunc(Number(raw))
+    if (!Number.isFinite(value) || value <= 0 || normalized.includes(value)) continue
+    normalized.push(value)
+    if (normalized.length >= 500) break
+  }
+  return normalized
+}
+
+export function resolveLocalEngineCollectionMode(
+  options: Pick<LocalDesktopJobOptions, 'collectionMode' | 'playlist' | 'selectedItems'>,
+): LocalEngineCollectionMode {
+  const selectedItems = normalizeSelectedItems(options.selectedItems)
+  if (options.collectionMode === 'selected') {
+    return selectedItems.length ? 'selected' : 'single'
+  }
+  if (options.collectionMode === 'all' || options.collectionMode === 'single') {
+    return options.collectionMode
+  }
+  return options.playlist ? 'all' : 'single'
+}
+
 export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): string {
   const params = new URLSearchParams()
+  const selectedItems = normalizeSelectedItems(options.selectedItems)
+  const collectionMode = resolveLocalEngineCollectionMode({
+    collectionMode: options.collectionMode,
+    playlist: options.playlist,
+    selectedItems,
+  })
+
   params.set('url', options.sourceUrl)
   params.set('video', options.videoQuality || 'best')
   params.set('audio', options.audioQuality || 'best')
@@ -139,7 +175,11 @@ export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): str
   if (options.subtitleLanguage) params.set('subtitle_lang', options.subtitleLanguage)
   params.set('cover', options.includeCover ? '1' : '0')
   params.set('browser', options.browser || 'none')
-  params.set('playlist', options.playlist ? '1' : '0')
+  params.set('collection', collectionMode)
+  if (collectionMode === 'selected') params.set('items', selectedItems.join(','))
+  // Preserve the legacy field so a protocol URL is still understandable by
+  // pre-0.5 engines, while new engines use the explicit collection policy.
+  params.set('playlist', collectionMode === 'all' ? '1' : '0')
   return `galaxy-downloader://download?${params.toString()}`
 }
 
