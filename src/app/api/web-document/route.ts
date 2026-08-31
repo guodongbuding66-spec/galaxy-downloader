@@ -52,19 +52,40 @@ function hostMatches(hostname: string, domain: string): boolean {
 
 function isVideoFirstHost(url: URL): boolean {
     const host = url.hostname.toLowerCase()
+    const path = url.pathname
 
     // Xiaohongshu already has a dedicated resolver that reliably distinguishes
-    // video works from image notes and also returns the post caption. Let that
-    // resolver remain authoritative instead of mistaking a video thumbnail for
-    // a one-image note.
+    // video works from image notes and returns the post caption. Keep it
+    // authoritative rather than treating a video thumbnail as an image note.
     if (hostMatches(host, 'xiaohongshu.com') || host === 'xhslink.com') return true
 
-    // Douyin's /note/ URLs are explicitly image/text works. Normal /video/
-    // pages continue to yt-dlp/shared media parsing so a cover image can never
-    // hide the actual video result.
-    if (hostMatches(host, 'douyin.com')) {
-        return !/(?:^|\/)note(?:\/|$)/i.test(url.pathname)
+    // Explicit photo/note URL families should get the document probe first.
+    if (hostMatches(host, 'douyin.com')) return !/(?:^|\/)note(?:\/|$)/i.test(path)
+    if (hostMatches(host, 'tiktok.com')) return !/(?:^|\/)photo(?:\/|$)/i.test(path)
+
+    // Instagram /p/ is shared by photos, carousels and some videos. The
+    // document parser checks actual video declarations and falls back when the
+    // post is video-only. Reels/TV remain media-first.
+    if (hostMatches(host, 'instagram.com')) {
+        if (/(?:^|\/)(?:reel|reels|tv)(?:\/|$)/i.test(path)) return true
+        return !/(?:^|\/)p(?:\/|$)/i.test(path)
     }
+
+    // Reddit galleries and normal post permalinks can be image/carousel posts.
+    // Video posts are rejected by the document parser's media-type guard.
+    if (hostMatches(host, 'reddit.com') || hostMatches(host, 'redd.it')) {
+        return !/(?:^|\/)(?:gallery|comments)(?:\/|$)/i.test(path)
+    }
+
+    // Pin, X status, Threads post and Tumblr permalink pages are mixed-media
+    // families. Probe their document metadata first; video-only results fall
+    // through to the existing yt-dlp/shared parser.
+    if (hostMatches(host, 'pinterest.com') || host === 'pin.it') return false
+    if (hostMatches(host, 'twitter.com') || hostMatches(host, 'x.com')) {
+        return !/(?:^|\/)status(?:\/|$)/i.test(path)
+    }
+    if (hostMatches(host, 'threads.net')) return !/(?:^|\/)post(?:\/|$)/i.test(path)
+    if (hostMatches(host, 'tumblr.com')) return false
 
     return VIDEO_FIRST_HOSTS.some((domain) => hostMatches(host, domain))
 }
