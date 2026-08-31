@@ -67,7 +67,7 @@ it('keeps share play enabled for muxed video results without a separate audio st
     })
 })
 
-it('plays exact parser URLs directly but does not treat download jobs as preview streams', () => {
+it('plays exact parser URLs directly but sends download jobs to the dedicated play endpoint', () => {
     expect(buildMediaPreviewUrl({
         mediaType: 'video',
         sourceUrl: 'https://www.instagram.com/reel/demo/',
@@ -81,7 +81,8 @@ it('plays exact parser URLs directly but does not treat download jobs as preview
         directUrl: '/api/download?type=video',
         title: 'Remote download job',
     })
-    expect(fallback).toContain('/api/download')
+    expect(fallback).toContain('/api/play')
+    expect(fallback).not.toContain('/api/download?url=')
     expect(fallback).toContain('url=')
 })
 
