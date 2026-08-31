@@ -14,6 +14,15 @@ FILE_PREFIX = "__GALAXY_FILE__"
 UPDATE_STAMP = ".yt-dlp-nightly-check"
 DEFAULT_UPDATE_INTERVAL = 12 * 60 * 60
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+COOKIE_ACCESS_PATTERNS = (
+    "could not copy chrome cookie database",
+    "could not copy edge cookie database",
+    "could not copy firefox cookie database",
+    "cookie database is locked",
+    "database is locked",
+    "failed to decrypt with dpapi",
+    "failed to decrypt cookie",
+)
 
 
 class ExternalYtDlpError(RuntimeError):
@@ -64,12 +73,18 @@ def update_external_ytdlp_if_due(
     *,
     interval_seconds: int = DEFAULT_UPDATE_INTERVAL,
 ) -> tuple[bool, str | None]:
-    """Update official yt-dlp binary to nightly at most once per interval.
+    """Optionally update yt-dlp without making normal downloads depend on GitHub.
 
-    Returns `(attempted, version)`. Update failures are intentionally non-fatal;
-    the existing verified binary remains available as the primary runner and the
-    embedded Python yt-dlp remains a second fallback.
+    Galaxy release ZIPs already contain a verified yt-dlp.exe. Automatic online
+    updates are therefore disabled by default so users who cannot reach GitHub
+    do not wait for a network timeout every time they start a download.
+
+    Advanced users can opt in by setting GALAXY_YTDLP_AUTO_UPDATE=1.
     """
+    enabled = os.environ.get("GALAXY_YTDLP_AUTO_UPDATE", "").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return False, external_version(executable)
+
     stamp = app_dir / UPDATE_STAMP
     now = time.time()
     try:
@@ -83,15 +98,11 @@ def update_external_ytdlp_if_due(
             [str(executable), "--update-to", "nightly"],
             capture_output=True,
             text=True,
-            timeout=90,
+            timeout=30,
             creationflags=_creation_flags(),
             check=False,
         )
-        # Record the check even when GitHub is temporarily unavailable. This
-        # prevents every download click from repeatedly retrying the network.
         stamp.touch(exist_ok=True)
-        if result.returncode != 0:
-            return True, external_version(executable)
         return True, external_version(executable)
     except Exception:
         try:
@@ -99,6 +110,11 @@ def update_external_ytdlp_if_due(
         except OSError:
             pass
         return True, external_version(executable)
+
+
+def is_cookie_access_error(detail: str) -> bool:
+    lowered = detail.lower()
+    return any(pattern in lowered for pattern in COOKIE_ACCESS_PATTERNS)
 
 
 def _reader_thread(stream, output: queue.Queue[str | None]) -> None:
@@ -189,7 +205,7 @@ def build_external_command(
     return command
 
 
-def download_with_external_ytdlp(
+def _run_external_once(
     executable: Path,
     source_url: str,
     *,
@@ -271,13 +287,81 @@ def download_with_external_ytdlp(
 
         if "ERROR:" in line.upper() or "WARNING:" in line.upper():
             recent_errors.append(line)
-            recent_errors = recent_errors[-8:]
+            recent_errors = recent_errors[-10:]
         if line.startswith("["):
             on_status(line)
 
     return_code = process.wait()
     if return_code != 0:
-        detail = "\n".join(recent_errors[-4:]) or f"yt-dlp exited with code {return_code}"
+        detail = "\n".join(recent_errors[-5:]) or f"yt-dlp exited with code {return_code}"
         raise ExternalYtDlpError(detail)
 
     return final_path
+
+
+def download_with_external_ytdlp(
+    executable: Path,
+    source_url: str,
+    *,
+    format_selector: str,
+    output_template: str,
+    ffmpeg_location: Path | None,
+    browser: str,
+    playlist: bool,
+    include_subtitle: bool,
+    subtitle_language: str | None,
+    include_cover: bool,
+    cancelled: Callable[[], bool],
+    on_progress: Callable[[float, str, str, str, str], None],
+    on_status: Callable[[str], None],
+) -> Path | None:
+    try:
+        return _run_external_once(
+            executable,
+            source_url,
+            format_selector=format_selector,
+            output_template=output_template,
+            ffmpeg_location=ffmpeg_location,
+            browser=browser,
+            playlist=playlist,
+            include_subtitle=include_subtitle,
+            subtitle_language=subtitle_language,
+            include_cover=include_cover,
+            cancelled=cancelled,
+            on_progress=on_progress,
+            on_status=on_status,
+        )
+    except ExternalYtDlpError as exc:
+        if browser == "none" or not is_cookie_access_error(str(exc)):
+            raise
+
+        # Chromium based browsers may lock their cookie SQLite database while
+        # they are running. For public media, cookies are unnecessary, so retry
+        # automatically without them instead of failing the whole task at 0%.
+        on_status(
+            "[Galaxy] 浏览器 Cookie 数据库正在被占用，已自动改为不读取 Cookie 重试。"
+        )
+        try:
+            return _run_external_once(
+                executable,
+                source_url,
+                format_selector=format_selector,
+                output_template=output_template,
+                ffmpeg_location=ffmpeg_location,
+                browser="none",
+                playlist=playlist,
+                include_subtitle=include_subtitle,
+                subtitle_language=subtitle_language,
+                include_cover=include_cover,
+                cancelled=cancelled,
+                on_progress=on_progress,
+                on_status=on_status,
+            )
+        except ExternalYtDlpError as retry_exc:
+            detail = str(retry_exc)
+            raise ExternalYtDlpError(
+                "浏览器 Cookie 当前无法读取，且无 Cookie 重试也没有成功。"
+                "如果该视频必须登录才能访问，请先关闭对应浏览器后重试；"
+                "如果是公开视频，请在网站的‘登录状态’中选择‘不读取浏览器 Cookie’。\n"
+                + detail
+            ) from retry_exc
