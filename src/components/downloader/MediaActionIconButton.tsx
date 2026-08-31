@@ -8,7 +8,7 @@ interface MediaActionIconButtonProps {
     label: string;
     text?: string;
     icon: ComponentType<SVGProps<SVGSVGElement>>;
-    variant?: 'outline' | 'secondary' | 'default';
+    variant?: 'outline' | 'secondary' | 'default' | 'ghost';
     size?: 'xs' | 'sm';
     disabled?: boolean;
     loading?: boolean;
