@@ -30,6 +30,7 @@ import {
   type LocalEngineBridgeStatus,
 } from '@/lib/local-engine-bridge';
 import {
+  LOCAL_ENGINE_GITHUB_URL,
   LOCAL_ENGINE_RELEASE_URL,
   launchLocalDesktopEngine,
   resolveLocalDesktopVideoQuality,
@@ -60,6 +61,7 @@ type Copy = {
   firefox: string;
   launch: string;
   install: string;
+  githubMirror: string;
   privacy: string;
   launchHint: string;
   connected: string;
@@ -84,23 +86,24 @@ const COPY: Record<string, Copy> = {
     chrome: '使用 Chrome 登录状态',
     firefox: '使用 Firefox 登录状态',
     launch: '按当前方案本机下载',
-    install: '下载 / 更新 Galaxy Local Engine',
+    install: '下载 Galaxy Local Engine（官网线路）',
+    githubMirror: 'GitHub 备用下载',
     privacy: 'Cookie、视频下载和 FFmpeg 处理全部留在你的电脑，不上传 Galaxy 服务器。',
     launchHint: '尚未检测到本地引擎通信服务。请下载最新版、完整解压并运行 install.cmd，然后返回本页重试。',
     connected: '本地引擎已连接',
     disconnected: '本地引擎未连接',
-    bridgeRequired: '请安装最新版 Galaxy Local Engine（v0.3.1 或更高版本）。',
+    bridgeRequired: '请安装最新版 Galaxy Local Engine（v0.4.0 或更高版本）。',
     sent: '任务已发送到 Galaxy Local Engine',
     cancel: '取消本机任务',
     openFolder: '打开下载文件夹',
     guideTitle: 'Galaxy Local Engine 使用步骤',
     guideSteps: [
-      '点击“下载 / 更新 Galaxy Local Engine”，下载最新 Windows ZIP。',
-      '完整解压 ZIP，不能直接在压缩包里运行；双击 install.cmd，等待 FFmpeg 与 yt-dlp 安装完成。',
-      '安装完成后保持 Galaxy Local Engine 运行，返回本页；状态会自动变成“本地引擎已连接”。',
-      '按需选择 Edge / Chrome / Firefox 登录状态，再点击“按当前方案本机下载”。',
+      '优先点击“官网线路”下载最新 Windows ZIP；如果官网线路异常，可使用 GitHub 备用下载。',
+      '完整解压 ZIP，不能直接在压缩包里运行。新版已内置 FFmpeg、ffprobe 和 yt-dlp.exe，安装时无需再访问 GitHub。',
+      '把解压文件夹放在准备长期使用的位置，然后双击 install.cmd。当前解压文件夹就是安装目录，视频会保存到其中的 downloads 文件夹。',
+      '保持 Galaxy Local Engine 运行并返回本页，等待显示“本地引擎已连接”；按需选择浏览器登录状态后即可本机下载。',
     ],
-    guideTip: '首次安装只需一次。以后网站会自动检测已运行的本地引擎；升级时重新下载最新版并运行 install.cmd 即可。',
+    guideTip: '如果以后把整个 Galaxy Local Engine 文件夹移动到其他磁盘或目录，只需在新位置重新运行一次 install.cmd 以刷新 Windows 协议路径。',
   },
   'zh-tw': {
     title: 'Galaxy Local Engine 本機強力下載',
@@ -112,23 +115,24 @@ const COPY: Record<string, Copy> = {
     chrome: '使用 Chrome 登入狀態',
     firefox: '使用 Firefox 登入狀態',
     launch: '依目前方案本機下載',
-    install: '下載 / 更新 Galaxy Local Engine',
+    install: '下載 Galaxy Local Engine（官網線路）',
+    githubMirror: 'GitHub 備用下載',
     privacy: 'Cookie、影片與 FFmpeg 處理全部保留在你的電腦。',
     launchHint: '尚未偵測到本地引擎。請下載最新版、完整解壓並執行 install.cmd。',
     connected: '本地引擎已連線',
     disconnected: '本地引擎未連線',
-    bridgeRequired: '請安裝最新版 Galaxy Local Engine（v0.3.1 或更新版本）。',
+    bridgeRequired: '請安裝最新版 Galaxy Local Engine（v0.4.0 或更新版本）。',
     sent: '工作已傳送到 Galaxy Local Engine',
     cancel: '取消本機工作',
     openFolder: '開啟下載資料夾',
     guideTitle: 'Galaxy Local Engine 使用步驟',
     guideSteps: [
-      '下載最新 Windows ZIP。',
-      '完整解壓 ZIP，雙擊 install.cmd 並等待安裝完成。',
-      '保持 Galaxy Local Engine 執行並返回本頁，等待顯示「本地引擎已連線」。',
-      '選擇登入狀態後，點擊「依目前方案本機下載」。',
+      '優先使用官網線路下載 Windows ZIP；需要時可改用 GitHub 備用線路。',
+      '完整解壓 ZIP。FFmpeg、ffprobe 與 yt-dlp.exe 已內置，安裝時不需要再從 GitHub 下載。',
+      '把解壓資料夾放到長期使用位置後執行 install.cmd；該資料夾就是安裝目錄，影片保存在 downloads。',
+      '保持程式執行並返回本頁，看到「本地引擎已連線」後即可開始下載。',
     ],
-    guideTip: '首次安裝只需一次；升級時重新下載最新版並執行 install.cmd 即可。',
+    guideTip: '日後若移動整個資料夾，請在新位置重新執行一次 install.cmd。',
   },
   en: {
     title: 'Galaxy Local Engine',
@@ -140,23 +144,24 @@ const COPY: Record<string, Copy> = {
     chrome: 'Use Chrome login session',
     firefox: 'Use Firefox login session',
     launch: 'Download current plan locally',
-    install: 'Download / update Galaxy Local Engine',
+    install: 'Download Galaxy Local Engine (site)',
+    githubMirror: 'GitHub mirror',
     privacy: 'Cookies, media downloads and FFmpeg processing stay on this computer.',
     launchHint: 'The local engine was not detected. Download the latest ZIP, extract it fully, run install.cmd, then return here.',
     connected: 'Local engine connected',
     disconnected: 'Local engine not connected',
-    bridgeRequired: 'Install the latest Galaxy Local Engine (v0.3.1 or newer).',
+    bridgeRequired: 'Install Galaxy Local Engine v0.4.0 or newer.',
     sent: 'Job sent to Galaxy Local Engine',
     cancel: 'Cancel local job',
     openFolder: 'Open download folder',
     guideTitle: 'How to use Galaxy Local Engine',
     guideSteps: [
-      'Download the latest Windows ZIP.',
-      'Extract the complete ZIP and double-click install.cmd. Do not run it from inside the ZIP.',
-      'Keep Galaxy Local Engine running and return to this page until the status shows connected.',
-      'Choose a browser login session if needed, then start the local download.',
+      'Prefer the Galaxy website download. Use the GitHub mirror only if needed.',
+      'Extract the full ZIP. FFmpeg, ffprobe and yt-dlp.exe are already bundled, so first-time installation does not need GitHub access.',
+      'Place the extracted folder where you want to keep it, then run install.cmd. That folder is the install folder and downloads are saved under its downloads directory.',
+      'Keep Galaxy Local Engine running, return here until the status shows connected, choose a browser session if needed, then start the local download.',
     ],
-    guideTip: 'Installation is normally required only once. To upgrade, download the latest ZIP and run install.cmd again.',
+    guideTip: 'If you move the whole folder later, run install.cmd once again from the new location to refresh the Windows protocol path.',
   },
   ja: {
     title: 'Galaxy Local Engine',
@@ -168,18 +173,19 @@ const COPY: Record<string, Copy> = {
     chrome: 'Chrome のログイン状態を使用',
     firefox: 'Firefox のログイン状態を使用',
     launch: '現在のプランをローカル保存',
-    install: 'Galaxy Local Engine をダウンロード / 更新',
+    install: 'Galaxy Local Engine をサイトからダウンロード',
+    githubMirror: 'GitHub ミラー',
     privacy: 'Cookie、メディア、FFmpeg 処理はこの PC 内だけで行われます。',
     launchHint: 'ローカルエンジンを検出できません。最新版 ZIP を展開して install.cmd を実行してください。',
     connected: 'ローカルエンジン接続済み',
     disconnected: 'ローカルエンジン未接続',
-    bridgeRequired: 'Galaxy Local Engine v0.3.1 以降をインストールしてください。',
+    bridgeRequired: 'Galaxy Local Engine v0.4.0 以降をインストールしてください。',
     sent: 'ジョブをローカルエンジンへ送信しました',
     cancel: 'ローカルジョブをキャンセル',
     openFolder: 'ダウンロードフォルダーを開く',
     guideTitle: 'Galaxy Local Engine の使い方',
-    guideSteps: ['最新 Windows ZIP をダウンロードします。', 'ZIP を完全に展開し install.cmd を実行します。', 'アプリを起動したままこのページへ戻り、接続表示を確認します。', '必要ならブラウザーのログイン状態を選び、ローカルダウンロードを開始します。'],
-    guideTip: '通常、初回インストールは一度だけです。更新時は最新版を再インストールしてください。',
+    guideSteps: ['まず公式サイト経由で ZIP をダウンロードします。必要な場合のみ GitHub ミラーを使用します。', 'ZIP を完全に展開します。FFmpeg と yt-dlp は同梱済みです。', '保存したい場所にフォルダーを置き install.cmd を実行します。downloads フォルダーに動画が保存されます。', 'アプリを起動したままこのページへ戻り、接続表示を確認してからダウンロードします。'],
+    guideTip: 'フォルダーを移動した場合は、新しい場所で install.cmd をもう一度実行してください。',
   },
   es: {
     title: 'Galaxy Local Engine',
@@ -191,18 +197,19 @@ const COPY: Record<string, Copy> = {
     chrome: 'Usar sesión de Chrome',
     firefox: 'Usar sesión de Firefox',
     launch: 'Descargar el plan actual localmente',
-    install: 'Descargar / actualizar Galaxy Local Engine',
+    install: 'Descargar Galaxy Local Engine (sitio)',
+    githubMirror: 'Espejo de GitHub',
     privacy: 'Cookies, contenido y FFmpeg permanecen en este equipo.',
     launchHint: 'No se detectó el motor local. Descarga el ZIP más reciente, extráelo y ejecuta install.cmd.',
     connected: 'Motor local conectado',
     disconnected: 'Motor local no conectado',
-    bridgeRequired: 'Instala Galaxy Local Engine v0.3.1 o posterior.',
+    bridgeRequired: 'Instala Galaxy Local Engine v0.4.0 o posterior.',
     sent: 'Tarea enviada a Galaxy Local Engine',
     cancel: 'Cancelar tarea local',
     openFolder: 'Abrir carpeta de descargas',
     guideTitle: 'Cómo usar Galaxy Local Engine',
-    guideSteps: ['Descarga el ZIP más reciente para Windows.', 'Extrae todo el ZIP y ejecuta install.cmd.', 'Mantén Galaxy Local Engine abierto y vuelve a esta página hasta ver el estado conectado.', 'Selecciona la sesión del navegador si la necesitas e inicia la descarga local.'],
-    guideTip: 'Normalmente solo se instala una vez. Para actualizar, ejecuta install.cmd desde el ZIP más reciente.',
+    guideSteps: ['Usa primero la descarga del sitio y deja GitHub como alternativa.', 'Extrae todo el ZIP. FFmpeg y yt-dlp ya vienen incluidos.', 'Coloca la carpeta donde quieras conservarla y ejecuta install.cmd; los vídeos se guardan en downloads.', 'Mantén el motor abierto, vuelve a esta página y empieza la descarga cuando aparezca conectado.'],
+    guideTip: 'Si mueves la carpeta completa, ejecuta install.cmd de nuevo desde la nueva ubicación.',
   },
   ru: {
     title: 'Galaxy Local Engine',
@@ -214,18 +221,19 @@ const COPY: Record<string, Copy> = {
     chrome: 'Использовать сеанс Chrome',
     firefox: 'Использовать сеанс Firefox',
     launch: 'Скачать текущий план локально',
-    install: 'Скачать / обновить Galaxy Local Engine',
+    install: 'Скачать Galaxy Local Engine с сайта',
+    githubMirror: 'Зеркало GitHub',
     privacy: 'Cookies, медиа и FFmpeg остаются только на этом компьютере.',
     launchHint: 'Локальный движок не обнаружен. Скачайте последний ZIP, распакуйте его и запустите install.cmd.',
     connected: 'Локальный движок подключён',
     disconnected: 'Локальный движок не подключён',
-    bridgeRequired: 'Установите Galaxy Local Engine v0.3.1 или новее.',
+    bridgeRequired: 'Установите Galaxy Local Engine v0.4.0 или новее.',
     sent: 'Задание отправлено в Galaxy Local Engine',
     cancel: 'Отменить локальную задачу',
     openFolder: 'Открыть папку загрузок',
     guideTitle: 'Как использовать Galaxy Local Engine',
-    guideSteps: ['Скачайте последний Windows ZIP.', 'Полностью распакуйте ZIP и запустите install.cmd.', 'Оставьте Galaxy Local Engine запущенным и вернитесь на страницу до появления статуса подключения.', 'При необходимости выберите сеанс браузера и начните локальную загрузку.'],
-    guideTip: 'Обычно установка нужна один раз. Для обновления снова запустите install.cmd из последнего ZIP.',
+    guideSteps: ['Сначала используйте загрузку с сайта, GitHub оставьте как резерв.', 'Полностью распакуйте ZIP. FFmpeg и yt-dlp уже включены.', 'Поместите папку в постоянное место и запустите install.cmd; файлы сохраняются в downloads.', 'Оставьте приложение запущенным, вернитесь на страницу и начните загрузку после появления статуса подключения.'],
+    guideTip: 'После перемещения всей папки снова запустите install.cmd из нового места.',
   },
 };
 
@@ -394,7 +402,7 @@ export function LocalEngineDownloadCard({
               )}
               {bridge ? copy.connected : copy.disconnected}
             </span>
-            <span className="tabular-nums text-muted-foreground">{bridge ? `v${bridge.version}` : 'v0.3.1+'}</span>
+            <span className="tabular-nums text-muted-foreground">{bridge ? `v${bridge.version}` : 'v0.4.0+'}</span>
           </div>
           {bridge ? (
             <div className="mt-2 space-y-2">
@@ -462,12 +470,20 @@ export function LocalEngineDownloadCard({
               {copy.openFolder}
             </Button>
           ) : (
-            <Button type="button" variant="outline" className="min-h-10 w-full" asChild>
-              <a href={LOCAL_ENGINE_RELEASE_URL} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                {copy.install}
-              </a>
-            </Button>
+            <div className="grid gap-2">
+              <Button type="button" variant="outline" className="min-h-10 w-full" asChild>
+                <a href={LOCAL_ENGINE_RELEASE_URL}>
+                  <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
+                  {copy.install}
+                </a>
+              </Button>
+              <Button type="button" variant="ghost" className="min-h-9 w-full text-xs" asChild>
+                <a href={LOCAL_ENGINE_GITHUB_URL} target="_blank" rel="noreferrer">
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                  {copy.githubMirror}
+                </a>
+              </Button>
+            </div>
           )}
         </div>
 
