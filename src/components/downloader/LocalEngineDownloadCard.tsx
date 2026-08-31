@@ -91,10 +91,10 @@ const COPY: Record<string, Copy> = {
     install: '下载 Galaxy Local Engine（官网线路）',
     githubMirror: 'GitHub 备用下载',
     privacy: 'Cookie、视频下载和 FFmpeg 处理全部留在你的电脑，不上传 Galaxy 服务器。',
-    launchHint: '尚未检测到兼容的本地引擎。请下载最新版、完整解压并运行 install.cmd；旧的 v0.3.x 会被网站视为不兼容。',
+    launchHint: '尚未检测到兼容的本地引擎。微信视频号修复需要 Galaxy Local Engine v0.4.7 或更高版本；请下载最新版、完整解压并运行 install.cmd。',
     connected: '本地引擎已连接',
     disconnected: '本地引擎未连接',
-    bridgeRequired: '请安装最新版 Galaxy Local Engine（v0.4.0 或更高版本）。',
+    bridgeRequired: '请安装最新版 Galaxy Local Engine（v0.4.7 或更高版本）。',
     sent: '任务已发送到 Galaxy Local Engine',
     cancel: '取消本机任务',
     openFolder: '打开下载文件夹',
@@ -124,7 +124,7 @@ const COPY: Record<string, Copy> = {
     launchHint: '尚未偵測到相容的本地引擎。請下載最新版、完整解壓並執行 install.cmd；舊 v0.3.x 不再相容。',
     connected: '本地引擎已連線',
     disconnected: '本地引擎未連線',
-    bridgeRequired: '請安裝最新版 Galaxy Local Engine（v0.4.0 或更新版本）。',
+    bridgeRequired: '請安裝最新版 Galaxy Local Engine（v0.4.7 或更新版本）。',
     sent: '工作已傳送到 Galaxy Local Engine',
     cancel: '取消本機工作',
     openFolder: '開啟下載資料夾',
@@ -154,7 +154,7 @@ const COPY: Record<string, Copy> = {
     launchHint: 'No compatible local engine was detected. Download the latest ZIP, extract it fully and run install.cmd. Legacy v0.3.x engines are no longer accepted by the website.',
     connected: 'Local engine connected',
     disconnected: 'Local engine not connected',
-    bridgeRequired: 'Install Galaxy Local Engine v0.4.0 or newer.',
+    bridgeRequired: 'Install Galaxy Local Engine v0.4.7 or newer.',
     sent: 'Job sent to Galaxy Local Engine',
     cancel: 'Cancel local job',
     openFolder: 'Open download folder',
@@ -184,7 +184,7 @@ const COPY: Record<string, Copy> = {
     launchHint: '互換性のあるローカルエンジンを検出できません。最新版 ZIP を展開して install.cmd を実行してください。',
     connected: 'ローカルエンジン接続済み',
     disconnected: 'ローカルエンジン未接続',
-    bridgeRequired: 'Galaxy Local Engine v0.4.0 以降をインストールしてください。',
+    bridgeRequired: 'Galaxy Local Engine v0.4.7 以降をインストールしてください。',
     sent: 'ジョブをローカルエンジンへ送信しました',
     cancel: 'ローカルジョブをキャンセル',
     openFolder: 'ダウンロードフォルダーを開く',
@@ -209,7 +209,7 @@ const COPY: Record<string, Copy> = {
     launchHint: 'No se detectó un motor local compatible. Descarga el ZIP más reciente, extráelo y ejecuta install.cmd.',
     connected: 'Motor local conectado',
     disconnected: 'Motor local no conectado',
-    bridgeRequired: 'Instala Galaxy Local Engine v0.4.0 o posterior.',
+    bridgeRequired: 'Instala Galaxy Local Engine v0.4.7 o posterior.',
     sent: 'Tarea enviada a Galaxy Local Engine',
     cancel: 'Cancelar tarea local',
     openFolder: 'Abrir carpeta de descargas',
@@ -234,7 +234,7 @@ const COPY: Record<string, Copy> = {
     launchHint: 'Совместимый локальный движок не обнаружен. Скачайте последний ZIP, распакуйте его и запустите install.cmd.',
     connected: 'Локальный движок подключён',
     disconnected: 'Локальный движок не подключён',
-    bridgeRequired: 'Установите Galaxy Local Engine v0.4.0 или новее.',
+    bridgeRequired: 'Установите Galaxy Local Engine v0.4.7 или новее.',
     sent: 'Задание отправлено в Galaxy Local Engine',
     cancel: 'Отменить локальную задачу',
     openFolder: 'Открыть папку загрузок',
@@ -406,7 +406,7 @@ export function LocalEngineDownloadCard({
               )}
               {bridge ? copy.connected : copy.disconnected}
             </span>
-            <span className="tabular-nums text-muted-foreground">{bridge ? `v${bridge.version}` : 'v0.4.0+'}</span>
+            <span className="tabular-nums text-muted-foreground">{bridge ? `v${bridge.version}` : 'v0.4.7+'}</span>
           </div>
           {bridge ? (
             <div className="mt-2 space-y-2">
