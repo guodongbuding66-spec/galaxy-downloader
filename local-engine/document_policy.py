@@ -32,6 +32,21 @@ base.EXTENSIONLESS_IMAGE_HOSTS = tuple(dict.fromkeys(
     (*base.EXTENSIONLESS_IMAGE_HOSTS, *_EXTRA_EXTENSIONLESS_IMAGE_HOSTS)
 ))
 
+_CHALLENGE_PATTERNS = (
+    r"wappoc_appmsgcaptcha",
+    r"captcha\.gtimg\.com",
+    r"verify you are human",
+    r"are you a human",
+    r"robot check",
+    r"security check",
+    r"unusual traffic",
+    r"automated access",
+    r"enter the characters you see below",
+    r"press and hold",
+    r"cf-chl-",
+    r"challenge-platform",
+)
+
 _original_looks_like_image = base._looks_like_image
 
 
@@ -46,6 +61,11 @@ def _looks_like_image(url: str, key: str = "") -> bool:
 
 def _host_matches(host: str, suffix: str) -> bool:
     return host == suffix or host.endswith(f".{suffix}")
+
+
+def _looks_like_challenge(raw_html: str, final_url: str) -> bool:
+    sample = f"{final_url}\n{raw_html[:1_500_000]}".lower()
+    return any(re.search(pattern, sample, re.I) for pattern in _CHALLENGE_PATTERNS)
 
 
 def should_try_web_document(source_url: str) -> bool:
@@ -138,6 +158,15 @@ def _document_payload(
     final_url: str,
     browser: str,
 ) -> dict[str, Any] | None:
+    if _looks_like_challenge(raw_html, final_url):
+        return {
+            "success": False,
+            "code": "AUTH_REQUIRED",
+            "status": 401,
+            "error": "目标页面返回了验证码或机器人验证。请使用已登录目标平台的浏览器重试。",
+            "details": {"documentChallenge": True},
+        }
+
     result = _original_document_payload(source_url, raw_html, final_url, browser)
     if not result or not result.get("success"):
         return result
@@ -150,9 +179,21 @@ def _document_payload(
     if markdown:
         data["markdownContent"] = markdown
 
-    if data.get("documentType") == "post":
-        images = data.get("images") if isinstance(data.get("images"), list) else []
-        videos = data.get("videos") if isinstance(data.get("videos"), list) else []
+    document_type = str(data.get("documentType") or "webpage")
+    text = str(data.get("textContent") or data.get("desc") or "").strip()
+    images = data.get("images") if isinstance(data.get("images"), list) else []
+    videos = data.get("videos") if isinstance(data.get("videos"), list) else []
+
+    # A known domain/category is not evidence by itself. Empty JS shells must
+    # fall through to CDP so the rendered DOM gets a chance to expose media.
+    if document_type == "product" and not (images or videos or len(text) >= 20):
+        return None
+    if document_type == "article" and not (markdown or len(text) >= 20 or len(images) >= 2 or videos):
+        return None
+    if document_type in {"post", "gallery"} and not (images or videos or len(text) >= 20):
+        return None
+
+    if document_type == "post":
         # Do not let a normal video post collapse into its poster image. Mixed
         # media carousels with multiple images remain document results.
         if videos and len(images) <= 1:
