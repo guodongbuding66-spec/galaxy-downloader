@@ -1,0 +1,41 @@
+name: Document Live Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/**'
+      - 'fixtures/document-live-targets.json'
+      - 'scripts/document-live-smoke.py'
+      - 'scripts/test-local-document-policy.py'
+      - '.github/workflows/document-live-smoke.yml'
+  schedule:
+    - cron: '23 3 * * 2,5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: document-live-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-documents:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+
+      - name: Validate deterministic document policies
+        run: python scripts/test-local-document-policy.py
+
+      - name: Probe real commerce and WeChat pages
+        run: python scripts/document-live-smoke.py
