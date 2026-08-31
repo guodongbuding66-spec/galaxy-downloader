@@ -276,7 +276,7 @@ export function VideoResultPanel({
     const displayDuration = effectiveResult.duration ?? result.duration;
 
     const primaryVisual = playerPreview && playerUrl ? (
-        <div className="overflow-hidden rounded-xl bg-black ring-1 ring-black/10">
+        <div className="overflow-hidden rounded-lg bg-black outline outline-1 outline-black/10 dark:outline-white/10">
             {playerPreview.mediaType === 'audio' ? (
                 <audio
                     key={playerUrl}
@@ -295,7 +295,7 @@ export function VideoResultPanel({
                     playsInline
                     preload="metadata"
                     poster={coverSrc || undefined}
-                    className="min-h-[220px] max-h-[68vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-8rem)]"
+                    className="min-h-[220px] max-h-[72vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-7rem)]"
                 />
             ) : (
                 <video
@@ -307,7 +307,7 @@ export function VideoResultPanel({
                     playsInline
                     preload="metadata"
                     poster={coverSrc || undefined}
-                    className="min-h-[220px] max-h-[68vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-8rem)]"
+                    className="min-h-[220px] max-h-[72vh] w-full bg-black sm:min-h-[260px] lg:max-h-[calc(100vh-7rem)]"
                 />
             )}
         </div>
@@ -316,13 +316,13 @@ export function VideoResultPanel({
     ) : null;
 
     const collectionPanel = showMultiPartList || showSeasonList || hasBilibiliSourceSwitch ? (
-        <section className="min-w-0 space-y-2 border-t border-border/60 pt-3">
+        <section className="min-w-0 space-y-2 border-t pt-2.5">
             {hasBilibiliSourceSwitch ? (
-                <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/40 p-1" role="group">
+                <div className="grid grid-cols-2 gap-0.5 rounded-md border bg-background p-0.5" role="group">
                     <Button
                         variant={activeBiliList === 'pages' ? 'secondary' : 'ghost'}
                         size="sm"
-                        className="h-8 text-xs transition-transform duration-150 active:scale-[0.96]"
+                        className="h-7 rounded text-[11px]"
                         aria-pressed={activeBiliList === 'pages'}
                         onClick={() => setActiveBiliList('pages')}
                     >
@@ -331,7 +331,7 @@ export function VideoResultPanel({
                     <Button
                         variant={activeBiliList === 'season' ? 'secondary' : 'ghost'}
                         size="sm"
-                        className="h-8 text-xs transition-transform duration-150 active:scale-[0.96]"
+                        className="h-7 rounded text-[11px]"
                         aria-pressed={activeBiliList === 'season'}
                         onClick={() => setActiveBiliList('season')}
                     >
@@ -360,7 +360,7 @@ export function VideoResultPanel({
     ) : null;
 
     return (
-        <section className="overflow-hidden rounded-xl bg-card workbench-shadow ring-1 ring-border/70">
+        <section className="overflow-hidden rounded-lg border bg-card">
             <ResultCardHeader
                 title={displayTitle}
                 duration={displayDuration}
@@ -369,16 +369,16 @@ export function VideoResultPanel({
                 onClose={onClose}
             />
 
-            <div className="p-2.5 sm:p-3">
+            <div className="p-2 sm:p-2.5">
                 {isImageNote ? (
                     <ImageNoteGrid images={displayImages} title={displayTitle} />
                 ) : (
                     <div className={hasPrimaryVisual
-                        ? 'grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(360px,430px)] lg:items-start'
-                        : 'grid min-w-0 gap-3'}
+                        ? 'grid min-w-0 gap-2.5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] lg:items-start'
+                        : 'grid min-w-0 gap-2.5'}
                     >
                         {hasPrimaryVisual ? <div className="min-w-0">{primaryVisual}</div> : null}
-                        <aside className="min-w-0 space-y-3 lg:sticky lg:top-3">
+                        <aside className="min-w-0 space-y-2.5 lg:sticky lg:top-2.5">
                             <SinglePartButtons
                                 result={effectiveResult}
                                 previewItem={previewItem}
@@ -392,7 +392,7 @@ export function VideoResultPanel({
                 )}
 
                 {hasSupplementalImages ? (
-                    <section className="mt-3 border-t border-border/60 pt-3">
+                    <section className="mt-2.5 border-t pt-2.5">
                         <ImageNoteGrid images={displayImages} title={displayTitle} />
                     </section>
                 ) : null}
