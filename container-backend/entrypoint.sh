@@ -43,7 +43,7 @@ if [ "$POT_READY" -ne 1 ]; then
   exit 1
 fi
 
-exec python -m uvicorn app.main:app \
+exec python -m uvicorn app.server:app \
   --host 0.0.0.0 \
   --port 8080 \
   --proxy-headers \
