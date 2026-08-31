@@ -42,6 +42,27 @@ class LocalDocumentPolicyTests(unittest.TestCase):
                 self.assertEqual(platform, expected)
                 self.assertEqual(document_type, "product")
 
+    def test_challenge_pages_are_not_reported_as_articles(self):
+        payload = document_policy._document_payload(
+            "https://mp.weixin.qq.com/s/demo",
+            '<html><iframe src="https://captcha.gtimg.com/static/template/drag.html"></iframe></html>',
+            "https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?target_url=test",
+            "none",
+        )
+        self.assertIsInstance(payload, dict)
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["code"], "AUTH_REQUIRED")
+        self.assertTrue(payload["details"]["documentChallenge"])
+
+    def test_empty_product_shell_falls_through_to_cdp(self):
+        payload = document_policy._document_payload(
+            "https://www.amazon.com/dp/B000000001",
+            "<html><head><title>Amazon</title></head><body><div id='root'></div></body></html>",
+            "https://www.amazon.com/dp/B000000001",
+            "none",
+        )
+        self.assertIsNone(payload)
+
     def test_wechat_markdown_keeps_image_between_paragraphs(self):
         html = """
         <div id="js_content">
