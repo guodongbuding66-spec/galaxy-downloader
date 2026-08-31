@@ -72,6 +72,12 @@ function detectBrowserForCookies(): LocalEngineBrowser {
   return 'none'
 }
 
+function parseBrowserCandidates(): LocalEngineBrowser[] {
+  const current = detectBrowserForCookies()
+  const candidates: LocalEngineBrowser[] = [current, 'edge', 'chrome', 'firefox']
+  return [...new Set(candidates)].filter((value) => value !== 'none') as LocalEngineBrowser[]
+}
+
 function errorText(error: unknown): string {
   if (error instanceof DOMException && error.name === 'AbortError') {
     return '连接本地引擎超时。请确认 Galaxy Local Engine 正在运行。'
@@ -167,6 +173,25 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
   }
 }
 
+async function parseWithBrowser(sourceUrl: string, browser: LocalEngineBrowser): Promise<{
+  payload: UnifiedParseResult | null
+  response: Response
+}> {
+  const response = await bridgeFetch('/parse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: sourceUrl, browser }),
+  }, 48_000)
+
+  let payload: UnifiedParseResult | null = null
+  try {
+    payload = await response.json() as UnifiedParseResult
+  } catch {
+    // Preserve null; caller will report the HTTP failure.
+  }
+  return { payload, response }
+}
+
 export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedParseResult | null> {
   try {
     const status = await getLocalEngineBridgeStatus()
@@ -180,32 +205,39 @@ export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedPa
       return null
     }
 
-    const browser = detectBrowserForCookies()
-    const response = await bridgeFetch('/parse', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: sourceUrl,
-        browser,
-      }),
-    }, 48_000)
+    const browsers = parseBrowserCandidates()
+    let lastDetail = '本地解析失败。'
+    let authFailureSeen = false
 
-    let payload: UnifiedParseResult | null = null
-    try {
-      payload = await response.json() as UnifiedParseResult
-    } catch {
-      lastBridgeDiagnostic = `本地解析返回了无效数据（HTTP ${response.status}）。`
-      return null
-    }
+    // v0.4.5 itself always tries the public/no-cookie route first. When
+    // Instagram says authentication is required, automatically retry the same
+    // source with Edge, Chrome and Firefox sessions instead of making a novice
+    // user understand which cookie database yt-dlp needs.
+    for (const browser of browsers) {
+      const { payload, response } = await parseWithBrowser(sourceUrl, browser)
+      if (response.ok && payload?.success && payload.data) {
+        lastBridgeDiagnostic = null
+        return payload
+      }
 
-    if (!response.ok || !payload?.success || !payload.data) {
+      const code = String(payload?.code || '')
       const detail = payload?.error || payload?.message || `HTTP ${response.status}`
+      lastDetail = detail
+
+      if (code === 'AUTH_REQUIRED' || code === 'BROWSER_COOKIE_UNAVAILABLE') {
+        authFailureSeen = true
+        continue
+      }
+
+      // Non-authentication failures are not improved by trying another browser.
       lastBridgeDiagnostic = detail
       return null
     }
 
-    lastBridgeDiagnostic = null
-    return payload
+    lastBridgeDiagnostic = authFailureSeen
+      ? `${lastDetail} 已自动尝试 Edge、Chrome 和 Firefox 登录状态。若仍失败，请在其中一个浏览器登录目标平台后完全退出该浏览器，再回当前页面重新解析。`
+      : lastDetail
+    return null
   } catch (error) {
     lastBridgeDiagnostic = localNetworkHelp(errorText(error))
     return null
