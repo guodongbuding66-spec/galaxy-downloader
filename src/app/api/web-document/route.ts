@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import type { UnifiedParseResult } from '@/lib/types'
+import type { EmbeddedVideoInfo, UnifiedParseResult } from '@/lib/types'
 import { extractWebDocumentFromHtml } from '@/lib/web-document'
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
@@ -104,6 +104,26 @@ async function fetchHtml(startUrl: URL): Promise<{ html: string; finalUrl: URL }
     throw new Error('Too many redirects')
 }
 
+function proxiedEmbeddedVideos(
+    request: NextRequest,
+    sourceUrl: string,
+    videos: EmbeddedVideoInfo[],
+): EmbeddedVideoInfo[] {
+    return videos.map((video, index) => {
+        const raw = video.originDownloadVideoUrl || video.downloadVideoUrl || ''
+        if (!raw) return video
+        const proxy = new URL('/api/proxy-media', request.nextUrl.origin)
+        proxy.searchParams.set('url', raw)
+        proxy.searchParams.set('source', sourceUrl)
+        proxy.searchParams.set('name', `${video.title || 'media'}-${index + 1}`)
+        return {
+            ...video,
+            downloadVideoUrl: proxy.toString(),
+            originDownloadVideoUrl: raw,
+        }
+    })
+}
+
 export async function GET(request: NextRequest) {
     const sourceUrl = request.nextUrl.searchParams.get('url')?.trim() || ''
     let parsed: URL
@@ -127,7 +147,7 @@ export async function GET(request: NextRequest) {
         }
 
         const images = document.images
-        const videos = document.videos
+        const videos = proxiedEmbeddedVideos(request, sourceUrl, document.videos)
         const cover = images[0]?.downloadUrl || images[0]?.url || null
         return noStoreJson({
             success: true,
