@@ -12,6 +12,31 @@ const NESTED_IMAGE_PROXY_HOSTS = new Set([
     'downloader-api.bhwa233.com',
 ]);
 
+function isPrivateIpv4(hostname: string): boolean {
+    const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!match) return false;
+    const octets = match.slice(1).map(Number);
+    if (octets.some((value) => value < 0 || value > 255)) return true;
+    const [a, b] = octets;
+    return a === 0
+        || a === 10
+        || a === 127
+        || (a === 169 && b === 254)
+        || (a === 172 && b >= 16 && b <= 31)
+        || (a === 192 && b === 168)
+        || (a === 100 && b >= 64 && b <= 127)
+        || a >= 224;
+}
+
+function isSafePublicImageUrl(url: URL): boolean {
+    if (!isHttpProtocol(url.protocol)) return false;
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
+    if (isPrivateIpv4(host)) return false;
+    if (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) return false;
+    return true;
+}
+
 function isAllowedImageHost(hostname: string): boolean {
     const normalized = hostname.toLowerCase();
     if (ALLOWED_IMAGE_HOSTS.includes('*')) {
@@ -151,7 +176,7 @@ function unwrapNestedImageProxyUrl(targetUrl: URL): URL {
 
     try {
         const nestedUrl = new URL(decoded);
-        if (!isHttpProtocol(nestedUrl.protocol)) {
+        if (!isSafePublicImageUrl(nestedUrl)) {
             return targetUrl;
         }
         return nestedUrl;
@@ -179,8 +204,8 @@ export async function GET(request: NextRequest) {
 
     targetUrl = unwrapNestedImageProxyUrl(targetUrl);
 
-    if (!isHttpProtocol(targetUrl.protocol)) {
-        const response = NextResponse.json({ error: 'Only http(s) protocol is allowed' }, { status: 400 });
+    if (!isSafePublicImageUrl(targetUrl)) {
+        const response = NextResponse.json({ error: 'Only public http(s) image URLs are allowed' }, { status: 400 });
         setXRobotsTag(response.headers, ['noindex', 'nofollow', 'noarchive', 'noimageindex']);
         return response;
     }
