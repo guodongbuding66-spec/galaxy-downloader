@@ -59,12 +59,12 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
-          python -m py_compile local-engine/engine.py local-engine/bridge.py local-engine/external_ytdlp.py
-          python local-engine/engine.py --self-test
-          $engineVersion = (python local-engine/engine.py --version | Select-Object -Last 1).Trim()
+          python -m py_compile local-engine/entrypoint.py local-engine/engine.py local-engine/bridge.py local-engine/web_document.py local-engine/external_ytdlp.py local-engine/wechat_channels.py
+          python local-engine/entrypoint.py --self-test
+          $engineVersion = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
           $releaseVersion = '${{ steps.release.outputs.version }}'
           if ($engineVersion -ne $releaseVersion) {
-            throw "engine.py VERSION ($engineVersion) does not match local-engine/VERSION ($releaseVersion)"
+            throw "engine VERSION ($engineVersion) does not match local-engine/VERSION ($releaseVersion)"
           }
 
       - name: Build portable executable
@@ -78,7 +78,7 @@ jobs:
           --name GalaxyLocalEngine
           --collect-all yt_dlp
           --add-data "local-engine/VERSION;."
-          local-engine/engine.py
+          local-engine/entrypoint.py
 
       - name: Validate packaged executable
         if: steps.release.outputs.exists != 'true'
