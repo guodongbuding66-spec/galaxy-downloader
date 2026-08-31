@@ -22,6 +22,17 @@ if (-not (Test-Path $EngineSource)) {
 
 Write-Step "Installing to $InstallDir"
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+
+# Windows keeps a running executable locked. Stop an older Galaxy Local Engine
+# before replacing it so clicking “Install / update” works even when v0.2.x is
+# currently sitting in the Ready window.
+$ExistingEngine = Get-Process -Name 'GalaxyLocalEngine' -ErrorAction SilentlyContinue
+if ($ExistingEngine) {
+    Write-Step 'Closing the currently running Galaxy Local Engine for upgrade'
+    $ExistingEngine | Stop-Process -Force
+    Start-Sleep -Milliseconds 500
+}
+
 Copy-Item -Force $EngineSource (Join-Path $InstallDir 'GalaxyLocalEngine.exe')
 
 $FfmpegBin = Join-Path $InstallDir 'ffmpeg\bin'
