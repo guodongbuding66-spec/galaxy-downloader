@@ -562,7 +562,7 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
     };
 
     return (
-        <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+        <section className="min-w-0 max-w-full overflow-hidden rounded-2xl border bg-card shadow-sm">
             <div className="border-b bg-muted/20 p-4 sm:p-5">
                 <div className="flex items-start gap-3">
                     <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-background ring-1 ring-border">
@@ -665,8 +665,8 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                     </div>
                 </div>
 
-                <div className="space-y-3">
-                    <div className="rounded-xl border bg-background p-4 shadow-sm">
+                <div className="min-w-0 space-y-3">
+                    <div className="min-w-0 rounded-xl border bg-background p-4 shadow-sm">
                         <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
                             <Film className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                             {copy.currentPlan}
@@ -727,12 +727,12 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
 
                     <div className="space-y-2 rounded-xl bg-muted/20 p-3 ring-1 ring-border/70">
                         {running ? (
-                            <Button type="button" variant="destructive" size="lg" className="min-h-11 w-full font-semibold" onClick={cancel}>
+                            <Button type="button" variant="destructive" size="lg" className="min-h-11 w-full min-w-0 whitespace-normal text-center font-semibold leading-5" onClick={cancel}>
                                 <X className="h-4 w-4" aria-hidden="true" />
                                 {copy.cancel}
                             </Button>
                         ) : (
-                            <Button type="button" size="lg" className="min-h-11 w-full font-semibold" onClick={startFinalExport}>
+                            <Button type="button" size="lg" className="min-h-11 w-full min-w-0 whitespace-normal text-center font-semibold leading-5" onClick={startFinalExport}>
                                 <PackageCheck className="h-4 w-4" aria-hidden="true" />
                                 {copy.start}
                             </Button>

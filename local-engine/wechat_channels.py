@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from yt_dlp import YoutubeDL
+from browser_auth import BrowserAuthError, get_yuanbao_cookie_header
 
 PARSE_URL = "https://yuanbao.tencent.com/api/weixin/get_parse_result"
 FEED_INFO_URL = "https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info"
@@ -203,43 +203,11 @@ def normalize_wechat_share_url(source_url: str) -> str:
     return f"https://weixin.qq.com/sph/{share_id}"
 
 
-def _cookie_header_from_browser(browser: str) -> str:
-    requested = (browser or "none").strip().lower()
-    candidates = [requested, "edge", "chrome", "firefox"]
-    candidates = [value for index, value in enumerate(candidates) if value != "none" and value not in candidates[:index]]
-    failures: list[str] = []
-
-    for candidate in candidates:
-        try:
-            with YoutubeDL({
-                "quiet": True,
-                "no_warnings": True,
-                "cookiesfrombrowser": (candidate, None, None, None),
-            }) as ydl:
-                jar = ydl.cookiejar
-                pairs: list[str] = []
-                for cookie in jar:
-                    domain = str(getattr(cookie, "domain", "") or "").lstrip(".").lower()
-                    if domain == "tencent.com" or domain.endswith(".tencent.com"):
-                        name = str(getattr(cookie, "name", "") or "").strip()
-                        value = str(getattr(cookie, "value", "") or "")
-                        if name:
-                            pairs.append(f"{name}={value}")
-        except Exception as exc:  # noqa: BLE001
-            failures.append(f"{candidate}: {exc}")
-            continue
-
-        if pairs:
-            return "; ".join(pairs)
-        failures.append(f"{candidate}: 未找到 yuanbao.tencent.com 登录 Cookie")
-
-    detail = "；".join(failures[-3:])
-    raise WeChatChannelsAuthError(
-        "微信视频号需要腾讯元宝登录状态。请先用 Edge、Chrome 或 Firefox 打开 "
-        "yuanbao.tencent.com 并完成微信登录，然后返回 Galaxy Downloader 重试。"
-        "本地引擎已自动尝试可用浏览器，Cookie 不会上传服务器。"
-        + (f" 诊断：{detail}" if detail else "")
-    )
+def _cookie_header_from_browser(browser: str, on_status: Callable[[str], None]) -> str:
+    try:
+        return get_yuanbao_cookie_header(browser, on_status=on_status)
+    except BrowserAuthError as exc:
+        raise WeChatChannelsAuthError(str(exc)) from exc
 
 
 def _request_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float = 25.0) -> dict[str, Any]:
@@ -274,9 +242,9 @@ def _generate_rid() -> str:
     return f"{int(time.time()):x}-" + "".join(random.choice("0123456789abcdef") for _ in range(8))
 
 
-def _resolve_uncached(source_url: str, browser: str) -> WeChatChannelsMedia:
+def _resolve_uncached(source_url: str, browser: str, on_status: Callable[[str], None]) -> WeChatChannelsMedia:
     share_url = normalize_wechat_share_url(source_url)
-    cookie = _cookie_header_from_browser(browser)
+    cookie = _cookie_header_from_browser(browser, on_status)
 
     parse_payload = _request_json(
         PARSE_URL,
@@ -365,13 +333,20 @@ def _resolve_uncached(source_url: str, browser: str) -> WeChatChannelsMedia:
     )
 
 
-def resolve_wechat_channels(source_url: str, browser: str, *, use_cache: bool = True) -> WeChatChannelsMedia:
+def resolve_wechat_channels(
+    source_url: str,
+    browser: str,
+    *,
+    use_cache: bool = True,
+    on_status: Callable[[str], None] | None = None,
+) -> WeChatChannelsMedia:
     share_url = normalize_wechat_share_url(source_url)
     if use_cache:
         cached = _CACHE.get(share_url)
         if cached and time.time() - cached[0] < _CACHE_TTL_SECONDS:
             return cached[1]
-    media = _resolve_uncached(source_url, browser)
+    status = on_status or (lambda _message: None)
+    media = _resolve_uncached(source_url, browser, status)
     _CACHE[share_url] = (time.time(), media)
     return media
 
@@ -509,7 +484,7 @@ def download_wechat_channels(
     on_status: Callable[[str], None],
 ) -> Path:
     on_status("正在解析微信视频号分享链接")
-    media = resolve_wechat_channels(source_url, browser)
+    media = resolve_wechat_channels(source_url, browser, on_status=on_status)
     title = media.title
     if media.author:
         title = f"{title} - {media.author}"
