@@ -113,6 +113,7 @@ function uniquePush(list: string[], seen: Set<string>, value: string | null, lim
 
 function looksLikeImage(url: string, key = ''): boolean {
     if (TRACKING_ASSET_RE.test(url)) return false
+    if (VIDEO_EXT_RE.test(url)) return false
     if (IMAGE_EXT_RE.test(url)) return true
     try {
         if (EXTENSIONLESS_IMAGE_HOST_RE.test(new URL(url).hostname.toLowerCase())) return true
