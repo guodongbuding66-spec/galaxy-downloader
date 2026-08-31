@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchTodayParseStats } from '@/lib/parse-stats'
+import {
+    fetchTodayParseStats,
+    notifyTodayParseStatsChanged,
+    TODAY_PARSE_STATS_REFRESH_EVENT,
+} from '@/lib/parse-stats'
 
 function mockFetch(response: unknown, options?: { ok?: boolean }) {
     const fetchMock = vi.fn(async () => ({
@@ -24,11 +28,15 @@ describe('fetchTodayParseStats', () => {
             windowStart: '2026-08-12T16:00:00.000Z',
             windowEnd: '2026-08-13T16:00:00.000Z',
             count: 1234,
+            totalCount: 5678,
         }
         const fetchMock = mockFetch({ success: true, data: payload })
 
         await expect(fetchTodayParseStats()).resolves.toEqual(payload)
-        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(fetchMock).toHaveBeenCalledWith('/api/site-stats', {
+            signal: undefined,
+            cache: 'no-store',
+        })
     })
 
     it('adds a cache buster for an immediate refresh', async () => {
@@ -43,9 +51,40 @@ describe('fetchTodayParseStats', () => {
         await fetchTodayParseStats({ cacheBuster: 'parse-complete' })
 
         expect(fetchMock).toHaveBeenCalledWith(
-            '/api/stats/today?refresh=parse-complete',
+            '/api/site-stats?refresh=parse-complete',
             expect.any(Object)
         )
+    })
+
+    it('records a successful parse with the first-party endpoint and refreshes the card', async () => {
+        const fetchMock = mockFetch({ success: true })
+        const dispatchEvent = vi.fn()
+
+        class TestCustomEvent {
+            readonly type: string
+            readonly detail: unknown
+
+            constructor(type: string, options?: { detail?: unknown }) {
+                this.type = type
+                this.detail = options?.detail
+            }
+        }
+
+        vi.stubGlobal('window', { dispatchEvent })
+        vi.stubGlobal('CustomEvent', TestCustomEvent)
+
+        notifyTodayParseStatsChanged()
+
+        await vi.waitFor(() => {
+            expect(fetchMock).toHaveBeenCalledWith('/api/site-stats', {
+                method: 'POST',
+                cache: 'no-store',
+            })
+            expect(dispatchEvent).toHaveBeenCalledTimes(1)
+        })
+
+        const event = dispatchEvent.mock.calls[0]?.[0] as TestCustomEvent
+        expect(event.type).toBe(TODAY_PARSE_STATS_REFRESH_EVENT)
     })
 
     it('returns null on a non-ok response', async () => {
