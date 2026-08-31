@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
     buildEmbeddedVideoPreview,
+    buildMediaPreviewUrl,
     buildPagePreview,
     buildPrimaryResultPreview,
     buildResultPreviewForSelection,
@@ -36,6 +37,7 @@ it('keeps share play enabled for audio-only results', () => {
     expect(buildPrimaryResultPreview(result)).toEqual({
         mediaType: 'audio',
         sourceUrl: 'https://soundcloud.com/example/track',
+        directUrl: 'https://cdn.example.com/audio.mp3',
         title: 'Audio only',
         autoplay: undefined,
     })
@@ -59,9 +61,28 @@ it('keeps share play enabled for muxed video results without a separate audio st
     expect(buildPrimaryResultPreview(result)).toEqual({
         mediaType: 'video',
         sourceUrl: 'https://www.bilibili.com/video/BV1muxed/',
+        directUrl: 'https://cdn.example.com/video.mp4',
         title: 'Muxed video',
         autoplay: undefined,
     })
+})
+
+it('plays exact parser URLs directly but does not treat download jobs as preview streams', () => {
+    expect(buildMediaPreviewUrl({
+        mediaType: 'video',
+        sourceUrl: 'https://www.instagram.com/reel/demo/',
+        directUrl: 'https://scontent.example.net/signed-video.mp4?token=abc',
+        title: 'Instagram reel',
+    })).toBe('https://scontent.example.net/signed-video.mp4?token=abc')
+
+    const fallback = buildMediaPreviewUrl({
+        mediaType: 'video',
+        sourceUrl: 'https://example.com/watch/1',
+        directUrl: '/api/download?type=video',
+        title: 'Remote download job',
+    })
+    expect(fallback).toContain('/api/download')
+    expect(fallback).toContain('url=')
 })
 
 it('builds an audio preview for a collection item when audio is preferred', () => {
@@ -79,6 +100,7 @@ it('builds an audio preview for a collection item when audio is preferred', () =
     )).toEqual({
         mediaType: 'audio',
         sourceUrl: 'https://www.bilibili.com/video/BV1audio/',
+        directUrl: '/api/download?type=audio&item=BV1audio',
         title: 'Collection item',
         item: 'BV1audio',
         autoplay: true,
@@ -109,6 +131,7 @@ it('uses the same media capability resolver for pages and collection videos', ()
     expect(canPreviewEmbeddedVideoAudio(separateVideo)).toBe(true)
     expect(buildPagePreview('https://www.bilibili.com/video/BV-pages/', separatePage)).toMatchObject({
         mediaType: 'audio',
+        directUrl: '/api/download?type=audio&item=2',
         item: '2',
     })
 })
@@ -154,6 +177,7 @@ it('resolves an explicitly shared item and never falls back to another media typ
     })).toEqual({
         mediaType: 'audio',
         sourceUrl: result.url,
+        directUrl: '/api/download?type=audio&item=2',
         title: 'Audio-capable page',
         item: '2',
         autoplay: true,
