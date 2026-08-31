@@ -5,6 +5,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# GitHub's Windows runner can still expose a legacy CP1252 console. Keep real
+# Chinese parser diagnostics intact instead of crashing while printing them.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
+
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENGINE = ROOT / "local-engine"
 sys.path.insert(0, str(LOCAL_ENGINE))
@@ -17,6 +24,7 @@ document_policy.install_document_policy()
 
 FIXTURES = ROOT / "fixtures" / "document-live-targets.json"
 BLOCKED_TOKENS = (
+    "auth_required",
     "captcha",
     "challenge",
     "robot",
@@ -26,6 +34,7 @@ BLOCKED_TOKENS = (
     "verify you are human",
     "unusual traffic",
     "security check",
+    "http 401",
     "http 403",
     "http 429",
     "http 503",
@@ -91,7 +100,13 @@ def run_target(target: dict[str, Any]) -> str:
         return "passed"
 
     if _is_allowed_block(target, attempts):
-        print(f"BLOCKED {target['name']}: {_payload_detail(attempts[-1])[:320]}")
+        # Prefer the first explicit auth/challenge error in the diagnostic; the
+        # later CDP attempt may simply say it could not find document media.
+        blocked_detail = next(
+            (_payload_detail(item) for item in attempts if any(token in _payload_detail(item).lower() for token in BLOCKED_TOKENS)),
+            _payload_detail(attempts[-1]),
+        )
+        print(f"BLOCKED {target['name']}: {blocked_detail[:320]}")
         return "blocked"
 
     details = " | ".join(_payload_detail(item)[:500] for item in attempts)
