@@ -1,6 +1,9 @@
 import { ApiRequestError } from '@/lib/api-errors'
 import { API_ENDPOINT_CANDIDATES } from '@/lib/config'
-import { parseWithLocalEngine } from '@/lib/local-engine-bridge'
+import {
+    getLastLocalEngineBridgeDiagnostic,
+    parseWithLocalEngine,
+} from '@/lib/local-engine-bridge'
 import { normalizeParserCapabilities } from '@/lib/parser-capabilities'
 import { notifyTodayParseStatsChanged } from '@/lib/parse-stats'
 import type { UnifiedParseResult } from '@/lib/types'
@@ -92,16 +95,19 @@ export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedPars
         throw new UnifiedParseReloadError()
     }
 
-    // When the portable Galaxy Local Engine is available, let its bundled
-    // yt-dlp resolve the original source first. This removes the website's
-    // dependency on the shared parser service for platforms such as Instagram,
-    // YouTube and TikTok and keeps parsing on the user's own connection/IP.
+    let localDiagnostic: string | null = null
+
+    // Prefer the portable local engine. On current Chromium/Edge builds this
+    // request may require explicit Local Network Access permission; the bridge
+    // layer now requests loopback access explicitly and records a useful
+    // diagnostic instead of silently hiding the failure.
     if (typeof window !== 'undefined') {
         const localPayload = await parseWithLocalEngine(videoUrl)
         if (localPayload?.success && localPayload.data) {
             notifyTodayParseStatsChanged()
             return normalizeSuccessPayload(localPayload)
         }
+        localDiagnostic = getLastLocalEngineBridgeDiagnostic()
     }
 
     const params = new URLSearchParams({ url: videoUrl })
@@ -115,6 +121,17 @@ export async function requestUnifiedParse(videoUrl: string): Promise<UnifiedPars
         } catch (error) {
             lastError = error
         }
+    }
+
+    // Do not replace a useful local failure with the old generic remote
+    // "service unavailable" message. This is especially important when the
+    // browser denied localhost/LNA permission or yt-dlp returned an actionable
+    // Instagram authentication error.
+    if (localDiagnostic) {
+        throw new ApiRequestError({
+            code: 'LOCAL_ENGINE_PARSE_FAILED',
+            fallbackMessage: localDiagnostic,
+        })
     }
 
     if (lastError) throw lastError
