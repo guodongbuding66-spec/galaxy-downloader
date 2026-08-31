@@ -21,7 +21,6 @@ from external_ytdlp import (
     build_external_command,
     download_with_external_ytdlp,
     external_ytdlp_path,
-    update_external_ytdlp_if_due,
 )
 
 APP_NAME = "Galaxy Local Engine"
@@ -184,7 +183,7 @@ def ffmpeg_dir() -> Path | None:
 
 
 def default_download_dir() -> Path:
-    target = Path.home() / "Downloads" / "Galaxy Downloader"
+    target = app_dir() / "downloads"
     target.mkdir(parents=True, exist_ok=True)
     return target
 
@@ -409,7 +408,6 @@ class EngineWindow(tk.Tk):
         state_by_title = {
             "Ready": "ready",
             "Starting": "starting",
-            "Updating extractor": "starting",
             "Extractor ready": "starting",
             "Preparing media": "starting",
             "Retrying with embedded extractor": "starting",
@@ -503,7 +501,7 @@ class EngineWindow(tk.Tk):
         self.ui(self.speed_var.set, speed or "—")
         self.ui(self.eta_var.set, eta or "—")
         self.ui(self.size_var.set, size)
-        self.set_status("Downloading", "Using the current yt-dlp extractor on this computer")
+        self.set_status("Downloading", "Using the bundled yt-dlp extractor on this computer")
 
     def external_status_hook(self, line: str) -> None:
         if not line:
@@ -625,13 +623,7 @@ class EngineWindow(tk.Tk):
 
     def _run_external_job(self, executable: Path) -> bool:
         assert self.job is not None
-        self.set_status("Updating extractor", "Checking the official yt-dlp nightly channel")
-        attempted, version = update_external_ytdlp_if_due(executable, app_dir())
-        if self.cancel_event.is_set():
-            raise DownloadCancelled("Cancelled by user")
-        if attempted:
-            detail = f"yt-dlp {version}" if version else "Continuing with the installed yt-dlp binary"
-            self.set_status("Extractor ready", detail)
+        self.set_status("Extractor ready", "Using the verified yt-dlp bundled with Galaxy Local Engine")
 
         output_dir = default_download_dir()
         try:
@@ -667,7 +659,7 @@ class EngineWindow(tk.Tk):
         try:
             external = external_ytdlp_path(app_dir())
             if external and self._run_external_job(external):
-                self.set_status("Completed", "The finished media file is saved on this computer")
+                self.set_status("Completed", "The finished media file is saved in the portable downloads folder")
                 return
 
             with YoutubeDL(self.build_options()) as ydl:
@@ -677,7 +669,7 @@ class EngineWindow(tk.Tk):
                     self.last_path = Path(path)
             self.ui(self.percent_var.set, 100)
             self._update_bridge(progress=100.0)
-            self.set_status("Completed", "The finished media file is saved on this computer")
+            self.set_status("Completed", "The finished media file is saved in the portable downloads folder")
         except DownloadCancelled:
             self.set_status("Cancelled", "The local download was cancelled")
         except DownloadError as exc:
