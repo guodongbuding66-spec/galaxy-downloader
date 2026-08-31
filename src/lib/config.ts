@@ -71,10 +71,6 @@ function endpointCandidates(pathname: string): string[] {
 function parseEndpointCandidates(): string[] {
     return [
         FIRST_PARTY_LOCAL_PARSE_ENDPOINT,
-        // Document/media pages are intentionally tried before the shared
-        // backend. The route declines video-first sites, but can extract image
-        // posts, product galleries, embedded product videos and public articles.
-        FIRST_PARTY_WEB_DOCUMENT_ENDPOINT,
         ...endpointCandidates('/api/parse'),
     ].filter((value, index, list) => list.indexOf(value) === index)
 }
@@ -85,6 +81,7 @@ function parseEndpointCandidates(): string[] {
 export const API_ENDPOINTS = {
     unified: {
         parse: buildApiUrl('/api/parse'),
+        documentParse: FIRST_PARTY_WEB_DOCUMENT_ENDPOINT,
         download: buildApiUrl('/api/download'),
         // Preview is deliberately separate from final-file download whenever
         // Galaxy's Container backend is configured. /api/play resolves one
@@ -102,12 +99,9 @@ export const API_ENDPOINTS = {
 } as const
 
 /**
- * Ordered media backend candidates.
- *
- * Parsing tries Galaxy's same-origin lightweight parsers first. Unsupported
- * platforms then continue to the existing shared/container backends. Keeping
- * these first-party endpoints same-origin avoids route-registration differences
- * between local vinext builds and the deployed Cloudflare Worker.
+ * Ordered media backend candidates used after the document-first probe and
+ * local-engine attempt. Keeping the generic document route out of this list
+ * avoids fetching the same product/article page twice on failures.
  */
 export const API_ENDPOINT_CANDIDATES = {
     unified: {
