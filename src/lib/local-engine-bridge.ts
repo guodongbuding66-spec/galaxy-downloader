@@ -192,6 +192,28 @@ async function parseWithBrowser(sourceUrl: string, browser: LocalEngineBrowser):
   return { payload, response }
 }
 
+function parseFailureDetail(payload: UnifiedParseResult | null, response: Response): string {
+  return payload?.error || payload?.message || `HTTP ${response.status}`
+}
+
+function browserCookieDatabaseFailure(detail: string): boolean {
+  const normalized = detail.toLowerCase()
+  const patterns = [
+    'browser_cookie_unavailable',
+    'could not copy chrome cookie database',
+    'could not copy edge cookie database',
+    'could not copy firefox cookie database',
+    'cookie database is locked',
+    'database is locked',
+    'failed to decrypt with dpapi',
+    'failed to decrypt cookie',
+    'no such table: meta',
+    'no such table: cookies',
+    'sqlite3.operationalerror',
+  ]
+  return patterns.some((pattern) => normalized.includes(pattern))
+}
+
 export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedParseResult | null> {
   try {
     const status = await getLocalEngineBridgeStatus()
@@ -205,14 +227,28 @@ export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedPa
       return null
     }
 
-    const browsers = parseBrowserCandidates()
-    let lastDetail = '本地解析失败。'
-    let authFailureSeen = false
+    // Always make one explicit public/no-cookie request first. Browser login
+    // state is a fallback, never the default parsing path.
+    const publicAttempt = await parseWithBrowser(sourceUrl, 'none')
+    if (publicAttempt.response.ok && publicAttempt.payload?.success && publicAttempt.payload.data) {
+      lastBridgeDiagnostic = null
+      return publicAttempt.payload
+    }
 
-    // v0.4.5 itself always tries the public/no-cookie route first. When
-    // Instagram says authentication is required, automatically retry the same
-    // source with Edge, Chrome and Firefox sessions instead of making a novice
-    // user understand which cookie database yt-dlp needs.
+    const publicCode = String(publicAttempt.payload?.code || '')
+    const publicDetail = parseFailureDetail(publicAttempt.payload, publicAttempt.response)
+    if (publicCode !== 'AUTH_REQUIRED') {
+      lastBridgeDiagnostic = publicDetail
+      return null
+    }
+
+    const browsers = parseBrowserCandidates()
+    let lastAuthDetail = publicDetail
+    let cookieFailureSeen = false
+
+    // Only an explicit AUTH_REQUIRED response is allowed to enter the browser
+    // cookie path. Broken/locked SQLite cookie databases are skipped quietly so
+    // one bad browser profile cannot replace the real media-parser result.
     for (const browser of browsers) {
       const { payload, response } = await parseWithBrowser(sourceUrl, browser)
       if (response.ok && payload?.success && payload.data) {
@@ -221,22 +257,28 @@ export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedPa
       }
 
       const code = String(payload?.code || '')
-      const detail = payload?.error || payload?.message || `HTTP ${response.status}`
-      lastDetail = detail
+      const detail = parseFailureDetail(payload, response)
+      lastAuthDetail = detail
 
-      if (code === 'AUTH_REQUIRED' || code === 'BROWSER_COOKIE_UNAVAILABLE') {
-        authFailureSeen = true
+      if (code === 'BROWSER_COOKIE_UNAVAILABLE' || browserCookieDatabaseFailure(`${code} ${detail}`)) {
+        cookieFailureSeen = true
         continue
       }
 
-      // Non-authentication failures are not improved by trying another browser.
+      if (code === 'AUTH_REQUIRED') {
+        continue
+      }
+
+      // Once authentication was explicitly requested, a non-auth parser error
+      // from one browser is meaningful and should not be hidden by another
+      // unrelated browser profile.
       lastBridgeDiagnostic = detail
       return null
     }
 
-    lastBridgeDiagnostic = authFailureSeen
-      ? `${lastDetail} 已自动尝试 Edge、Chrome 和 Firefox 登录状态。若仍失败，请在其中一个浏览器登录目标平台后完全退出该浏览器，再回当前页面重新解析。`
-      : lastDetail
+    lastBridgeDiagnostic = cookieFailureSeen
+      ? '该内容需要登录状态，但当前可用浏览器的登录 Cookie 无法安全读取。请在一个浏览器中登录目标平台；如该浏览器正在占用 Cookie 数据库，可完全退出后重试。'
+      : lastAuthDetail
     return null
   } catch (error) {
     lastBridgeDiagnostic = localNetworkHelp(errorText(error))
