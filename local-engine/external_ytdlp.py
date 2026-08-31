@@ -13,6 +13,7 @@ PROGRESS_PREFIX = "__GALAXY_PROGRESS__"
 FILE_PREFIX = "__GALAXY_FILE__"
 UPDATE_STAMP = ".yt-dlp-nightly-check"
 DEFAULT_UPDATE_INTERVAL = 12 * 60 * 60
+STARTUP_OUTPUT_TIMEOUT_SECONDS = 30
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 COOKIE_ACCESS_PATTERNS = (
     "could not copy chrome cookie database",
@@ -166,6 +167,7 @@ def build_external_command(
         str(executable),
         "--newline",
         "--no-colors",
+        "--progress",
         "--continue",
         "--retries", "10",
         "--fragment-retries", "10",
@@ -238,6 +240,7 @@ def _run_external_once(
         include_cover=include_cover,
     )
 
+    on_status("[Galaxy] 正在连接源站并读取媒体信息…")
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -257,6 +260,8 @@ def _run_external_once(
     final_path: Path | None = None
     recent_errors: list[str] = []
     reader_finished = False
+    first_output_at: float | None = None
+    started_at = time.monotonic()
 
     while process.poll() is None or not reader_finished:
         if cancelled():
@@ -266,11 +271,19 @@ def _run_external_once(
         try:
             raw = lines.get(timeout=0.15)
         except queue.Empty:
+            if first_output_at is None and time.monotonic() - started_at > STARTUP_OUTPUT_TIMEOUT_SECONDS:
+                _terminate_process(process)
+                raise ExternalYtDlpError(
+                    "yt-dlp 在 30 秒内没有返回任何媒体信息，已自动停止该提取器并切换备用方案。"
+                )
             continue
 
         if raw is None:
             reader_finished = True
             continue
+
+        if first_output_at is None:
+            first_output_at = time.monotonic()
 
         line = _clean_line(raw)
         if not line:
