@@ -204,39 +204,42 @@ def normalize_wechat_share_url(source_url: str) -> str:
 
 
 def _cookie_header_from_browser(browser: str) -> str:
-    browser = (browser or "none").strip().lower()
-    if browser == "none":
-        raise WeChatChannelsAuthError(
-            "微信视频号需要腾讯元宝登录状态。请在网页右侧“登录状态”选择 Edge、Chrome 或 Firefox，"
-            "并先用该浏览器打开 yuanbao.tencent.com 完成微信登录后重试。Cookie 只在本机读取。"
-        )
-    try:
-        with YoutubeDL({
-            "quiet": True,
-            "no_warnings": True,
-            "cookiesfrombrowser": (browser, None, None, None),
-        }) as ydl:
-            jar = ydl.cookiejar
-            pairs: list[str] = []
-            for cookie in jar:
-                domain = str(getattr(cookie, "domain", "") or "").lstrip(".").lower()
-                if domain == "tencent.com" or domain.endswith(".tencent.com"):
-                    name = str(getattr(cookie, "name", "") or "").strip()
-                    value = str(getattr(cookie, "value", "") or "")
-                    if name:
-                        pairs.append(f"{name}={value}")
-    except Exception as exc:  # noqa: BLE001
-        raise WeChatChannelsAuthError(
-            f"无法读取 {browser.title()} 的腾讯元宝登录状态：{exc}。"
-            "如果浏览器正在占用 Cookie 数据库，请完全关闭该浏览器后重试。"
-        ) from exc
+    requested = (browser or "none").strip().lower()
+    candidates = [requested, "edge", "chrome", "firefox"]
+    candidates = [value for index, value in enumerate(candidates) if value != "none" and value not in candidates[:index]]
+    failures: list[str] = []
 
-    if not pairs:
-        raise WeChatChannelsAuthError(
-            f"没有在 {browser.title()} 中找到腾讯元宝登录 Cookie。"
-            "请先用这个浏览器打开 yuanbao.tencent.com 并完成微信登录，然后返回 Galaxy Downloader 重试。"
-        )
-    return "; ".join(pairs)
+    for candidate in candidates:
+        try:
+            with YoutubeDL({
+                "quiet": True,
+                "no_warnings": True,
+                "cookiesfrombrowser": (candidate, None, None, None),
+            }) as ydl:
+                jar = ydl.cookiejar
+                pairs: list[str] = []
+                for cookie in jar:
+                    domain = str(getattr(cookie, "domain", "") or "").lstrip(".").lower()
+                    if domain == "tencent.com" or domain.endswith(".tencent.com"):
+                        name = str(getattr(cookie, "name", "") or "").strip()
+                        value = str(getattr(cookie, "value", "") or "")
+                        if name:
+                            pairs.append(f"{name}={value}")
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{candidate}: {exc}")
+            continue
+
+        if pairs:
+            return "; ".join(pairs)
+        failures.append(f"{candidate}: 未找到 yuanbao.tencent.com 登录 Cookie")
+
+    detail = "；".join(failures[-3:])
+    raise WeChatChannelsAuthError(
+        "微信视频号需要腾讯元宝登录状态。请先用 Edge、Chrome 或 Firefox 打开 "
+        "yuanbao.tencent.com 并完成微信登录，然后返回 Galaxy Downloader 重试。"
+        "本地引擎已自动尝试可用浏览器，Cookie 不会上传服务器。"
+        + (f" 诊断：{detail}" if detail else "")
+    )
 
 
 def _request_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float = 25.0) -> dict[str, Any]:
