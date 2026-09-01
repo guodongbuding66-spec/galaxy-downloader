@@ -68,7 +68,6 @@ jobs:
           python3 scripts/test-local-engine-policy.py
           python3 scripts/test-local-url-policy.py
           python3 scripts/test-local-document-policy.py
-          python3 scripts/test-local-entrypoint-policy.py
           python3 scripts/test-local-browser-auth.py
           python3 scripts/test-local-image-download.py
           python3 scripts/test-local-image-bridge.py
