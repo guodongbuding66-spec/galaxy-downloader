@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import sys
+from urllib.parse import urlparse
+
 import bridge
 import web_document
 from document_policy import install_document_policy, parse_web_document, should_try_web_document
 from dynamic_document import parse_dynamic_web_document
+from image_bridge import ImageBridge
 from url_policy import is_public_http_url, validated_public_http_url
 
 # Static document redirects and CDP request interception resolve this helper from
@@ -66,7 +70,45 @@ bridge.parse_with_bundled_ytdlp = _hybrid_parse
 import engine  # noqa: E402  import after bridge/document policy installation
 
 engine._validated_source_url = validated_public_http_url
-main = engine.main
+
+
+def _consume_open_protocol_request() -> bool:
+    """Turn galaxy-downloader://open into a normal desktop-app launch.
+
+    The installer already registers the galaxy-downloader protocol. Keeping this
+    action outside engine.parse_job() avoids weakening the media download grammar
+    while still giving the website a reliable "Open Local Engine" button.
+    """
+    for index, argument in enumerate(sys.argv[1:], start=1):
+        if argument.startswith("--"):
+            continue
+        try:
+            parsed = urlparse(argument)
+        except ValueError:
+            return False
+        action = (parsed.netloc or parsed.path.lstrip("/")).lower()
+        if parsed.scheme.lower() == engine.PROTOCOL and action == "open":
+            del sys.argv[index]
+            return True
+        return False
+    return False
+
+
+def main() -> int:
+    _consume_open_protocol_request()
+    if "--self-test" in sys.argv or "--version" in sys.argv:
+        return engine.main()
+
+    # A second loopback bridge handles direct image/original-asset downloads.
+    # It never routes image bytes through Galaxy's public Cloudflare/Container
+    # infrastructure; the user's machine connects to the source CDN directly.
+    image_bridge = ImageBridge(engine.VERSION)
+    started = image_bridge.start()
+    try:
+        return engine.main()
+    finally:
+        if started:
+            image_bridge.stop()
 
 
 if __name__ == "__main__":
