@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from urllib.parse import urlparse
 
 import bridge
@@ -8,7 +9,12 @@ import web_document
 from document_policy import install_document_policy, parse_web_document, should_try_web_document
 from dynamic_document import parse_dynamic_web_document
 from image_bridge import ImageBridge
-from image_download import _sniff_extension, _wechat_original_candidate
+from image_download import (
+    _IMAGE_JOB_LOCK,
+    _sniff_extension,
+    _wechat_original_candidate,
+    cancel_image_download_job,
+)
 from url_policy import is_public_http_url, validated_public_http_url
 
 # Static document redirects and CDP request interception resolve this helper from
@@ -73,6 +79,46 @@ import engine  # noqa: E402  import after bridge/document policy installation
 engine._validated_source_url = validated_public_http_url
 
 
+# EngineWindow used to destroy Tk immediately after setting the media cancel
+# event. A bundled yt-dlp/FFmpeg child or the separate image worker could still
+# be writing at that moment, leaving an orphan process or partial file. Keep the
+# window alive in a cancelling state until both internal job locks are idle.
+_original_close_app = engine.EngineWindow.close_app
+
+
+def _graceful_close_app(window: engine.EngineWindow) -> None:
+    if getattr(window, "_galaxy_close_pending", False):
+        return
+
+    media_active = bool(window.running)
+    image_active = _IMAGE_JOB_LOCK.locked()
+    if not media_active and not image_active:
+        _original_close_app(window)
+        return
+
+    setattr(window, "_galaxy_close_pending", True)
+    if media_active:
+        window.cancel_event.set()
+    if image_active:
+        cancel_image_download_job()
+    window.set_status("Cancelling", "Waiting for local downloads to stop safely before exit")
+    try:
+        window.cancel_button.state(["disabled"])
+    except Exception:
+        pass
+
+    def finish_when_idle() -> None:
+        if window.running or _IMAGE_JOB_LOCK.locked():
+            window.after(100, finish_when_idle)
+            return
+        _original_close_app(window)
+
+    window.after(100, finish_when_idle)
+
+
+engine.EngineWindow.close_app = _graceful_close_app
+
+
 def _consume_open_protocol_request() -> bool:
     """Turn galaxy-downloader://open into a normal desktop-app launch.
 
@@ -106,6 +152,16 @@ def _run_image_self_test() -> None:
     assert _sniff_extension(b"RIFF\x00\x00\x00\x00WEBP", "", sample) == "webp"
 
 
+def _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:
+    """Best-effort cleanup for non-GUI exits and unexpected main-loop returns."""
+    if not _IMAGE_JOB_LOCK.locked():
+        return
+    cancel_image_download_job()
+    deadline = time.monotonic() + timeout_seconds
+    while _IMAGE_JOB_LOCK.locked() and time.monotonic() < deadline:
+        time.sleep(0.05)
+
+
 def main() -> int:
     _consume_open_protocol_request()
     if "--self-test" in sys.argv:
@@ -122,6 +178,7 @@ def main() -> int:
     try:
         return engine.main()
     finally:
+        _cancel_image_worker_before_exit()
         if started:
             image_bridge.stop()
 
