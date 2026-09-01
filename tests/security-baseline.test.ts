@@ -49,6 +49,17 @@ describe('repository security baseline', () => {
     expect(workflow).not.toContain('pnpm/action-setup@v4')
   })
 
+  it('pins secret-bearing PR Agent execution and limits it to trusted PR actors', () => {
+    const workflow = read('.github/workflows/pr-agent.yml')
+
+    expect(workflow).toContain('the-pr-agent/pr-agent@ab6ec54bfeb37933ddb74259338752e9272016c6')
+    expect(workflow).not.toContain('the-pr-agent/pr-agent@main')
+    expect(workflow).toContain('github.event.pull_request.author_association')
+    expect(workflow).toContain('github.event.comment.author_association')
+    expect(workflow).toContain('["OWNER","MEMBER","COLLABORATOR"]')
+    expect(workflow).toContain('github.event.issue.pull_request')
+  })
+
   it('documents security-sensitive ownership and reporting', () => {
     const codeowners = read('.github/CODEOWNERS')
     const security = read('SECURITY.md')
