@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import bridge
 import web_document
+from archive_policy import install_archive_policy
 from document_policy import install_document_policy, parse_web_document, should_try_web_document
 from dynamic_document import parse_dynamic_web_document
 from image_bridge import ImageBridge
@@ -78,6 +79,9 @@ bridge.parse_with_bundled_ytdlp = _hybrid_parse
 import engine  # noqa: E402  import after bridge/document policy installation
 
 engine._validated_source_url = validated_public_http_url
+# Archive policy must wrap the base EngineWindow/Job before the queue subclass is
+# created so queued jobs carry the opt-in archive flag all the way to yt-dlp.
+install_archive_policy(engine)
 install_job_queue_policy(engine)
 
 # A protocol handoff that reaches an already-running bridge but gets a 4xx (for
@@ -173,6 +177,7 @@ def _run_image_self_test() -> None:
     assert _sniff_extension(b"\xff\xd8\xff\xe0", "application/octet-stream", sample) == "jpg"
     assert _sniff_extension(b"RIFF\x00\x00\x00\x00WEBP", "", sample) == "webp"
     assert getattr(engine.EngineWindow, "_galaxy_queue_enabled", False) is True
+    assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
 
 
