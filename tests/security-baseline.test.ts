@@ -7,8 +7,8 @@ function read(path: string): string {
 }
 
 describe('repository security baseline', () => {
-  it('keeps CodeQL enabled for TypeScript/JavaScript and Python', () => {
-    const workflow = read('.github/workflows/codeql.yml')
+  it('keeps CodeQL enabled for TypeScript/JavaScript and Python in primary CI', () => {
+    const workflow = read('.github/workflows/ci.yml')
 
     expect(workflow).toContain('security-events: write')
     expect(workflow).toContain('javascript-typescript')
