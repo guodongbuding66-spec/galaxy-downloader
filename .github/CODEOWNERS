@@ -1,0 +1,20 @@
+# Default owner
+* @guodongbuding66-spec
+
+# CI, release and dependency policy
+/.github/workflows/ @guodongbuding66-spec
+/.github/dependabot.yml @guodongbuding66-spec
+/SECURITY.md @guodongbuding66-spec
+
+# Public fetch/proxy and Cloudflare edge boundaries
+/src/app/api/proxy-image/ @guodongbuding66-spec
+/src/app/api/proxy-media/ @guodongbuding66-spec
+/src/app/api/web-document/ @guodongbuding66-spec
+/src/lib/public-url.ts @guodongbuding66-spec
+/worker/ @guodongbuding66-spec
+
+# Local executable / authentication / network / update surface
+/local-engine/ @guodongbuding66-spec
+
+# Remote backend
+/container-backend/ @guodongbuding66-spec
