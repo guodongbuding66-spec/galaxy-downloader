@@ -10,7 +10,12 @@ import web_document
 from archive_policy import install_archive_policy
 from bridge_submission_policy import StructuredLocalBridge
 from desktop_ui import install_desktop_ui
-from document_policy import install_document_policy, parse_web_document, should_try_web_document
+from document_policy import (
+    install_document_policy,
+    parse_web_document,
+    prefer_media_first,
+    should_try_web_document,
+)
 from dynamic_document import parse_dynamic_web_document
 from image_archive_policy import install_image_archive_policy
 from image_bridge import ImageBridge
@@ -41,33 +46,52 @@ def _bad_source_url() -> dict[str, object]:
     }
 
 
-def _hybrid_parse(source_url: str, browser: str = "none"):
-    """Prefer rich document parsing, then dynamic CDP, then yt-dlp.
+def _document_fallback(source_url: str, browser: str):
+    if not should_try_web_document(source_url):
+        return None
 
-    Static HTML remains the cheap first choice. When modern commerce/social pages
-    return only a JS shell, the local engine renders the page with Edge/Chrome
-    and feeds the resulting DOM back through the same document normalizer.
+    document = parse_web_document(source_url, browser)
+    if document.get("success"):
+        return document
+
+    static_auth_required = document.get("code") == "AUTH_REQUIRED"
+    dynamic = parse_dynamic_web_document(source_url, browser)
+    if dynamic.get("success"):
+        return dynamic
+    if dynamic.get("code") == "BROWSER_COOKIE_UNAVAILABLE":
+        return dynamic
+
+    # Anonymous 401/403 must survive the dynamic attempt so the browser-side
+    # bridge knows to retry explicitly with a logged-in browser profile.
+    if static_auth_required and browser == "none":
+        return document
+    return None
+
+
+def _hybrid_parse(source_url: str, browser: str = "none"):
+    """Use the correct parser order for media, documents and mixed social posts.
+
+    Explicit document/photo routes use the document parser first. Ambiguous
+    social post routes (Instagram /p/, X status, Reddit comments, Threads, etc.)
+    are media-first so a real video is never replaced by page-wide image assets.
+    If yt-dlp finds no playable media, the document parser still gets a chance to
+    return a genuine carousel/photo post.
     """
     if not is_public_http_url(source_url):
         return _bad_source_url()
 
-    if should_try_web_document(source_url):
-        document = parse_web_document(source_url, browser)
-        if document.get("success"):
+    if prefer_media_first(source_url):
+        media = _original_media_parse(source_url, browser)
+        if media.get("success"):
+            return media
+        document = _document_fallback(source_url, browser)
+        if document is not None:
             return document
+        return media
 
-        static_auth_required = document.get("code") == "AUTH_REQUIRED"
-        dynamic = parse_dynamic_web_document(source_url, browser)
-        if dynamic.get("success"):
-            return dynamic
-        if dynamic.get("code") == "BROWSER_COOKIE_UNAVAILABLE":
-            return dynamic
-
-        # Anonymous 401/403 must survive the dynamic attempt so the browser-side
-        # bridge knows to retry explicitly with a logged-in browser profile.
-        if static_auth_required and browser == "none":
-            return document
-
+    document = _document_fallback(source_url, browser)
+    if document is not None:
+        return document
     return _original_media_parse(source_url, browser)
 
 
