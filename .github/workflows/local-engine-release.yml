@@ -63,6 +63,8 @@ jobs:
             local-engine/entrypoint.py `
             local-engine/engine.py `
             local-engine/bridge.py `
+            local-engine/bridge_submission_policy.py `
+            local-engine/archive_policy.py `
             local-engine/job_queue.py `
             local-engine/image_bridge.py `
             local-engine/image_download.py `
@@ -81,6 +83,8 @@ jobs:
           python scripts/test-local-image-download.py
           python scripts/test-local-image-bridge.py
           python scripts/test-local-job-queue.py
+          python scripts/test-local-bridge-submission.py
+          python scripts/test-local-archive-policy.py
           python scripts/test-dynamic-document.py
           $engineVersion = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
           $releaseVersion = '${{ steps.release.outputs.version }}'
@@ -227,6 +231,8 @@ jobs:
 
           ### 0.8.0
           - 新增有界 FIFO 媒体下载队列：当前任务运行时可继续提交后续下载，单实例自动顺序处理。
+          - 新增可选“跳过已下载内容”：启用后使用本机 `state/download-archive.txt` 记录已完成媒体，默认关闭，不改变重复下载行为。
+          - 本地 Bridge 下载接口现在区分参数错误、队列冲突、引擎关闭中和桌面线程交接超时，并返回稳定 HTTP 状态码与错误 code。
           - 关闭程序时会先安全取消当前媒体/图片任务并清空等待队列，降低残留 yt-dlp、FFmpeg 和 `.part` 文件风险。
           - 图片下载增加重复 URL 去重、429/5xx/网络错误退避重试、取消支持和失败临时文件清理。
           - WebP/AVIF 转码按最终文件大小计入安全上限；未知长度下载会周期检查剩余磁盘空间；ZIP 前额外预留归档空间。
