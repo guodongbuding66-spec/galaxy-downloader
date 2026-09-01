@@ -13,6 +13,8 @@ on:
       - 'scripts/test-local-job-queue.py'
       - 'scripts/test-local-bridge-submission.py'
       - 'scripts/test-local-archive-policy.py'
+      - 'scripts/test-local-media-policy.py'
+      - 'scripts/test-local-image-archive-policy.py'
       - '.github/workflows/local-engine-windows.yml'
   push:
     branches:
@@ -27,6 +29,8 @@ on:
       - 'scripts/test-local-job-queue.py'
       - 'scripts/test-local-bridge-submission.py'
       - 'scripts/test-local-archive-policy.py'
+      - 'scripts/test-local-media-policy.py'
+      - 'scripts/test-local-image-archive-policy.py'
       - '.github/workflows/local-engine-windows.yml'
 
 permissions:
@@ -45,7 +49,13 @@ jobs:
           cache: 'pip'
 
       - name: Install build dependencies
-        run: python -m pip install -r local-engine/requirements.txt
+        shell: pwsh
+        run: |
+          python -m pip install -r local-engine/requirements.txt
+          python -m pip install "pillow>=11,<12"
+
+      - name: Generate branded Windows icon
+        run: python local-engine/generate_icon.py --output local-engine/GalaxyLocalEngine.ico
 
       - name: Compile-check engine source
         run: >-
@@ -55,7 +65,11 @@ jobs:
           local-engine/bridge.py
           local-engine/bridge_submission_policy.py
           local-engine/archive_policy.py
+          local-engine/media_policy.py
           local-engine/job_queue.py
+          local-engine/desktop_ui.py
+          local-engine/update_check.py
+          local-engine/image_archive_policy.py
           local-engine/image_bridge.py
           local-engine/image_download.py
           local-engine/web_document.py
@@ -85,6 +99,8 @@ jobs:
           python scripts/test-local-job-queue.py
           python scripts/test-local-bridge-submission.py
           python scripts/test-local-archive-policy.py
+          python scripts/test-local-media-policy.py
+          python scripts/test-local-image-archive-policy.py
 
       - name: Exercise Edge or Chrome CDP renderer
         run: python scripts/test-dynamic-document.py
@@ -97,6 +113,7 @@ jobs:
           --onefile
           --windowed
           --name GalaxyLocalEngine
+          --icon "local-engine/GalaxyLocalEngine.ico"
           --collect-all yt_dlp
           --add-data "local-engine/VERSION;."
           local-engine/entrypoint.py
