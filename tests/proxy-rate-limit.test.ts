@@ -56,7 +56,7 @@ describe('Cloudflare proxy rate limiter', () => {
             get() {
                 return {
                     async fetch(input: RequestInfo | URL) {
-                        seen.push(String(input))
+                        seen.push(input instanceof Request ? input.url : String(input))
                         return new Response('{}', { status: 200 })
                     },
                 }
