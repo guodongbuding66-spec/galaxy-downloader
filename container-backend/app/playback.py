@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import urllib.parse
 from typing import Any, AsyncIterator
 
@@ -51,6 +52,9 @@ _DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/150.0.0.0 Safari/537.36"
 )
+_MAX_RANGE_HEADER_LENGTH = 128
+_SINGLE_RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$", re.I)
+_MAX_RANGE_NUMBER = 9_223_372_036_854_775_807
 
 
 def _number(value: Any) -> float:
@@ -58,6 +62,33 @@ def _number(value: Any) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _validated_range_header(value: str | None) -> str | None:
+    if value is None:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    if len(candidate) > _MAX_RANGE_HEADER_LENGTH or "," in candidate:
+        raise ValueError("Only one bytes range is allowed")
+
+    match = _SINGLE_RANGE_RE.fullmatch(candidate)
+    if not match:
+        raise ValueError("Invalid Range header")
+    start_raw, end_raw = match.groups()
+    if not start_raw and not end_raw:
+        raise ValueError("Range cannot be empty")
+
+    for raw in (start_raw, end_raw):
+        if raw and (len(raw) > 19 or int(raw) > _MAX_RANGE_NUMBER):
+            raise ValueError("Range value is too large")
+
+    if not start_raw and int(end_raw) <= 0:
+        raise ValueError("Suffix range must be positive")
+    if start_raw and end_raw and int(start_raw) > int(end_raw):
+        raise ValueError("Range start exceeds end")
+    return f"bytes={start_raw}-{end_raw}"
 
 
 def _direct_http_url(value: Any) -> str | None:
@@ -270,15 +301,25 @@ async def play_media(
     media_type: str = Query(default="video", alias="type"),
     x_request_id: str | None = Header(default=None),
 ):
+    request_id = x_request_id or "unknown"
     if media_type not in {"video", "audio"}:
         return core.api_error_response(
             "BAD_REQUEST",
             400,
             "type must be video or audio",
-            x_request_id or "unknown",
+            request_id,
         )
 
-    request_id = x_request_id or "unknown"
+    try:
+        incoming_range = _validated_range_header(request.headers.get("range"))
+    except ValueError:
+        return core.api_error_response(
+            "BAD_REQUEST",
+            400,
+            "Range must be a single valid bytes range.",
+            request_id,
+        )
+
     try:
         source_url = await asyncio.to_thread(core.validate_public_source_url, url)
     except Exception as exc:
@@ -333,7 +374,6 @@ async def play_media(
         )
 
     target_url, upstream_headers = resolved
-    incoming_range = request.headers.get("range", "").strip()
     if incoming_range:
         upstream_headers["Range"] = incoming_range
 
