@@ -40,6 +40,7 @@ export interface LocalEngineBridgeJob {
   includeSubtitle?: boolean
   subtitleLanguage?: string | null
   includeCover?: boolean
+  skipPreviouslyDownloaded?: boolean
   browser?: LocalEngineBrowser
   collectionMode?: LocalEngineCollectionMode
   selectedItems?: number[]
@@ -243,8 +244,6 @@ export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedPa
       return null
     }
 
-    // Always make one explicit public/no-cookie request first. Browser login
-    // state is a fallback, never the default parsing path.
     const publicAttempt = await parseWithBrowser(sourceUrl, 'none')
     if (publicAttempt.response.ok && publicAttempt.payload?.success && publicAttempt.payload.data) {
       lastBridgeDiagnostic = null
@@ -262,9 +261,6 @@ export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedPa
     let lastAuthDetail = publicDetail
     let cookieFailureSeen = false
 
-    // Only an explicit AUTH_REQUIRED response is allowed to enter the browser
-    // cookie path. Broken/locked SQLite cookie databases are skipped quietly so
-    // one bad browser profile cannot replace the real media-parser result.
     for (const browser of browsers) {
       const { payload, response } = await parseWithBrowser(sourceUrl, browser)
       if (response.ok && payload?.success && payload.data) {
@@ -280,14 +276,8 @@ export async function parseWithLocalEngine(sourceUrl: string): Promise<UnifiedPa
         cookieFailureSeen = true
         continue
       }
+      if (code === 'AUTH_REQUIRED') continue
 
-      if (code === 'AUTH_REQUIRED') {
-        continue
-      }
-
-      // Once authentication was explicitly requested, a non-auth parser error
-      // from one browser is meaningful and should not be hidden by another
-      // unrelated browser profile.
       lastBridgeDiagnostic = detail
       return null
     }
