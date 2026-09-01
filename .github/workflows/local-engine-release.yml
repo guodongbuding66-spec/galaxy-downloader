@@ -76,6 +76,7 @@ jobs:
             local-engine/job_queue.py `
             local-engine/desktop_ui.py `
             local-engine/update_check.py `
+            local-engine/browser_auth.py `
             local-engine/image_archive_policy.py `
             local-engine/image_bridge.py `
             local-engine/image_download.py `
@@ -91,6 +92,7 @@ jobs:
           python scripts/test-local-url-policy.py
           python scripts/test-local-document-policy.py
           python scripts/test-local-entrypoint-policy.py
+          python scripts/test-local-browser-auth.py
           python scripts/test-local-image-download.py
           python scripts/test-local-image-bridge.py
           python scripts/test-local-job-queue.py
@@ -246,6 +248,8 @@ jobs:
           ### 0.9.0
           - 全面重做 Galaxy Local Engine 桌面界面：深色工作台、当前任务、实时速度/ETA/已下载、等待队列、运行时依赖状态与新 Galaxy 下载轨道图标。
           - 桌面队列直接显示“当前任务 + 等待 N 项”，并与网页 0.8.0 队列状态同步。
+          - 修复社交平台视频链接被网页文档解析器抢先识别为超大图片集合的问题：Instagram /p/、X status、Reddit comments、Threads、Pinterest、Tumblr 等歧义链接改为媒体优先，真实图文在媒体失败后继续回退解析。
+          - 修复腾讯元宝登录回归：优先复用现有 Edge/Chrome/Firefox 登录状态，不再依赖固定 `hy_user`/`hy_token` Cookie 名称，也不再自动弹出第二个 Galaxy 专用登录窗口。
           - 新增视频片段下载默认设置（例如 01:20–03:45）与按章节拆分。
           - 字幕升级为人工 / 自动 / 两者，并支持明确的字幕语言列表；多音轨可按语言选择。
           - 新增可选 SponsorBlock 分类移除，默认关闭。
