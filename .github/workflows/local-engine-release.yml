@@ -4,8 +4,10 @@ on:
   push:
     branches:
       - main
+      - fix/collection-download-policy
     paths:
       - 'local-engine/VERSION'
+      - '.github/workflows/local-engine-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -203,10 +205,12 @@ jobs:
           3. 双击 `install.cmd`。
           4. 程序直接安装在当前解压文件夹，不再复制到 AppData。
           5. FFmpeg 与 `yt-dlp.exe` 已内置，首次安装无需访问 GitHub，也无需另外下载依赖。
-          6. 下载的视频保存在解压目录下的 `downloads` 文件夹。
+          6. 下载的视频和图片保存在解压目录下的 `downloads` 文件夹。
           7. 返回 Galaxy Downloader，等待显示 **“本地引擎已连接”** 后即可使用。
 
           0.6.0 起新增网页文档解析与 Edge/Chrome CDP 动态渲染兜底，可用于商品页、图文帖和公众号文章；浏览器登录 Cookie 仍只在明确需要认证时读取。
+
+          0.7.0 新增本地原图下载、超大图片本机直连、WebP/AVIF 本机转换以及多图本地 ZIP 打包，减少 Galaxy 服务器的图片中转带宽与内存压力。
 
           安装包内包含 `使用说明.txt` 和 `README.md`。如果以后移动整个解压文件夹，只需在新位置再运行一次 `install.cmd` 以刷新 Windows 协议路径。
 
