@@ -12,7 +12,45 @@ LOCAL_ENGINE = ROOT / "local-engine"
 sys.path.insert(0, str(LOCAL_ENGINE))
 
 import bridge as base_bridge  # noqa: E402
-from bridge_submission_policy import JobSubmissionResult, StructuredLocalBridge  # noqa: E402
+from bridge_submission_policy import (  # noqa: E402
+    JobSubmissionResult,
+    QueueCancellationResult,
+    StructuredLocalBridge,
+)
+
+
+class _StatusOwner:
+    def __init__(self):
+        self.cancelled_ids: list[str] = []
+
+    def status(self):
+        return {
+            "version": "0.8.0",
+            "busy": True,
+            "queueLength": 1,
+            "queueCapacity": 25,
+            "queuedJobs": [
+                {
+                    "id": "a" * 32,
+                    "position": 1,
+                    "label": "Example video",
+                    "sourceHost": "example.com",
+                }
+            ],
+        }
+
+    def cancel_queued_job_from_bridge(self, job_id: str) -> QueueCancellationResult:
+        if job_id == "a" * 32:
+            self.cancelled_ids.append(job_id)
+            return QueueCancellationResult(True, "Queued download cancelled", 200, "QUEUE_ITEM_CANCELLED")
+        if job_id == "b" * 32:
+            return QueueCancellationResult(
+                False,
+                "Timed out while handing queue cancellation to the desktop window",
+                504,
+                "ENGINE_HANDOFF_TIMEOUT",
+            )
+        return QueueCancellationResult(False, "Queued download not found", 404, "QUEUE_ITEM_NOT_FOUND")
 
 
 class LocalBridgeSubmissionHttpTests(unittest.TestCase):
@@ -33,8 +71,9 @@ class LocalBridgeSubmissionHttpTests(unittest.TestCase):
             }
             return mapping[case]
 
+        self.status_owner = _StatusOwner()
         self.bridge = StructuredLocalBridge(
-            status_provider=lambda: {"version": "0.8.0", "busy": False},
+            status_provider=self.status_owner.status,
             submit_job=submit,
             cancel_job=lambda: None,
             open_folder=lambda: None,
@@ -47,10 +86,10 @@ class LocalBridgeSubmissionHttpTests(unittest.TestCase):
         self.bridge.stop()
         base_bridge.BRIDGE_PORT = self.original_port
 
-    def post(self, case: str) -> tuple[int, dict]:
-        body = json.dumps({"case": case}).encode("utf-8")
+    def post_json(self, path: str, payload: dict) -> tuple[int, dict]:
+        body = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
-            f"http://127.0.0.1:{self.port}/download",
+            f"http://127.0.0.1:{self.port}{path}",
             data=body,
             method="POST",
             headers={"Content-Type": "application/json"},
@@ -60,6 +99,9 @@ class LocalBridgeSubmissionHttpTests(unittest.TestCase):
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def post(self, case: str) -> tuple[int, dict]:
+        return self.post_json("/download", {"case": case})
 
     def test_accepted_and_queued_jobs_return_202(self):
         for case, code in (("accepted", "ACCEPTED"), ("queued", "QUEUED")):
@@ -101,6 +143,41 @@ class LocalBridgeSubmissionHttpTests(unittest.TestCase):
         self.assertEqual(captured.exception.code, 400)
         payload = json.loads(captured.exception.read().decode("utf-8"))
         self.assertEqual(payload["code"], "BAD_REQUEST")
+
+    def test_status_exposes_queue_summary_without_source_url(self):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/status", timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        self.assertEqual(payload["queueLength"], 1)
+        self.assertEqual(payload["queuedJobs"][0]["sourceHost"], "example.com")
+        self.assertNotIn("sourceUrl", payload["queuedJobs"][0])
+
+    def test_queue_item_can_be_cancelled_by_id(self):
+        job_id = "a" * 32
+        status, payload = self.post_json("/queue/cancel", {"jobId": job_id})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["cancelled"])
+        self.assertEqual(payload["code"], "QUEUE_ITEM_CANCELLED")
+        self.assertEqual(payload["jobId"], job_id)
+        self.assertEqual(self.status_owner.cancelled_ids, [job_id])
+
+    def test_unknown_queue_item_is_404(self):
+        status, payload = self.post_json("/queue/cancel", {"jobId": "c" * 32})
+        self.assertEqual(status, 404)
+        self.assertFalse(payload["cancelled"])
+        self.assertEqual(payload["code"], "QUEUE_ITEM_NOT_FOUND")
+
+    def test_queue_cancellation_handoff_timeout_is_504(self):
+        status, payload = self.post_json("/queue/cancel", {"jobId": "b" * 32})
+        self.assertEqual(status, 504)
+        self.assertEqual(payload["code"], "ENGINE_HANDOFF_TIMEOUT")
+
+    def test_invalid_queue_job_id_is_400(self):
+        status, payload = self.post_json("/queue/cancel", {"jobId": "../../secret"})
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["code"], "BAD_REQUEST")
+
+    def test_queue_control_is_discovered_from_bound_status_owner(self):
+        self.assertIsNotNone(self.bridge._cancel_queued_job)
 
 
 if __name__ == "__main__":
