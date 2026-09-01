@@ -224,6 +224,19 @@ async def _resolve_preview(
     return target, _format_request_headers(info, candidate)
 
 
+def _redirect_target(
+    current_url: str,
+    response: httpx.Response,
+    redirect_index: int,
+) -> str:
+    location = response.headers.get("location", "").strip()
+    if not location:
+        raise RuntimeError("Playback redirect is missing Location")
+    if redirect_index >= PLAYBACK_MAX_REDIRECTS:
+        raise RuntimeError("Playback redirect limit exceeded")
+    return urllib.parse.urljoin(current_url, location)
+
+
 async def _open_validated_upstream(
     target_url: str,
     method: str,
@@ -253,12 +266,14 @@ async def _open_validated_upstream(
             if response.status_code not in _REDIRECT_STATUSES:
                 return client, response
 
-            location = response.headers.get("location", "").strip()
-            if not location or redirect_index >= PLAYBACK_MAX_REDIRECTS:
-                return client, response
+            try:
+                next_url = _redirect_target(current, response, redirect_index)
+            except Exception:
+                await response.aclose()
+                raise
 
             await response.aclose()
-            current = urllib.parse.urljoin(current, location)
+            current = next_url
     except Exception:
         await client.aclose()
         raise
