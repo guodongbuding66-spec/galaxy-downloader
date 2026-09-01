@@ -91,6 +91,16 @@ function dedupeUrls(urls: string[]): string[] {
     return Array.from(new Set(urls.filter((value) => value.length > 0)));
 }
 
+function isBoundedGalaxyImageDownload(candidate: string, response: Response): boolean {
+    if (!response.headers.has('x-galaxy-max-image-bytes')) return false;
+    try {
+        const parsed = new URL(candidate, typeof window === 'undefined' ? 'https://galaxy.invalid' : window.location.origin);
+        return parsed.pathname === '/api/proxy-image' && parsed.searchParams.get('mode') === 'download';
+    } catch {
+        return false;
+    }
+}
+
 export function resolveImageDownloadExtension(sourceUrl: string, contentType: string | null | undefined): string {
     const normalizedContentType = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
     const contentTypeMap: Record<string, string> = {
@@ -139,31 +149,49 @@ export async function fetchImageBlobCandidates(candidates: string[]): Promise<Re
     let lastError: unknown = null;
 
     for (const candidate of dedupeUrls(candidates)) {
+        let response: Response;
         try {
-            const response = await fetch(candidate, { cache: 'no-store' });
-            if (response.status === 413) {
-                // Do not silently retry a large original through another browser
-                // path. This is the hand-off signal for Local Engine 0.7+, which
-                // streams the original source directly to disk without Galaxy
-                // server bandwidth or browser-memory pressure.
+            response = await fetch(candidate, { cache: 'no-store' });
+        } catch (error) {
+            lastError = error;
+            continue;
+        }
+
+        if (response.status === 413) {
+            // A declared-size overflow is known before the relay starts.
+            throw new ImageRelayLimitError();
+        }
+        if (!response.ok) {
+            lastError = new Error(`HTTP ${response.status}`);
+            continue;
+        }
+
+        let blob: Blob;
+        try {
+            blob = await response.blob();
+        } catch (error) {
+            // For an unknown Content-Length the public relay can only discover
+            // the 32 MiB overflow while streaming. At that point the 200 headers
+            // are already committed and the browser observes a truncated/erroring
+            // body rather than a later 413. Treat that bounded-relay stream failure
+            // as a Local Engine handoff and never retry the original as a direct
+            // browser download, which would defeat the server/browsing memory cap.
+            if (isBoundedGalaxyImageDownload(candidate, response)) {
                 throw new ImageRelayLimitError();
             }
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            const blob = await response.blob();
-            if (!blob.type.toLowerCase().startsWith('image/')) {
-                throw new Error(`Unexpected image content type: ${blob.type || 'unknown'}`);
-            }
-
-            return {
-                blob,
-                sourceUrl: candidate,
-            };
-        } catch (error) {
-            if (error instanceof ImageRelayLimitError) throw error;
             lastError = error;
+            continue;
         }
+
+        if (!blob.type.toLowerCase().startsWith('image/')) {
+            lastError = new Error(`Unexpected image content type: ${blob.type || 'unknown'}`);
+            continue;
+        }
+
+        return {
+            blob,
+            sourceUrl: candidate,
+        };
     }
 
     throw lastError ?? new Error('Failed to fetch image');
