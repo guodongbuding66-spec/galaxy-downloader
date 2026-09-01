@@ -4,6 +4,32 @@ import json
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+
+def _platform_from_source(value: object) -> str | None:
+    source = str(value or "").strip()
+    if not source:
+        return None
+    try:
+        host = (urlparse(source).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return None
+    mappings = (
+        (("xiaohongshu.com", "xhscdn.com"), "xiaohongshu"),
+        (("douyin.com", "iesdouyin.com"), "douyin"),
+        (("tiktok.com",), "tiktok"),
+        (("instagram.com",), "instagram"),
+        (("weibo.com", "weibo.cn"), "weibo"),
+        (("weixin.qq.com", "qq.com"), "wechat"),
+        (("pinterest.com", "pinimg.com"), "pinterest"),
+        (("twitter.com", "x.com"), "x"),
+        (("bilibili.com", "b23.tv"), "bilibili"),
+    )
+    for suffixes, platform in mappings:
+        if any(host == suffix or host.endswith(f".{suffix}") for suffix in suffixes):
+            return platform
+    return host or None
 
 
 def _metadata(payload: dict[str, Any], archive_path: Path) -> dict[str, Any]:
@@ -18,13 +44,14 @@ def _metadata(payload: dict[str, Any], archive_path: Path) -> dict[str, Any]:
         {"originalImageUrl": source, "localFile": names[index] if index < len(names) else None}
         for index, source in enumerate(images)
     ]
+    platform = str(payload.get("platform") or "").strip() or _platform_from_source(payload.get("sourceUrl"))
     return {
         "schemaVersion": 1,
         "title": str(payload.get("title") or "").strip() or None,
         "author": str(payload.get("author") or "").strip() or None,
         "publishedAt": str(payload.get("publishedAt") or "").strip() or None,
         "sourceUrl": str(payload.get("sourceUrl") or "").strip() or None,
-        "platform": str(payload.get("platform") or "").strip() or None,
+        "platform": platform,
         "description": str(payload.get("description") or "").strip() or None,
         "archiveFormat": str(payload.get("archiveFormat") or "zip").strip().lower(),
         "images": file_map,
