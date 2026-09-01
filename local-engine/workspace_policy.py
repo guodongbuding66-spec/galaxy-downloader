@@ -5,6 +5,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import external_ytdlp as external_runtime
+
 PREFERENCES_FILENAME = "workspace-options.json"
 OUTPUT_NAME_STYLES = {"title-id", "title", "id-title"}
 HISTORY_LIMITS = {20, 50, 80, 150, 300}
@@ -146,6 +148,44 @@ def output_template(engine_module, job: Any | None = None) -> str:
     return str(target / filename)
 
 
+def _replace_flag_value(command: list[str], flag: str, value: str) -> None:
+    try:
+        index = command.index(flag)
+    except ValueError:
+        return
+    if index + 1 < len(command):
+        command[index + 1] = value
+
+
+def _remove_flag_value(command: list[str], flag: str) -> None:
+    while flag in command:
+        index = command.index(flag)
+        del command[index : min(index + 2, len(command))]
+
+
+def _insert_before_source(command: list[str], values: list[str]) -> None:
+    try:
+        index = command.index("--")
+    except ValueError:
+        index = len(command)
+    command[index:index] = values
+
+
+def apply_external_network_options(command: list[str], preferences: dict[str, Any]) -> list[str]:
+    retry = retry_profile_settings(preferences.get("networkRetryProfile"))
+    _replace_flag_value(command, "--retries", str(retry["retries"]))
+    _replace_flag_value(command, "--fragment-retries", str(retry["fragmentRetries"]))
+    _replace_flag_value(command, "--extractor-retries", str(retry["extractorRetries"]))
+    _replace_flag_value(command, "--concurrent-fragments", str(preferences.get("concurrentFragments") or 4))
+    _remove_flag_value(command, "--socket-timeout")
+    _insert_before_source(command, ["--socket-timeout", str(retry["socketTimeout"])])
+    _remove_flag_value(command, "--limit-rate")
+    limit = rate_limit_bytes(preferences)
+    if limit is not None:
+        _insert_before_source(command, ["--limit-rate", str(limit)])
+    return command
+
+
 def install_workspace_policy(engine_module):
     """Apply safe, persistent output and network preferences to future jobs.
 
@@ -178,20 +218,24 @@ def install_workspace_policy(engine_module):
 
     window_cls.build_options = build_options
 
+    # media_policy installs its command wrapper before workspace_policy. Layer
+    # network controls after it so segment/chapter/SponsorBlock/aria2 additions
+    # remain intact, then only replace deterministic transport flags.
+    original_external_builder = external_runtime.build_external_command
+
+    def build_external_command(*args, **kwargs):
+        command = original_external_builder(*args, **kwargs)
+        preferences = load_workspace_preferences(engine_module)
+        return apply_external_network_options(command, preferences)
+
+    external_runtime.build_external_command = build_external_command
+
     original_external_download = engine_module.download_with_external_ytdlp
 
     def external_download(*args, **kwargs):
         job = getattr(_WORKSPACE_CONTEXT, "job", None)
         if job is not None:
-            preferences = load_workspace_preferences(engine_module)
-            retry = retry_profile_settings(preferences["networkRetryProfile"])
             kwargs["output_template"] = output_template(engine_module, job)
-            kwargs["concurrent_fragments"] = int(preferences["concurrentFragments"])
-            kwargs["rate_limit"] = rate_limit_bytes(preferences)
-            kwargs["retry_count"] = retry["retries"]
-            kwargs["fragment_retry_count"] = retry["fragmentRetries"]
-            kwargs["extractor_retry_count"] = retry["extractorRetries"]
-            kwargs["socket_timeout"] = retry["socketTimeout"]
         return original_external_download(*args, **kwargs)
 
     engine_module.download_with_external_ytdlp = external_download
@@ -268,6 +312,21 @@ def run_workspace_self_test() -> None:
         assert saved["lowDiskWarningGb"] == 10
         assert retry_profile_settings("resilient")["retries"] == 20
         assert rate_limit_bytes(saved) == 2_500_000
+        command = [
+            "yt-dlp",
+            "--retries", "10",
+            "--fragment-retries", "10",
+            "--extractor-retries", "5",
+            "--concurrent-fragments", "4",
+            "--", "https://example.com/watch",
+        ]
+        controlled = apply_external_network_options(command, saved)
+        assert controlled[controlled.index("--retries") + 1] == "20"
+        assert controlled[controlled.index("--fragment-retries") + 1] == "20"
+        assert controlled[controlled.index("--extractor-retries") + 1] == "8"
+        assert controlled[controlled.index("--concurrent-fragments") + 1] == "8"
+        assert controlled[controlled.index("--socket-timeout") + 1] == "45"
+        assert controlled[controlled.index("--limit-rate") + 1] == "2500000"
         template = output_template(FakeEngine)
         assert "%(extractor_key)s" in template
         assert "%(id)s - %(title).170B" in template
