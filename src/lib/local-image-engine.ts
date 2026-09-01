@@ -1,9 +1,10 @@
+import { LOCAL_ENGINE_REQUIRED_VERSION } from '@/lib/local-engine'
+
 const IMAGE_ENGINE_BASE_URLS = [
   'http://localhost:17837',
   'http://127.0.0.1:17837',
 ] as const
 
-const MIN_IMAGE_ENGINE_VERSION = '0.7.0'
 const REQUEST_TIMEOUT_MS = 1600
 
 type LoopbackRequestInit = RequestInit & {
@@ -85,7 +86,7 @@ export async function getLocalImageEngineVersion(): Promise<string | null> {
   try {
     const payload = await response.json() as { ok?: boolean; version?: string; imageDownloads?: boolean }
     if (!payload.ok || !payload.imageDownloads || typeof payload.version !== 'string') return null
-    return versionAtLeast(payload.version, MIN_IMAGE_ENGINE_VERSION) ? payload.version : null
+    return versionAtLeast(payload.version, LOCAL_ENGINE_REQUIRED_VERSION) ? payload.version : null
   } catch {
     return null
   }
