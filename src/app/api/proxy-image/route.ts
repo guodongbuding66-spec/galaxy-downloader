@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { originalImageCandidates } from '@/lib/image-source';
 import { isSafePublicHttpUrl } from '@/lib/public-url';
 import { setXRobotsTag } from '@/lib/seo';
 
@@ -7,8 +8,10 @@ const ALLOWED_IMAGE_HOSTS = [
     '*',
 ];
 
-const DEFAULT_ACCEPT =
+const PREVIEW_ACCEPT =
     'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
+const DOWNLOAD_ACCEPT =
+    'image/jpeg,image/png,image/gif,image/bmp;q=0.9,application/octet-stream;q=0.2,*/*;q=0.1';
 const MAX_REDIRECTS = 5;
 
 const NESTED_IMAGE_PROXY_HOSTS = new Set([
@@ -87,6 +90,17 @@ function getReferer(hostname: string): string | undefined {
     return undefined;
 }
 
+function sourceOriginReferer(value: string | null): string | undefined {
+    if (!value) return undefined;
+    try {
+        const source = new URL(value);
+        if (!isSafePublicHttpUrl(source)) return undefined;
+        return `${source.origin}/`;
+    } catch {
+        return undefined;
+    }
+}
+
 function isHttpProtocol(protocol: string): boolean {
     return protocol === 'http:' || protocol === 'https:';
 }
@@ -155,6 +169,7 @@ async function fetchUpstreamImage(initialUrl: URL, upstreamHeaders: Headers): Pr
             method: 'GET',
             headers: upstreamHeaders,
             redirect: 'manual',
+            cache: 'no-store',
         });
         if (response.status >= 300 && response.status < 400) {
             const location = response.headers.get('location');
@@ -166,6 +181,32 @@ async function fetchUpstreamImage(initialUrl: URL, upstreamHeaders: Headers): Pr
         return response;
     }
     throw new Error('Image exceeded redirect limit');
+}
+
+async function fetchImageCandidates(rawUrls: string[], upstreamHeaders: Headers): Promise<Response> {
+    let lastError: unknown = null;
+
+    for (const rawUrl of rawUrls) {
+        try {
+            const candidate = new URL(rawUrl);
+            if (!isSafePublicImageUrl(candidate)) {
+                lastError = new Error('Image candidate is not allowed');
+                continue;
+            }
+            const response = await fetchUpstreamImage(candidate, upstreamHeaders);
+            const contentType = (response.headers.get('content-type') || '').split(';')[0]!.trim().toLowerCase();
+            const imageLike = contentType.startsWith('image/') || GENERIC_BINARY_CONTENT_TYPES.has(contentType);
+            if (response.ok && response.body && imageLike) {
+                return response;
+            }
+            void response.body?.cancel();
+            lastError = new Error(`Image candidate failed (${response.status || 'invalid content'})`);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError ?? new Error('No image candidate could be fetched');
 }
 
 function tryDecodeURIComponent(value: string): string {
@@ -241,38 +282,29 @@ export async function GET(request: NextRequest) {
         return response;
     }
 
-    const upstreamUrl = normalizeUpstreamUrl(targetUrl);
-
+    const isDownload = request.nextUrl.searchParams.get('mode') === 'download';
     const upstreamHeaders = new Headers();
-    upstreamHeaders.set('Accept', DEFAULT_ACCEPT);
+    upstreamHeaders.set('Accept', isDownload ? DOWNLOAD_ACCEPT : PREVIEW_ACCEPT);
+    upstreamHeaders.set('Accept-Encoding', 'identity');
     upstreamHeaders.set(
         'User-Agent',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
     );
 
-    const referer = getReferer(targetUrl.hostname);
+    const referer = sourceOriginReferer(request.nextUrl.searchParams.get('source')) || getReferer(targetUrl.hostname);
     if (referer) {
         upstreamHeaders.set('Referer', referer);
     }
 
     let upstreamResponse: Response;
     try {
-        upstreamResponse = await fetchUpstreamImage(upstreamUrl, upstreamHeaders);
+        upstreamResponse = await fetchImageCandidates(originalImageCandidates(targetUrl.toString()), upstreamHeaders);
     } catch (error) {
         console.error('Failed to fetch upstream image', {
-            url: upstreamUrl.toString(),
+            url: targetUrl.toString(),
             error: error instanceof Error ? error.message : String(error),
         });
         const response = NextResponse.json({ error: 'Failed to fetch image from upstream' }, { status: 502 });
-        setXRobotsTag(response.headers, ['noindex', 'nofollow', 'noarchive', 'noimageindex']);
-        return response;
-    }
-
-    if (!upstreamResponse.ok || !upstreamResponse.body) {
-        const response = NextResponse.json(
-            { error: `Upstream image request failed with status ${upstreamResponse.status}` },
-            { status: 502 }
-        );
         setXRobotsTag(response.headers, ['noindex', 'nofollow', 'noarchive', 'noimageindex']);
         return response;
     }
@@ -282,12 +314,15 @@ export async function GET(request: NextRequest) {
         .trim()
         .toLowerCase();
 
-    // Content-Type 已经说是图片就直接透传，省掉把整张图读进内存
+    // Content-Type 已经说是图片就直接透传，省掉把整张图读进内存。
     if (upstreamContentType.startsWith('image/')) {
         const headers = new Headers();
         headers.set('Content-Type', upstreamContentType);
-        headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400');
+        headers.set('Cache-Control', isDownload
+            ? 'private, no-store'
+            : 'public, max-age=900, s-maxage=3600, stale-while-revalidate=3600');
         headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+        headers.set('X-Content-Type-Options', 'nosniff');
         setXRobotsTag(headers, ['noindex', 'nofollow', 'noarchive', 'noimageindex']);
 
         const contentLength = upstreamResponse.headers.get('content-length');
@@ -299,13 +334,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 只有笼统的二进制类型才值得再嗅一次；text/html、application/json 这类
-    // 明确不是图片的直接拒掉，不用把响应体读进来。
-    if (!GENERIC_BINARY_CONTENT_TYPES.has(upstreamContentType)) {
-        const response = NextResponse.json({ error: 'Upstream response is not an image' }, { status: 415 });
-        setXRobotsTag(response.headers, ['noindex', 'nofollow', 'noarchive', 'noimageindex']);
-        return response;
-    }
-
+    // 明确不是图片的响应已在候选请求阶段跳过。
     const buffer = new Uint8Array(await upstreamResponse.arrayBuffer());
     const sniffedContentType = sniffImageContentType(buffer);
     if (!sniffedContentType) {
@@ -317,8 +346,11 @@ export async function GET(request: NextRequest) {
     const headers = new Headers();
     headers.set('Content-Type', sniffedContentType);
     headers.set('Content-Length', String(buffer.byteLength));
-    headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400');
+    headers.set('Cache-Control', isDownload
+        ? 'private, no-store'
+        : 'public, max-age=900, s-maxage=3600, stale-while-revalidate=3600');
     headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+    headers.set('X-Content-Type-Options', 'nosniff');
     setXRobotsTag(headers, ['noindex', 'nofollow', 'noarchive', 'noimageindex']);
 
     return new NextResponse(buffer, { status: 200, headers });
