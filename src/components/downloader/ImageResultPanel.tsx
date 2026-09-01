@@ -3,6 +3,7 @@ import type { UnifiedParseResult } from '@/lib/types';
 
 import { DocumentTextActions } from './DocumentTextActions';
 import { EmbeddedVideoList } from './EmbeddedVideoList';
+import { ImageArchiveActions } from './ImageArchiveActions';
 import { ImageNoteGrid } from './ImageNoteGrid';
 import { type MediaPreviewRequest } from './media-preview';
 import { ResultCardHeader } from './ResultCardHeader';
@@ -61,6 +62,19 @@ export function ImageResultPanel({
                     publishedAt={result.publishedAt}
                     sourceUrl={result.url}
                 />
+
+                {displayImages.length > 1 ? (
+                    <ImageArchiveActions
+                        images={displayImages}
+                        title={result.title}
+                        description={documentText}
+                        markdownContent={result.markdownContent}
+                        author={result.author}
+                        publishedAt={result.publishedAt}
+                        sourceUrl={result.url}
+                        platform={result.platform}
+                    />
+                ) : null}
 
                 <div className={showAudioActions
                     ? 'grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:items-start'
