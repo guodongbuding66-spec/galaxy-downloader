@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import bridge
 import web_document
 from archive_policy import install_archive_policy
+from bridge_submission_policy import StructuredLocalBridge
 from document_policy import install_document_policy, parse_web_document, should_try_web_document
 from dynamic_document import parse_dynamic_web_document
 from image_bridge import ImageBridge
@@ -178,6 +179,7 @@ def _run_image_self_test() -> None:
     assert _sniff_extension(b"RIFF\x00\x00\x00\x00WEBP", "", sample) == "webp"
     assert getattr(engine.EngineWindow, "_galaxy_queue_enabled", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
+    assert engine.LocalBridge is StructuredLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
 
 
