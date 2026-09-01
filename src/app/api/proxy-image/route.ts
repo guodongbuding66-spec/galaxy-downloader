@@ -14,13 +14,26 @@ const ALLOWED_IMAGE_HOSTS = [
     '*',
 ];
 
+// Only request and serve inert raster formats. SVG is an active XML document
+// format and must never be reflected through this same-origin proxy.
 const PREVIEW_ACCEPT =
-    'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
+    'image/avif,image/webp,image/apng,image/png,image/jpeg,image/gif,image/bmp;q=0.9,application/octet-stream;q=0.2,*/*;q=0.1';
 const DOWNLOAD_ACCEPT =
-    'image/jpeg,image/png,image/gif,image/bmp;q=0.9,application/octet-stream;q=0.2,*/*;q=0.1';
+    'image/avif,image/webp,image/apng,image/png,image/jpeg,image/gif,image/bmp;q=0.9,application/octet-stream;q=0.2,*/*;q=0.1';
 const MAX_REDIRECTS = 5;
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const IMAGE_SNIFF_BYTES = 16;
+
+const SAFE_RASTER_CONTENT_TYPES = new Set([
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/apng',
+    'image/gif',
+    'image/webp',
+    'image/avif',
+    'image/bmp',
+]);
 
 const NESTED_IMAGE_PROXY_HOSTS = new Set([
     'downloader-api.bhwa233.com',
@@ -148,7 +161,7 @@ async function fetchImageCandidates(rawUrls: string[], upstreamHeaders: Headers)
             }
             const response = await fetchUpstreamImage(candidate, upstreamHeaders);
             const contentType = (response.headers.get('content-type') || '').split(';')[0]!.trim().toLowerCase();
-            const imageLike = contentType.startsWith('image/') || GENERIC_BINARY_CONTENT_TYPES.has(contentType);
+            const imageLike = SAFE_RASTER_CONTENT_TYPES.has(contentType) || GENERIC_BINARY_CONTENT_TYPES.has(contentType);
             if (response.ok && response.body && imageLike) return response;
             void response.body?.cancel();
             lastError = new Error(`Image candidate failed (${response.status || 'invalid content'})`);
@@ -201,6 +214,7 @@ function imageResponseHeaders(contentType: string, isDownload: boolean): Headers
     headers.set('Cache-Control', isDownload
         ? 'private, no-store'
         : 'public, max-age=900, s-maxage=3600, stale-while-revalidate=3600');
+    if (isDownload) headers.set('Content-Disposition', 'attachment; filename="image"');
     headers.set('Cross-Origin-Resource-Policy', 'same-origin');
     headers.set('X-Content-Type-Options', 'nosniff');
     headers.set('X-Galaxy-Max-Image-Bytes', String(MAX_IMAGE_BYTES));
@@ -257,8 +271,13 @@ export async function GET(request: NextRequest) {
         .trim()
         .toLowerCase();
 
-    if (upstreamContentType.startsWith('image/')) {
-        const headers = imageResponseHeaders(upstreamContentType, isDownload);
+    if (SAFE_RASTER_CONTENT_TYPES.has(upstreamContentType)) {
+        const normalizedContentType = upstreamContentType === 'image/jpg'
+            ? 'image/jpeg'
+            : upstreamContentType === 'image/apng'
+                ? 'image/png'
+                : upstreamContentType;
+        const headers = imageResponseHeaders(normalizedContentType, isDownload);
         if (declaredLength !== null) headers.set('Content-Length', String(declaredLength));
         return new NextResponse(limitReadableStream(upstreamResponse.body!, MAX_IMAGE_BYTES), { status: 200, headers });
     }
@@ -272,7 +291,7 @@ export async function GET(request: NextRequest) {
         const sniffedContentType = sniffImageContentType(prefix);
         if (!sniffedContentType) {
             void stream.cancel();
-            return imageError('Upstream response is not an image', 415);
+            return imageError('Upstream response is not a supported raster image', 415);
         }
 
         const headers = imageResponseHeaders(sniffedContentType, isDownload);
