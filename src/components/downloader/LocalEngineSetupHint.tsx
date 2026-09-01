@@ -95,10 +95,15 @@ export function LocalEngineSetupHint({ className }: { className?: string }) {
   }, [])
 
   useEffect(() => {
-    void check()
+    const initialCheckTimer = window.setTimeout(() => {
+      void check()
+    }, 0)
     const onFocus = () => void check()
     window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
+    return () => {
+      window.clearTimeout(initialCheckTimer)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [check])
 
   const launch = () => {
