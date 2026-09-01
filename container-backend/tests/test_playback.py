@@ -133,6 +133,37 @@ def test_single_range_policy_rejects_malformed_or_multipart_ranges(value: str):
         playback._validated_range_header(value)
 
 
+def test_playback_redirect_requires_location_header():
+    class FakeRedirect:
+        headers: dict[str, str] = {}
+
+    with pytest.raises(RuntimeError, match="missing Location"):
+        playback._redirect_target(
+            "https://cdn.example/video.mp4",
+            FakeRedirect(),  # type: ignore[arg-type]
+            0,
+        )
+
+
+def test_playback_redirect_limit_is_fail_closed(monkeypatch):
+    class FakeRedirect:
+        headers = {"location": "/next.mp4"}
+
+    monkeypatch.setattr(playback, "PLAYBACK_MAX_REDIRECTS", 1)
+    assert playback._redirect_target(
+        "https://cdn.example/video.mp4",
+        FakeRedirect(),  # type: ignore[arg-type]
+        0,
+    ) == "https://cdn.example/next.mp4"
+
+    with pytest.raises(RuntimeError, match="redirect limit exceeded"):
+        playback._redirect_target(
+            "https://cdn.example/video.mp4",
+            FakeRedirect(),  # type: ignore[arg-type]
+            1,
+        )
+
+
 def test_invalid_range_is_rejected_before_parser_work(monkeypatch):
     monkeypatch.setattr(playback.core, "validate_public_source_url", lambda value: value)
 
