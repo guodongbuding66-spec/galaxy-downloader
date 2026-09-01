@@ -113,7 +113,7 @@ export interface LocalDesktopJobOptions {
 // Keep one source of truth for the website/bridge/image-engine requirement and
 // for the exact GitHub release tag the website serves. This prevents a newer
 // website build from silently downloading an older `releases/latest` package.
-export const LOCAL_ENGINE_REQUIRED_VERSION = '0.12.0'
+export const LOCAL_ENGINE_REQUIRED_VERSION = '0.13.0'
 export const LOCAL_ENGINE_RELEASE_TAG = `local-engine-v${LOCAL_ENGINE_REQUIRED_VERSION}`
 
 // Primary route goes through the Galaxy website so users whose network cannot
