@@ -6,7 +6,7 @@ import type { AudioExtractTask } from '@/components/audio-tool/types';
 import type { MediaPreviewRequest } from '@/components/downloader/media-preview';
 import type { UnifiedParseResult } from '@/lib/types';
 import { ResultCard } from '@/components/downloader/ResultCard';
-import type { DownloadRecord } from './download-history';
+import type { RecentParseRecord } from './download-history';
 
 const DownloadHistory = dynamic(
     () => import('./download-history').then((m) => m.DownloadHistory),
@@ -22,7 +22,7 @@ interface UnifiedDownloaderLowerSectionsProps {
     activePreview?: MediaPreviewRequest | null;
     mobileAd?: ReactNode;
     mobileGuides?: ReactNode;
-    downloadHistory: DownloadRecord[];
+    downloadHistory: RecentParseRecord[];
     clearHistory: () => void;
     onRedownload: (url: string) => void;
     historyRef: RefObject<HTMLDivElement | null>;
@@ -44,7 +44,10 @@ export function UnifiedDownloaderLowerSections({
     historyRef,
     historyHydrated,
 }: UnifiedDownloaderLowerSectionsProps) {
-    const hasDownloadHistory = downloadHistory.length > 0;
+    // These records are created when parsing succeeds. Keep the prop/storage
+    // shape stable for compatibility, but never treat them as proof that a file
+    // was downloaded; Local Engine download archive owns that responsibility.
+    const hasRecentParses = downloadHistory.length > 0;
 
     return (
         <div className="space-y-3">
@@ -68,7 +71,7 @@ export function UnifiedDownloaderLowerSections({
             )}
 
             <section ref={historyRef} className="scroll-mt-20">
-                {hasDownloadHistory ? (
+                {hasRecentParses ? (
                     <DownloadHistory
                         downloadHistory={downloadHistory}
                         clearHistory={clearHistory}
