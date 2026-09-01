@@ -8,6 +8,7 @@ import web_document
 from document_policy import install_document_policy, parse_web_document, should_try_web_document
 from dynamic_document import parse_dynamic_web_document
 from image_bridge import ImageBridge
+from image_download import _sniff_extension, _wechat_original_candidate
 from url_policy import is_public_http_url, validated_public_http_url
 
 # Static document redirects and CDP request interception resolve this helper from
@@ -94,9 +95,23 @@ def _consume_open_protocol_request() -> bool:
     return False
 
 
+def _run_image_self_test() -> None:
+    sample = "https://mmbiz.qpic.cn/sz_mmbiz_jpg/demo/640?wx_fmt=jpeg&tp=webp&wxfrom=5"
+    original = _wechat_original_candidate(sample)
+    assert original is not None
+    assert "/0?" in original
+    assert "wx_fmt=jpeg" in original
+    assert "tp=webp" not in original
+    assert _sniff_extension(b"\xff\xd8\xff\xe0", "application/octet-stream", sample) == "jpg"
+    assert _sniff_extension(b"RIFF\x00\x00\x00\x00WEBP", "", sample) == "webp"
+
+
 def main() -> int:
     _consume_open_protocol_request()
-    if "--self-test" in sys.argv or "--version" in sys.argv:
+    if "--self-test" in sys.argv:
+        _run_image_self_test()
+        return engine.main()
+    if "--version" in sys.argv:
         return engine.main()
 
     # A second loopback bridge handles direct image/original-asset downloads.
