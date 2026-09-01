@@ -1,5 +1,3 @@
-'use server';
-
 import { NextRequest, NextResponse } from 'next/server';
 
 import { isSafePublicHttpUrl } from '@/lib/public-url';
