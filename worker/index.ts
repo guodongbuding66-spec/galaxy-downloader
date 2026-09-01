@@ -7,6 +7,9 @@
  */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { enforceProxyRateLimit, type DurableObjectNamespaceLike } from "./proxy-rate-limit";
+
+export { ProxyRateLimiter } from "./proxy-rate-limit";
 
 interface WorkerFetcher {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
@@ -21,18 +24,10 @@ interface DurableObjectStateLike {
   storage: DurableObjectStorageLike;
 }
 
-interface DurableObjectStubLike {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-}
-
-interface DurableObjectNamespaceLike {
-  idFromName(name: string): unknown;
-  get(id: unknown): DurableObjectStubLike;
-}
-
 interface Env {
   ASSETS: WorkerFetcher;
   PARSE_STATS: DurableObjectNamespaceLike;
+  PROXY_RATE_LIMITER: DurableObjectNamespaceLike;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -207,6 +202,14 @@ async function rewriteDailymotionPlaylistResponse(response: Response): Promise<R
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // Public image/media relays are deliberately rate-limited per Cloudflare
+    // client IP before they reach vinext or any upstream fetch. The Durable
+    // Object gives all edge isolates one authoritative counter per client.
+    const rateLimitResponse = await enforceProxyRateLimit(request, env.PROXY_RATE_LIMITER);
+    if (rateLimitResponse) {
+      return withLocalProcessingHeaders(rateLimitResponse);
+    }
 
     // Site-owned usage statistics stay on the Galaxy Worker and never hit the
     // legacy shared API. A single named Durable Object provides global counts.
