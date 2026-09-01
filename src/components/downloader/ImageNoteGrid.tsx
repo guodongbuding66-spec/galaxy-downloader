@@ -22,6 +22,8 @@ import {
     type ImageLoadState,
 } from './result-card-utils';
 
+const LOCAL_ENGINE_BATCH_THRESHOLD = 20;
+
 type ArchiveMetadata = {
     description?: string | null;
     markdownContent?: string | null;
@@ -30,13 +32,26 @@ type ArchiveMetadata = {
     sourceUrl?: string | null;
 };
 
+function pageLanguage(): string {
+    return typeof document === 'undefined' ? 'en' : document.documentElement.lang.toLowerCase();
+}
+
 function oversizedImageMessage(): string {
-    const language = typeof document === 'undefined' ? 'en' : document.documentElement.lang.toLowerCase();
+    const language = pageLanguage();
     if (language.startsWith('zh')) return '原图超过服务器中转上限。请下载安装并启动 Galaxy Local Engine 0.7.0+ 后重试，原图会直接下载到你的电脑。';
     if (language.startsWith('ja')) return '元画像がサーバー中継上限を超えています。Galaxy Local Engine 0.7.0+ を起動して再試行してください。';
     if (language.startsWith('es')) return 'La imagen original supera el límite del servidor. Inicia Galaxy Local Engine 0.7.0+ y vuelve a intentarlo.';
     if (language.startsWith('ru')) return 'Оригинал превышает лимит серверного прокси. Запустите Galaxy Local Engine 0.7.0+ и повторите попытку.';
     return 'The original image exceeds the server relay limit. Start Galaxy Local Engine 0.7.0+ and retry for a direct local download.';
+}
+
+function largeBatchMessage(count: number): string {
+    const language = pageLanguage();
+    if (language.startsWith('zh')) return `本次包含 ${count} 张原图。为避免占用服务器带宽和浏览器内存，超过 ${LOCAL_ENGINE_BATCH_THRESHOLD} 张的批量下载必须使用 Galaxy Local Engine 0.7.0+。`;
+    if (language.startsWith('ja')) return `${count} 枚の原画像があります。${LOCAL_ENGINE_BATCH_THRESHOLD} 枚を超える一括保存には Galaxy Local Engine 0.7.0+ が必要です。`;
+    if (language.startsWith('es')) return `Este lote contiene ${count} imágenes. Los lotes de más de ${LOCAL_ENGINE_BATCH_THRESHOLD} imágenes requieren Galaxy Local Engine 0.7.0+.`;
+    if (language.startsWith('ru')) return `В наборе ${count} изображений. Для пакетов больше ${LOCAL_ENGINE_BATCH_THRESHOLD} изображений требуется Galaxy Local Engine 0.7.0+.`;
+    return `This batch contains ${count} originals. Batches over ${LOCAL_ENGINE_BATCH_THRESHOLD} images require Galaxy Local Engine 0.7.0+ to avoid server bandwidth and browser-memory pressure.`;
 }
 
 export function ImageNoteGrid({
@@ -218,6 +233,12 @@ function ImageNoteGridContent({
             if (local.available && local.busy) {
                 toast.error('Galaxy Local Engine', {
                     description: local.message || dict.errors.packageFailed,
+                });
+                return;
+            }
+            if (images.length > LOCAL_ENGINE_BATCH_THRESHOLD) {
+                toast.error('Galaxy Local Engine 0.7.0+', {
+                    description: largeBatchMessage(images.length),
                 });
                 return;
             }
