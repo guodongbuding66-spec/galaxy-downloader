@@ -4,10 +4,8 @@ on:
   push:
     branches:
       - main
-      - fix/collection-download-policy
     paths:
       - 'local-engine/VERSION'
-      - '.github/workflows/local-engine-release.yml'
   workflow_dispatch:
 
 permissions:
