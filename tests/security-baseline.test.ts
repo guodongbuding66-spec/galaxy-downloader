@@ -18,15 +18,15 @@ describe('repository security baseline', () => {
     expect(workflow).toContain('github/codeql-action/analyze@v3')
   })
 
-  it('audits dependency changes and installed package ecosystems', () => {
+  it('audits installed JavaScript and Python package ecosystems', () => {
     const workflow = read('.github/workflows/security-audit.yml')
 
-    expect(workflow).toContain('actions/dependency-review-action@v4')
-    expect(workflow).toContain('fail-on-severity: high')
     expect(workflow).toContain('pnpm audit --prod --audit-level=high')
     expect(workflow).toContain("pip-audit>=2.9,<3")
-    expect(workflow).toContain("local-engine/requirements.txt")
-    expect(workflow).toContain("container-backend/requirements.txt")
+    expect(workflow).toContain('pnpm/setup@v2.1.0')
+    expect(workflow).toContain('local-engine/requirements.txt')
+    expect(workflow).toContain('container-backend/requirements.txt')
+    expect(workflow).not.toContain('actions/dependency-review-action')
   })
 
   it('keeps automated update coverage for npm, pip and GitHub Actions', () => {
