@@ -20,6 +20,7 @@ from document_policy import (
     should_try_web_document,
 )
 from dynamic_document import parse_dynamic_web_document
+from failure_policy import run_failure_policy_self_test
 from image_archive_policy import install_image_archive_policy
 from image_bridge import ImageBridge
 from image_download import (
@@ -32,7 +33,9 @@ from job_history import install_history_policy, run_history_self_test
 from job_queue import install_job_queue_policy
 from media_policy import install_media_policy
 from queue_controls import install_queue_controls, run_queue_controls_self_test
+from recovery_policy import install_recovery_policy, run_recovery_self_test
 from runtime_health import install_runtime_health, run_runtime_health_self_test
+from task_center import install_task_center, run_task_center_self_test
 from url_policy import is_public_http_url, validated_public_http_url
 from workspace_policy import install_workspace_policy, run_workspace_self_test
 
@@ -115,13 +118,15 @@ bridge.parse_with_bundled_ytdlp = _hybrid_parse
 import engine  # noqa: E402  import after bridge/document policy installation
 
 engine._validated_source_url = validated_public_http_url
-# Policy order matters: archive/media fields extend Job first; workspace output
-# and transport preferences patch downloader options; the queue captures that Job
-# type; queue controls/history/runtime health then wrap the resident window;
-# presentation layers are installed last before the first Tk instance exists.
+# Policy order matters: archive/media fields extend Job first; workspace owns
+# persistent output/transport defaults; recovery then adds optional per-job
+# transport overrides without mutating those defaults. The queue captures that
+# final Job type; queue/history/runtime policies wrap execution; presentation is
+# installed last before the first Tk instance exists.
 install_archive_policy(engine)
 install_media_policy(engine)
 install_workspace_policy(engine)
+install_recovery_policy(engine)
 install_job_queue_policy(engine)
 install_queue_controls(engine)
 install_history_policy(engine)
@@ -131,6 +136,7 @@ install_desktop_ui(engine)
 install_desktop_extras(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
+install_task_center(engine)
 
 # A protocol handoff that reaches an already-running bridge but gets a 4xx (for
 # example, a full queue) must still count as "the resident instance handled the
@@ -232,17 +238,23 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_task_center_installed", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
     assert getattr(engine, "_galaxy_media_policy_installed", False) is True
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
+    assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True
     assert getattr(engine, "_galaxy_runtime_health_installed", False) is True
+    assert getattr(engine, "_galaxy_task_center_installed", False) is True
     assert getattr(image_download, "_galaxy_image_archive_policy_installed", False) is True
     assert engine.LocalBridge is StructuredLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
     run_queue_controls_self_test()
+    run_failure_policy_self_test()
+    run_recovery_self_test()
     run_history_self_test()
     run_workspace_self_test()
     run_runtime_health_self_test()
+    run_task_center_self_test()
 
 
 def _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:
