@@ -54,6 +54,7 @@ interface ActivePreview extends MediaPreviewRequest {
 type WorkbenchCopy = {
     inputLabel: string;
     clearInput: string;
+    pageDescription: string;
     helperTitle: string;
     helperDescription: string;
 };
@@ -62,36 +63,42 @@ const WORKBENCH_COPY: Record<string, WorkbenchCopy> = {
     zh: {
         inputLabel: '媒体链接或分享文本',
         clearInput: '清空链接',
+        pageDescription: '首次使用请先下载并打开 Galaxy Local Engine，再粘贴链接解析；支持视频、音频、纯音乐、图文以及 M3U8/HLS 流媒体。',
         helperTitle: '工具与平台说明',
         helperDescription: '历史记录、平台说明和辅助工具按需展开。',
     },
     'zh-tw': {
         inputLabel: '媒體連結或分享文字',
         clearInput: '清空連結',
+        pageDescription: '首次使用請先下載並開啟 Galaxy Local Engine，再貼上連結解析；支援影片、音訊、純音樂、圖文以及 M3U8/HLS 串流媒體。',
         helperTitle: '工具與平台說明',
         helperDescription: '歷史記錄、平台說明與輔助工具按需展開。',
     },
     en: {
         inputLabel: 'Media URL or shared text',
         clearInput: 'Clear link',
+        pageDescription: 'First download and open Galaxy Local Engine, then paste a link to parse video, audio, music, image posts, and M3U8/HLS media.',
         helperTitle: 'Tools and platform notes',
         helperDescription: 'History, platform notes and secondary tools stay collapsed until needed.',
     },
     ja: {
         inputLabel: 'メディアURLまたは共有テキスト',
         clearInput: 'リンクを消去',
+        pageDescription: '初回は Galaxy Local Engine をダウンロードして起動し、その後リンクを貼り付けて動画・音声・音楽・画像投稿・M3U8/HLS を解析します。',
         helperTitle: 'ツールとプラットフォーム情報',
         helperDescription: '履歴や補助ツールは必要なときだけ展開できます。',
     },
     es: {
         inputLabel: 'URL del medio o texto compartido',
         clearInput: 'Borrar enlace',
+        pageDescription: 'Primero descarga y abre Galaxy Local Engine; después pega un enlace para analizar vídeo, audio, música, publicaciones con imágenes y M3U8/HLS.',
         helperTitle: 'Herramientas y notas de plataformas',
         helperDescription: 'El historial y las herramientas secundarias permanecen plegados hasta que los necesites.',
     },
     ru: {
         inputLabel: 'Ссылка на медиа или текст публикации',
         clearInput: 'Очистить ссылку',
+        pageDescription: 'Сначала скачайте и откройте Galaxy Local Engine, затем вставьте ссылку для разбора видео, аудио, музыки, публикаций с изображениями и M3U8/HLS.',
         helperTitle: 'Инструменты и сведения о платформах',
         helperDescription: 'История и вспомогательные инструменты раскрываются только при необходимости.',
     },
@@ -472,8 +479,8 @@ export function UnifiedDownloader({
                                 <h1 className="shrink-0 text-lg font-semibold tracking-[-0.02em] sm:text-xl">
                                     {dict.unified.pageTitle}
                                 </h1>
-                                <p className="min-w-0 max-w-3xl text-xs leading-5 text-muted-foreground sm:text-sm">
-                                    {dict.unified.pageDescription}
+                                <p className="min-w-0 max-w-4xl text-xs leading-5 text-muted-foreground sm:text-sm">
+                                    {workbenchCopy.pageDescription}
                                 </p>
                             </div>
                             <LocalEngineSetupHint className="lg:ms-auto lg:max-w-[560px] lg:justify-end" />
@@ -483,7 +490,7 @@ export function UnifiedDownloader({
                             <label htmlFor="url" className="sr-only">
                                 {workbenchCopy.inputLabel}
                             </label>
-                            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_148px]">
+                            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
                                 <div className="relative rounded-lg border bg-card transition-[border-color] duration-150 focus-within:border-foreground/40">
                                     <Textarea
                                         id="url"
@@ -492,63 +499,61 @@ export function UnifiedDownloader({
                                         onChange={(e) => setUrl(e.target.value)}
                                         placeholder={dict.unified.placeholder}
                                         required
-                                        className="min-h-[52px] resize-none border-0 bg-transparent py-2.5 pe-20 ps-3 text-sm leading-5 shadow-none focus-visible:ring-0"
+                                        className="min-h-[52px] resize-none border-0 bg-transparent py-2.5 pe-11 ps-3 text-sm leading-5 shadow-none focus-visible:ring-0"
                                     />
-                                    <div className="absolute end-1.5 top-1.5 flex items-center gap-0.5">
-                                        {url.length > 0 && (
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 rounded-md text-muted-foreground hover:text-foreground"
-                                                aria-label={workbenchCopy.clearInput}
-                                                title={workbenchCopy.clearInput}
-                                                onClick={() => {
-                                                    setUrl('');
-                                                    setError('');
-                                                    urlInputRef.current?.focus();
-                                                }}
-                                            >
-                                                <X className="h-4 w-4" aria-hidden="true" />
-                                            </Button>
-                                        )}
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8 rounded-md text-muted-foreground hover:text-foreground"
-                                            aria-label={dict.form.pasteButton}
-                                            title={dict.form.pasteButton}
-                                            onClick={async () => {
-                                                try {
-                                                    const text = await navigator.clipboard.readText();
-                                                    setUrl(text);
-                                                    toast.success(dict.toast.linkFilled);
-                                                } catch (err) {
-                                                    console.error('Failed to read clipboard:', err);
-                                                    toast.error(dict.errors.clipboardFailed, {
-                                                        description: dict.errors.clipboardPermission,
-                                                    });
-                                                }
-                                            }}
-                                        >
-                                            <ClipboardPaste className="h-4 w-4" aria-hidden="true" />
-                                        </Button>
-                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="absolute end-1.5 top-1.5 h-8 w-8 rounded-md text-muted-foreground hover:text-foreground"
+                                        aria-label={dict.form.pasteButton}
+                                        title={dict.form.pasteButton}
+                                        onClick={async () => {
+                                            try {
+                                                const text = await navigator.clipboard.readText();
+                                                setUrl(text);
+                                                toast.success(dict.toast.linkFilled);
+                                            } catch (err) {
+                                                console.error('Failed to read clipboard:', err);
+                                                toast.error(dict.errors.clipboardFailed, {
+                                                    description: dict.errors.clipboardPermission,
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        <ClipboardPaste className="h-4 w-4" aria-hidden="true" />
+                                    </Button>
                                 </div>
-                                <Button
-                                    type="submit"
-                                    size="lg"
-                                    className="h-[52px] gap-2 rounded-lg"
-                                    disabled={loading || isCoolingDown || !url.trim()}
-                                >
-                                    {loading ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                                    ) : (
-                                        <PackageCheck className="h-4 w-4" aria-hidden="true" />
-                                    )}
-                                    {loading ? dict.form.downloading : dict.form.downloadButton}
-                                </Button>
+                                <div className="grid grid-cols-[104px_minmax(148px,1fr)] gap-2 lg:grid-cols-[104px_148px]">
+                                    <Button
+                                        type="button"
+                                        size="lg"
+                                        variant="outline"
+                                        className="h-[52px] gap-1.5 rounded-lg px-3"
+                                        disabled={!url.length}
+                                        onClick={() => {
+                                            setUrl('');
+                                            setError('');
+                                            urlInputRef.current?.focus();
+                                        }}
+                                    >
+                                        <X className="h-4 w-4" aria-hidden="true" />
+                                        {workbenchCopy.clearInput}
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        size="lg"
+                                        className="h-[52px] gap-2 rounded-lg"
+                                        disabled={loading || isCoolingDown || !url.trim()}
+                                    >
+                                        {loading ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                        ) : (
+                                            <PackageCheck className="h-4 w-4" aria-hidden="true" />
+                                        )}
+                                        {loading ? dict.form.downloading : dict.form.downloadButton}
+                                    </Button>
+                                </div>
                             </div>
 
                             <div className="mt-2 flex min-h-5 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
