@@ -69,6 +69,16 @@ export function shouldUseFileBackedInputs(
 
 export type LocalEngineBrowser = 'none' | 'edge' | 'chrome' | 'firefox'
 export type LocalEngineCollectionMode = 'single' | 'all' | 'selected'
+export type LocalEngineSubtitleMode = 'manual' | 'auto' | 'both'
+export type SponsorBlockCategory =
+  | 'sponsor'
+  | 'selfpromo'
+  | 'interaction'
+  | 'intro'
+  | 'outro'
+  | 'preview'
+  | 'music_offtopic'
+  | 'filler'
 
 export interface LocalDesktopVideoSelection {
   quality?: string | null
@@ -88,6 +98,14 @@ export interface LocalDesktopJobOptions {
   browser?: LocalEngineBrowser
   collectionMode?: LocalEngineCollectionMode
   selectedItems?: number[]
+  segmentStart?: string | null
+  segmentEnd?: string | null
+  splitChapters?: boolean
+  subtitleMode?: LocalEngineSubtitleMode
+  subtitleLanguages?: string[]
+  audioLanguages?: string[]
+  sponsorBlockCategories?: SponsorBlockCategory[]
+  useAria2c?: boolean
   /** @deprecated Use collectionMode. Kept for older call sites/releases. */
   playlist?: boolean
 }
@@ -95,7 +113,7 @@ export interface LocalDesktopJobOptions {
 // Keep one source of truth for the website/bridge/image-engine requirement and
 // for the exact GitHub release tag the website serves. This prevents a newer
 // website build from silently downloading an older `releases/latest` package.
-export const LOCAL_ENGINE_REQUIRED_VERSION = '0.8.0'
+export const LOCAL_ENGINE_REQUIRED_VERSION = '0.9.0'
 export const LOCAL_ENGINE_RELEASE_TAG = `local-engine-v${LOCAL_ENGINE_REQUIRED_VERSION}`
 
 // Primary route goes through the Galaxy website so users whose network cannot
@@ -155,6 +173,18 @@ function normalizeSelectedItems(items?: number[]): number[] {
   return normalized
 }
 
+function normalizeList(values?: string[]): string[] {
+  if (!values?.length) return []
+  const normalized: string[] = []
+  for (const raw of values) {
+    const value = String(raw || '').trim()
+    if (!value || normalized.includes(value)) continue
+    normalized.push(value)
+    if (normalized.length >= 12) break
+  }
+  return normalized
+}
+
 export function resolveLocalEngineCollectionMode(
   options: Pick<LocalDesktopJobOptions, 'collectionMode' | 'playlist' | 'selectedItems'>,
 ): LocalEngineCollectionMode {
@@ -188,6 +218,20 @@ export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): str
   params.set('browser', options.browser || 'none')
   params.set('collection', collectionMode)
   if (collectionMode === 'selected') params.set('items', selectedItems.join(','))
+
+  if (options.segmentStart) params.set('section_start', options.segmentStart)
+  if (options.segmentEnd) params.set('section_end', options.segmentEnd)
+  params.set('split_chapters', options.splitChapters ? '1' : '0')
+  params.set('subtitle_mode', options.subtitleMode || 'both')
+  const subtitleLanguages = normalizeList(options.subtitleLanguages)
+  if (subtitleLanguages.length) params.set('subtitle_langs', subtitleLanguages.join(','))
+  const audioLanguages = normalizeList(options.audioLanguages)
+  if (audioLanguages.length) params.set('audio_langs', audioLanguages.join(','))
+  if (options.sponsorBlockCategories?.length) {
+    params.set('sponsorblock', options.sponsorBlockCategories.join(','))
+  }
+  params.set('aria2', options.useAria2c ? '1' : '0')
+
   // Preserve the legacy field so a protocol URL is still understandable by
   // pre-0.5 engines, while new engines use the explicit collection policy.
   params.set('playlist', collectionMode === 'all' ? '1' : '0')
