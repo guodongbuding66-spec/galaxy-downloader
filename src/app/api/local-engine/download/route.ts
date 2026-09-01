@@ -1,15 +1,36 @@
 import { NextResponse } from 'next/server';
 
-const GITHUB_LATEST =
-  'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/latest/download/GalaxyLocalEngine-Windows.zip';
+import {
+  LOCAL_ENGINE_GITHUB_URL,
+  LOCAL_ENGINE_REQUIRED_VERSION,
+} from '@/lib/local-engine';
 
 const DOWNLOAD_NAME = 'GalaxyLocalEngine-Windows.zip';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const requestedVersion = new URL(request.url).searchParams.get('version')?.trim()
+    || LOCAL_ENGINE_REQUIRED_VERSION;
+
+  // This endpoint is an official-package relay, not a generic GitHub release
+  // proxy. Only the exact version required by the running website is allowed.
+  if (requestedVersion !== LOCAL_ENGINE_REQUIRED_VERSION) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `This website build requires Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}.`,
+        requiredVersion: LOCAL_ENGINE_REQUIRED_VERSION,
+      },
+      {
+        status: 400,
+        headers: { 'Cache-Control': 'no-store' },
+      },
+    );
+  }
+
   try {
-    const upstream = await fetch(GITHUB_LATEST, {
+    const upstream = await fetch(LOCAL_ENGINE_GITHUB_URL, {
       redirect: 'follow',
       cache: 'no-store',
       headers: {
@@ -22,8 +43,9 @@ export async function GET() {
       return NextResponse.json(
         {
           success: false,
-          error: `Local Engine package upstream returned HTTP ${upstream.status}`,
-          fallback: GITHUB_LATEST,
+          error: `Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION} package upstream returned HTTP ${upstream.status}`,
+          requiredVersion: LOCAL_ENGINE_REQUIRED_VERSION,
+          fallback: LOCAL_ENGINE_GITHUB_URL,
         },
         {
           status: 502,
@@ -42,6 +64,7 @@ export async function GET() {
     headers.set('Expires', '0');
     headers.set('X-Content-Type-Options', 'nosniff');
     headers.set('X-Galaxy-Download-Source', 'official-site-proxy');
+    headers.set('X-Galaxy-Local-Engine-Version', LOCAL_ENGINE_REQUIRED_VERSION);
 
     const contentLength = upstream.headers.get('content-length');
     if (contentLength) headers.set('Content-Length', contentLength);
@@ -59,7 +82,8 @@ export async function GET() {
       {
         success: false,
         error: error instanceof Error ? error.message : String(error),
-        fallback: GITHUB_LATEST,
+        requiredVersion: LOCAL_ENGINE_REQUIRED_VERSION,
+        fallback: LOCAL_ENGINE_GITHUB_URL,
       },
       {
         status: 502,
