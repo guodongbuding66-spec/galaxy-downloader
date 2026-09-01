@@ -49,6 +49,8 @@ jobs:
             local-engine/job_queue.py \
             local-engine/desktop_ui.py \
             local-engine/update_check.py \
+            local-engine/browser_auth.py \
+            local-engine/wechat_channels.py \
             local-engine/image_archive_policy.py \
             local-engine/image_bridge.py \
             local-engine/image_download.py \
@@ -63,6 +65,9 @@ jobs:
             container-backend/app/server.py
           python3 scripts/test-local-engine-policy.py
           python3 scripts/test-local-url-policy.py
+          python3 scripts/test-local-document-policy.py
+          python3 scripts/test-local-entrypoint-policy.py
+          python3 scripts/test-local-browser-auth.py
           python3 scripts/test-local-image-download.py
           python3 scripts/test-local-image-bridge.py
           python3 scripts/test-local-job-queue.py
