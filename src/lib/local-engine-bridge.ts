@@ -69,6 +69,69 @@ export class LocalEngineBridgeSubmissionError extends Error {
   }
 }
 
+type SubmissionMessages = Record<'QUEUE_FULL' | 'ENGINE_BUSY' | 'ENGINE_SHUTTING_DOWN' | 'ENGINE_HANDOFF_TIMEOUT', string>
+
+const SUBMISSION_MESSAGES: Record<string, SubmissionMessages> = {
+  zh: {
+    QUEUE_FULL: '本地下载队列已满，请等待前面的任务完成后再试。',
+    ENGINE_BUSY: '本地引擎正在处理另一个任务，请稍后重试或升级到支持下载队列的版本。',
+    ENGINE_SHUTTING_DOWN: 'Galaxy Local Engine 正在退出，请重新启动本地引擎后再提交任务。',
+    ENGINE_HANDOFF_TIMEOUT: '本地引擎桌面窗口响应超时，请确认程序没有卡住，然后重试。',
+  },
+  'zh-tw': {
+    QUEUE_FULL: '本機下載佇列已滿，請等待前面的工作完成後再試。',
+    ENGINE_BUSY: '本機引擎正在處理另一個工作，請稍後重試或升級至支援下載佇列的版本。',
+    ENGINE_SHUTTING_DOWN: 'Galaxy Local Engine 正在結束，請重新啟動本機引擎後再提交工作。',
+    ENGINE_HANDOFF_TIMEOUT: '本機引擎桌面視窗回應逾時，請確認程式沒有卡住後重試。',
+  },
+  ja: {
+    QUEUE_FULL: 'ローカルのダウンロード待ちが上限です。前の処理が完了してから再試行してください。',
+    ENGINE_BUSY: 'ローカルエンジンは別の処理を実行中です。後で再試行するか、キュー対応版へ更新してください。',
+    ENGINE_SHUTTING_DOWN: 'Galaxy Local Engine は終了中です。再起動してからもう一度送信してください。',
+    ENGINE_HANDOFF_TIMEOUT: 'ローカルエンジンの画面応答がタイムアウトしました。アプリが停止していないか確認して再試行してください。',
+  },
+  es: {
+    QUEUE_FULL: 'La cola de descargas local está llena. Espera a que termine una tarea e inténtalo de nuevo.',
+    ENGINE_BUSY: 'El motor local está procesando otra tarea. Inténtalo más tarde o actualiza a una versión con cola.',
+    ENGINE_SHUTTING_DOWN: 'Galaxy Local Engine se está cerrando. Reinícialo antes de enviar otra tarea.',
+    ENGINE_HANDOFF_TIMEOUT: 'La ventana del motor local no respondió a tiempo. Comprueba que la aplicación no esté bloqueada y vuelve a intentarlo.',
+  },
+  ru: {
+    QUEUE_FULL: 'Локальная очередь загрузок заполнена. Дождитесь завершения одной из задач и повторите попытку.',
+    ENGINE_BUSY: 'Локальный движок занят другой задачей. Повторите позже или обновите версию с поддержкой очереди.',
+    ENGINE_SHUTTING_DOWN: 'Galaxy Local Engine завершает работу. Перезапустите его и отправьте задачу снова.',
+    ENGINE_HANDOFF_TIMEOUT: 'Окно локального движка не ответило вовремя. Проверьте, что приложение не зависло, и повторите попытку.',
+  },
+  en: {
+    QUEUE_FULL: 'The local download queue is full. Wait for a queued job to finish and try again.',
+    ENGINE_BUSY: 'The local engine is processing another job. Retry later or upgrade to a queue-capable version.',
+    ENGINE_SHUTTING_DOWN: 'Galaxy Local Engine is shutting down. Restart it before submitting another job.',
+    ENGINE_HANDOFF_TIMEOUT: 'The Local Engine desktop window did not respond in time. Check that the app is responsive and retry.',
+  },
+}
+
+export function localizeLocalEngineSubmissionMessage(
+  code: LocalEngineSubmissionCode,
+  fallback: string,
+  language?: string,
+): string {
+  const rawLanguage = (language || (typeof document === 'undefined' ? 'en' : document.documentElement.lang) || 'en').toLowerCase()
+  const locale = rawLanguage.startsWith('zh-tw') || rawLanguage.startsWith('zh-hant')
+    ? 'zh-tw'
+    : rawLanguage.startsWith('zh')
+      ? 'zh'
+      : rawLanguage.startsWith('ja')
+        ? 'ja'
+        : rawLanguage.startsWith('es')
+          ? 'es'
+          : rawLanguage.startsWith('ru')
+            ? 'ru'
+            : 'en'
+  const messages = SUBMISSION_MESSAGES[locale] || SUBMISSION_MESSAGES.en
+  if (code in messages) return messages[code as keyof SubmissionMessages]
+  return fallback
+}
+
 type LoopbackRequestInit = RequestInit & {
   targetAddressSpace?: 'loopback'
 }
@@ -341,7 +404,11 @@ export async function submitLocalEngineBridgeJob(job: LocalEngineBridgeJob): Pro
     // Keep the status-based message/code.
   }
   if (response.ok) return message
-  throw new LocalEngineBridgeSubmissionError(message, code, response.status)
+  throw new LocalEngineBridgeSubmissionError(
+    localizeLocalEngineSubmissionMessage(code, message),
+    code,
+    response.status,
+  )
 }
 
 export async function cancelLocalEngineBridgeJob(): Promise<void> {
