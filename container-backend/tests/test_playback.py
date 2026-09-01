@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import playback
@@ -104,6 +105,50 @@ def test_parser_headers_never_forward_cookie_or_authorization():
     assert lowered["origin"] == "https://provider.example"
     assert "cookie" not in lowered
     assert "authorization" not in lowered
+
+
+def test_single_range_policy_accepts_normal_browser_ranges():
+    assert playback._validated_range_header(None) is None
+    assert playback._validated_range_header("") is None
+    assert playback._validated_range_header("bytes=0-") == "bytes=0-"
+    assert playback._validated_range_header("BYTES=100-200") == "bytes=100-200"
+    assert playback._validated_range_header("bytes=-500") == "bytes=-500"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "items=0-10",
+        "bytes=-",
+        "bytes=-0",
+        "bytes=500-100",
+        "bytes=0-10,20-30",
+        "bytes=0 - 10",
+        "bytes=99999999999999999999-",
+        "bytes=" + "1" * 140 + "-",
+    ],
+)
+def test_single_range_policy_rejects_malformed_or_multipart_ranges(value: str):
+    with pytest.raises(ValueError):
+        playback._validated_range_header(value)
+
+
+def test_invalid_range_is_rejected_before_parser_work(monkeypatch):
+    monkeypatch.setattr(playback.core, "validate_public_source_url", lambda value: value)
+
+    async def should_not_parse(_source_url: str, _media_type: str):
+        raise AssertionError("parser must not run for an invalid Range header")
+
+    monkeypatch.setattr(playback, "_resolve_preview", should_not_parse)
+    response = client.get(
+        "/api/play",
+        params={"url": "https://example.com/watch/1", "type": "video"},
+        headers={"Range": "bytes=0-10,20-30"},
+    )
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["code"] == "BAD_REQUEST"
+    assert payload["error"] == "Range must be a single valid bytes range."
 
 
 def test_no_muxed_preview_redirects_to_finished_file_compatibility_path(monkeypatch):
