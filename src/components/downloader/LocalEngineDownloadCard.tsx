@@ -23,7 +23,9 @@ import {
 import { toast } from '@/lib/deferred-toast';
 import {
   cancelLocalEngineBridgeJob,
+  cancelLocalEngineQueuedJob,
   getLocalEngineBridgeStatus,
+  LocalEngineBridgeSubmissionError,
   openLocalEngineDownloadFolder,
   submitLocalEngineBridgeJob,
   type LocalEngineBridgeJob,
@@ -74,7 +76,10 @@ type Copy = {
   queueAction: string;
   queueStatus: string;
   queueFull: string;
+  queueJobs: string;
   cancel: string;
+  cancelQueued: string;
+  queuedCancelled: string;
   openFolder: string;
   install: string;
   githubMirror: string;
@@ -109,7 +114,10 @@ const COPY: Record<string, Copy> = {
     queueAction: '加入下载队列',
     queueStatus: '队列 {count}/{capacity}',
     queueFull: '下载队列已满',
+    queueJobs: '等待队列',
     cancel: '取消当前任务',
+    cancelQueued: '取消排队任务',
+    queuedCancelled: '已从下载队列移除',
     openFolder: '打开文件夹',
     install: '安装本地引擎',
     githubMirror: 'GitHub 备用线路',
@@ -121,19 +129,19 @@ const COPY: Record<string, Copy> = {
     setupHint: '完整解压 ZIP → 放到长期使用目录 → 运行 install.cmd → 保持本地引擎运行。',
   },
   'zh-tw': {
-    title: '本機下載', connected: '已連線', disconnected: '未連線', cookieSource: '登入狀態', noCookies: '不讀取 Cookie（預設）', edge: 'Edge 登入狀態', chrome: 'Chrome 登入狀態', firefox: 'Firefox 登入狀態', collection: '合輯範圍', single: '目前一項', all: '整個合輯', selected: '選擇部分', selectedCount: '已選 {count} 項', selectAll: '全選', clear: '清空', skipDownloaded: '略過已下載內容', skipDownloadedHint: '開啟後，本機引擎會記錄成功下載的媒體 ID；再次下載相同內容時自動略過。預設關閉。', launch: '下載最終成品', queueAction: '加入下載佇列', queueStatus: '佇列 {count}/{capacity}', queueFull: '下載佇列已滿', cancel: '取消目前工作', openFolder: '開啟資料夾', install: '安裝本機引擎', githubMirror: 'GitHub 備用線路', privacy: '預設只保存最終影片；Cookie、可選下載記錄與 FFmpeg 處理留在本機。', sent: '工作已傳送到 Galaxy Local Engine', queued: '工作已加入 Galaxy Local Engine 下載佇列', launchHint: '需要 Galaxy Local Engine v{version}+。請下載對應版本、完整解壓並執行 install.cmd。', setup: '安裝說明', setupHint: '完整解壓 ZIP → 放到長期使用目錄 → 執行 install.cmd → 保持本機引擎運行。',
+    title: '本機下載', connected: '已連線', disconnected: '未連線', cookieSource: '登入狀態', noCookies: '不讀取 Cookie（預設）', edge: 'Edge 登入狀態', chrome: 'Chrome 登入狀態', firefox: 'Firefox 登入狀態', collection: '合輯範圍', single: '目前一項', all: '整個合輯', selected: '選擇部分', selectedCount: '已選 {count} 項', selectAll: '全選', clear: '清空', skipDownloaded: '略過已下載內容', skipDownloadedHint: '開啟後，本機引擎會記錄成功下載的媒體 ID；再次下載相同內容時自動略過。預設關閉。', launch: '下載最終成品', queueAction: '加入下載佇列', queueStatus: '佇列 {count}/{capacity}', queueFull: '下載佇列已滿', queueJobs: '等待佇列', cancel: '取消目前工作', cancelQueued: '取消排隊工作', queuedCancelled: '已從下載佇列移除', openFolder: '開啟資料夾', install: '安裝本機引擎', githubMirror: 'GitHub 備用線路', privacy: '預設只保存最終影片；Cookie、可選下載記錄與 FFmpeg 處理留在本機。', sent: '工作已傳送到 Galaxy Local Engine', queued: '工作已加入 Galaxy Local Engine 下載佇列', launchHint: '需要 Galaxy Local Engine v{version}+。請下載對應版本、完整解壓並執行 install.cmd。', setup: '安裝說明', setupHint: '完整解壓 ZIP → 放到長期使用目錄 → 執行 install.cmd → 保持本機引擎運行。',
   },
   en: {
-    title: 'Local download', connected: 'Connected', disconnected: 'Offline', cookieSource: 'Login session', noCookies: 'No cookies (default)', edge: 'Edge session', chrome: 'Chrome session', firefox: 'Firefox session', collection: 'Collection range', single: 'Current item', all: 'Entire collection', selected: 'Choose items', selectedCount: '{count} selected', selectAll: 'Select all', clear: 'Clear', skipDownloaded: 'Skip previously downloaded', skipDownloadedHint: 'When enabled, the local engine records successfully downloaded media IDs and skips them next time. Off by default.', launch: 'Download finished file', queueAction: 'Add to download queue', queueStatus: 'Queue {count}/{capacity}', queueFull: 'Download queue is full', cancel: 'Cancel current job', openFolder: 'Open folder', install: 'Install local engine', githubMirror: 'GitHub mirror', privacy: 'Only the finished video is saved by default. Cookies, the optional archive and FFmpeg stay on this device.', sent: 'Job sent to Galaxy Local Engine', queued: 'Job added to the Galaxy Local Engine download queue', launchHint: 'Galaxy Local Engine v{version}+ is required. Download the matching ZIP, extract it fully, and run install.cmd.', setup: 'Setup', setupHint: 'Extract ZIP → move it to a permanent folder → run install.cmd → keep the engine running.',
+    title: 'Local download', connected: 'Connected', disconnected: 'Offline', cookieSource: 'Login session', noCookies: 'No cookies (default)', edge: 'Edge session', chrome: 'Chrome session', firefox: 'Firefox session', collection: 'Collection range', single: 'Current item', all: 'Entire collection', selected: 'Choose items', selectedCount: '{count} selected', selectAll: 'Select all', clear: 'Clear', skipDownloaded: 'Skip previously downloaded', skipDownloadedHint: 'When enabled, the local engine records successfully downloaded media IDs and skips them next time. Off by default.', launch: 'Download finished file', queueAction: 'Add to download queue', queueStatus: 'Queue {count}/{capacity}', queueFull: 'Download queue is full', queueJobs: 'Waiting queue', cancel: 'Cancel current job', cancelQueued: 'Cancel queued job', queuedCancelled: 'Removed from the download queue', openFolder: 'Open folder', install: 'Install local engine', githubMirror: 'GitHub mirror', privacy: 'Only the finished video is saved by default. Cookies, the optional archive and FFmpeg stay on this device.', sent: 'Job sent to Galaxy Local Engine', queued: 'Job added to the Galaxy Local Engine download queue', launchHint: 'Galaxy Local Engine v{version}+ is required. Download the matching ZIP, extract it fully, and run install.cmd.', setup: 'Setup', setupHint: 'Extract ZIP → move it to a permanent folder → run install.cmd → keep the engine running.',
   },
   ja: {
-    title: 'ローカル保存', connected: '接続済み', disconnected: '未接続', cookieSource: 'ログイン状態', noCookies: 'Cookie を使わない（既定）', edge: 'Edge セッション', chrome: 'Chrome セッション', firefox: 'Firefox セッション', collection: 'コレクション範囲', single: '現在の1件', all: 'すべて', selected: '選択', selectedCount: '{count} 件選択', selectAll: 'すべて選択', clear: 'クリア', skipDownloaded: 'ダウンロード済みをスキップ', skipDownloadedHint: '有効にすると、成功したメディア ID を端末内に記録し、次回は同じ内容をスキップします。既定はオフです。', launch: '完成ファイルを保存', queueAction: 'ダウンロード待ちに追加', queueStatus: '待ち {count}/{capacity}', queueFull: 'ダウンロード待ちが上限です', cancel: '現在の処理をキャンセル', openFolder: 'フォルダーを開く', install: 'ローカルエンジンを導入', githubMirror: 'GitHub ミラー', privacy: '既定では完成動画だけを保存します。Cookie、任意の履歴、FFmpeg 処理は端末内に留まります。', sent: 'ジョブを送信しました', queued: 'ジョブをダウンロード待ちに追加しました', launchHint: 'Galaxy Local Engine v{version}+ が必要です。対応 ZIP を完全に展開し install.cmd を実行してください。', setup: 'セットアップ', setupHint: 'ZIP を展開 → 保存場所へ移動 → install.cmd → エンジンを起動したまま使用。',
+    title: 'ローカル保存', connected: '接続済み', disconnected: '未接続', cookieSource: 'ログイン状態', noCookies: 'Cookie を使わない（既定）', edge: 'Edge セッション', chrome: 'Chrome セッション', firefox: 'Firefox セッション', collection: 'コレクション範囲', single: '現在の1件', all: 'すべて', selected: '選択', selectedCount: '{count} 件選択', selectAll: 'すべて選択', clear: 'クリア', skipDownloaded: 'ダウンロード済みをスキップ', skipDownloadedHint: '有効にすると、成功したメディア ID を端末内に記録し、次回は同じ内容をスキップします。既定はオフです。', launch: '完成ファイルを保存', queueAction: 'ダウンロード待ちに追加', queueStatus: '待ち {count}/{capacity}', queueFull: 'ダウンロード待ちが上限です', queueJobs: '待機中', cancel: '現在の処理をキャンセル', cancelQueued: '待機ジョブを取消', queuedCancelled: 'ダウンロード待ちから削除しました', openFolder: 'フォルダーを開く', install: 'ローカルエンジンを導入', githubMirror: 'GitHub ミラー', privacy: '既定では完成動画だけを保存します。Cookie、任意の履歴、FFmpeg 処理は端末内に留まります。', sent: 'ジョブを送信しました', queued: 'ジョブをダウンロード待ちに追加しました', launchHint: 'Galaxy Local Engine v{version}+ が必要です。対応 ZIP を完全に展開し install.cmd を実行してください。', setup: 'セットアップ', setupHint: 'ZIP を展開 → 保存場所へ移動 → install.cmd → エンジンを起動したまま使用。',
   },
   es: {
-    title: 'Descarga local', connected: 'Conectado', disconnected: 'Sin conexión', cookieSource: 'Sesión', noCookies: 'Sin cookies (predeterminado)', edge: 'Sesión de Edge', chrome: 'Sesión de Chrome', firefox: 'Sesión de Firefox', collection: 'Rango de colección', single: 'Elemento actual', all: 'Toda la colección', selected: 'Elegir elementos', selectedCount: '{count} seleccionados', selectAll: 'Seleccionar todo', clear: 'Limpiar', skipDownloaded: 'Omitir lo ya descargado', skipDownloadedHint: 'Al activarlo, el motor local guarda los ID descargados correctamente y los omite la próxima vez. Desactivado por defecto.', launch: 'Descargar archivo final', queueAction: 'Añadir a la cola', queueStatus: 'Cola {count}/{capacity}', queueFull: 'La cola está llena', cancel: 'Cancelar tarea actual', openFolder: 'Abrir carpeta', install: 'Instalar motor local', githubMirror: 'Espejo de GitHub', privacy: 'Por defecto solo se guarda el vídeo final. Cookies, archivo opcional y FFmpeg permanecen en este dispositivo.', sent: 'Tarea enviada al motor local', queued: 'Tarea añadida a la cola del motor local', launchHint: 'Se requiere Galaxy Local Engine v{version}+. Descarga el ZIP correspondiente, extráelo y ejecuta install.cmd.', setup: 'Instalación', setupHint: 'Extrae ZIP → mueve la carpeta → ejecuta install.cmd → mantén el motor abierto.',
+    title: 'Descarga local', connected: 'Conectado', disconnected: 'Sin conexión', cookieSource: 'Sesión', noCookies: 'Sin cookies (predeterminado)', edge: 'Sesión de Edge', chrome: 'Sesión de Chrome', firefox: 'Sesión de Firefox', collection: 'Rango de colección', single: 'Elemento actual', all: 'Toda la colección', selected: 'Elegir elementos', selectedCount: '{count} seleccionados', selectAll: 'Seleccionar todo', clear: 'Limpiar', skipDownloaded: 'Omitir lo ya descargado', skipDownloadedHint: 'Al activarlo, el motor local guarda los ID descargados correctamente y los omite la próxima vez. Desactivado por defecto.', launch: 'Descargar archivo final', queueAction: 'Añadir a la cola', queueStatus: 'Cola {count}/{capacity}', queueFull: 'La cola está llena', queueJobs: 'Cola de espera', cancel: 'Cancelar tarea actual', cancelQueued: 'Cancelar tarea en cola', queuedCancelled: 'Eliminada de la cola de descargas', openFolder: 'Abrir carpeta', install: 'Instalar motor local', githubMirror: 'Espejo de GitHub', privacy: 'Por defecto solo se guarda el vídeo final. Cookies, archivo opcional y FFmpeg permanecen en este dispositivo.', sent: 'Tarea enviada al motor local', queued: 'Tarea añadida a la cola del motor local', launchHint: 'Se requiere Galaxy Local Engine v{version}+. Descarga el ZIP correspondiente, extráelo y ejecuta install.cmd.', setup: 'Instalación', setupHint: 'Extrae ZIP → mueve la carpeta → ejecuta install.cmd → mantén el motor abierto.',
   },
   ru: {
-    title: 'Локальная загрузка', connected: 'Подключено', disconnected: 'Не подключено', cookieSource: 'Сессия', noCookies: 'Без cookies (по умолчанию)', edge: 'Сессия Edge', chrome: 'Сессия Chrome', firefox: 'Сессия Firefox', collection: 'Диапазон коллекции', single: 'Текущий элемент', all: 'Вся коллекция', selected: 'Выбрать элементы', selectedCount: 'Выбрано: {count}', selectAll: 'Выбрать всё', clear: 'Очистить', skipDownloaded: 'Пропускать уже загруженное', skipDownloadedHint: 'Если включено, локальный движок хранит ID успешно загруженных медиа и пропускает их в следующий раз. По умолчанию выключено.', launch: 'Скачать итоговый файл', queueAction: 'Добавить в очередь', queueStatus: 'Очередь {count}/{capacity}', queueFull: 'Очередь загрузок заполнена', cancel: 'Отменить текущую задачу', openFolder: 'Открыть папку', install: 'Установить локальный движок', githubMirror: 'Зеркало GitHub', privacy: 'По умолчанию сохраняется только итоговое видео. Cookies, опциональный архив и FFmpeg остаются на устройстве.', sent: 'Задание отправлено', queued: 'Задание добавлено в очередь загрузок', launchHint: 'Требуется Galaxy Local Engine v{version}+. Скачайте соответствующий ZIP, распакуйте и запустите install.cmd.', setup: 'Установка', setupHint: 'Распаковать ZIP → переместить папку → запустить install.cmd → оставить движок запущенным.',
+    title: 'Локальная загрузка', connected: 'Подключено', disconnected: 'Не подключено', cookieSource: 'Сессия', noCookies: 'Без cookies (по умолчанию)', edge: 'Сессия Edge', chrome: 'Сессия Chrome', firefox: 'Сессия Firefox', collection: 'Диапазон коллекции', single: 'Текущий элемент', all: 'Вся коллекция', selected: 'Выбрать элементы', selectedCount: 'Выбрано: {count}', selectAll: 'Выбрать всё', clear: 'Очистить', skipDownloaded: 'Пропускать уже загруженное', skipDownloadedHint: 'Если включено, локальный движок хранит ID успешно загруженных медиа и пропускает их в следующий раз. По умолчанию выключено.', launch: 'Скачать итоговый файл', queueAction: 'Добавить в очередь', queueStatus: 'Очередь {count}/{capacity}', queueFull: 'Очередь загрузок заполнена', queueJobs: 'Ожидающие задачи', cancel: 'Отменить текущую задачу', cancelQueued: 'Отменить задачу в очереди', queuedCancelled: 'Удалено из очереди загрузок', openFolder: 'Открыть папку', install: 'Установить локальный движок', githubMirror: 'Зеркало GitHub', privacy: 'По умолчанию сохраняется только итоговое видео. Cookies, опциональный архив и FFmpeg остаются на устройстве.', sent: 'Задание отправлено', queued: 'Задание добавлено в очередь загрузок', launchHint: 'Требуется Galaxy Local Engine v{version}+. Скачайте соответствующий ZIP, распакуйте и запустите install.cmd.', setup: 'Установка', setupHint: 'Распаковать ZIP → переместить папку → запустить install.cmd → оставить движок запущенным.',
   },
 };
 
@@ -187,6 +195,7 @@ export function LocalEngineDownloadCard({
   const [browser, setBrowser] = useState<LocalEngineBrowser>('none');
   const [bridge, setBridge] = useState<LocalEngineBridgeStatus | null>(null);
   const [launching, setLaunching] = useState(false);
+  const [cancellingQueuedJobId, setCancellingQueuedJobId] = useState<string | null>(null);
   const [collectionMode, setCollectionMode] = useState<LocalEngineCollectionMode>('single');
   const [selectedItems, setSelectedItems] = useState<number[]>([currentItem]);
   const [skipPreviouslyDownloaded, setSkipPreviouslyDownloaded] = useState(false);
@@ -234,6 +243,7 @@ export function LocalEngineDownloadCard({
 
   const localJob: LocalEngineBridgeJob = {
     sourceUrl,
+    displayTitle: typeof result.title === 'string' ? result.title : undefined,
     videoQuality: resolveLocalDesktopVideoQuality(plan.videoSelection),
     audioQuality: plan.audioQuality || 'best',
     includeAudio: plan.includeAudio,
@@ -249,6 +259,7 @@ export function LocalEngineDownloadCard({
 
   const queueCapacity = bridge?.queueCapacity || 0;
   const queueLength = bridge?.queueLength || 0;
+  const queuedJobs = bridge?.queuedJobs || [];
   const queueFull = Boolean(bridge?.busy && queueCapacity > 0 && queueLength >= queueCapacity);
   const queueStatus = copy.queueStatus
     .replace('{count}', String(queueLength))
@@ -308,6 +319,22 @@ export function LocalEngineDownloadCard({
       await refreshBridge();
     } catch (error) {
       toast.error(copy.cancel, { description: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
+  const handleCancelQueued = async (jobId: string) => {
+    if (cancellingQueuedJobId) return;
+    setCancellingQueuedJobId(jobId);
+    try {
+      await cancelLocalEngineQueuedJob(jobId);
+      await refreshBridge();
+      toast.success(copy.queuedCancelled);
+    } catch (error) {
+      await refreshBridge();
+      if (error instanceof LocalEngineBridgeSubmissionError && error.code === 'QUEUE_ITEM_NOT_FOUND') return;
+      toast.error(copy.cancelQueued, { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setCancellingQueuedJobId(null);
     }
   };
 
@@ -372,6 +399,41 @@ export function LocalEngineDownloadCard({
           </div>
           <div className="flex justify-between gap-3 text-[10px] tabular-nums text-muted-foreground">
             <span>{bridge.speed}</span><span>{bridge.downloaded}</span><span>ETA {bridge.eta}</span>
+          </div>
+        </div>
+      ) : null}
+
+      {queuedJobs.length > 0 ? (
+        <div className="mt-3 border-y" aria-label={copy.queueJobs}>
+          <div className="flex min-h-8 items-center justify-between gap-2 px-1 text-[11px] font-medium">
+            <span>{copy.queueJobs}</span>
+            <span className="tabular-nums text-muted-foreground">{queueStatus}</span>
+          </div>
+          <div className="divide-y border-t">
+            {queuedJobs.map((queuedJob) => {
+              const cancelling = cancellingQueuedJobId === queuedJob.id;
+              return (
+                <div key={queuedJob.id} className="flex min-h-9 min-w-0 items-center gap-2 px-1 py-1">
+                  <span className="w-6 shrink-0 text-[10px] tabular-nums text-muted-foreground">#{queuedJob.position}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium" title={queuedJob.label}>{queuedJob.label}</div>
+                    {queuedJob.sourceHost && queuedJob.sourceHost !== queuedJob.label ? (
+                      <div className="truncate text-[10px] text-muted-foreground">{queuedJob.sourceHost}</div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={disabled || cancellingQueuedJobId !== null}
+                    onClick={() => void handleCancelQueued(queuedJob.id)}
+                    aria-label={`${copy.cancelQueued}: ${queuedJob.label}`}
+                    title={copy.cancelQueued}
+                    className="ui-pressable inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    {cancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <X className="h-3.5 w-3.5" aria-hidden="true" />}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
