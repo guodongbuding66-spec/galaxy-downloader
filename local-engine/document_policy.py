@@ -19,6 +19,8 @@ SOCIAL_POST_PLATFORMS = {
     "tumblr",
     "weibo",
     "telegram",
+    "facebook",
+    "kuaishou",
 }
 
 # These URL families are genuinely ambiguous: the same route can be a video,
@@ -31,6 +33,10 @@ MEDIA_FIRST_SOCIAL_PLATFORMS = {
     "pinterest",
     "threads",
     "tumblr",
+    "weibo",
+    "telegram",
+    "facebook",
+    "kuaishou",
 }
 
 _EXTRA_EXTENSIONLESS_IMAGE_HOSTS = (
@@ -109,6 +115,14 @@ def prefer_media_first(source_url: str) -> bool:
         return True
     if _host_matches(host, "tumblr.com"):
         return True
+    if _host_matches(host, "weibo.com") or _host_matches(host, "weibo.cn"):
+        return True
+    if host == "t.me" or _host_matches(host, "telegram.me"):
+        return True
+    if _host_matches(host, "facebook.com") or host in {"fb.watch", "m.facebook.com"}:
+        return True
+    if _host_matches(host, "kuaishou.com") or host == "v.kuaishou.com":
+        return True
     return False
 
 
@@ -144,6 +158,14 @@ def should_try_web_document(source_url: str) -> bool:
         return True
     if _host_matches(host, "tumblr.com"):
         return True
+    if _host_matches(host, "weibo.com") or _host_matches(host, "weibo.cn"):
+        return True
+    if host == "t.me" or _host_matches(host, "telegram.me"):
+        return True
+    if _host_matches(host, "facebook.com") or host in {"fb.watch", "m.facebook.com"}:
+        return True
+    if _host_matches(host, "kuaishou.com") or host == "v.kuaishou.com":
+        return True
 
     # Product pages, articles and generic websites remain eligible exactly as
     # in the base parser. Video-first media sites still bypass this layer.
@@ -176,6 +198,10 @@ def _classify(source_url: str, raw_html: str) -> tuple[str, str]:
         return "weibo", "post"
     if host == "t.me" or _host_matches(host, "telegram.me"):
         return "telegram", "post"
+    if _host_matches(host, "facebook.com") or host == "fb.watch":
+        return "facebook", "post"
+    if _host_matches(host, "kuaishou.com") or host == "v.kuaishou.com":
+        return "kuaishou", "post"
     if _host_matches(host, "mp.weixin.qq.com") or _host_matches(host, "weixin.qq.com"):
         return "wechat", "article"
     if "amazon." in host or ".amazon." in host:
