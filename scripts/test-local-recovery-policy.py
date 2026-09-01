@@ -9,14 +9,15 @@ sys.path.insert(0, str(LOCAL_ENGINE))
 
 from failure_policy import run_failure_policy_self_test  # noqa: E402
 from recovery_policy import run_recovery_self_test  # noqa: E402
-from task_center import run_task_center_self_test  # noqa: E402
 
 
 def main() -> int:
+    # Ubuntu CI intentionally does not import task_center.py because the runner's
+    # minimal Python image has no Tkinter. The Windows source/executable self-test
+    # imports the real desktop stack and runs run_task_center_self_test there.
     run_failure_policy_self_test()
     run_recovery_self_test()
-    run_task_center_self_test()
-    print("Local Engine smart recovery/task center policy tests OK")
+    print("Local Engine smart recovery policy tests OK")
     return 0
 
 
