@@ -83,7 +83,6 @@ export function LocalEngineSetupHint({ className }: { className?: string }) {
   const [version, setVersion] = useState<string | null>(null)
 
   const check = useCallback(async () => {
-    setStatus('checking')
     const media = await getLocalEngineBridgeStatus()
     if (!media) {
       setVersion(null)
@@ -105,6 +104,11 @@ export function LocalEngineSetupHint({ className }: { className?: string }) {
   const launch = () => {
     window.location.href = 'galaxy-downloader://open'
     window.setTimeout(() => void check(), 1800)
+  }
+
+  const retry = () => {
+    setStatus('checking')
+    void check()
   }
 
   if (status === 'ready') {
@@ -138,7 +142,7 @@ export function LocalEngineSetupHint({ className }: { className?: string }) {
           variant="ghost"
           className="h-7 w-7"
           type="button"
-          onClick={() => void check()}
+          onClick={retry}
           aria-label={copy.retry}
           title={copy.retry}
           disabled={status === 'checking'}
