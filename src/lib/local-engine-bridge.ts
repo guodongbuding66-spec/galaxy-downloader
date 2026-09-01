@@ -48,6 +48,27 @@ export interface LocalEngineBridgeJob {
   playlist?: boolean
 }
 
+export type LocalEngineSubmissionCode =
+  | 'BAD_REQUEST'
+  | 'QUEUE_FULL'
+  | 'ENGINE_BUSY'
+  | 'ENGINE_SHUTTING_DOWN'
+  | 'ENGINE_HANDOFF_TIMEOUT'
+  | 'INTERNAL_ERROR'
+  | string
+
+export class LocalEngineBridgeSubmissionError extends Error {
+  readonly code: LocalEngineSubmissionCode
+  readonly status: number
+
+  constructor(message: string, code: LocalEngineSubmissionCode, status: number) {
+    super(message)
+    this.name = 'LocalEngineBridgeSubmissionError'
+    this.code = code
+    this.status = status
+  }
+}
+
 type LoopbackRequestInit = RequestInit & {
   targetAddressSpace?: 'loopback'
 }
@@ -311,14 +332,16 @@ export async function submitLocalEngineBridgeJob(job: LocalEngineBridgeJob): Pro
 
   const response = await postBridgeAction('/download', job)
   let message = response.ok ? 'Download job accepted' : `Local engine rejected the job (${response.status})`
+  let code: LocalEngineSubmissionCode = response.ok ? 'ACCEPTED' : 'ENGINE_BUSY'
   try {
-    const payload = await response.json() as { message?: string; error?: string }
+    const payload = await response.json() as { message?: string; error?: string; code?: string }
     message = payload.message || payload.error || message
+    code = payload.code || code
   } catch {
-    // Keep the status-based message.
+    // Keep the status-based message/code.
   }
   if (response.ok) return message
-  throw new Error(message)
+  throw new LocalEngineBridgeSubmissionError(message, code, response.status)
 }
 
 export async function cancelLocalEngineBridgeJob(): Promise<void> {
