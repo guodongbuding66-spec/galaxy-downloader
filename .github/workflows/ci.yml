@@ -42,6 +42,8 @@ jobs:
           python3 -m py_compile \
             local-engine/entrypoint.py \
             local-engine/bridge.py \
+            local-engine/image_bridge.py \
+            local-engine/image_download.py \
             local-engine/web_document.py \
             local-engine/document_policy.py \
             local-engine/document_markdown.py \
@@ -53,6 +55,7 @@ jobs:
             container-backend/app/server.py
           python3 scripts/test-local-engine-policy.py
           python3 scripts/test-local-url-policy.py
+          python3 scripts/test-local-image-download.py
 
       - name: Run tests
         run: pnpm test
