@@ -1,0 +1,79 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /container-backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:15"
+      timezone: UTC
+    open-pull-requests-limit: 3
+    groups:
+      container-npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: pip
+    directory: /local-engine
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:30"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    groups:
+      local-engine-python-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: pip
+    directory: /container-backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:45"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    groups:
+      container-python-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
