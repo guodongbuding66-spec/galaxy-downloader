@@ -12,8 +12,17 @@ jobs:
       ${{
         github.event.sender.type != 'Bot'
         && (
-          github.event_name == 'issue_comment'
-          || github.event.pull_request.draft == false
+          (
+            github.event_name == 'pull_request'
+            && github.event.pull_request.draft == false
+            && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+          )
+          ||
+          (
+            github.event_name == 'issue_comment'
+            && github.event.issue.pull_request
+            && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+          )
         )
       }}
     name: Run PR Agent advisory review
@@ -26,7 +35,10 @@ jobs:
       - name: PR Agent action step
         id: pragent
         continue-on-error: true
-        uses: the-pr-agent/pr-agent@main
+        # Pin the third-party action to the immutable v0.44.0 release commit.
+        # This job receives a model API secret and write-capable GitHub token,
+        # so a moving branch such as @main is not an acceptable trust boundary.
+        uses: the-pr-agent/pr-agent@ab6ec54bfeb37933ddb74259338752e9272016c6 # v0.44.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
