@@ -21,6 +21,8 @@ MAX_IMAGES_PER_JOB = 300
 MAX_IMAGE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_BATCH_BYTES = 20 * 1024 * 1024 * 1024
 MIN_FREE_BYTES = 512 * 1024 * 1024
+DISK_CHECK_INTERVAL_BYTES = 8 * 1024 * 1024
+ZIP_RESERVE_OVERHEAD_BYTES = 16 * 1024 * 1024
 CHUNK_BYTES = 512 * 1024
 REQUEST_TIMEOUT_SECONDS = 35
 MAX_DOWNLOAD_ATTEMPTS = 3
@@ -299,6 +301,7 @@ def _download_one(
                     destination = _unique_path(destination_dir, stem, extension)
                     part = destination.with_suffix(destination.suffix + ".part")
                     total = len(first)
+                    next_disk_check = DISK_CHECK_INTERVAL_BYTES
                     with part.open("wb") as handle:
                         handle.write(first)
                         while True:
@@ -309,6 +312,10 @@ def _download_one(
                             total += len(chunk)
                             if total > MAX_IMAGE_BYTES:
                                 raise ValueError("Image exceeds the local per-image safety limit")
+                            if declared <= 0 and total >= next_disk_check:
+                                _ensure_free_space(destination_dir, CHUNK_BYTES)
+                                while next_disk_check <= total:
+                                    next_disk_check += DISK_CHECK_INTERVAL_BYTES
                             handle.write(chunk)
                     part.replace(destination)
                     return destination, total
@@ -459,6 +466,7 @@ def _run_image_job(payload: dict[str, Any]) -> None:
 
         if package:
             _raise_if_cancelled()
+            _ensure_free_space(downloads, total_bytes + ZIP_RESERVE_OVERHEAD_BYTES)
             zip_path = _unique_path(downloads, title, "zip")
             text = _archive_text(payload)
             markdown = _archive_markdown(payload, downloaded)
