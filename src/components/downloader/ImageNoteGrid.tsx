@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useDictionary } from '@/i18n/client';
 import { toast } from '@/lib/deferred-toast';
 import { buildDocumentArchiveMarkdown, type ArchiveImageFile } from '@/lib/document-archive';
+import { submitLocalImageDownload } from '@/lib/local-image-engine';
 import { sanitizeFilename } from '@/lib/utils';
 
 import { shouldHideSingleImagePreview } from './result-card-visibility';
@@ -146,6 +147,26 @@ function ImageNoteGridContent({
     };
 
     const handleDownload = async (index: number, originalUrl: string) => {
+        const local = await submitLocalImageDownload({
+            images: [originalUrl],
+            title: `${sanitizeFilename(title)}-${singleImageMode ? 'cover' : index + 1}`,
+            sourceUrl,
+            package: false,
+        });
+        if (local.accepted) {
+            toast.success('Galaxy Local Engine', {
+                description: dict.result.downloadImage,
+            });
+            return;
+        }
+        if (local.available && local.busy) {
+            toast.error('Galaxy Local Engine', {
+                description: local.message || dict.errors.downloadError,
+            });
+            return;
+        }
+
+        // Older/offline engines keep the existing bounded browser/server path.
         try {
             const { blob } = await fetchImageBlobCandidates(downloadCandidates(index, originalUrl));
             const prepared = await prepareImageDownloadBlob(blob, originalUrl);
@@ -165,6 +186,33 @@ function ImageNoteGridContent({
         setPackagingProgress(0);
 
         try {
+            const local = await submitLocalImageDownload({
+                images,
+                title: sanitizeFilename(title),
+                sourceUrl,
+                package: true,
+                description,
+                markdownContent,
+                author,
+                publishedAt,
+            });
+            if (local.accepted) {
+                toast.success('Galaxy Local Engine', {
+                    description: dict.result.packageDownload,
+                });
+                return;
+            }
+            if (local.available && local.busy) {
+                toast.error('Galaxy Local Engine', {
+                    description: local.message || dict.errors.packageFailed,
+                });
+                return;
+            }
+
+            // Local Engine 0.7+ is the preferred path because it streams every
+            // original image directly to disk and creates the ZIP locally. The
+            // browser fallback below is retained for users who have not installed
+            // the engine yet and remains protected by the public proxy byte limit.
             const { default: JSZip } = await import('jszip');
             const zip = new JSZip();
             let successCount = 0;
