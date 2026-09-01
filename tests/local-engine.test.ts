@@ -68,10 +68,10 @@ describe('local media engine capabilities', () => {
   })
 
   it('pins the website and GitHub mirror to the exact required Local Engine release', () => {
-    expect(LOCAL_ENGINE_REQUIRED_VERSION).toBe('0.9.0')
-    expect(LOCAL_ENGINE_RELEASE_TAG).toBe('local-engine-v0.9.0')
-    expect(LOCAL_ENGINE_RELEASE_URL).toContain('version=0.9.0')
-    expect(LOCAL_ENGINE_GITHUB_URL).toContain('/releases/download/local-engine-v0.9.0/')
+    expect(LOCAL_ENGINE_REQUIRED_VERSION).toBe('0.10.0')
+    expect(LOCAL_ENGINE_RELEASE_TAG).toBe('local-engine-v0.10.0')
+    expect(LOCAL_ENGINE_RELEASE_URL).toContain('version=0.10.0')
+    expect(LOCAL_ENGINE_GITHUB_URL).toContain('/releases/download/local-engine-v0.10.0/')
     expect(LOCAL_ENGINE_GITHUB_URL).not.toContain('/releases/latest/')
   })
 })
