@@ -13,6 +13,16 @@ const LOCAL_ENGINE_BRIDGE_BASE_URLS = [
 export const LOCAL_ENGINE_BRIDGE_BASE_URL = LOCAL_ENGINE_BRIDGE_BASE_URLS[0]
 const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1800
 const MIN_PARSE_BRIDGE_PROTOCOL = 4
+const MAX_VISIBLE_QUEUED_JOBS = 25
+const MAX_QUEUE_TEXT_LENGTH = 120
+const QUEUE_JOB_ID_PATTERN = /^[a-zA-Z0-9]{1,128}$/
+
+export interface LocalEngineQueuedJob {
+  id: string
+  position: number
+  label: string
+  sourceHost: string
+}
 
 export interface LocalEngineBridgeStatus {
   ok: boolean
@@ -30,10 +40,12 @@ export interface LocalEngineBridgeStatus {
   ytDlpReady: boolean
   queueLength: number
   queueCapacity: number
+  queuedJobs: LocalEngineQueuedJob[]
 }
 
 export interface LocalEngineBridgeJob {
   sourceUrl: string
+  displayTitle?: string
   videoQuality?: string
   audioQuality?: string
   includeAudio?: boolean
@@ -51,6 +63,9 @@ export interface LocalEngineBridgeJob {
 export type LocalEngineSubmissionCode =
   | 'BAD_REQUEST'
   | 'QUEUE_FULL'
+  | 'QUEUE_ITEM_CANCELLED'
+  | 'QUEUE_ITEM_NOT_FOUND'
+  | 'QUEUE_CONTROL_UNAVAILABLE'
   | 'ENGINE_BUSY'
   | 'ENGINE_SHUTTING_DOWN'
   | 'ENGINE_HANDOFF_TIMEOUT'
@@ -221,6 +236,37 @@ async function bridgeFetch(
   throw lastError instanceof Error ? lastError : new Error('Local engine bridge is unreachable')
 }
 
+function compactQueueText(value: unknown): string {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, MAX_QUEUE_TEXT_LENGTH)
+}
+
+export function normalizeLocalEngineQueuedJobs(value: unknown): LocalEngineQueuedJob[] {
+  if (!Array.isArray(value)) return []
+  const normalized: LocalEngineQueuedJob[] = []
+  const seen = new Set<string>()
+
+  for (const raw of value.slice(0, MAX_VISIBLE_QUEUED_JOBS)) {
+    if (!raw || typeof raw !== 'object') continue
+    const item = raw as Record<string, unknown>
+    const id = String(item.id || '').trim()
+    if (!QUEUE_JOB_ID_PATTERN.test(id) || seen.has(id)) continue
+    const position = Math.floor(Number(item.position || 0))
+    if (!Number.isFinite(position) || position <= 0) continue
+    const label = compactQueueText(item.label)
+    const sourceHost = compactQueueText(item.sourceHost)
+    if (!label && !sourceHost) continue
+    seen.add(id)
+    normalized.push({
+      id,
+      position,
+      label: label || sourceHost,
+      sourceHost,
+    })
+  }
+
+  return normalized.sort((left, right) => left.position - right.position)
+}
+
 export function getLastLocalEngineBridgeDiagnostic(): string | null {
   return lastBridgeDiagnostic
 }
@@ -245,9 +291,11 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
     }
 
     const queueCapacity = Math.max(0, Math.floor(Number(payload.queueCapacity || 0)))
+    const queuedJobs = normalizeLocalEngineQueuedJobs(payload.queuedJobs)
+    const reportedQueueLength = Math.max(0, Math.floor(Number(payload.queueLength || 0)))
     const queueLength = Math.max(
-      0,
-      Math.min(queueCapacity || Number.MAX_SAFE_INTEGER, Math.floor(Number(payload.queueLength || 0))),
+      queuedJobs.length,
+      Math.min(queueCapacity || Number.MAX_SAFE_INTEGER, reportedQueueLength),
     )
 
     lastBridgeDiagnostic = null
@@ -267,6 +315,7 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
       ytDlpReady: Boolean(payload.ytDlpReady),
       queueLength,
       queueCapacity,
+      queuedJobs,
     }
   } catch (error) {
     lastBridgeDiagnostic = localNetworkHelp(errorText(error))
@@ -384,6 +433,23 @@ async function postBridgeAction(path: string, body?: unknown): Promise<Response>
   }, 2500)
 }
 
+async function parseStructuredActionResponse(
+  response: Response,
+  fallbackMessage: string,
+  fallbackCode: LocalEngineSubmissionCode,
+): Promise<{ message: string; code: LocalEngineSubmissionCode }> {
+  let message = fallbackMessage
+  let code = fallbackCode
+  try {
+    const payload = await response.json() as { message?: string; error?: string; code?: string }
+    message = payload.message || payload.error || message
+    code = payload.code || code
+  } catch {
+    // Preserve status-based fallback values for older or malformed engines.
+  }
+  return { message, code }
+}
+
 export async function submitLocalEngineBridgeJob(job: LocalEngineBridgeJob): Promise<string> {
   const status = await getLocalEngineBridgeStatus()
   if (!status) {
@@ -394,16 +460,29 @@ export async function submitLocalEngineBridgeJob(job: LocalEngineBridgeJob): Pro
   }
 
   const response = await postBridgeAction('/download', job)
-  let message = response.ok ? 'Download job accepted' : `Local engine rejected the job (${response.status})`
-  let code: LocalEngineSubmissionCode = response.ok ? 'ACCEPTED' : 'ENGINE_BUSY'
-  try {
-    const payload = await response.json() as { message?: string; error?: string; code?: string }
-    message = payload.message || payload.error || message
-    code = payload.code || code
-  } catch {
-    // Keep the status-based message/code.
-  }
+  const fallbackMessage = response.ok ? 'Download job accepted' : `Local engine rejected the job (${response.status})`
+  const fallbackCode: LocalEngineSubmissionCode = response.ok ? 'ACCEPTED' : 'ENGINE_BUSY'
+  const { message, code } = await parseStructuredActionResponse(response, fallbackMessage, fallbackCode)
   if (response.ok) return message
+  throw new LocalEngineBridgeSubmissionError(
+    localizeLocalEngineSubmissionMessage(code, message),
+    code,
+    response.status,
+  )
+}
+
+export async function cancelLocalEngineQueuedJob(jobId: string): Promise<void> {
+  const normalizedJobId = jobId.trim()
+  if (!QUEUE_JOB_ID_PATTERN.test(normalizedJobId)) {
+    throw new LocalEngineBridgeSubmissionError('Invalid queued job id', 'BAD_REQUEST', 400)
+  }
+  const response = await postBridgeAction('/queue/cancel', { jobId: normalizedJobId })
+  const { message, code } = await parseStructuredActionResponse(
+    response,
+    response.ok ? 'Queued download cancelled' : `Could not cancel queued download (${response.status})`,
+    response.ok ? 'QUEUE_ITEM_CANCELLED' : 'QUEUE_ITEM_NOT_FOUND',
+  )
+  if (response.ok) return
   throw new LocalEngineBridgeSubmissionError(
     localizeLocalEngineSubmissionMessage(code, message),
     code,
