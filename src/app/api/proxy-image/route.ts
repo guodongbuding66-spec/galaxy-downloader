@@ -1,4 +1,8 @@
+'use server';
+
 import { NextRequest, NextResponse } from 'next/server';
+
+import { isSafePublicHttpUrl } from '@/lib/public-url';
 import { setXRobotsTag } from '@/lib/seo';
 
 const ALLOWED_IMAGE_HOSTS = [
@@ -7,6 +11,7 @@ const ALLOWED_IMAGE_HOSTS = [
 
 const DEFAULT_ACCEPT =
     'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
+const MAX_REDIRECTS = 5;
 
 const NESTED_IMAGE_PROXY_HOSTS = new Set([
     'downloader-api.bhwa233.com',
@@ -29,12 +34,11 @@ function isPrivateIpv4(hostname: string): boolean {
 }
 
 function isSafePublicImageUrl(url: URL): boolean {
-    if (!isHttpProtocol(url.protocol)) return false;
+    if (!isHttpProtocol(url.protocol) || !isSafePublicHttpUrl(url)) return false;
     const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
-    if (isPrivateIpv4(host)) return false;
-    if (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) return false;
-    return true;
+    // Keep the legacy literal guard as defense in depth while the shared policy
+    // also covers credentials, reserved ranges, mapped IPv6 and local names.
+    return !isPrivateIpv4(host);
 }
 
 function isAllowedImageHost(hostname: string): boolean {
@@ -143,6 +147,29 @@ function normalizeUpstreamUrl(url: URL): URL {
     return normalizedUrl;
 }
 
+async function fetchUpstreamImage(initialUrl: URL, upstreamHeaders: Headers): Promise<Response> {
+    let current = normalizeUpstreamUrl(initialUrl);
+    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+        if (!isSafePublicImageUrl(current)) {
+            throw new Error('Image redirect target is not allowed');
+        }
+        const response = await fetch(current.toString(), {
+            method: 'GET',
+            headers: upstreamHeaders,
+            redirect: 'manual',
+        });
+        if (response.status >= 300 && response.status < 400) {
+            const location = response.headers.get('location');
+            void response.body?.cancel();
+            if (!location) throw new Error(`Image redirect ${response.status} has no Location`);
+            current = normalizeUpstreamUrl(new URL(location, current));
+            continue;
+        }
+        return response;
+    }
+    throw new Error('Image exceeded redirect limit');
+}
+
 function tryDecodeURIComponent(value: string): string {
     try {
         return decodeURIComponent(value);
@@ -232,11 +259,7 @@ export async function GET(request: NextRequest) {
 
     let upstreamResponse: Response;
     try {
-        upstreamResponse = await fetch(upstreamUrl.toString(), {
-            method: 'GET',
-            headers: upstreamHeaders,
-            redirect: 'follow',
-        });
+        upstreamResponse = await fetchUpstreamImage(upstreamUrl, upstreamHeaders);
     } catch (error) {
         console.error('Failed to fetch upstream image', {
             url: upstreamUrl.toString(),
