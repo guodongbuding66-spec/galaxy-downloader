@@ -27,12 +27,13 @@ describe('downloader Local Engine onboarding UI', () => {
     expect(quickStart).toContain("open: '打开引擎'")
   })
 
-  it('distinguishes an outdated engine from offline and never hard-codes the old 0.7 threshold', () => {
+  it('distinguishes outdated, partially-ready and offline engines without hard-coded old thresholds', () => {
     const setupHint = source('src/components/downloader/LocalEngineSetupHint.tsx')
     expect(setupHint).toContain('probeLocalEngineVersion')
     expect(setupHint).toContain('LOCAL_ENGINE_REQUIRED_VERSION')
     expect(setupHint).toContain("setStatus('upgrade')")
-    expect(setupHint).toContain("setStatus('repair')")
+    expect(setupHint).toContain("imageVersion ? 'ready' : 'repair'")
+    expect(setupHint).toContain("type Status = 'checking' | 'ready' | 'upgrade' | 'repair' | 'offline'")
     expect(setupHint).not.toContain('0.7.0+')
   })
 })
