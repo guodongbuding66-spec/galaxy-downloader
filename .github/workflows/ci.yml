@@ -46,11 +46,13 @@ jobs:
             local-engine/document_policy.py \
             local-engine/document_markdown.py \
             local-engine/dynamic_document.py \
+            local-engine/url_policy.py \
             local-engine/external_ytdlp.py \
             container-backend/app/main.py \
             container-backend/app/playback.py \
             container-backend/app/server.py
           python3 scripts/test-local-engine-policy.py
+          python3 scripts/test-local-url-policy.py
 
       - name: Run tests
         run: pnpm test
