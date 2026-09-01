@@ -213,7 +213,12 @@ export function shouldUseFrontendImageProxy(imageUrl: string | null | undefined)
         if (parsed.pathname !== '/api/image-proxy' && parsed.pathname.endsWith('/download') && parsed.searchParams.has('index')) {
             return false
         }
-        return parsed.pathname !== '/api/image-proxy'
+
+        // External image proxy URLs must still pass through our own relay. The
+        // local /api/proxy-image route can unwrap known upstream proxies and add
+        // the correct Referer/original-image retry policy. Skipping solely by
+        // pathname caused intermittent hotlink failures for WeChat and others.
+        return true
     } catch {
         return false
     }
