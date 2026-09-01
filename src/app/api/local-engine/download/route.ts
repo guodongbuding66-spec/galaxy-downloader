@@ -37,7 +37,9 @@ export async function GET() {
     const headers = new Headers();
     headers.set('Content-Type', upstream.headers.get('content-type') || 'application/zip');
     headers.set('Content-Disposition', `attachment; filename="${DOWNLOAD_NAME}"`);
-    headers.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+    headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    headers.set('Pragma', 'no-cache');
+    headers.set('Expires', '0');
     headers.set('X-Content-Type-Options', 'nosniff');
     headers.set('X-Galaxy-Download-Source', 'official-site-proxy');
 
