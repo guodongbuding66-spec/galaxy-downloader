@@ -7,7 +7,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from bridge import allowed_origins
-from image_download import image_job_status, start_image_download_job
+from image_download import (
+    MAX_IMAGES_PER_JOB,
+    cancel_image_download_job,
+    image_job_status,
+    start_image_download_job,
+)
 
 IMAGE_BRIDGE_HOST = "127.0.0.1"
 IMAGE_BRIDGE_PORT = int(os.getenv("GALAXY_LOCAL_IMAGE_BRIDGE_PORT", "17837"))
@@ -110,12 +115,37 @@ class ImageBridge:
             def do_POST(self) -> None:  # noqa: N802
                 if self._reject_origin():
                     return
+
+                if self.path == "/cancel-images":
+                    cancelled, message = cancel_image_download_job()
+                    self._json(
+                        202 if cancelled else 409,
+                        {"ok": cancelled, "cancelled": cancelled, "message": message},
+                    )
+                    return
+
                 if self.path != "/download-images":
                     self._json(404, {"ok": False, "error": "Not found"})
                     return
+
                 payload = self._read_json()
                 if payload is None:
                     return
+                images = payload.get("images")
+                if not isinstance(images, list) or not images:
+                    self._json(400, {"ok": False, "accepted": False, "message": "At least one image URL is required"})
+                    return
+                if len(images) > MAX_IMAGES_PER_JOB:
+                    self._json(
+                        400,
+                        {
+                            "ok": False,
+                            "accepted": False,
+                            "message": f"A maximum of {MAX_IMAGES_PER_JOB} images is allowed per job",
+                        },
+                    )
+                    return
+
                 accepted, message = start_image_download_job(payload)
                 self._json(
                     202 if accepted else 409,
