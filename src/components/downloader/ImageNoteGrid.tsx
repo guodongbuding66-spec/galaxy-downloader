@@ -12,8 +12,9 @@ import { shouldHideSingleImagePreview } from './result-card-visibility';
 import {
     createInitialImageStates,
     fetchImageBlobCandidates,
+    prepareImageDownloadBlob,
     replaceTemplate,
-    resolveImageDownloadExtension,
+    resolveImageDownloadSrc,
     resolveImageSrc,
     triggerBlobDownload,
     type ImageLoadState,
@@ -46,7 +47,7 @@ export function ImageNoteGrid({
     publishedAt?: string | null;
     sourceUrl?: string | null;
 }) {
-    const imageSetKey = images.map(resolveImageSrc).join('\u0000');
+    const imageSetKey = images.map((imageUrl) => resolveImageSrc(imageUrl, sourceUrl)).join('\u0000');
 
     return (
         <ImageNoteGridContent
@@ -94,7 +95,7 @@ function ImageNoteGridContent({
     sourceUrl?: string | null;
 }) {
     const dict = useDictionary();
-    const [imageStates, setImageStates] = useState<ImageLoadState[]>(() => createInitialImageStates(images));
+    const [imageStates, setImageStates] = useState<ImageLoadState[]>(() => createInitialImageStates(images, sourceUrl));
     const [isPackaging, setIsPackaging] = useState(false);
     const [packagingProgress, setPackagingProgress] = useState(0);
 
@@ -110,23 +111,49 @@ function ImageNoteGridContent({
 
     const handleImageError = (index: number, originalUrl: string) => {
         updateImageState(index, (state) => {
-            if (!state.usedFallback && state.src !== originalUrl) {
-                return { ...state, loading: true, error: false, src: originalUrl, usedFallback: true };
+            const downloadProxy = resolveImageDownloadSrc(originalUrl, sourceUrl);
+            if (!state.usedFallback && state.src !== downloadProxy) {
+                return {
+                    ...state,
+                    loading: true,
+                    error: false,
+                    src: downloadProxy,
+                    usedFallback: true,
+                };
+            }
+            if (!state.usedDirectFallback && state.src !== originalUrl) {
+                return {
+                    ...state,
+                    loading: true,
+                    error: false,
+                    src: originalUrl,
+                    usedFallback: true,
+                    usedDirectFallback: true,
+                };
             }
             return { ...state, loading: false, error: true };
         });
     };
 
+    const downloadCandidates = (index: number, originalUrl: string): string[] => {
+        const state = imageStates[index];
+        return [
+            resolveImageDownloadSrc(originalUrl, sourceUrl),
+            state?.src || '',
+            resolveImageSrc(originalUrl, sourceUrl),
+            originalUrl,
+        ];
+    };
+
     const handleDownload = async (index: number, originalUrl: string) => {
         try {
-            const state = imageStates[index];
-            const { blob, sourceUrl: downloadedSourceUrl } = await fetchImageBlobCandidates([
-                state?.src ?? resolveImageSrc(originalUrl),
-                originalUrl,
-            ]);
-            const extension = resolveImageDownloadExtension(downloadedSourceUrl, blob.type);
+            const { blob } = await fetchImageBlobCandidates(downloadCandidates(index, originalUrl));
+            const prepared = await prepareImageDownloadBlob(blob, originalUrl);
             const filenameSuffix = singleImageMode ? 'cover' : String(index + 1);
-            triggerBlobDownload(blob, `${sanitizeFilename(title)}-${filenameSuffix}.${extension}`);
+            triggerBlobDownload(
+                prepared.blob,
+                `${sanitizeFilename(title)}-${filenameSuffix}.${prepared.extension}`,
+            );
         } catch (error) {
             console.error(`Failed to download image ${index}:`, error);
             toast.error(dict.errors.downloadError);
@@ -145,22 +172,17 @@ function ImageNoteGridContent({
             const safeTitle = sanitizeFilename(title);
 
             for (let index = 0; index < images.length; index++) {
-                const state = imageStates[index];
-                const hasError = state?.error ?? false;
-                if (!hasError) {
-                    try {
-                        const { blob, sourceUrl: downloadedSourceUrl } = await fetchImageBlobCandidates([
-                            state?.src ?? resolveImageSrc(images[index]!),
-                            images[index]!,
-                        ]);
-                        const extension = resolveImageDownloadExtension(downloadedSourceUrl, blob.type);
-                        const filename = `${safeTitle}-${index + 1}.${extension}`;
-                        zip.file(filename, blob);
-                        archiveImages.push({ sourceUrl: images[index]!, filename });
-                        successCount++;
-                    } catch (error) {
-                        console.error(`Failed to add image ${index} to zip:`, error);
-                    }
+                const originalUrl = images[index]!;
+                try {
+                    // A failed preview must not suppress a fresh download attempt.
+                    const { blob } = await fetchImageBlobCandidates(downloadCandidates(index, originalUrl));
+                    const prepared = await prepareImageDownloadBlob(blob, originalUrl);
+                    const filename = `${safeTitle}-${index + 1}.${prepared.extension}`;
+                    zip.file(filename, prepared.blob);
+                    archiveImages.push({ sourceUrl: originalUrl, filename });
+                    successCount++;
+                } catch (error) {
+                    console.error(`Failed to add image ${index} to zip:`, error);
                 }
                 setPackagingProgress(Math.round(((index + 1) / images.length) * 100));
             }
@@ -188,7 +210,6 @@ function ImageNoteGridContent({
 
     const loadedCount = imageStates.filter((state) => !state.loading).length;
     const allLoaded = loadedCount === images.length;
-    const successCount = imageStates.filter((state) => !state.error).length;
     const singleImageState = singleImageMode ? imageStates[0] : undefined;
     const shouldHideSingleImage = shouldHideSingleImagePreview(singleImageMode, singleImageState);
 
@@ -212,7 +233,7 @@ function ImageNoteGridContent({
                     <Button
                         size="xs"
                         variant="outline"
-                        disabled={!allLoaded || isPackaging || successCount === 0}
+                        disabled={isPackaging || images.length === 0}
                         onClick={handlePackageDownload}
                         className="shrink-0"
                     >
@@ -227,7 +248,7 @@ function ImageNoteGridContent({
                     const state = imageStates[index];
                     const isLoading = state?.loading ?? true;
                     const hasError = state?.error ?? false;
-                    const displaySrc = state?.src ?? resolveImageSrc(imageUrl);
+                    const displaySrc = state?.src ?? resolveImageSrc(imageUrl, sourceUrl);
 
                     return (
                         <div
@@ -261,7 +282,7 @@ function ImageNoteGridContent({
                                 )}
                             </div>
 
-                            {!isLoading && !hasError && (
+                            {!isLoading && (
                                 <div className="absolute bottom-1.5 end-1.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
                                     <Button
                                         size="icon"
