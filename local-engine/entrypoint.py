@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import bridge
+import web_document
 from document_policy import install_document_policy, parse_web_document, should_try_web_document
 from dynamic_document import parse_dynamic_web_document
 from url_policy import is_public_http_url, validated_public_http_url
 
+# Static document redirects and CDP request interception resolve this helper from
+# the shared web_document module at request time. Install the fail-closed public
+# URL boundary before either parser begins serving requests.
+web_document._safe_http_url = is_public_http_url
 install_document_policy()
 _original_media_parse = bridge.parse_with_bundled_ytdlp
 
