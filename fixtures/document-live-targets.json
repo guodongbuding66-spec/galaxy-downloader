@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Amazon outdoor storage results",
+    "platform": "amazon",
+    "url": "https://www.amazon.com/s?k=outdoor+storage+shed",
+    "allow_blocked": true
+  },
+  {
+    "name": "eBay garden shed product",
+    "platform": "ebay",
+    "url": "https://www.ebay.com/itm/127786592307",
+    "allow_blocked": true
+  },
+  {
+    "name": "AliExpress outdoor storage results",
+    "platform": "aliexpress",
+    "url": "https://www.aliexpress.com/w/wholesale-outdoor-storage-shed.html",
+    "allow_blocked": true
+  },
+  {
+    "name": "Alibaba garden shed product",
+    "platform": "alibaba",
+    "url": "https://www.alibaba.com/product-introduction/Outdoor-Storage-Shed-Garden-Bicycle-Shed_11000018033299.html",
+    "allow_blocked": true
+  },
+  {
+    "name": "Shopify Woodridge shed product",
+    "platform": "shopify",
+    "url": "https://sheds-for-space.myshopify.com/products/woodridge-steel-storage-shed-10-width-x-12-depth",
+    "allow_blocked": true
+  },
+  {
+    "name": "WeChat public article",
+    "platform": "wechat",
+    "url": "https://mp.weixin.qq.com/s?__biz=MzUyMjk4NzExMA==&mid=2247508035&idx=1&sn=4d58712823b2121714adf4edbea69f60",
+    "allow_blocked": true
+  }
+]

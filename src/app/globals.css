@@ -19,71 +19,71 @@ body {
 @layer base {
   :root {
     color-scheme: light;
-    --background: 216 28% 97%;
-    --foreground: 224 34% 12%;
+    --background: 220 9% 98%;
+    --foreground: 220 14% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 224 34% 12%;
+    --card-foreground: 220 14% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 34% 12%;
-    --primary: 224 78% 52%;
+    --popover-foreground: 220 14% 12%;
+    --primary: 220 14% 12%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 218 24% 93%;
-    --secondary-foreground: 223 30% 18%;
-    --muted: 216 25% 94%;
-    --muted-foreground: 219 12% 43%;
-    --accent: 198 72% 93%;
-    --accent-foreground: 215 70% 34%;
-    --destructive: 2 72% 51%;
+    --secondary: 220 6% 95%;
+    --secondary-foreground: 220 12% 16%;
+    --muted: 220 6% 96%;
+    --muted-foreground: 220 7% 44%;
+    --accent: 220 7% 94%;
+    --accent-foreground: 220 14% 14%;
+    --destructive: 2 66% 47%;
     --destructive-foreground: 0 0% 100%;
-    --border: 217 22% 86%;
-    --input: 217 23% 83%;
-    --ring: 224 78% 52%;
-    --success: 158 64% 36%;
-    --warning: 38 92% 46%;
-    --info: 199 80% 43%;
+    --border: 220 7% 87%;
+    --input: 220 7% 83%;
+    --ring: 220 12% 28%;
+    --success: 158 48% 33%;
+    --warning: 36 80% 42%;
+    --info: 210 54% 40%;
     --surface-raised: 0 0% 100%;
-    --surface-subtle: 216 30% 95%;
-    --shadow-color: 224 38% 17%;
-    --chart-1: 224 78% 52%;
-    --chart-2: 158 64% 36%;
-    --chart-3: 199 80% 43%;
-    --chart-4: 38 92% 46%;
-    --chart-5: 14 82% 55%;
-    --radius: 0.875rem;
+    --surface-subtle: 220 7% 97%;
+    --shadow-color: 220 16% 10%;
+    --chart-1: 220 14% 20%;
+    --chart-2: 158 48% 33%;
+    --chart-3: 210 54% 40%;
+    --chart-4: 36 80% 42%;
+    --chart-5: 12 60% 49%;
+    --radius: 0.5rem;
   }
 
   .dark {
     color-scheme: dark;
-    --background: 224 30% 7%;
-    --foreground: 214 27% 96%;
-    --card: 223 27% 10%;
-    --card-foreground: 214 27% 96%;
-    --popover: 223 28% 10%;
-    --popover-foreground: 214 27% 96%;
-    --primary: 219 92% 63%;
-    --primary-foreground: 225 34% 8%;
-    --secondary: 221 21% 15%;
-    --secondary-foreground: 214 27% 95%;
-    --muted: 221 20% 14%;
-    --muted-foreground: 216 14% 67%;
-    --accent: 215 35% 17%;
-    --accent-foreground: 198 94% 78%;
-    --destructive: 2 72% 57%;
+    --background: 220 10% 8%;
+    --foreground: 220 7% 94%;
+    --card: 220 9% 10%;
+    --card-foreground: 220 7% 94%;
+    --popover: 220 9% 10%;
+    --popover-foreground: 220 7% 94%;
+    --primary: 220 7% 92%;
+    --primary-foreground: 220 14% 10%;
+    --secondary: 220 8% 15%;
+    --secondary-foreground: 220 7% 92%;
+    --muted: 220 8% 14%;
+    --muted-foreground: 220 6% 66%;
+    --accent: 220 8% 17%;
+    --accent-foreground: 220 7% 92%;
+    --destructive: 2 61% 54%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 18% 21%;
-    --input: 220 18% 24%;
-    --ring: 219 92% 63%;
-    --success: 158 64% 48%;
-    --warning: 42 96% 58%;
-    --info: 198 90% 59%;
-    --surface-raised: 223 27% 11%;
-    --surface-subtle: 222 22% 13%;
-    --shadow-color: 228 50% 2%;
-    --chart-1: 219 92% 63%;
-    --chart-2: 158 64% 48%;
-    --chart-3: 198 90% 59%;
-    --chart-4: 42 96% 58%;
-    --chart-5: 14 88% 62%;
+    --border: 220 7% 23%;
+    --input: 220 7% 27%;
+    --ring: 220 7% 72%;
+    --success: 158 46% 45%;
+    --warning: 40 80% 56%;
+    --info: 210 55% 59%;
+    --surface-raised: 220 9% 11%;
+    --surface-subtle: 220 8% 13%;
+    --shadow-color: 220 30% 2%;
+    --chart-1: 220 7% 86%;
+    --chart-2: 158 46% 45%;
+    --chart-3: 210 55% 59%;
+    --chart-4: 40 80% 56%;
+    --chart-5: 12 68% 60%;
   }
 }
 
@@ -102,7 +102,7 @@ body {
   }
 
   ::selection {
-    background: hsl(var(--primary) / 0.18);
+    background: hsl(var(--foreground) / 0.1);
     color: hsl(var(--foreground));
   }
 }
@@ -110,15 +110,14 @@ body {
 @layer utilities {
   .workbench-shadow {
     box-shadow:
-      0 1px 2px hsl(var(--shadow-color) / 0.05),
-      0 12px 30px hsl(var(--shadow-color) / 0.055),
-      0 28px 64px hsl(var(--shadow-color) / 0.045);
+      0 1px 2px hsl(var(--shadow-color) / 0.035),
+      0 6px 18px hsl(var(--shadow-color) / 0.035);
   }
 
   .dark .workbench-shadow {
     box-shadow:
-      0 1px 2px hsl(var(--shadow-color) / 0.34),
-      0 18px 46px hsl(var(--shadow-color) / 0.28);
+      0 1px 2px hsl(var(--shadow-color) / 0.22),
+      0 8px 22px hsl(var(--shadow-color) / 0.16);
   }
 
   .surface-raised {
@@ -130,19 +129,18 @@ body {
   }
 
   .ui-pressable {
-    transform: translateY(0) scale(1);
+    transform: scale(1);
     transform-origin: center;
     transition:
-      transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
-      box-shadow 160ms ease,
-      background-color 160ms ease,
-      border-color 160ms ease,
-      color 160ms ease;
+      transform 120ms cubic-bezier(0.2, 0, 0, 1),
+      background-color 120ms cubic-bezier(0.2, 0, 0, 1),
+      border-color 120ms cubic-bezier(0.2, 0, 0, 1),
+      color 120ms cubic-bezier(0.2, 0, 0, 1),
+      opacity 120ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   .ui-pressable:not(:disabled):active {
-    transform: translateY(1px) scale(0.985);
-    transition-duration: 70ms;
+    transform: scale(0.96);
   }
 
   .text-balance {
@@ -151,12 +149,6 @@ body {
 
   .text-pretty {
     text-wrap: pretty;
-  }
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .ui-pressable:not(:disabled):hover {
-    transform: translateY(-1px) scale(1);
   }
 }
 

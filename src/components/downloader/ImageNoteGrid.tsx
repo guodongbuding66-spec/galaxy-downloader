@@ -5,29 +5,77 @@ import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { useDictionary } from '@/i18n/client';
 import { toast } from '@/lib/deferred-toast';
+import { buildDocumentArchiveMarkdown, type ArchiveImageFile } from '@/lib/document-archive';
+import { LOCAL_ENGINE_REQUIRED_VERSION } from '@/lib/local-engine';
+import { submitLocalImageDownload } from '@/lib/local-image-engine';
 import { sanitizeFilename } from '@/lib/utils';
 
 import { shouldHideSingleImagePreview } from './result-card-visibility';
 import {
     createInitialImageStates,
     fetchImageBlobCandidates,
+    ImageRelayLimitError,
+    prepareImageDownloadBlob,
     replaceTemplate,
-    resolveImageDownloadExtension,
+    resolveImageDownloadSrc,
     resolveImageSrc,
     triggerBlobDownload,
     type ImageLoadState,
 } from './result-card-utils';
 
+const LOCAL_ENGINE_BATCH_THRESHOLD = 20;
+const LOCAL_ENGINE_LABEL = `Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+`;
+
+type ArchiveMetadata = {
+    description?: string | null;
+    markdownContent?: string | null;
+    author?: string | null;
+    publishedAt?: string | null;
+    sourceUrl?: string | null;
+};
+
+function pageLanguage(): string {
+    return typeof document === 'undefined' ? 'en' : document.documentElement.lang.toLowerCase();
+}
+
+function oversizedImageMessage(): string {
+    const language = pageLanguage();
+    if (language.startsWith('zh')) return `原图超过服务器中转上限。请下载安装并启动 Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ 后重试，原图会直接下载到你的电脑。`;
+    if (language.startsWith('ja')) return `元画像がサーバー中継上限を超えています。Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ を起動して再試行してください。`;
+    if (language.startsWith('es')) return `La imagen original supera el límite del servidor. Inicia Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ y vuelve a intentarlo.`;
+    if (language.startsWith('ru')) return `Оригинал превышает лимит серверного прокси. Запустите Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ и повторите попытку.`;
+    return `The original image exceeds the server relay limit. Start Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ and retry for a direct local download.`;
+}
+
+function largeBatchMessage(count: number): string {
+    const language = pageLanguage();
+    if (language.startsWith('zh')) return `本次包含 ${count} 张原图。为避免占用服务器带宽和浏览器内存，超过 ${LOCAL_ENGINE_BATCH_THRESHOLD} 张的批量下载必须使用 Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+。`;
+    if (language.startsWith('ja')) return `${count} 枚の原画像があります。${LOCAL_ENGINE_BATCH_THRESHOLD} 枚を超える一括保存には Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ が必要です。`;
+    if (language.startsWith('es')) return `Este lote contiene ${count} imágenes. Los lotes de más de ${LOCAL_ENGINE_BATCH_THRESHOLD} imágenes requieren Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+.`;
+    if (language.startsWith('ru')) return `В наборе ${count} изображений. Для пакетов больше ${LOCAL_ENGINE_BATCH_THRESHOLD} изображений требуется Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+.`;
+    return `This batch contains ${count} originals. Batches over ${LOCAL_ENGINE_BATCH_THRESHOLD} images require Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ to avoid server bandwidth and browser-memory pressure.`;
+}
+
 export function ImageNoteGrid({
     images,
     title,
     singleImageMode = false,
+    description,
+    markdownContent,
+    author,
+    publishedAt,
+    sourceUrl,
 }: {
     images: string[];
     title: string;
     singleImageMode?: boolean;
+    description?: string | null;
+    markdownContent?: string | null;
+    author?: string | null;
+    publishedAt?: string | null;
+    sourceUrl?: string | null;
 }) {
-    const imageSetKey = images.map(resolveImageSrc).join('\u0000');
+    const imageSetKey = images.map((imageUrl) => resolveImageSrc(imageUrl, sourceUrl)).join('\u0000');
 
     return (
         <ImageNoteGridContent
@@ -35,21 +83,47 @@ export function ImageNoteGrid({
             images={images}
             title={title}
             singleImageMode={singleImageMode}
+            description={description}
+            markdownContent={markdownContent}
+            author={author}
+            publishedAt={publishedAt}
+            sourceUrl={sourceUrl}
         />
     );
+}
+
+function archiveText(title: string, metadata: ArchiveMetadata): string {
+    return [
+        title.trim(),
+        metadata.author ? `Author: ${metadata.author}` : '',
+        metadata.publishedAt ? `Published: ${metadata.publishedAt}` : '',
+        metadata.sourceUrl ? `Source: ${metadata.sourceUrl}` : '',
+        '',
+        metadata.description?.trim() || '',
+    ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])).join('\n').trim();
 }
 
 function ImageNoteGridContent({
     images,
     title,
     singleImageMode = false,
+    description,
+    markdownContent,
+    author,
+    publishedAt,
+    sourceUrl,
 }: {
     images: string[];
     title: string;
     singleImageMode?: boolean;
+    description?: string | null;
+    markdownContent?: string | null;
+    author?: string | null;
+    publishedAt?: string | null;
+    sourceUrl?: string | null;
 }) {
     const dict = useDictionary();
-    const [imageStates, setImageStates] = useState<ImageLoadState[]>(() => createInitialImageStates(images));
+    const [imageStates, setImageStates] = useState<ImageLoadState[]>(() => createInitialImageStates(images, sourceUrl));
     const [isPackaging, setIsPackaging] = useState(false);
     const [packagingProgress, setPackagingProgress] = useState(0);
 
@@ -60,45 +134,79 @@ function ImageNoteGridContent({
     };
 
     const handleImageLoad = (index: number) => {
-        updateImageState(index, (state) => ({
-            ...state,
-            loading: false,
-            error: false,
-        }));
+        updateImageState(index, (state) => ({ ...state, loading: false, error: false }));
     };
 
     const handleImageError = (index: number, originalUrl: string) => {
         updateImageState(index, (state) => {
-            if (!state.usedFallback && state.src !== originalUrl) {
+            const downloadProxy = resolveImageDownloadSrc(originalUrl, sourceUrl);
+            if (!state.usedFallback && state.src !== downloadProxy) {
+                return {
+                    ...state,
+                    loading: true,
+                    error: false,
+                    src: downloadProxy,
+                    usedFallback: true,
+                };
+            }
+            if (!state.usedDirectFallback && state.src !== originalUrl) {
                 return {
                     ...state,
                     loading: true,
                     error: false,
                     src: originalUrl,
                     usedFallback: true,
+                    usedDirectFallback: true,
                 };
             }
-
-            return {
-                ...state,
-                loading: false,
-                error: true,
-            };
+            return { ...state, loading: false, error: true };
         });
     };
 
+    const downloadCandidates = (index: number, originalUrl: string): string[] => {
+        const state = imageStates[index];
+        return [
+            resolveImageDownloadSrc(originalUrl, sourceUrl),
+            state?.src || '',
+            resolveImageSrc(originalUrl, sourceUrl),
+            originalUrl,
+        ];
+    };
+
     const handleDownload = async (index: number, originalUrl: string) => {
+        const local = await submitLocalImageDownload({
+            images: [originalUrl],
+            title: `${sanitizeFilename(title)}-${singleImageMode ? 'cover' : index + 1}`,
+            sourceUrl,
+            package: false,
+        });
+        if (local.accepted) {
+            toast.success('Galaxy Local Engine', {
+                description: dict.result.downloadImage,
+            });
+            return;
+        }
+        if (local.available && local.busy) {
+            toast.error('Galaxy Local Engine', {
+                description: local.message || dict.errors.downloadError,
+            });
+            return;
+        }
+
         try {
-            const state = imageStates[index];
-            const { blob, sourceUrl } = await fetchImageBlobCandidates([
-                state?.src ?? resolveImageSrc(originalUrl),
-                originalUrl,
-            ]);
-            const extension = resolveImageDownloadExtension(sourceUrl, blob.type);
+            const { blob } = await fetchImageBlobCandidates(downloadCandidates(index, originalUrl));
+            const prepared = await prepareImageDownloadBlob(blob, originalUrl);
             const filenameSuffix = singleImageMode ? 'cover' : String(index + 1);
-            triggerBlobDownload(blob, `${sanitizeFilename(title)}-${filenameSuffix}.${extension}`);
+            triggerBlobDownload(
+                prepared.blob,
+                `${sanitizeFilename(title)}-${filenameSuffix}.${prepared.extension}`,
+            );
         } catch (error) {
             console.error(`Failed to download image ${index}:`, error);
+            if (error instanceof ImageRelayLimitError) {
+                toast.error(LOCAL_ENGINE_LABEL, { description: oversizedImageMessage() });
+                return;
+            }
             toast.error(dict.errors.downloadError);
         }
     };
@@ -108,28 +216,54 @@ function ImageNoteGridContent({
         setPackagingProgress(0);
 
         try {
+            const local = await submitLocalImageDownload({
+                images,
+                title: sanitizeFilename(title),
+                sourceUrl,
+                package: true,
+                description,
+                markdownContent,
+                author,
+                publishedAt,
+            });
+            if (local.accepted) {
+                toast.success('Galaxy Local Engine', {
+                    description: dict.result.packageDownload,
+                });
+                return;
+            }
+            if (local.available && local.busy) {
+                toast.error('Galaxy Local Engine', {
+                    description: local.message || dict.errors.packageFailed,
+                });
+                return;
+            }
+            if (images.length > LOCAL_ENGINE_BATCH_THRESHOLD) {
+                toast.error(LOCAL_ENGINE_LABEL, {
+                    description: largeBatchMessage(images.length),
+                });
+                return;
+            }
+
             const { default: JSZip } = await import('jszip');
             const zip = new JSZip();
             let successCount = 0;
+            const archiveImages: ArchiveImageFile[] = [];
+            const safeTitle = sanitizeFilename(title);
 
             for (let index = 0; index < images.length; index++) {
-                const state = imageStates[index];
-                const hasError = state?.error ?? false;
-
-                if (!hasError) {
-                    try {
-                        const { blob, sourceUrl } = await fetchImageBlobCandidates([
-                            state?.src ?? resolveImageSrc(images[index]!),
-                            images[index]!,
-                        ]);
-                        const extension = resolveImageDownloadExtension(sourceUrl, blob.type);
-                        zip.file(`${sanitizeFilename(title)}-${index + 1}.${extension}`, blob);
-                        successCount++;
-                    } catch (error) {
-                        console.error(`Failed to add image ${index} to zip:`, error);
-                    }
+                const originalUrl = images[index]!;
+                try {
+                    const { blob } = await fetchImageBlobCandidates(downloadCandidates(index, originalUrl));
+                    const prepared = await prepareImageDownloadBlob(blob, originalUrl);
+                    const filename = `${safeTitle}-${index + 1}.${prepared.extension}`;
+                    zip.file(filename, prepared.blob);
+                    archiveImages.push({ sourceUrl: originalUrl, filename });
+                    successCount++;
+                } catch (error) {
+                    if (error instanceof ImageRelayLimitError) throw error;
+                    console.error(`Failed to add image ${index} to zip:`, error);
                 }
-
                 setPackagingProgress(Math.round(((index + 1) / images.length) * 100));
             }
 
@@ -138,10 +272,19 @@ function ImageNoteGridContent({
                 return;
             }
 
+            const metadata = { description, markdownContent, author, publishedAt, sourceUrl };
+            const text = archiveText(title, metadata);
+            if (text) zip.file(`${safeTitle}.txt`, text);
+            zip.file(`${safeTitle}.md`, buildDocumentArchiveMarkdown(title, metadata, archiveImages));
+
             const zipBlob = await zip.generateAsync({ type: 'blob' });
-            triggerBlobDownload(zipBlob, `${sanitizeFilename(title)}.zip`);
+            triggerBlobDownload(zipBlob, `${safeTitle}.zip`);
         } catch (error) {
             console.error('Failed to package images:', error);
+            if (error instanceof ImageRelayLimitError) {
+                toast.error(LOCAL_ENGINE_LABEL, { description: oversizedImageMessage() });
+                return;
+            }
             toast.error(dict.errors.packageFailed);
         } finally {
             setIsPackaging(false);
@@ -151,115 +294,94 @@ function ImageNoteGridContent({
 
     const loadedCount = imageStates.filter((state) => !state.loading).length;
     const allLoaded = loadedCount === images.length;
-    const successCount = imageStates.filter((state) => !state.error).length;
     const singleImageState = singleImageMode ? imageStates[0] : undefined;
     const shouldHideSingleImage = shouldHideSingleImagePreview(singleImageMode, singleImageState);
 
-    if (shouldHideSingleImage) {
-        return null;
-    }
+    if (shouldHideSingleImage) return null;
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-2">
             {!singleImageMode && (
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-sm text-foreground/75">
-                        <span className="font-medium">{dict.result.imageNote}</span>
-                        <span className="ms-2 text-muted-foreground">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">{dict.result.imageNote}</span>
+                        <span className="ms-1.5 tabular-nums">
                             {replaceTemplate(dict.result.imageCount, '{count}', String(images.length))}
                         </span>
                         {!allLoaded && (
-                            <span className="ms-2 text-xs text-muted-foreground" role="status" aria-live="polite">
-                                ({dict.result.imageLoadingProgress.replace('{loaded}', String(loadedCount)).replace('{total}', String(images.length))})
+                            <span className="ms-1.5 text-[10px]" role="status" aria-live="polite">
+                                {dict.result.imageLoadingProgress.replace('{loaded}', String(loadedCount)).replace('{total}', String(images.length))}
                             </span>
                         )}
                     </div>
                     <Button
-                        size="sm"
+                        size="xs"
                         variant="outline"
-                        disabled={!allLoaded || isPackaging || successCount === 0}
+                        disabled={isPackaging || images.length === 0}
                         onClick={handlePackageDownload}
-                        className="min-h-10 shrink-0 gap-1.5 px-3 text-sm"
+                        className="shrink-0"
                     >
-                        {isPackaging ? (
-                            <>
-                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                                <span>{dict.result.packaging} {packagingProgress}%</span>
-                            </>
-                        ) : (
-                            <>
-                                <Package className="h-4 w-4" aria-hidden="true" />
-                                <span>{dict.result.packageDownload}</span>
-                            </>
-                        )}
+                        {isPackaging ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Package className="h-3.5 w-3.5" aria-hidden="true" />}
+                        <span>{isPackaging ? `${dict.result.packaging} ${packagingProgress}%` : dict.result.packageDownload}</span>
                     </Button>
                 </div>
             )}
 
-            <div className={`${singleImageMode ? 'grid grid-cols-1' : 'grid grid-cols-2'} max-h-[34rem] gap-3 overflow-y-auto pe-1`}>
+            <div className={`${singleImageMode ? 'grid grid-cols-1' : 'grid grid-cols-2'} max-h-[34rem] gap-2 overflow-y-auto pe-0.5`}>
                 {images.map((imageUrl, index) => {
                     const state = imageStates[index];
                     const isLoading = state?.loading ?? true;
                     const hasError = state?.error ?? false;
-                    const displaySrc = state?.src ?? resolveImageSrc(imageUrl);
+                    const displaySrc = state?.src ?? resolveImageSrc(imageUrl, sourceUrl);
 
                     return (
                         <div
                             key={index}
-                            className="group relative overflow-hidden rounded-xl border bg-muted/20"
+                            className="group relative overflow-hidden rounded-md bg-muted outline outline-1 outline-black/10 dark:outline-white/10"
                         >
                             <div className={`${singleImageMode ? 'aspect-video' : 'aspect-square'} relative flex items-center justify-center bg-muted`}>
                                 {!hasError && (
                                     <Image
                                         src={displaySrc}
-                                        alt={
-                                            singleImageMode
-                                                ? (title || dict.result.coverLabel)
-                                                : replaceTemplate(dict.result.imageAlt, '{index}', String(index + 1))
-                                        }
+                                        alt={singleImageMode ? (title || dict.result.coverLabel) : replaceTemplate(dict.result.imageAlt, '{index}', String(index + 1))}
                                         fill
                                         unoptimized
                                         sizes={singleImageMode ? '(max-width: 1024px) 100vw, 720px' : '(max-width: 768px) 50vw, 33vw'}
-                                        className={`object-cover transition-opacity duration-200 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
+                                        className={`object-cover transition-opacity duration-150 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
                                         onLoad={() => handleImageLoad(index)}
                                         onError={() => handleImageError(index, imageUrl)}
                                     />
                                 )}
                                 {isLoading && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center" role="status">
-                                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
-                                        <p className="mt-2 text-xs text-muted-foreground">{dict.result.loading}</p>
+                                    <div className="absolute inset-0 flex items-center justify-center" role="status">
+                                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+                                        <span className="sr-only">{dict.result.loading}</span>
                                     </div>
                                 )}
                                 {!isLoading && hasError && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
-                                        <div className="text-2xl" aria-hidden="true">🖼️</div>
-                                        <p className="mt-2 text-xs">
-                                            {singleImageMode
-                                                ? dict.result.coverLabel
-                                                : replaceTemplate(dict.result.imageIndexLabel, '{index}', String(index + 1))}
-                                        </p>
-                                        <p className="mt-1 text-[11px] opacity-70">{dict.result.loadFailed}</p>
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center px-3 text-center text-[11px] text-muted-foreground">
+                                        <span>{singleImageMode ? dict.result.coverLabel : replaceTemplate(dict.result.imageIndexLabel, '{index}', String(index + 1))}</span>
+                                        <span className="mt-1 opacity-70">{dict.result.loadFailed}</span>
                                     </div>
                                 )}
                             </div>
 
-                            {!isLoading && !hasError && (
-                                <div className="absolute bottom-2 end-2">
+                            {!isLoading && (
+                                <div className="absolute bottom-1.5 end-1.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
                                     <Button
                                         size="icon"
                                         variant="secondary"
-                                        className="h-10 w-10 shadow-md"
+                                        className="h-8 w-8 rounded-md bg-background/90 backdrop-blur-sm"
                                         onClick={() => void handleDownload(index, imageUrl)}
                                         aria-label={singleImageMode ? dict.result.downloadCover : dict.result.downloadImage}
                                     >
-                                        <Download className="h-4 w-4" aria-hidden="true" />
+                                        <Download className="h-3.5 w-3.5" aria-hidden="true" />
                                     </Button>
                                 </div>
                             )}
 
                             {!singleImageMode && (
-                                <div className="absolute end-2 top-2 rounded-md bg-black/65 px-2 py-1 text-xs font-medium tabular-nums text-white">
+                                <div className="absolute end-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white">
                                     {index + 1}
                                 </div>
                             )}

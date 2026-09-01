@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 vi.mock('next/image', () => ({
-  default: (props: Record<string, unknown>) => React.createElement('img', props),
+  default: ({ fill: _fill, unoptimized: _unoptimized, priority: _priority, ...props }: Record<string, unknown>) => React.createElement('img', props),
 }))
 
 vi.mock('@/i18n/client', () => ({

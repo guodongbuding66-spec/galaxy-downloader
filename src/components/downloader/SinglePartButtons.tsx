@@ -15,7 +15,7 @@ import { getResultMediaActions } from './result-card-visibility';
 import { AudioDownloadIcon } from './CustomIcons';
 
 function getActionRowClass(actionCount: number) {
-    return actionCount >= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1';
+    return actionCount >= 2 ? 'grid-cols-2' : 'grid-cols-1';
 }
 
 function toBrowserAbsoluteUrl(value: string): string {
@@ -104,15 +104,15 @@ export function SinglePartButtons({
     };
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-2.5">
             {previewActionCount > 0 && (
-                <div className={`grid ${getActionRowClass(previewActionCount)} gap-2`}>
+                <div className={`grid ${getActionRowClass(previewActionCount)} gap-1.5`}>
                     {showVideoPreview && (
                         <MediaActionIconButton
                             label={dict.result.playVideo}
                             icon={MonitorPlay}
                             variant="secondary"
-                            className="min-h-10 w-full min-w-0"
+                            className="h-8 w-full min-w-0"
                             onClick={() => onRequestPreview({
                                 mediaType: 'video',
                                 sourceUrl: previewSourceUrl,
@@ -127,7 +127,7 @@ export function SinglePartButtons({
                             label={dict.result.playAudio}
                             icon={Headphones}
                             variant="secondary"
-                            className="min-h-10 w-full min-w-0"
+                            className="h-8 w-full min-w-0"
                             onClick={() => onRequestPreview({
                                 mediaType: 'audio',
                                 sourceUrl: previewSourceUrl,
@@ -145,7 +145,7 @@ export function SinglePartButtons({
                     label={dict.result.browserDownloadVideo}
                     icon={Download}
                     variant="outline"
-                    className="min-h-10 w-full min-w-0"
+                    className="h-8 w-full min-w-0"
                     onClick={openBrowserHlsDownload}
                 />
             )}
@@ -155,12 +155,16 @@ export function SinglePartButtons({
                     label={audioAction === 'extract-audio' ? dict.extractAudio.button : dict.result.downloadAudio}
                     icon={AudioDownloadIcon}
                     variant="default"
-                    className="min-h-10 w-full min-w-0"
+                    className="h-8 w-full min-w-0"
                     onClick={handleStandaloneAudioAction}
                 />
             )}
 
-            {isVideoResult && <AdvancedDownloadOptions result={result} />}
+            {isVideoResult && (
+                <div className="border-t pt-3">
+                    <AdvancedDownloadOptions result={result} />
+                </div>
+            )}
         </div>
     );
 }

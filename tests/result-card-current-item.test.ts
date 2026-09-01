@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 vi.mock('next/image', () => ({
-  default: (props: Record<string, unknown>) => React.createElement('img', props),
+  default: ({ fill: _fill, unoptimized: _unoptimized, priority: _priority, ...props }: Record<string, unknown>) => React.createElement('img', props),
 }))
 
 vi.mock('@/i18n/client', () => ({
@@ -290,7 +290,7 @@ describe('ResultCard current collection item highlighting', () => {
 
     expect(html).not.toContain('<audio')
     expect(html).toContain('<img')
-    expect(html).toContain('>分享<')
+    expect(html).toContain('aria-label="分享"')
     expect(html.match(/aria-label="播放视频"/g) ?? []).toHaveLength(0)
     expect(html.match(/aria-label="播放音频"/g) ?? []).toHaveLength(1)
   })
@@ -322,12 +322,12 @@ describe('ResultCard current collection item highlighting', () => {
 
     expect(html).not.toContain('<video')
     expect(html).toContain('<img')
-    expect(html).toContain('>分享<')
+    expect(html).toContain('aria-label="分享"')
     expect(html.match(/aria-label="播放视频"/g) ?? []).toHaveLength(1)
     expect(html.match(/aria-label="播放音频"/g) ?? []).toHaveLength(0)
   })
 
-  test('用户选择视频播放后才渲染播放器', () => {
+  test('用户选择视频播放后才渲染播放器，并优先使用已经解析出的直链', () => {
     const result = {
       title: '测试视频',
       cover: 'https://img.example.com/video-cover.jpg',
@@ -358,7 +358,8 @@ describe('ResultCard current collection item highlighting', () => {
     )
 
     expect(html).toContain('<video')
-    expect(html).toContain('/api/download?url=')
+    expect(html).toContain('src="https://cdn.example.com/video.mp4"')
+    expect(html).not.toContain('/api/download?url=')
     expect(html).toContain('autoPlay=""')
   })
 })

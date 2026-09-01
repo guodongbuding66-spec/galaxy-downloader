@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  LOCAL_ENGINE_GITHUB_URL,
+  LOCAL_ENGINE_RELEASE_TAG,
+  LOCAL_ENGINE_RELEASE_URL,
+  LOCAL_ENGINE_REQUIRED_VERSION,
   canProcessMediaLocally,
   detectLocalProcessingCapabilities,
   shouldUseFileBackedInputs,
@@ -61,5 +65,13 @@ describe('local media engine capabilities', () => {
       profile: 'unsupported',
     })
     expect(canProcessMediaLocally(capabilities)).toBe(false)
+  })
+
+  it('pins the website and GitHub mirror to the exact required Local Engine release', () => {
+    expect(LOCAL_ENGINE_REQUIRED_VERSION).toBe('0.9.0')
+    expect(LOCAL_ENGINE_RELEASE_TAG).toBe('local-engine-v0.9.0')
+    expect(LOCAL_ENGINE_RELEASE_URL).toContain('version=0.9.0')
+    expect(LOCAL_ENGINE_GITHUB_URL).toContain('/releases/download/local-engine-v0.9.0/')
+    expect(LOCAL_ENGINE_GITHUB_URL).not.toContain('/releases/latest/')
   })
 })

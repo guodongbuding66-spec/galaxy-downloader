@@ -3,8 +3,8 @@
 import { startTransition, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 import { toast } from '@/lib/deferred-toast';
 import { DeferredAudioExtractDialog } from '@/components/deferred-audio-extract-dialog';
@@ -12,15 +12,14 @@ import { useTopBarActions } from '@/components/layout/top-bar-actions';
 import type { AudioExtractTask } from '@/components/audio-tool/types';
 import type { MediaPreviewRequest } from '@/components/downloader/media-preview';
 import { buildResultPreviewForSelection } from '@/components/downloader/media-preview';
+import { LocalEngineSetupHint } from '@/components/downloader/LocalEngineSetupHint';
 import {
-    ArrowRight,
     ArrowUp,
+    ChevronDown,
     ClipboardPaste,
-    Laptop2,
     Loader2,
-    LockKeyhole,
     PackageCheck,
-    ShieldCheck,
+    X,
 } from 'lucide-react';
 
 import type { DownloadRecord } from './download-history';
@@ -53,83 +52,55 @@ interface ActivePreview extends MediaPreviewRequest {
 }
 
 type WorkbenchCopy = {
-    eyebrow: string;
     inputLabel: string;
-    local: string;
-    private: string;
-    free: string;
-    flowTitle: string;
+    clearInput: string;
+    pageDescription: string;
     helperTitle: string;
     helperDescription: string;
-    steps: [string, string, string, string];
 };
 
 const WORKBENCH_COPY: Record<string, WorkbenchCopy> = {
     zh: {
-        eyebrow: '本地媒体工作台',
         inputLabel: '媒体链接或分享文本',
-        local: '本机处理',
-        private: '媒体不上传',
-        free: '本地合成免费',
-        flowTitle: '使用说明 · 一键成品流程',
-        helperTitle: '更多工具与平台支持',
-        helperDescription: '主流程完成后再查看历史、平台说明和辅助工具，避免打断下载任务。',
-        steps: ['解析媒体', '获取所选画质', '本地合成音画 / 字幕 / 封面', '保存最终 MP4'],
+        clearInput: '清空链接',
+        pageDescription: '首次使用请先下载并打开 Galaxy Local Engine，再粘贴链接解析；支持视频、音频、纯音乐、图文以及 M3U8/HLS 流媒体。',
+        helperTitle: '工具与平台说明',
+        helperDescription: '历史记录、平台说明和辅助工具按需展开。',
     },
     'zh-tw': {
-        eyebrow: '本機媒體工作台',
         inputLabel: '媒體連結或分享文字',
-        local: '本機處理',
-        private: '媒體不上傳',
-        free: '本機合成免費',
-        flowTitle: '使用說明 · 一鍵成品流程',
-        helperTitle: '更多工具與平台支援',
-        helperDescription: '先完成主要下載流程，再查看歷史、平台說明與輔助工具。',
-        steps: ['解析媒體', '取得所選畫質', '本機合成音訊 / 字幕 / 封面', '儲存最終 MP4'],
+        clearInput: '清空連結',
+        pageDescription: '首次使用請先下載並開啟 Galaxy Local Engine，再貼上連結解析；支援影片、音訊、純音樂、圖文以及 M3U8/HLS 串流媒體。',
+        helperTitle: '工具與平台說明',
+        helperDescription: '歷史記錄、平台說明與輔助工具按需展開。',
     },
     en: {
-        eyebrow: 'Local media workbench',
         inputLabel: 'Media URL or shared text',
-        local: 'Processed locally',
-        private: 'Media stays on device',
-        free: 'Free local assembly',
-        flowTitle: 'How to use · finished-file workflow',
-        helperTitle: 'More tools and platform support',
-        helperDescription: 'Finish the primary download first, then use history, platform guides and secondary tools when needed.',
-        steps: ['Resolve media', 'Fetch selected quality', 'Assemble audio / subtitles / cover locally', 'Save final MP4'],
+        clearInput: 'Clear link',
+        pageDescription: 'First download and open Galaxy Local Engine, then paste a link to parse video, audio, music, image posts, and M3U8/HLS media.',
+        helperTitle: 'Tools and platform notes',
+        helperDescription: 'History, platform notes and secondary tools stay collapsed until needed.',
     },
     ja: {
-        eyebrow: 'ローカルメディアワークベンチ',
         inputLabel: 'メディアURLまたは共有テキスト',
-        local: 'ローカル処理',
-        private: 'メディアをアップロードしない',
-        free: 'ローカル合成は無料',
-        flowTitle: '使い方 · 完成ファイルまでの流れ',
-        helperTitle: 'その他のツールと対応プラットフォーム',
-        helperDescription: 'まず主要なダウンロードを完了し、その後に履歴や補助ツールを利用できます。',
-        steps: ['メディア解析', '選択画質を取得', '音声・字幕・カバーを端末で合成', '最終MP4を保存'],
+        clearInput: 'リンクを消去',
+        pageDescription: '初回は Galaxy Local Engine をダウンロードして起動し、その後リンクを貼り付けて動画・音声・音楽・画像投稿・M3U8/HLS を解析します。',
+        helperTitle: 'ツールとプラットフォーム情報',
+        helperDescription: '履歴や補助ツールは必要なときだけ展開できます。',
     },
     es: {
-        eyebrow: 'Mesa de medios local',
         inputLabel: 'URL del medio o texto compartido',
-        local: 'Procesado local',
-        private: 'El medio no se sube',
-        free: 'Ensamblado local gratis',
-        flowTitle: 'Cómo usarlo · flujo del archivo final',
-        helperTitle: 'Más herramientas y plataformas',
-        helperDescription: 'Completa primero la descarga principal y consulta después el historial, las guías y las herramientas secundarias.',
-        steps: ['Resolver medio', 'Obtener la calidad elegida', 'Ensamblar audio / subtítulos / portada localmente', 'Guardar MP4 final'],
+        clearInput: 'Borrar enlace',
+        pageDescription: 'Primero descarga y abre Galaxy Local Engine; después pega un enlace para analizar vídeo, audio, música, publicaciones con imágenes y M3U8/HLS.',
+        helperTitle: 'Herramientas y notas de plataformas',
+        helperDescription: 'El historial y las herramientas secundarias permanecen plegados hasta que los necesites.',
     },
     ru: {
-        eyebrow: 'Локальная медиамастерская',
         inputLabel: 'Ссылка на медиа или текст публикации',
-        local: 'Обработка на устройстве',
-        private: 'Медиа не загружается',
-        free: 'Локальная сборка бесплатно',
-        flowTitle: 'Как пользоваться · путь к готовому файлу',
-        helperTitle: 'Дополнительные инструменты и платформы',
-        helperDescription: 'Сначала завершите основную загрузку, затем при необходимости используйте историю, справку и дополнительные инструменты.',
-        steps: ['Разобрать медиа', 'Получить выбранное качество', 'Локально собрать аудио / субтитры / обложку', 'Сохранить итоговый MP4'],
+        clearInput: 'Очистить ссылку',
+        pageDescription: 'Сначала скачайте и откройте Galaxy Local Engine, затем вставьте ссылку для разбора видео, аудио, музыки, публикаций с изображениями и M3U8/HLS.',
+        helperTitle: 'Инструменты и сведения о платформах',
+        helperDescription: 'История и вспомогательные инструменты раскрываются только при необходимости.',
     },
 };
 
@@ -145,8 +116,8 @@ export function UnifiedDownloader({
     heroMeta,
     footer,
 }: UnifiedDownloaderProps) {
-    const dict = useDictionary()
-    const { setActions: setTopBarActions } = useTopBarActions()
+    const dict = useDictionary();
+    const { setActions: setTopBarActions } = useTopBarActions();
     const pathname = usePathname();
     const workbenchCopy = resolveWorkbenchCopy(pathname);
     const searchParams = useSearchParams();
@@ -500,166 +471,143 @@ export function UnifiedDownloader({
                 autoExtractTask={audioToolTask}
             />
 
-            <main id="main-content" className="flex-1 px-3 py-5 sm:px-5 sm:py-7 md:px-6 md:py-9">
-                <div className="mx-auto w-full max-w-6xl space-y-8">
-                    <section className="overflow-hidden rounded-3xl border bg-card workbench-shadow">
-                        <div className="p-5 sm:p-7 md:p-9">
-                            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-                                <div className="max-w-3xl space-y-3">
-                                    <div className="inline-flex items-center gap-2 rounded-full border bg-muted/55 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                                        <Laptop2 className="h-3.5 w-3.5" aria-hidden="true" />
-                                        {workbenchCopy.eyebrow}
-                                    </div>
-                                    <h1 className="text-3xl font-semibold tracking-[-0.035em] text-balance sm:text-4xl md:text-[2.7rem] md:leading-[1.08]">
-                                        {dict.unified.pageTitle}
-                                    </h1>
-                                    <p className="max-w-2xl text-sm leading-6 text-muted-foreground text-pretty sm:text-[15px]">
-                                        {dict.unified.pageDescription}
-                                    </p>
-                                </div>
+            <main id="main-content" className="flex-1 px-3 py-3 sm:px-4 md:px-5">
+                <div className="mx-auto w-full max-w-[1380px] space-y-3">
+                    <section className="border-b pb-3 sm:pb-4">
+                        <div className="flex min-w-0 flex-col gap-1 lg:flex-row lg:items-center lg:gap-4">
+                            <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-3">
+                                <h1 className="shrink-0 text-lg font-semibold tracking-[-0.02em] sm:text-xl">
+                                    {dict.unified.pageTitle}
+                                </h1>
+                                <p className="min-w-0 max-w-4xl text-xs leading-5 text-muted-foreground sm:text-sm">
+                                    {workbenchCopy.pageDescription}
+                                </p>
+                            </div>
+                            <LocalEngineSetupHint className="lg:ms-auto lg:max-w-[560px] lg:justify-end" />
+                        </div>
 
-                                <div className="flex flex-wrap gap-2 lg:max-w-xs lg:justify-end" aria-label={workbenchCopy.flowTitle}>
-                                    <span className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                                        <Laptop2 className="h-3.5 w-3.5" aria-hidden="true" />
-                                        {workbenchCopy.local}
-                                    </span>
-                                    <span className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                                        <LockKeyhole className="h-3.5 w-3.5" aria-hidden="true" />
-                                        {workbenchCopy.private}
-                                    </span>
-                                    <span className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                                        <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                                        {workbenchCopy.free}
-                                    </span>
+                        <form onSubmit={handleSubmit} className="mt-3">
+                            <label htmlFor="url" className="sr-only">
+                                {workbenchCopy.inputLabel}
+                            </label>
+                            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+                                <div className="relative rounded-lg border bg-card transition-[border-color] duration-150 focus-within:border-foreground/40">
+                                    <Textarea
+                                        id="url"
+                                        ref={urlInputRef}
+                                        value={url}
+                                        onChange={(e) => setUrl(e.target.value)}
+                                        placeholder={dict.unified.placeholder}
+                                        required
+                                        className="min-h-[52px] resize-none border-0 bg-transparent py-2.5 pe-11 ps-3 text-sm leading-5 shadow-none focus-visible:ring-0"
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="absolute end-1.5 top-1.5 h-8 w-8 rounded-md text-muted-foreground hover:text-foreground"
+                                        aria-label={dict.form.pasteButton}
+                                        title={dict.form.pasteButton}
+                                        onClick={async () => {
+                                            try {
+                                                const text = await navigator.clipboard.readText();
+                                                setUrl(text);
+                                                toast.success(dict.toast.linkFilled);
+                                            } catch (err) {
+                                                console.error('Failed to read clipboard:', err);
+                                                toast.error(dict.errors.clipboardFailed, {
+                                                    description: dict.errors.clipboardPermission,
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        <ClipboardPaste className="h-4 w-4" aria-hidden="true" />
+                                    </Button>
+                                </div>
+                                <div className="grid grid-cols-[104px_minmax(148px,1fr)] gap-2 lg:grid-cols-[104px_148px]">
+                                    <Button
+                                        type="button"
+                                        size="lg"
+                                        variant="outline"
+                                        className="h-[52px] gap-1.5 rounded-lg px-3"
+                                        disabled={!url.length}
+                                        onClick={() => {
+                                            setUrl('');
+                                            setError('');
+                                            urlInputRef.current?.focus();
+                                        }}
+                                    >
+                                        <X className="h-4 w-4" aria-hidden="true" />
+                                        {workbenchCopy.clearInput}
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        size="lg"
+                                        className="h-[52px] gap-2 rounded-lg"
+                                        disabled={loading || isCoolingDown || !url.trim()}
+                                    >
+                                        {loading ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                        ) : (
+                                            <PackageCheck className="h-4 w-4" aria-hidden="true" />
+                                        )}
+                                        {loading ? dict.form.downloading : dict.form.downloadButton}
+                                    </Button>
                                 </div>
                             </div>
 
-                            <form onSubmit={handleSubmit} className="mt-7 space-y-4">
-                                <div className="space-y-2.5">
-                                    <label htmlFor="url" className="block text-sm font-medium">
-                                        {workbenchCopy.inputLabel}
-                                    </label>
-                                    <div className="rounded-2xl border bg-background p-2 shadow-sm transition-[border-color,box-shadow] duration-150 focus-within:border-primary/45 focus-within:ring-4 focus-within:ring-primary/10">
-                                        <Textarea
-                                            id="url"
-                                            ref={urlInputRef}
-                                            value={url}
-                                            onChange={(e) => setUrl(e.target.value)}
-                                            placeholder={dict.unified.placeholder}
-                                            required
-                                            className="min-h-24 resize-none border-0 bg-transparent px-3 py-2 text-base leading-6 shadow-none focus-visible:ring-0 sm:text-sm"
-                                        />
-                                        <div className="flex flex-col gap-2 border-t px-1 pt-2 sm:flex-row sm:items-center sm:justify-end">
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                className="min-h-11 gap-2 px-4 active:scale-[0.96] transition-[transform,background-color] duration-150 sm:min-w-32"
-                                                onClick={async () => {
-                                                    try {
-                                                        const text = await navigator.clipboard.readText();
-                                                        setUrl(text);
-                                                        toast.success(dict.toast.linkFilled);
-                                                    } catch (err) {
-                                                        console.error('Failed to read clipboard:', err);
-                                                        toast.error(dict.errors.clipboardFailed, {
-                                                            description: dict.errors.clipboardPermission,
-                                                        });
-                                                    }
-                                                }}
-                                            >
-                                                <ClipboardPaste className="h-4 w-4" aria-hidden="true" />
-                                                {dict.form.pasteButton}
-                                            </Button>
-                                            <Button
-                                                type="submit"
-                                                size="lg"
-                                                className="min-h-11 gap-2 px-6 font-semibold active:scale-[0.96] transition-[transform,background-color] duration-150 sm:min-w-44"
-                                                disabled={loading || isCoolingDown || !url.trim()}
-                                            >
-                                                {loading ? (
-                                                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                                                ) : (
-                                                    <PackageCheck className="h-4 w-4" aria-hidden="true" />
-                                                )}
-                                                {loading ? dict.form.downloading : dict.form.downloadButton}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div role="status" aria-live="polite" className="min-h-5">
-                                    {error && (
-                                        <p role="alert" className="text-sm font-medium text-destructive">
+                            <div className="mt-2 flex min-h-5 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                <div className="min-w-0 text-[11px] leading-4">
+                                    {error ? (
+                                        <p role="alert" className="font-medium text-destructive">
                                             {error}
+                                        </p>
+                                    ) : (
+                                        <p className="text-muted-foreground">
+                                            {dict.page.copyrightBilibiliRestriction}
                                         </p>
                                     )}
                                 </div>
-
-                                <div className="space-y-3">
-                                    <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2.5 text-xs leading-5 text-amber-700 dark:text-amber-300 break-words">
-                                        {dict.page.copyrightBilibiliRestriction}
+                                {heroMeta ? (
+                                    <div className="shrink-0 text-[10px] leading-4 text-muted-foreground">
+                                        {heroMeta}
                                     </div>
-                                    {heroMeta}
-                                </div>
-                            </form>
-                        </div>
-
-                        <div className="border-t bg-muted/30 px-5 py-5 sm:px-7 md:px-9">
-                            <div className="mb-3 flex items-center justify-between gap-3">
-                                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                                    {workbenchCopy.flowTitle}
-                                </p>
+                                ) : null}
                             </div>
-                            <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                                {workbenchCopy.steps.map((step, index) => (
-                                    <li key={step} className="flex min-w-0 items-center gap-3 rounded-xl bg-background/80 px-3 py-3 ring-1 ring-border/70">
-                                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted text-xs font-semibold tabular-nums text-foreground">
-                                            {index + 1}
-                                        </span>
-                                        <span className="min-w-0 flex-1 text-xs font-medium leading-5 text-foreground/80 text-pretty">
-                                            {step}
-                                        </span>
-                                        {index < workbenchCopy.steps.length - 1 && (
-                                            <ArrowRight className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground/60 lg:block" aria-hidden="true" />
-                                        )}
-                                    </li>
-                                ))}
-                            </ol>
-                        </div>
+                        </form>
                     </section>
 
-                    <div className="space-y-6">
-                        <UnifiedDownloaderLowerSections
-                            parseResult={parseResult}
-                            onCloseParseResult={closeParseResult}
-                            onOpenExtractAudio={openResultAudioExtract}
-                            onRequestPreview={openResultPreview}
-                            onClearPreview={() => setActivePreview(null)}
-                            activePreview={activePreview}
-                            mobileAd={mobileAd}
-                            downloadHistory={downloadHistory}
-                            clearHistory={clearDownloadHistory}
-                            onRedownload={handleRedownload}
-                            historyRef={historyRef}
-                            historyHydrated={historyHydrated}
-                        />
-                    </div>
+                    <UnifiedDownloaderLowerSections
+                        parseResult={parseResult}
+                        onCloseParseResult={closeParseResult}
+                        onOpenExtractAudio={openResultAudioExtract}
+                        onRequestPreview={openResultPreview}
+                        onClearPreview={() => setActivePreview(null)}
+                        activePreview={activePreview}
+                        mobileAd={mobileAd}
+                        downloadHistory={downloadHistory}
+                        clearHistory={clearDownloadHistory}
+                        onRedownload={handleRedownload}
+                        historyRef={historyRef}
+                        historyHydrated={historyHydrated}
+                    />
 
                     {(leftRail || rightRail) && (
-                        <section className="space-y-4" aria-labelledby="supporting-tools-title">
-                            <div className="max-w-2xl space-y-1.5">
-                                <h2 id="supporting-tools-title" className="text-lg font-semibold tracking-tight">
-                                    {workbenchCopy.helperTitle}
-                                </h2>
-                                <p className="text-sm leading-6 text-muted-foreground text-pretty">
-                                    {workbenchCopy.helperDescription}
-                                </p>
-                            </div>
-                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
+                        <details className="group border-t pt-1">
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md px-1 py-2 text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+                                <div className="min-w-0">
+                                    <span className="font-medium">{workbenchCopy.helperTitle}</span>
+                                    <span className="ms-2 hidden text-xs font-normal text-muted-foreground md:inline">
+                                        {workbenchCopy.helperDescription}
+                                    </span>
+                                </div>
+                                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
+                            </summary>
+                            <div className="grid gap-3 pb-2 pt-2 md:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
                                 {leftRail}
                                 {rightRail}
                             </div>
-                        </section>
+                        </details>
                     )}
                 </div>
             </main>
@@ -668,18 +616,19 @@ export function UnifiedDownloader({
 
             <Button
                 type="button"
+                variant="outline"
                 size="icon"
-                className={`fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 h-10 w-10 rounded-full shadow-md transition-[opacity,transform] duration-200 ease-out active:scale-[0.96] ${
+                className={`fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 h-8 w-8 rounded-md bg-card transition-[opacity,transform] duration-150 ${
                     showBackToTop
-                        ? 'pointer-events-auto opacity-100 translate-y-0 scale-100'
-                        : 'pointer-events-none opacity-0 translate-y-2 scale-95'
+                        ? 'pointer-events-auto opacity-100 translate-y-0'
+                        : 'pointer-events-none opacity-0 translate-y-2'
                 }`}
                 aria-label={dict.common.backToTop}
                 onClick={() => {
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
             >
-                <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
         </div>
     );

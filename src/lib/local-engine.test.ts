@@ -4,6 +4,7 @@ import {
   buildLocalDesktopEngineUri,
   detectLocalProcessingCapabilities,
   resolveLocalDesktopVideoQuality,
+  resolveLocalEngineCollectionMode,
   shouldUseFileBackedInputs,
 } from './local-engine';
 
@@ -61,6 +62,8 @@ describe('desktop yt-dlp protocol', () => {
       subtitleLanguage: 'zh-Hans',
       includeCover: true,
       browser: 'edge',
+      collectionMode: 'selected',
+      selectedItems: [2, 4, 4],
     });
 
     const parsed = new URL(uri);
@@ -74,9 +77,12 @@ describe('desktop yt-dlp protocol', () => {
     expect(parsed.searchParams.get('subtitle_lang')).toBe('zh-Hans');
     expect(parsed.searchParams.get('cover')).toBe('1');
     expect(parsed.searchParams.get('browser')).toBe('edge');
+    expect(parsed.searchParams.get('collection')).toBe('selected');
+    expect(parsed.searchParams.get('items')).toBe('2,4');
+    expect(parsed.searchParams.get('playlist')).toBe('0');
   });
 
-  it('uses safe defaults without browser cookies', () => {
+  it('uses single-item safe defaults without cookies or side options', () => {
     const parsed = new URL(buildLocalDesktopEngineUri({ sourceUrl: 'https://example.com/video' }));
     expect(parsed.searchParams.get('video')).toBe('best');
     expect(parsed.searchParams.get('audio')).toBe('best');
@@ -84,6 +90,21 @@ describe('desktop yt-dlp protocol', () => {
     expect(parsed.searchParams.get('subtitle')).toBe('0');
     expect(parsed.searchParams.get('cover')).toBe('0');
     expect(parsed.searchParams.get('browser')).toBe('none');
+    expect(parsed.searchParams.get('collection')).toBe('single');
     expect(parsed.searchParams.get('playlist')).toBe('0');
+  });
+
+  it('supports entire collections while keeping the legacy playlist marker', () => {
+    const parsed = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://example.com/collection',
+      collectionMode: 'all',
+    }));
+    expect(parsed.searchParams.get('collection')).toBe('all');
+    expect(parsed.searchParams.get('playlist')).toBe('1');
+    expect(parsed.searchParams.has('items')).toBe(false);
+  });
+
+  it('downgrades an empty selected collection to a safe single item', () => {
+    expect(resolveLocalEngineCollectionMode({ collectionMode: 'selected', selectedItems: [] })).toBe('single');
   });
 });

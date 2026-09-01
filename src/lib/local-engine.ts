@@ -68,6 +68,17 @@ export function shouldUseFileBackedInputs(
 }
 
 export type LocalEngineBrowser = 'none' | 'edge' | 'chrome' | 'firefox'
+export type LocalEngineCollectionMode = 'single' | 'all' | 'selected'
+export type LocalEngineSubtitleMode = 'manual' | 'auto' | 'both'
+export type SponsorBlockCategory =
+  | 'sponsor'
+  | 'selfpromo'
+  | 'interaction'
+  | 'intro'
+  | 'outro'
+  | 'preview'
+  | 'music_offtopic'
+  | 'filler'
 
 export interface LocalDesktopVideoSelection {
   quality?: string | null
@@ -83,16 +94,37 @@ export interface LocalDesktopJobOptions {
   includeSubtitle?: boolean
   subtitleLanguage?: string | null
   includeCover?: boolean
+  skipPreviouslyDownloaded?: boolean
   browser?: LocalEngineBrowser
+  collectionMode?: LocalEngineCollectionMode
+  selectedItems?: number[]
+  segmentStart?: string | null
+  segmentEnd?: string | null
+  splitChapters?: boolean
+  subtitleMode?: LocalEngineSubtitleMode
+  subtitleLanguages?: string[]
+  audioLanguages?: string[]
+  sponsorBlockCategories?: SponsorBlockCategory[]
+  useAria2c?: boolean
+  /** @deprecated Use collectionMode. Kept for older call sites/releases. */
   playlist?: boolean
 }
 
-// Primary route goes through the Galaxy website so users whose network cannot
-// directly reach GitHub can still download the official release package.
-export const LOCAL_ENGINE_RELEASE_URL = '/api/local-engine/download'
+// Keep one source of truth for the website/bridge/image-engine requirement and
+// for the exact GitHub release tag the website serves. This prevents a newer
+// website build from silently downloading an older `releases/latest` package.
+export const LOCAL_ENGINE_REQUIRED_VERSION = '0.9.0'
+export const LOCAL_ENGINE_RELEASE_TAG = `local-engine-v${LOCAL_ENGINE_REQUIRED_VERSION}`
 
-// Keep the original GitHub Latest Release as a visible backup mirror.
-export const LOCAL_ENGINE_GITHUB_URL = 'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/latest/download/GalaxyLocalEngine-Windows.zip'
+// Primary route goes through the Galaxy website so users whose network cannot
+// directly reach GitHub can still download the exact release required by this
+// website build.
+export const LOCAL_ENGINE_RELEASE_URL =
+  `/api/local-engine/download?version=${LOCAL_ENGINE_REQUIRED_VERSION}`
+
+// Keep GitHub as a visible backup mirror, but pin it to the same exact tag.
+export const LOCAL_ENGINE_GITHUB_URL =
+  `https://github.com/guodongbuding66-spec/galaxy-downloader/releases/download/${LOCAL_ENGINE_RELEASE_TAG}/GalaxyLocalEngine-Windows.zip`
 
 const COMMON_VIDEO_HEIGHTS = new Set([144, 240, 360, 480, 540, 720, 1080, 1440, 2160, 4320])
 
@@ -129,8 +161,52 @@ export function resolveLocalDesktopVideoQuality(
   return 'best'
 }
 
+function normalizeSelectedItems(items?: number[]): number[] {
+  if (!items?.length) return []
+  const normalized: number[] = []
+  for (const raw of items) {
+    const value = Math.trunc(Number(raw))
+    if (!Number.isFinite(value) || value <= 0 || normalized.includes(value)) continue
+    normalized.push(value)
+    if (normalized.length >= 500) break
+  }
+  return normalized
+}
+
+function normalizeList(values?: string[]): string[] {
+  if (!values?.length) return []
+  const normalized: string[] = []
+  for (const raw of values) {
+    const value = String(raw || '').trim()
+    if (!value || normalized.includes(value)) continue
+    normalized.push(value)
+    if (normalized.length >= 12) break
+  }
+  return normalized
+}
+
+export function resolveLocalEngineCollectionMode(
+  options: Pick<LocalDesktopJobOptions, 'collectionMode' | 'playlist' | 'selectedItems'>,
+): LocalEngineCollectionMode {
+  const selectedItems = normalizeSelectedItems(options.selectedItems)
+  if (options.collectionMode === 'selected') {
+    return selectedItems.length ? 'selected' : 'single'
+  }
+  if (options.collectionMode === 'all' || options.collectionMode === 'single') {
+    return options.collectionMode
+  }
+  return options.playlist ? 'all' : 'single'
+}
+
 export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): string {
   const params = new URLSearchParams()
+  const selectedItems = normalizeSelectedItems(options.selectedItems)
+  const collectionMode = resolveLocalEngineCollectionMode({
+    collectionMode: options.collectionMode,
+    playlist: options.playlist,
+    selectedItems,
+  })
+
   params.set('url', options.sourceUrl)
   params.set('video', options.videoQuality || 'best')
   params.set('audio', options.audioQuality || 'best')
@@ -138,8 +214,27 @@ export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): str
   params.set('subtitle', options.includeSubtitle ? '1' : '0')
   if (options.subtitleLanguage) params.set('subtitle_lang', options.subtitleLanguage)
   params.set('cover', options.includeCover ? '1' : '0')
+  params.set('archive', options.skipPreviouslyDownloaded ? '1' : '0')
   params.set('browser', options.browser || 'none')
-  params.set('playlist', options.playlist ? '1' : '0')
+  params.set('collection', collectionMode)
+  if (collectionMode === 'selected') params.set('items', selectedItems.join(','))
+
+  if (options.segmentStart) params.set('section_start', options.segmentStart)
+  if (options.segmentEnd) params.set('section_end', options.segmentEnd)
+  params.set('split_chapters', options.splitChapters ? '1' : '0')
+  params.set('subtitle_mode', options.subtitleMode || 'both')
+  const subtitleLanguages = normalizeList(options.subtitleLanguages)
+  if (subtitleLanguages.length) params.set('subtitle_langs', subtitleLanguages.join(','))
+  const audioLanguages = normalizeList(options.audioLanguages)
+  if (audioLanguages.length) params.set('audio_langs', audioLanguages.join(','))
+  if (options.sponsorBlockCategories?.length) {
+    params.set('sponsorblock', options.sponsorBlockCategories.join(','))
+  }
+  params.set('aria2', options.useAria2c ? '1' : '0')
+
+  // Preserve the legacy field so a protocol URL is still understandable by
+  // pre-0.5 engines, while new engines use the explicit collection policy.
+  params.set('playlist', collectionMode === 'all' ? '1' : '0')
   return `galaxy-downloader://download?${params.toString()}`
 }
 

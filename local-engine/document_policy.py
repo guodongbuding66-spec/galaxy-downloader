@@ -1,0 +1,293 @@
+from __future__ import annotations
+
+import re
+from typing import Any
+from urllib.parse import urlparse
+
+import web_document as base
+from document_markdown import extract_document_markdown
+
+
+SOCIAL_POST_PLATFORMS = {
+    "douyin",
+    "instagram",
+    "tiktok",
+    "x",
+    "reddit",
+    "pinterest",
+    "threads",
+    "tumblr",
+    "weibo",
+    "telegram",
+    "facebook",
+    "kuaishou",
+}
+
+# These URL families are genuinely ambiguous: the same route can be a video,
+# a carousel, or a photo post. They must be offered to the media extractor first
+# so a playable video can never be replaced by a page-wide image scrape.
+MEDIA_FIRST_SOCIAL_PLATFORMS = {
+    "instagram",
+    "x",
+    "reddit",
+    "pinterest",
+    "threads",
+    "tumblr",
+    "weibo",
+    "telegram",
+    "facebook",
+    "kuaishou",
+}
+
+_EXTRA_EXTENSIONLESS_IMAGE_HOSTS = (
+    "fbcdn.net",
+    "cdninstagram.com",
+    "twimg.com",
+    "redd.it",
+    "pinimg.com",
+)
+base.EXTENSIONLESS_IMAGE_HOSTS = tuple(dict.fromkeys(
+    (*base.EXTENSIONLESS_IMAGE_HOSTS, *_EXTRA_EXTENSIONLESS_IMAGE_HOSTS)
+))
+
+_CHALLENGE_PATTERNS = (
+    r"wappoc_appmsgcaptcha",
+    r"captcha\.gtimg\.com",
+    r"verify you are human",
+    r"are you a human",
+    r"robot check",
+    r"security check",
+    r"unusual traffic",
+    r"automated access",
+    r"enter the characters you see below",
+    r"press and hold",
+    r"cf-chl-",
+    r"challenge-platform",
+)
+
+_original_looks_like_image = base._looks_like_image
+
+
+def _looks_like_image(url: str, key: str = "") -> bool:
+    # CDN domains such as twimg.com serve both photos and MP4 clips. A known
+    # video extension must win before extensionless-host heuristics classify the
+    # URL as an image.
+    if base.VIDEO_EXT_RE.search(url):
+        return False
+    return _original_looks_like_image(url, key)
+
+
+def _host_matches(host: str, suffix: str) -> bool:
+    return host == suffix or host.endswith(f".{suffix}")
+
+
+def _looks_like_challenge(raw_html: str, final_url: str) -> bool:
+    sample = f"{final_url}\n{raw_html[:1_500_000]}".lower()
+    return any(re.search(pattern, sample, re.I) for pattern in _CHALLENGE_PATTERNS)
+
+
+def prefer_media_first(source_url: str) -> bool:
+    """Return True for social post routes that can contain either video or images.
+
+    Explicit photo-only routes such as TikTok /photo/, Douyin /note/ and Reddit
+    /gallery/ stay document-first. Ambiguous routes get yt-dlp first and only use
+    the document parser as a fallback if no playable media is found.
+    """
+    try:
+        parsed = urlparse(source_url)
+    except ValueError:
+        return False
+
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path or "/"
+
+    if _host_matches(host, "instagram.com"):
+        return re.search(r"(?:^|/)p(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "twitter.com") or _host_matches(host, "x.com"):
+        return re.search(r"(?:^|/)status(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "reddit.com") or _host_matches(host, "redd.it"):
+        if re.search(r"(?:^|/)gallery(?:/|$)", path, re.I):
+            return False
+        return re.search(r"(?:^|/)comments(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "threads.net"):
+        return re.search(r"(?:^|/)post(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "pinterest.com") or host == "pin.it":
+        return True
+    if _host_matches(host, "tumblr.com"):
+        return True
+    if _host_matches(host, "weibo.com") or _host_matches(host, "weibo.cn"):
+        return True
+    if host == "t.me" or _host_matches(host, "telegram.me"):
+        return True
+    if _host_matches(host, "facebook.com") or host in {"fb.watch", "m.facebook.com"}:
+        return True
+    if _host_matches(host, "kuaishou.com") or host == "v.kuaishou.com":
+        return True
+    return False
+
+
+def should_try_web_document(source_url: str) -> bool:
+    try:
+        parsed = urlparse(source_url)
+    except ValueError:
+        return False
+
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path or "/"
+
+    # Keep Xiaohongshu's dedicated resolver authoritative; it already
+    # distinguishes video/image notes and returns caption + image arrays.
+    if _host_matches(host, "xiaohongshu.com") or host == "xhslink.com":
+        return False
+
+    if _host_matches(host, "douyin.com"):
+        return re.search(r"(?:^|/)note(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "tiktok.com"):
+        return re.search(r"(?:^|/)photo(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "instagram.com"):
+        if re.search(r"(?:^|/)(?:reel|reels|tv)(?:/|$)", path, re.I):
+            return False
+        return re.search(r"(?:^|/)p(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "reddit.com") or _host_matches(host, "redd.it"):
+        return re.search(r"(?:^|/)(?:gallery|comments)(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "twitter.com") or _host_matches(host, "x.com"):
+        return re.search(r"(?:^|/)status(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "threads.net"):
+        return re.search(r"(?:^|/)post(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "pinterest.com") or host == "pin.it":
+        return True
+    if _host_matches(host, "tumblr.com"):
+        return True
+    if _host_matches(host, "weibo.com") or _host_matches(host, "weibo.cn"):
+        return True
+    if host == "t.me" or _host_matches(host, "telegram.me"):
+        return True
+    if _host_matches(host, "facebook.com") or host in {"fb.watch", "m.facebook.com"}:
+        return True
+    if _host_matches(host, "kuaishou.com") or host == "v.kuaishou.com":
+        return True
+
+    # Product pages, articles and generic websites remain eligible exactly as
+    # in the base parser. Video-first media sites still bypass this layer.
+    return not base._is_video_first_url(source_url)
+
+
+def _classify(source_url: str, raw_html: str) -> tuple[str, str]:
+    parsed = urlparse(source_url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+
+    if _host_matches(host, "xiaohongshu.com") or host == "xhslink.com":
+        return "xiaohongshu", "post"
+    if _host_matches(host, "douyin.com"):
+        return "douyin", "post"
+    if _host_matches(host, "instagram.com"):
+        return "instagram", "post"
+    if _host_matches(host, "tiktok.com"):
+        return "tiktok", "post"
+    if _host_matches(host, "twitter.com") or _host_matches(host, "x.com"):
+        return "x", "post"
+    if _host_matches(host, "reddit.com") or _host_matches(host, "redd.it"):
+        return "reddit", "post"
+    if _host_matches(host, "pinterest.com") or host == "pin.it":
+        return "pinterest", "post"
+    if _host_matches(host, "threads.net"):
+        return "threads", "post"
+    if _host_matches(host, "tumblr.com"):
+        return "tumblr", "post"
+    if _host_matches(host, "weibo.com") or _host_matches(host, "weibo.cn"):
+        return "weibo", "post"
+    if host == "t.me" or _host_matches(host, "telegram.me"):
+        return "telegram", "post"
+    if _host_matches(host, "facebook.com") or host == "fb.watch":
+        return "facebook", "post"
+    if _host_matches(host, "kuaishou.com") or host == "v.kuaishou.com":
+        return "kuaishou", "post"
+    if _host_matches(host, "mp.weixin.qq.com") or _host_matches(host, "weixin.qq.com"):
+        return "wechat", "article"
+    if "amazon." in host or ".amazon." in host:
+        return "amazon", "product"
+    if "ebay." in host or ".ebay." in host:
+        return "ebay", "product"
+    if "aliexpress." in host or ".aliexpress." in host:
+        return "aliexpress", "product"
+    if _host_matches(host, "alibaba.com"):
+        return "alibaba", "product"
+    if re.search(r"(?:shopify|cdn\.shopify\.com)", raw_html, re.I):
+        return "shopify", "product"
+    if re.search(r"<article\b", raw_html, re.I):
+        return "generic", "article"
+    return "generic", "webpage"
+
+
+_original_document_payload = base._document_payload
+
+
+def _document_payload(
+    source_url: str,
+    raw_html: str,
+    final_url: str,
+    browser: str,
+) -> dict[str, Any] | None:
+    if _looks_like_challenge(raw_html, final_url):
+        return {
+            "success": False,
+            "code": "AUTH_REQUIRED",
+            "status": 401,
+            "error": "目标页面返回了验证码或机器人验证。请使用已登录目标平台的浏览器重试。",
+            "details": {"documentChallenge": True},
+        }
+
+    result = _original_document_payload(source_url, raw_html, final_url, browser)
+    if not result or not result.get("success"):
+        return result
+
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return result
+
+    markdown = extract_document_markdown(final_url, raw_html, str(data.get("platform") or ""))
+    if markdown:
+        data["markdownContent"] = markdown
+
+    document_type = str(data.get("documentType") or "webpage")
+    platform = str(data.get("platform") or "").lower().strip()
+    text = str(data.get("textContent") or data.get("desc") or "").strip()
+    images = data.get("images") if isinstance(data.get("images"), list) else []
+    videos = data.get("videos") if isinstance(data.get("videos"), list) else []
+
+    # A known domain/category is not evidence by itself. Empty JS shells must
+    # fall through to CDP so the rendered DOM gets a chance to expose media.
+    if document_type == "product" and not (images or videos or len(text) >= 20):
+        return None
+    if document_type == "article" and not (markdown or len(text) >= 20 or len(images) >= 2 or videos):
+        return None
+    if document_type in {"post", "gallery"} and not (images or videos or len(text) >= 20):
+        return None
+
+    if document_type == "post":
+        # Do not let a normal video post collapse into its poster image. Mixed
+        # media carousels with multiple images remain document results.
+        if videos and len(images) <= 1:
+            return None
+
+        # Hitting the parser's hard image ceiling on an ambiguous social post is
+        # almost always page chrome / CDN asset scraping, not a 120-image post.
+        # Fall through instead of displaying a bogus giant image gallery.
+        max_images = int(getattr(base, "MAX_IMAGES", 120))
+        if platform in MEDIA_FIRST_SOCIAL_PLATFORMS and not videos and len(images) >= max_images:
+            return None
+
+    return result
+
+
+def install_document_policy() -> None:
+    # These are intentionally installed once at process start by entrypoint.py;
+    # no request-time monkeypatching, so ThreadingHTTPServer has no race here.
+    base._looks_like_image = _looks_like_image
+    base.should_try_web_document = should_try_web_document
+    base._classify = _classify
+    base._document_payload = _document_payload
+
+
+def parse_web_document(source_url: str, browser: str = "none") -> dict[str, Any]:
+    return base.parse_web_document(source_url, browser)

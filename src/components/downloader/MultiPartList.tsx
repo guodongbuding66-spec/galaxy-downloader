@@ -33,14 +33,12 @@ export function MultiPartList({
     } = useChunkedMobileList(pages, Math.max(DEFAULT_VISIBLE_PARTS, currentPage || 1));
 
     return (
-        <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2 text-xs font-medium text-foreground/75">
-                <span>
-                    {replaceTemplate(dict.result.totalParts, '{count}', String(pages.length))}
-                </span>
+        <div className="space-y-1.5">
+            <div className="text-[11px] font-medium text-muted-foreground">
+                {replaceTemplate(dict.result.totalParts, '{count}', String(pages.length))}
             </div>
-            <div className="max-h-[min(56vh,26rem)] overflow-y-auto overscroll-contain pe-1 md:max-h-[min(60vh,32rem)]">
-                <div className="space-y-2 pe-2">
+            <div className="max-h-[min(56vh,26rem)] overflow-y-auto overscroll-contain border-y md:max-h-[min(60vh,32rem)]">
+                <div className="divide-y">
                     {visiblePages.map((page) => {
                         const displayTitle = page.part?.trim() || `P${page.page}`;
                         const videoKey = `${page.page}-video`;
@@ -51,29 +49,23 @@ export function MultiPartList({
                             <div
                                 key={page.page}
                                 aria-current={isCurrentPage ? 'true' : undefined}
-                                className={`flex w-full max-w-full flex-col gap-3 overflow-hidden rounded-xl border p-3 text-left transition-colors md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4 ${
-                                    isCurrentPage
-                                        ? 'border-primary bg-primary/5 ring-1 ring-primary/15'
-                                        : 'border-border/80 bg-background/60 hover:bg-muted/40'
+                                className={`grid min-h-10 w-full min-w-0 gap-1.5 px-1.5 py-1.5 text-left transition-colors md:grid-cols-[minmax(0,1fr)_auto] md:items-center ${
+                                    isCurrentPage ? 'border-s-2 border-primary bg-primary/5 font-medium' : 'hover:bg-muted/50'
                                 }`}
-                                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 128px' }}
+                                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 48px' }}
                             >
-                                <div className="flex w-full min-w-0 items-start gap-3 overflow-hidden">
-                                    <span className={`mt-0.5 shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold tabular-nums ${
-                                        isCurrentPage ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground/70'
-                                    }`}>
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <span className={`w-8 shrink-0 text-[11px] tabular-nums ${isCurrentPage ? 'text-foreground' : 'text-muted-foreground'}`}>
                                         P{page.page}
                                     </span>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="line-clamp-2 break-words text-[13px] font-medium leading-5" title={displayTitle}>
-                                            {displayTitle}
-                                        </div>
-                                        {page.duration != null && (
-                                            <div className="mt-1 text-xs tabular-nums text-muted-foreground">
-                                                {formatDuration(page.duration)}
-                                            </div>
-                                        )}
-                                    </div>
+                                    <span className="min-w-0 flex-1 truncate text-xs" title={displayTitle}>
+                                        {displayTitle}
+                                    </span>
+                                    {page.duration != null && (
+                                        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                                            {formatDuration(page.duration)}
+                                        </span>
+                                    )}
                                 </div>
                                 <CollectionItemActions
                                     title={displayTitle}
@@ -91,12 +83,13 @@ export function MultiPartList({
                         );
                     })}
                     {isMobile && (remainingCount > 0 || canCollapseMobile) && (
-                        <div className="rounded-xl border border-border/70 p-2">
+                        <div className="p-1.5">
                             {remainingCount > 0 ? (
                                 <Button
                                     type="button"
-                                    variant="outline"
-                                    className="min-h-10 w-full text-xs"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full text-xs text-muted-foreground"
                                     onClick={loadMore}
                                 >
                                     {replaceTemplate(
@@ -108,8 +101,9 @@ export function MultiPartList({
                             ) : (
                                 <Button
                                     type="button"
-                                    variant="outline"
-                                    className="min-h-10 w-full text-xs"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full text-xs text-muted-foreground"
                                     onClick={collapse}
                                 >
                                     {replaceTemplate(dict.result.collapseParts, '{count}', String(minimumVisibleCount))}

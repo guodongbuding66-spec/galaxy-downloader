@@ -1,7 +1,9 @@
 import type { AudioExtractTask } from '@/components/audio-tool/types';
-import { Card, CardContent } from '@/components/ui/card';
 import type { UnifiedParseResult } from '@/lib/types';
 
+import { DocumentTextActions } from './DocumentTextActions';
+import { EmbeddedVideoList } from './EmbeddedVideoList';
+import { ImageArchiveActions } from './ImageArchiveActions';
 import { ImageNoteGrid } from './ImageNoteGrid';
 import { type MediaPreviewRequest } from './media-preview';
 import { ResultCardHeader } from './ResultCardHeader';
@@ -29,6 +31,8 @@ export function ImageResultPanel({
         images: result.images,
         coverUrl: result.cover,
     });
+    const documentText = result.textContent || result.desc || '';
+    const embeddedVideos = result.videos || [];
 
     const { audioAction } = getResultMediaActions({
         videoAudioMode: result.videoAudioMode,
@@ -41,7 +45,7 @@ export function ImageResultPanel({
     const showAudioActions = audioAction !== 'hide';
 
     return (
-        <Card className="overflow-hidden">
+        <section className="overflow-hidden rounded-lg border bg-card">
             <ResultCardHeader
                 title={result.title}
                 duration={result.duration}
@@ -49,21 +53,61 @@ export function ImageResultPanel({
                 onCopyShareLink={() => {}}
                 onClose={onClose}
             />
-            <CardContent className="p-4 sm:p-5">
-                <div className="space-y-4">
-                    <ImageNoteGrid images={displayImages} title={result.title} />
+            <div className="space-y-2.5 p-2 sm:p-2.5">
+                <DocumentTextActions
+                    title={result.title}
+                    text={documentText}
+                    markdown={result.markdownContent}
+                    author={result.author}
+                    publishedAt={result.publishedAt}
+                    sourceUrl={result.url}
+                />
+
+                {displayImages.length > 1 ? (
+                    <ImageArchiveActions
+                        images={displayImages}
+                        title={result.title}
+                        description={documentText}
+                        markdownContent={result.markdownContent}
+                        author={result.author}
+                        publishedAt={result.publishedAt}
+                        sourceUrl={result.url}
+                        platform={result.platform}
+                    />
+                ) : null}
+
+                <div className={showAudioActions
+                    ? 'grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:items-start'
+                    : 'min-w-0'}
+                >
+                    <div className="min-w-0 space-y-2.5">
+                        {displayImages.length > 0 ? (
+                            <ImageNoteGrid
+                                images={displayImages}
+                                title={result.title}
+                                description={documentText}
+                                markdownContent={result.markdownContent}
+                                author={result.author}
+                                publishedAt={result.publishedAt}
+                                sourceUrl={result.url}
+                            />
+                        ) : null}
+                        {embeddedVideos.length > 0 ? (
+                            <EmbeddedVideoList videos={embeddedVideos} />
+                        ) : null}
+                    </div>
                     {showAudioActions ? (
-                        <div className="border-t pt-4">
+                        <aside className="min-w-0 border-t pt-2.5 lg:sticky lg:top-2.5 lg:border-s lg:border-t-0 lg:ps-2.5 lg:pt-0">
                             <SinglePartButtons
                                 result={result}
                                 onOpenExtractAudio={onOpenExtractAudio}
                                 onOpenHlsDownload={() => {}}
                                 onRequestPreview={onRequestPreview}
                             />
-                        </div>
+                        </aside>
                     ) : null}
                 </div>
-            </CardContent>
-        </Card>
+            </div>
+        </section>
     );
 }

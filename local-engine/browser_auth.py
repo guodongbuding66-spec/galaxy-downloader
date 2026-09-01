@@ -15,7 +15,6 @@ import websocket
 from yt_dlp import YoutubeDL
 
 YUANBAO_URL = "https://yuanbao.tencent.com/"
-AUTH_COOKIE_NAMES = {"hy_user", "hy_token"}
 
 
 class BrowserAuthError(RuntimeError):
@@ -134,22 +133,25 @@ def _cdp_call(ws_url: str, method: str, params: dict | None = None, timeout: flo
 
 
 def _cookies_to_header(cookies: Iterable[dict]) -> str:
+    """Keep Tencent/Yuanbao cookies without hard-coding one auth-cookie schema.
+
+    Yuanbao has changed cookie names more than once. Requiring a fixed pair such
+    as hy_user + hy_token caused valid logged-in browser sessions to be rejected.
+    The Yuanbao API itself is the authority that validates whether the resulting
+    cookie header is authenticated.
+    """
     pairs: list[str] = []
     seen: set[str] = set()
-    names: set[str] = set()
     for cookie in cookies:
         domain = str(cookie.get("domain") or "").lstrip(".").lower()
         if domain != "tencent.com" and not domain.endswith(".tencent.com"):
             continue
         name = str(cookie.get("name") or "").strip()
         value = str(cookie.get("value") or "")
-        if not name or name in seen:
+        if not name or not value or name in seen:
             continue
         seen.add(name)
-        names.add(name)
         pairs.append(f"{name}={value}")
-    if not AUTH_COOKIE_NAMES.issubset(names):
-        return ""
     return "; ".join(pairs)
 
 
@@ -218,9 +220,14 @@ def _close_debug_browser(process: subprocess.Popen, browser_ws: str) -> None:
 
 
 def _managed_chromium_cookie_header(browser: str, on_status: Callable[[str], None]) -> str:
+    """Explicit last-resort managed profile helper.
+
+    This helper is deliberately no longer called automatically by
+    get_yuanbao_cookie_header(). Closing an unexpected second login window used
+    to turn a previously working download into a hard failure.
+    """
     profile_dir = _profile_root() / browser
 
-    # Reuse a Galaxy-owned authenticated profile silently after the first successful login.
     if profile_dir.exists():
         process: subprocess.Popen | None = None
         browser_ws = ""
@@ -243,9 +250,8 @@ def _managed_chromium_cookie_header(browser: str, on_status: Callable[[str], Non
                 _close_debug_browser(process, browser_ws)
 
     on_status(
-        f"{browser.title()} 正在占用日常浏览器 Cookie 数据库。"
-        "已打开 Galaxy 专用腾讯元宝登录窗口；请在新窗口完成登录，"
-        "成功后程序会自动继续，不需要关闭你正在使用的浏览器。"
+        f"已打开 Galaxy 专用 {browser.title()} 腾讯元宝登录窗口；"
+        "请在新窗口完成登录，成功后程序会自动继续。"
     )
     process = None
     browser_ws = ""
@@ -264,7 +270,7 @@ def _managed_chromium_cookie_header(browser: str, on_status: Callable[[str], Non
                 time.sleep(1.0)
                 return header
             time.sleep(0.7)
-        raise BrowserAuthError("等待腾讯元宝登录超时。请重新发起下载并在 Galaxy 专用窗口完成登录。")
+        raise BrowserAuthError("等待腾讯元宝登录超时。")
     finally:
         if process is not None:
             _close_debug_browser(process, browser_ws)
@@ -288,30 +294,39 @@ def _existing_browser_cookie_header(browser: str) -> str:
 
 
 def get_yuanbao_cookie_header(browser: str, *, on_status: Callable[[str], None]) -> str:
+    """Reuse existing logged-in browsers first and never force a second window.
+
+    The requested browser gets priority, then Edge/Chrome/Firefox are probed in
+    order. This restores the pre-managed-login behavior that worked when the user
+    was already signed in to Yuanbao in their normal browser.
+    """
     requested = (browser or "none").strip().lower()
-    if requested == "none":
-        raise BrowserAuthError(
-            "微信视频号需要腾讯元宝登录状态。请在网页“登录状态”中明确选择 Edge、Chrome 或 Firefox。"
-        )
-    if requested not in {"edge", "chrome", "firefox"}:
+    supported = ("edge", "chrome", "firefox")
+    if requested not in {*supported, "none"}:
         raise BrowserAuthError(f"暂不支持从 {requested} 读取腾讯元宝登录状态。")
 
-    on_status(f"正在读取所选 {requested.title()} 的腾讯元宝登录状态")
-    direct_error: Exception | None = None
-    try:
-        header = _existing_browser_cookie_header(requested)
+    candidates: list[str] = []
+    for candidate in (requested, *supported):
+        if candidate != "none" and candidate not in candidates:
+            candidates.append(candidate)
+
+    failures: list[str] = []
+    for candidate in candidates:
+        on_status(f"正在检查 {candidate.title()} 中现有的腾讯元宝登录状态")
+        try:
+            header = _existing_browser_cookie_header(candidate)
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{candidate}: {exc}")
+            continue
         if header:
-            on_status(f"已读取 {requested.title()} 当前腾讯元宝登录状态")
+            on_status(f"已复用 {candidate.title()} 当前腾讯元宝登录状态")
             return header
-    except Exception as exc:  # noqa: BLE001
-        direct_error = exc
+        failures.append(f"{candidate}: 未找到腾讯元宝 Cookie")
 
-    if requested in {"edge", "chrome"}:
-        return _managed_chromium_cookie_header(requested, on_status)
-
-    suffix = ""
-    if direct_error:
-        suffix = " Firefox 当前无法读取 Cookie，请完全退出 Firefox 后重试。"
+    detail = "；".join(failures[-3:])
     raise BrowserAuthError(
-        "所选 Firefox 中没有检测到有效的腾讯元宝登录状态。请先登录 yuanbao.tencent.com。" + suffix
+        "没有从现有 Edge、Chrome 或 Firefox 中读取到可用的腾讯元宝登录状态。"
+        "请确认 yuanbao.tencent.com 已登录；如果浏览器正在锁定 Cookie 数据库，可完全退出该浏览器后重试。"
+        "Galaxy 不再自动弹出第二个专用登录窗口。"
+        + (f" 诊断：{detail}" if detail else "")
     )

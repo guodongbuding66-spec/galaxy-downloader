@@ -35,7 +35,47 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile
+          python3 -m pip install -r local-engine/requirements.txt
+
+      - name: Validate Python media policies
+        run: |
+          python3 -m py_compile \
+            local-engine/entrypoint.py \
+            local-engine/engine.py \
+            local-engine/bridge.py \
+            local-engine/bridge_submission_policy.py \
+            local-engine/archive_policy.py \
+            local-engine/media_policy.py \
+            local-engine/job_queue.py \
+            local-engine/desktop_ui.py \
+            local-engine/update_check.py \
+            local-engine/browser_auth.py \
+            local-engine/wechat_channels.py \
+            local-engine/image_archive_policy.py \
+            local-engine/image_bridge.py \
+            local-engine/image_download.py \
+            local-engine/web_document.py \
+            local-engine/document_policy.py \
+            local-engine/document_markdown.py \
+            local-engine/dynamic_document.py \
+            local-engine/url_policy.py \
+            local-engine/external_ytdlp.py \
+            container-backend/app/main.py \
+            container-backend/app/playback.py \
+            container-backend/app/server.py
+          python3 scripts/test-local-engine-policy.py
+          python3 scripts/test-local-url-policy.py
+          python3 scripts/test-local-document-policy.py
+          python3 scripts/test-local-browser-auth.py
+          python3 scripts/test-local-image-download.py
+          python3 scripts/test-local-image-bridge.py
+          python3 scripts/test-local-job-queue.py
+          python3 scripts/test-local-bridge-submission.py
+          python3 scripts/test-local-archive-policy.py
+          python3 scripts/test-local-media-policy.py
+          python3 scripts/test-local-image-archive-policy.py
 
       - name: Run tests
         run: pnpm test

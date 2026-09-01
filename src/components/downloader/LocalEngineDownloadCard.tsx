@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
-  CircleCheck,
+  Check,
+  ChevronDown,
   ExternalLink,
   FolderOpen,
   HardDriveDownload,
   Loader2,
-  ShieldCheck,
   X,
 } from 'lucide-react';
 
@@ -23,7 +23,9 @@ import {
 import { toast } from '@/lib/deferred-toast';
 import {
   cancelLocalEngineBridgeJob,
+  cancelLocalEngineQueuedJob,
   getLocalEngineBridgeStatus,
+  LocalEngineBridgeSubmissionError,
   openLocalEngineDownloadFolder,
   submitLocalEngineBridgeJob,
   type LocalEngineBridgeJob,
@@ -32,14 +34,26 @@ import {
 import {
   LOCAL_ENGINE_GITHUB_URL,
   LOCAL_ENGINE_RELEASE_URL,
+  LOCAL_ENGINE_REQUIRED_VERSION,
   launchLocalDesktopEngine,
   resolveLocalDesktopVideoQuality,
   type LocalDesktopVideoSelection,
   type LocalEngineBrowser,
+  type LocalEngineCollectionMode,
 } from '@/lib/local-engine';
-import type { UnifiedParseResult } from '@/lib/types';
+import type { SubtitleTrack, UnifiedParseResult } from '@/lib/types';
+
+import {
+  LocalEngineAdvancedControls,
+  type LocalEngineAdvancedOptions,
+} from './LocalEngineAdvancedControls';
 
 type ResultData = NonNullable<UnifiedParseResult['data']>;
+
+type AdvancedBridgeStatus = LocalEngineBridgeStatus & {
+  aria2Ready?: boolean;
+  advancedMedia?: boolean;
+};
 
 export type LocalEngineDownloadPlan = {
   videoSelection?: LocalDesktopVideoSelection | null;
@@ -52,195 +66,96 @@ export type LocalEngineDownloadPlan = {
 
 type Copy = {
   title: string;
-  intro: string;
-  planSync: string;
+  connected: string;
+  disconnected: string;
   cookieSource: string;
-  cookieHelp: string;
   noCookies: string;
   edge: string;
   chrome: string;
   firefox: string;
+  collection: string;
+  single: string;
+  all: string;
+  selected: string;
+  selectedCount: string;
+  selectAll: string;
+  clear: string;
+  skipDownloaded: string;
+  skipDownloadedHint: string;
   launch: string;
+  queueAction: string;
+  queueStatus: string;
+  currentQueue: string;
+  idleQueue: string;
+  queueFull: string;
+  queueJobs: string;
+  cancel: string;
+  cancelQueued: string;
+  queuedCancelled: string;
+  openFolder: string;
   install: string;
   githubMirror: string;
   privacy: string;
-  launchHint: string;
-  connected: string;
-  disconnected: string;
-  bridgeRequired: string;
   sent: string;
-  cancel: string;
-  openFolder: string;
-  guideTitle: string;
-  guideSteps: string[];
-  guideTip: string;
+  queued: string;
+  launchHint: string;
+  setup: string;
+  setupHint: string;
 };
 
 const COPY: Record<string, Copy> = {
   zh: {
-    title: 'Galaxy Local Engine 本机强力下载',
-    intro: '适合 YouTube、B站、小红书、快手、Dailymotion 等存在反爬、登录或 IP 绑定限制的平台，直接调用本机 yt-dlp + FFmpeg。',
-    planSync: '会沿用上方“当前成品方案”的画质、音质、字幕和封面设置。',
+    title: '本机下载',
+    connected: '已连接',
+    disconnected: '未连接',
     cookieSource: '登录状态',
-    cookieHelp: '默认不读取浏览器 Cookie。微信视频号需要登录时请选择 Edge、Chrome 或 Firefox；若 Edge/Chrome 正在占用日常 Cookie 数据库，本地引擎会自动打开 Galaxy 专用腾讯元宝登录窗口。首次登录后可在本机复用，不需要关闭日常浏览器。',
-    noCookies: '不读取浏览器 Cookie（推荐默认）',
-    edge: '使用 Edge 登录状态',
-    chrome: '使用 Chrome 登录状态',
-    firefox: '使用 Firefox 登录状态',
-    launch: '按当前方案本机下载',
-    install: '下载 Galaxy Local Engine（官网线路）',
-    githubMirror: 'GitHub 备用下载',
-    privacy: 'Cookie、视频下载和 FFmpeg 处理全部留在你的电脑，不上传 Galaxy 服务器。',
-    launchHint: '尚未检测到兼容的本地引擎。微信视频号修复需要 Galaxy Local Engine v0.4.7 或更高版本；请下载最新版、完整解压并运行 install.cmd。',
-    connected: '本地引擎已连接',
-    disconnected: '本地引擎未连接',
-    bridgeRequired: '请安装最新版 Galaxy Local Engine（v0.4.7 或更高版本）。',
+    noCookies: '不读取 Cookie（默认）',
+    edge: 'Edge 登录状态',
+    chrome: 'Chrome 登录状态',
+    firefox: 'Firefox 登录状态',
+    collection: '合集范围',
+    single: '当前一项',
+    all: '整个合集',
+    selected: '选择部分',
+    selectedCount: '已选 {count} 项',
+    selectAll: '全选',
+    clear: '清空',
+    skipDownloaded: '跳过已下载内容',
+    skipDownloadedHint: '开启后，本地引擎会记录成功下载的媒体 ID；再次下载同一内容时自动跳过。默认关闭。',
+    launch: '下载最终成品',
+    queueAction: '加入下载队列',
+    queueStatus: '队列 {count}/{capacity}',
+    currentQueue: '当前任务 · 等待 {count} 项',
+    idleQueue: '当前空闲 · 等待 {count} 项',
+    queueFull: '下载队列已满',
+    queueJobs: '等待队列',
+    cancel: '取消当前任务',
+    cancelQueued: '取消排队任务',
+    queuedCancelled: '已从下载队列移除',
+    openFolder: '打开文件夹',
+    install: '安装本地引擎',
+    githubMirror: 'GitHub 备用线路',
+    privacy: '默认只保存最终视频；Cookie、可选下载记录与 FFmpeg 处理留在本机。',
     sent: '任务已发送到 Galaxy Local Engine',
-    cancel: '取消本机任务',
-    openFolder: '打开下载文件夹',
-    guideTitle: 'Galaxy Local Engine 使用步骤',
-    guideSteps: [
-      '优先点击“官网线路”下载最新 Windows ZIP；如果官网线路异常，可使用 GitHub 备用下载。',
-      '完整解压 ZIP，不能直接在压缩包里运行。新版已内置 FFmpeg、ffprobe 和 yt-dlp.exe，安装时无需再访问 GitHub。',
-      '把解压文件夹放在准备长期使用的位置，然后双击 install.cmd。当前解压文件夹就是安装目录，视频会保存到其中的 downloads 文件夹。',
-      '保持 Galaxy Local Engine 运行并返回本页，等待显示“本地引擎已连接”；公开视频保持“不读取 Cookie”，确实需要登录时再选择浏览器登录状态。',
-    ],
-    guideTip: '如果以后把整个 Galaxy Local Engine 文件夹移动到其他磁盘或目录，只需在新位置重新运行一次 install.cmd 以刷新 Windows 协议路径。',
+    queued: '任务已加入 Galaxy Local Engine 下载队列',
+    launchHint: '需要 Galaxy Local Engine v{version}+。请下载对应版本、完整解压并运行 install.cmd。',
+    setup: '安装说明',
+    setupHint: '完整解压 ZIP → 放到长期使用目录 → 运行 install.cmd → 保持本地引擎运行。',
   },
   'zh-tw': {
-    title: 'Galaxy Local Engine 本機強力下載',
-    intro: '適合存在反爬、登入或 IP 綁定限制的平台，直接呼叫本機 yt-dlp + FFmpeg。',
-    planSync: '會沿用上方「目前成品方案」的畫質、音訊、字幕與封面設定。',
-    cookieSource: '登入狀態',
-    cookieHelp: '預設不讀取瀏覽器 Cookie。只有影片確實需要登入或帳號權限時再選瀏覽器；Cookie 被占用時請先關閉對應瀏覽器。',
-    noCookies: '不讀取瀏覽器 Cookie（建議預設）',
-    edge: '使用 Edge 登入狀態',
-    chrome: '使用 Chrome 登入狀態',
-    firefox: '使用 Firefox 登入狀態',
-    launch: '依目前方案本機下載',
-    install: '下載 Galaxy Local Engine（官網線路）',
-    githubMirror: 'GitHub 備用下載',
-    privacy: 'Cookie、影片與 FFmpeg 處理全部保留在你的電腦。',
-    launchHint: '尚未偵測到相容的本地引擎。請下載最新版、完整解壓並執行 install.cmd；舊 v0.3.x 不再相容。',
-    connected: '本地引擎已連線',
-    disconnected: '本地引擎未連線',
-    bridgeRequired: '請安裝最新版 Galaxy Local Engine（v0.4.7 或更新版本）。',
-    sent: '工作已傳送到 Galaxy Local Engine',
-    cancel: '取消本機工作',
-    openFolder: '開啟下載資料夾',
-    guideTitle: 'Galaxy Local Engine 使用步驟',
-    guideSteps: [
-      '優先使用官網線路下載 Windows ZIP；需要時可改用 GitHub 備用線路。',
-      '完整解壓 ZIP。FFmpeg、ffprobe 與 yt-dlp.exe 已內置，安裝時不需要再從 GitHub 下載。',
-      '把解壓資料夾放到長期使用位置後執行 install.cmd；該資料夾就是安裝目錄，影片保存在 downloads。',
-      '保持程式執行並返回本頁；公開影片維持不讀取 Cookie，需要登入時再選瀏覽器。',
-    ],
-    guideTip: '日後若移動整個資料夾，請在新位置重新執行一次 install.cmd。',
+    title: '本機下載', connected: '已連線', disconnected: '未連線', cookieSource: '登入狀態', noCookies: '不讀取 Cookie（預設）', edge: 'Edge 登入狀態', chrome: 'Chrome 登入狀態', firefox: 'Firefox 登入狀態', collection: '合輯範圍', single: '目前一項', all: '整個合輯', selected: '選擇部分', selectedCount: '已選 {count} 項', selectAll: '全選', clear: '清空', skipDownloaded: '略過已下載內容', skipDownloadedHint: '開啟後，本機引擎會記錄成功下載的媒體 ID；再次下載相同內容時自動略過。預設關閉。', launch: '下載最終成品', queueAction: '加入下載佇列', queueStatus: '佇列 {count}/{capacity}', currentQueue: '目前工作 · 等待 {count} 項', idleQueue: '目前閒置 · 等待 {count} 項', queueFull: '下載佇列已滿', queueJobs: '等待佇列', cancel: '取消目前工作', cancelQueued: '取消排隊工作', queuedCancelled: '已從下載佇列移除', openFolder: '開啟資料夾', install: '安裝本機引擎', githubMirror: 'GitHub 備用線路', privacy: '預設只保存最終影片；Cookie、可選下載記錄與 FFmpeg 處理留在本機。', sent: '工作已傳送到 Galaxy Local Engine', queued: '工作已加入 Galaxy Local Engine 下載佇列', launchHint: '需要 Galaxy Local Engine v{version}+。請下載對應版本、完整解壓並執行 install.cmd。', setup: '安裝說明', setupHint: '完整解壓 ZIP → 放到長期使用目錄 → 執行 install.cmd → 保持本機引擎運行。',
   },
   en: {
-    title: 'Galaxy Local Engine',
-    intro: 'Use local yt-dlp + FFmpeg for sites with anti-bot, login, or IP-bound media restrictions.',
-    planSync: 'It uses the same video, audio, subtitle, and cover choices shown in the current output plan.',
-    cookieSource: 'Login session',
-    cookieHelp: 'Browser cookies are off by default. Select a browser only when the media actually requires login, age verification, or account access. Close that browser if its cookie database is locked.',
-    noCookies: 'Do not read browser cookies (recommended)',
-    edge: 'Use Edge login session',
-    chrome: 'Use Chrome login session',
-    firefox: 'Use Firefox login session',
-    launch: 'Download current plan locally',
-    install: 'Download Galaxy Local Engine (site)',
-    githubMirror: 'GitHub mirror',
-    privacy: 'Cookies, media downloads and FFmpeg processing stay on this computer.',
-    launchHint: 'No compatible local engine was detected. Download the latest ZIP, extract it fully and run install.cmd. Legacy v0.3.x engines are no longer accepted by the website.',
-    connected: 'Local engine connected',
-    disconnected: 'Local engine not connected',
-    bridgeRequired: 'Install Galaxy Local Engine v0.4.7 or newer.',
-    sent: 'Job sent to Galaxy Local Engine',
-    cancel: 'Cancel local job',
-    openFolder: 'Open download folder',
-    guideTitle: 'How to use Galaxy Local Engine',
-    guideSteps: [
-      'Prefer the Galaxy website download. Use the GitHub mirror only if needed.',
-      'Extract the full ZIP. FFmpeg, ffprobe and yt-dlp.exe are already bundled, so first-time installation does not need GitHub access.',
-      'Place the extracted folder where you want to keep it, then run install.cmd. That folder is the install folder and downloads are saved under its downloads directory.',
-      'Keep Galaxy Local Engine running and return here. Leave cookies disabled for public media and choose a browser session only when login is actually required.',
-    ],
-    guideTip: 'If you move the whole folder later, run install.cmd once again from the new location to refresh the Windows protocol path.',
+    title: 'Local download', connected: 'Connected', disconnected: 'Offline', cookieSource: 'Login session', noCookies: 'No cookies (default)', edge: 'Edge session', chrome: 'Chrome session', firefox: 'Firefox session', collection: 'Collection range', single: 'Current item', all: 'Entire collection', selected: 'Choose items', selectedCount: '{count} selected', selectAll: 'Select all', clear: 'Clear', skipDownloaded: 'Skip previously downloaded', skipDownloadedHint: 'When enabled, the local engine records successfully downloaded media IDs and skips them next time. Off by default.', launch: 'Download finished file', queueAction: 'Add to download queue', queueStatus: 'Queue {count}/{capacity}', currentQueue: 'Current job · {count} waiting', idleQueue: 'Idle · {count} waiting', queueFull: 'Download queue is full', queueJobs: 'Waiting queue', cancel: 'Cancel current job', cancelQueued: 'Cancel queued job', queuedCancelled: 'Removed from the download queue', openFolder: 'Open folder', install: 'Install local engine', githubMirror: 'GitHub mirror', privacy: 'Only the finished video is saved by default. Cookies, the optional archive and FFmpeg stay on this device.', sent: 'Job sent to Galaxy Local Engine', queued: 'Job added to the Galaxy Local Engine download queue', launchHint: 'Galaxy Local Engine v{version}+ is required. Download the matching ZIP, extract it fully, and run install.cmd.', setup: 'Setup', setupHint: 'Extract ZIP → move it to a permanent folder → run install.cmd → keep the engine running.',
   },
   ja: {
-    title: 'Galaxy Local Engine',
-    intro: 'ログイン、Bot 対策、IP 制限があるサイトでは、この PC の yt-dlp + FFmpeg を使用します。',
-    planSync: '上の出力プランと同じ画質・音質・字幕・カバー設定を使用します。',
-    cookieSource: 'ログイン状態',
-    cookieHelp: 'Cookie は既定で使用しません。ログインが必要な動画だけブラウザーを選択し、Cookie データベースが使用中ならそのブラウザーを終了してください。',
-    noCookies: 'ブラウザー Cookie を使用しない（推奨）',
-    edge: 'Edge のログイン状態を使用',
-    chrome: 'Chrome のログイン状態を使用',
-    firefox: 'Firefox のログイン状態を使用',
-    launch: '現在のプランをローカル保存',
-    install: 'Galaxy Local Engine をサイトからダウンロード',
-    githubMirror: 'GitHub ミラー',
-    privacy: 'Cookie、メディア、FFmpeg 処理はこの PC 内だけで行われます。',
-    launchHint: '互換性のあるローカルエンジンを検出できません。最新版 ZIP を展開して install.cmd を実行してください。',
-    connected: 'ローカルエンジン接続済み',
-    disconnected: 'ローカルエンジン未接続',
-    bridgeRequired: 'Galaxy Local Engine v0.4.7 以降をインストールしてください。',
-    sent: 'ジョブをローカルエンジンへ送信しました',
-    cancel: 'ローカルジョブをキャンセル',
-    openFolder: 'ダウンロードフォルダーを開く',
-    guideTitle: 'Galaxy Local Engine の使い方',
-    guideSteps: ['まず公式サイト経由で ZIP をダウンロードします。必要な場合のみ GitHub ミラーを使用します。', 'ZIP を完全に展開します。FFmpeg と yt-dlp は同梱済みです。', '保存したい場所にフォルダーを置き install.cmd を実行します。downloads フォルダーに動画が保存されます。', '公開動画では Cookie を使わず、ログインが必要な場合だけブラウザーセッションを選択します。'],
-    guideTip: 'フォルダーを移動した場合は、新しい場所で install.cmd をもう一度実行してください。',
+    title: 'ローカル保存', connected: '接続済み', disconnected: '未接続', cookieSource: 'ログイン状態', noCookies: 'Cookie を使わない（既定）', edge: 'Edge セッション', chrome: 'Chrome セッション', firefox: 'Firefox セッション', collection: 'コレクション範囲', single: '現在の1件', all: 'すべて', selected: '選択', selectedCount: '{count} 件選択', selectAll: 'すべて選択', clear: 'クリア', skipDownloaded: 'ダウンロード済みをスキップ', skipDownloadedHint: '有効にすると、成功したメディア ID を端末内に記録し、次回は同じ内容をスキップします。既定はオフです。', launch: '完成ファイルを保存', queueAction: 'ダウンロード待ちに追加', queueStatus: '待ち {count}/{capacity}', currentQueue: '現在の処理 · 待ち {count} 件', idleQueue: '待機中 · 待ち {count} 件', queueFull: 'ダウンロード待ちが上限です', queueJobs: '待機中', cancel: '現在の処理をキャンセル', cancelQueued: '待機ジョブを取消', queuedCancelled: 'ダウンロード待ちから削除しました', openFolder: 'フォルダーを開く', install: 'ローカルエンジンを導入', githubMirror: 'GitHub ミラー', privacy: '既定では完成動画だけを保存します。Cookie、任意の履歴、FFmpeg 処理は端末内に留まります。', sent: 'ジョブを送信しました', queued: 'ジョブをダウンロード待ちに追加しました', launchHint: 'Galaxy Local Engine v{version}+ が必要です。対応 ZIP を完全に展開し install.cmd を実行してください。', setup: 'セットアップ', setupHint: 'ZIP を展開 → 保存場所へ移動 → install.cmd → エンジンを起動したまま使用。',
   },
   es: {
-    title: 'Galaxy Local Engine',
-    intro: 'Usa yt-dlp + FFmpeg localmente para sitios con inicio de sesión, anti-bot o bloqueo por IP.',
-    planSync: 'Usa las mismas opciones de vídeo, audio, subtítulos y portada del plan actual.',
-    cookieSource: 'Sesión del navegador',
-    cookieHelp: 'Las cookies están desactivadas por defecto. Selecciona un navegador solo cuando el contenido requiera inicio de sesión; ciérralo si su base de cookies está bloqueada.',
-    noCookies: 'No usar cookies del navegador (recomendado)',
-    edge: 'Usar sesión de Edge',
-    chrome: 'Usar sesión de Chrome',
-    firefox: 'Usar sesión de Firefox',
-    launch: 'Descargar el plan actual localmente',
-    install: 'Descargar Galaxy Local Engine (sitio)',
-    githubMirror: 'Espejo de GitHub',
-    privacy: 'Cookies, contenido y FFmpeg permanecen en este equipo.',
-    launchHint: 'No se detectó un motor local compatible. Descarga el ZIP más reciente, extráelo y ejecuta install.cmd.',
-    connected: 'Motor local conectado',
-    disconnected: 'Motor local no conectado',
-    bridgeRequired: 'Instala Galaxy Local Engine v0.4.7 o posterior.',
-    sent: 'Tarea enviada a Galaxy Local Engine',
-    cancel: 'Cancelar tarea local',
-    openFolder: 'Abrir carpeta de descargas',
-    guideTitle: 'Cómo usar Galaxy Local Engine',
-    guideSteps: ['Usa primero la descarga del sitio y deja GitHub como alternativa.', 'Extrae todo el ZIP. FFmpeg y yt-dlp ya vienen incluidos.', 'Coloca la carpeta donde quieras conservarla y ejecuta install.cmd; los vídeos se guardan en downloads.', 'Para contenido público deja las cookies desactivadas y usa una sesión del navegador solo si hace falta iniciar sesión.'],
-    guideTip: 'Si mueves la carpeta completa, ejecuta install.cmd de nuevo desde la nueva ubicación.',
+    title: 'Descarga local', connected: 'Conectado', disconnected: 'Sin conexión', cookieSource: 'Sesión', noCookies: 'Sin cookies (predeterminado)', edge: 'Sesión de Edge', chrome: 'Sesión de Chrome', firefox: 'Sesión Firefox', collection: 'Rango de colección', single: 'Elemento actual', all: 'Toda la colección', selected: 'Elegir elementos', selectedCount: '{count} seleccionados', selectAll: 'Seleccionar todo', clear: 'Limpiar', skipDownloaded: 'Omitir lo ya descargado', skipDownloadedHint: 'Al activarlo, el motor local guarda los ID descargados correctamente y los omite la próxima vez. Desactivado por defecto.', launch: 'Descargar archivo final', queueAction: 'Añadir a la cola', queueStatus: 'Cola {count}/{capacity}', currentQueue: 'Tarea actual · {count} en espera', idleQueue: 'Inactivo · {count} en espera', queueFull: 'La cola está llena', queueJobs: 'Cola de espera', cancel: 'Cancelar tarea actual', cancelQueued: 'Cancelar tarea en cola', queuedCancelled: 'Eliminada de la cola de descargas', openFolder: 'Abrir carpeta', install: 'Instalar motor local', githubMirror: 'Espejo de GitHub', privacy: 'Por defecto solo se guarda el vídeo final. Cookies, archivo opcional y FFmpeg permanecen en este dispositivo.', sent: 'Tarea enviada al motor local', queued: 'Tarea añadida a la cola del motor local', launchHint: 'Se requiere Galaxy Local Engine v{version}+. Descarga el ZIP correspondiente, extráelo y ejecuta install.cmd.', setup: 'Instalación', setupHint: 'Extrae ZIP → mueve la carpeta → ejecuta install.cmd → mantén el motor abierto.',
   },
   ru: {
-    title: 'Galaxy Local Engine',
-    intro: 'Используйте локальные yt-dlp + FFmpeg для сайтов с авторизацией, антибот-защитой или IP-ограничениями.',
-    planSync: 'Используются те же настройки видео, аудио, субтитров и обложки, что и в текущем плане.',
-    cookieSource: 'Сеанс браузера',
-    cookieHelp: 'Cookies браузера по умолчанию отключены. Выбирайте браузер только если контент требует входа; закройте его, если база cookies заблокирована.',
-    noCookies: 'Не использовать cookies браузера (рекомендуется)',
-    edge: 'Использовать сеанс Edge',
-    chrome: 'Использовать сеанс Chrome',
-    firefox: 'Использовать сеанс Firefox',
-    launch: 'Скачать текущий план локально',
-    install: 'Скачать Galaxy Local Engine с сайта',
-    githubMirror: 'Зеркало GitHub',
-    privacy: 'Cookies, медиа и FFmpeg остаются только на этом компьютере.',
-    launchHint: 'Совместимый локальный движок не обнаружен. Скачайте последний ZIP, распакуйте его и запустите install.cmd.',
-    connected: 'Локальный движок подключён',
-    disconnected: 'Локальный движок не подключён',
-    bridgeRequired: 'Установите Galaxy Local Engine v0.4.7 или новее.',
-    sent: 'Задание отправлено в Galaxy Local Engine',
-    cancel: 'Отменить локальную задачу',
-    openFolder: 'Открыть папку загрузок',
-    guideTitle: 'Как использовать Galaxy Local Engine',
-    guideSteps: ['Сначала используйте загрузку с сайта, GitHub оставьте как резерв.', 'Полностью распакуйте ZIP. FFmpeg и yt-dlp уже включены.', 'Поместите папку в постоянное место и запустите install.cmd; файлы сохраняются в downloads.', 'Для публичного контента оставьте cookies выключенными и выбирайте браузер только когда нужен вход.'],
-    guideTip: 'После перемещения всей папки снова запустите install.cmd из нового места.',
+    title: 'Локальная загрузка', connected: 'Подключено', disconnected: 'Не подключено', cookieSource: 'Сессия', noCookies: 'Без cookies (по умолчанию)', edge: 'Сессия Edge', chrome: 'Сессия Chrome', firefox: 'Сессия Firefox', collection: 'Диапазон коллекции', single: 'Текущий элемент', all: 'Вся коллекция', selected: 'Выбрать элементы', selectedCount: 'Выбрано: {count}', selectAll: 'Выбрать всё', clear: 'Очистить', skipDownloaded: 'Пропускать уже загруженное', skipDownloadedHint: 'Если включено, локальный движок хранит ID успешно загруженных медиа и пропускает их в следующий раз. По умолчанию выключено.', launch: 'Скачать итоговый файл', queueAction: 'Добавить в очередь', queueStatus: 'Очередь {count}/{capacity}', currentQueue: 'Текущая задача · ждут {count}', idleQueue: 'Свободно · ждут {count}', queueFull: 'Очередь загрузок заполнена', queueJobs: 'Ожидающие задачи', cancel: 'Отменить текущую задачу', cancelQueued: 'Отменить задачу в очереди', queuedCancelled: 'Удалено из очереди загрузок', openFolder: 'Открыть папку', install: 'Установить локальный движок', githubMirror: 'Зеркало GitHub', privacy: 'По умолчанию сохраняется только итоговое видео. Cookies, опциональный архив и FFmpeg остаются на устройстве.', sent: 'Задание отправлено', queued: 'Задание добавлено в очередь загрузок', launchHint: 'Требуется Galaxy Local Engine v{version}+. Скачайте соответствующий ZIP, распакуйте и запустите install.cmd.', setup: 'Установка', setupHint: 'Распаковать ZIP → переместить папку → запустить install.cmd → оставить движок запущенным.',
   },
 };
 
@@ -249,7 +164,11 @@ function copyFor(pathname: string | null): Copy {
   return COPY[locale] || COPY.en;
 }
 
-function scopedSourceUrl(result: ResultData): string {
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function scopedSingleSourceUrl(result: ResultData): string {
   const source = typeof result.url === 'string' ? result.url.trim() : '';
   if (!source) return '';
   if ((result.platform === 'bili' || result.platform === 'bilibili') && result.currentPage) {
@@ -264,8 +183,17 @@ function scopedSourceUrl(result: ResultData): string {
   return source;
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+function compactItemTitle(value: string, index: number): string {
+  const title = value.trim();
+  return title || `#${index}`;
+}
+
+function scopedSubtitles(result: ResultData): SubtitleTrack[] {
+  const currentPage = result.pages?.find((page) => page.page === result.currentPage);
+  if (currentPage?.subtitles?.length) return currentPage.subtitles;
+  const currentVideo = result.videos?.find((video) => video.id === result.currentItemId);
+  if (currentVideo?.subtitles?.length) return currentVideo.subtitles;
+  return result.subtitles || [];
 }
 
 export function LocalEngineDownloadCard({
@@ -279,15 +207,41 @@ export function LocalEngineDownloadCard({
 }) {
   const pathname = usePathname();
   const copy = copyFor(pathname);
-  const sourceUrl = scopedSourceUrl(result);
+  const launchHint = copy.launchHint.replace('{version}', LOCAL_ENGINE_REQUIRED_VERSION);
+  const collectionItems = useMemo(() => result.pages?.filter((page) => page.page > 0) || [], [result.pages]);
+  const subtitleTracks = useMemo(() => scopedSubtitles(result), [result]);
+  const hasCollection = collectionItems.length > 1;
+  const currentItem = result.currentPage && collectionItems.some((item) => item.page === result.currentPage)
+    ? result.currentPage
+    : collectionItems[0]?.page || 1;
+
   const [browser, setBrowser] = useState<LocalEngineBrowser>('none');
   const [bridge, setBridge] = useState<LocalEngineBridgeStatus | null>(null);
   const [launching, setLaunching] = useState(false);
+  const [cancellingQueuedJobId, setCancellingQueuedJobId] = useState<string | null>(null);
+  const [collectionMode, setCollectionMode] = useState<LocalEngineCollectionMode>('single');
+  const [selectedItems, setSelectedItems] = useState<number[]>([currentItem]);
+  const [skipPreviouslyDownloaded, setSkipPreviouslyDownloaded] = useState(false);
+  const [advancedOptions, setAdvancedOptions] = useState<LocalEngineAdvancedOptions>(() => ({
+    segmentStart: '',
+    segmentEnd: '',
+    splitChapters: false,
+    subtitleMode: 'both',
+    subtitleLanguages: [],
+    audioLanguages: [],
+    sponsorBlockCategories: [],
+    useAria2c: false,
+  }));
 
-  const supported = useMemo(
-    () => sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://'),
-    [sourceUrl],
-  );
+  const originalSourceUrl = typeof result.url === 'string' ? result.url.trim() : '';
+  const singleSourceUrl = scopedSingleSourceUrl(result);
+  const sourceUrl = collectionMode === 'single' ? singleSourceUrl : originalSourceUrl;
+  const supported = sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://');
+
+  useEffect(() => {
+    setCollectionMode('single');
+    setSelectedItems([currentItem]);
+  }, [currentItem, originalSourceUrl]);
 
   const refreshBridge = useCallback(async () => {
     const next = await getLocalEngineBridgeStatus();
@@ -312,41 +266,73 @@ export function LocalEngineDownloadCard({
 
   if (!supported) return null;
 
-  const localJob: LocalEngineBridgeJob = {
+  const normalizedSelectedItems = selectedItems.length ? selectedItems : [currentItem];
+  const engineCollectionMode: LocalEngineCollectionMode = collectionMode === 'single' && currentItem > 1
+    ? 'selected'
+    : collectionMode;
+  const engineSelectedItems = engineCollectionMode === 'selected'
+    ? (collectionMode === 'single' ? [currentItem] : normalizedSelectedItems)
+    : undefined;
+  const advancedBridge = bridge as AdvancedBridgeStatus | null;
+
+  const localJob: LocalEngineBridgeJob & LocalEngineAdvancedOptions = {
     sourceUrl,
+    displayTitle: typeof result.title === 'string' ? result.title : undefined,
     videoQuality: resolveLocalDesktopVideoQuality(plan.videoSelection),
     audioQuality: plan.audioQuality || 'best',
     includeAudio: plan.includeAudio,
     includeSubtitle: plan.includeSubtitle,
     subtitleLanguage: plan.includeSubtitle ? plan.subtitleLanguage || null : null,
     includeCover: plan.includeCover,
+    skipPreviouslyDownloaded,
     browser,
-    playlist: false,
+    collectionMode: engineCollectionMode,
+    selectedItems: engineSelectedItems,
+    playlist: engineCollectionMode === 'all',
+    ...advancedOptions,
+    useAria2c: Boolean(advancedBridge?.aria2Ready && advancedOptions.useAria2c),
+  };
+
+  const queueCapacity = bridge?.queueCapacity || 0;
+  const queueLength = bridge?.queueLength || 0;
+  const queuedJobs = bridge?.queuedJobs || [];
+  const queueFull = Boolean(bridge?.busy && queueCapacity > 0 && queueLength >= queueCapacity);
+  const queueStatus = copy.queueStatus
+    .replace('{count}', String(queueLength))
+    .replace('{capacity}', String(queueCapacity || '—'));
+  const currentQueueText = (bridge?.busy ? copy.currentQueue : copy.idleQueue)
+    .replace('{count}', String(queueLength));
+
+  const setMode = (mode: LocalEngineCollectionMode) => {
+    setCollectionMode(mode);
+    if (mode === 'selected' && !selectedItems.length) setSelectedItems([currentItem]);
+  };
+
+  const toggleItem = (page: number) => {
+    setSelectedItems((previous) => previous.includes(page)
+      ? previous.filter((item) => item !== page)
+      : [...previous, page].sort((a, b) => a - b));
   };
 
   const handleLaunch = async () => {
-    if (disabled || launching) return;
+    if (
+      disabled
+      || launching
+      || queueFull
+      || (collectionMode === 'selected' && selectedItems.length === 0)
+    ) return;
+
     setLaunching(true);
     try {
       if (bridge) {
-        await submitLocalEngineBridgeJob(localJob);
-        toast.success(copy.sent);
+        const wasBusy = bridge.busy;
+        const message = await submitLocalEngineBridgeJob(localJob);
+        toast.success(wasBusy ? copy.queued : copy.sent, wasBusy ? { description: message } : undefined);
         await refreshBridge();
         return;
       }
 
-      launchLocalDesktopEngine({
-        sourceUrl,
-        videoQuality: localJob.videoQuality,
-        audioQuality: localJob.audioQuality,
-        includeAudio: localJob.includeAudio,
-        includeSubtitle: localJob.includeSubtitle,
-        subtitleLanguage: localJob.subtitleLanguage,
-        includeCover: localJob.includeCover,
-        browser,
-        playlist: false,
-      });
-
+      launchLocalDesktopEngine(localJob);
       for (let attempt = 0; attempt < 10; attempt += 1) {
         await sleep(attempt === 0 ? 500 : 700);
         const next = await refreshBridge();
@@ -355,7 +341,7 @@ export function LocalEngineDownloadCard({
           return;
         }
       }
-      toast.message(copy.launchHint);
+      toast.message(launchHint);
     } catch (error) {
       toast.error(copy.title, {
         description: error instanceof Error ? error.message : String(error),
@@ -374,6 +360,22 @@ export function LocalEngineDownloadCard({
     }
   };
 
+  const handleCancelQueued = async (jobId: string) => {
+    if (cancellingQueuedJobId) return;
+    setCancellingQueuedJobId(jobId);
+    try {
+      await cancelLocalEngineQueuedJob(jobId);
+      await refreshBridge();
+      toast.success(copy.queuedCancelled);
+    } catch (error) {
+      await refreshBridge();
+      if (error instanceof LocalEngineBridgeSubmissionError && error.code === 'QUEUE_ITEM_NOT_FOUND') return;
+      toast.error(copy.cancelQueued, { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setCancellingQueuedJobId(null);
+    }
+  };
+
   const handleOpenFolder = async () => {
     try {
       await openLocalEngineDownloadFolder();
@@ -382,63 +384,103 @@ export function LocalEngineDownloadCard({
     }
   };
 
+  const modeButton = (mode: LocalEngineCollectionMode, label: string) => (
+    <button
+      type="button"
+      aria-pressed={collectionMode === mode}
+      disabled={disabled}
+      onClick={() => setMode(mode)}
+      className={`h-8 rounded-md px-2 text-[11px] font-medium outline-none transition-[background-color,color,transform] duration-150 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-ring ${
+        collectionMode === mode
+          ? 'bg-foreground text-background'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-primary/20 bg-primary/[0.035] shadow-sm">
-      <div className="space-y-3 p-3.5">
-        <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
-            <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold tracking-tight">{copy.title}</h3>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground text-pretty">{copy.intro}</p>
-            <p className="mt-1.5 text-xs font-medium leading-5 text-foreground/80 text-pretty">{copy.planSync}</p>
-          </div>
-        </div>
-
-        <div className="rounded-lg border bg-background/80 p-3">
-          <div className="flex items-center justify-between gap-3 text-xs">
-            <span className="flex items-center gap-2 font-medium">
-              {bridge ? (
-                <CircleCheck className="h-4 w-4 text-emerald-600" aria-hidden="true" />
-              ) : (
-                <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/40" />
-              )}
-              {bridge ? copy.connected : copy.disconnected}
-            </span>
-            <span className="tabular-nums text-muted-foreground">{bridge ? `v${bridge.version}` : 'v0.4.7+'}</span>
-          </div>
+    <section className="min-w-0 border-t pt-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${bridge ? 'bg-emerald-600' : 'bg-muted-foreground/35'}`}
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1 truncate text-sm font-medium">
+          {copy.title}
+          <span className="ms-2 text-[11px] font-normal text-muted-foreground">
+            {bridge ? `${copy.connected} · v${bridge.version}` : copy.disconnected}
+          </span>
           {bridge ? (
-            <div className="mt-2 space-y-2">
-              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <span className="truncate">{bridge.status}</span>
-                <span className="tabular-nums">{Math.round(bridge.progress)}%</span>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${bridge.progress}%` }} />
-              </div>
-              {bridge.detail ? <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">{bridge.detail}</p> : null}
-              {bridge.busy ? (
-                <div className="grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
-                  <span className="truncate">{bridge.speed}</span>
-                  <span className="truncate text-center">ETA {bridge.eta}</span>
-                  <span className="truncate text-right">{bridge.downloaded}</span>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{copy.bridgeRequired}</p>
-          )}
+            <span className="ms-2 text-[10px] font-normal tabular-nums text-muted-foreground">
+              {currentQueueText}
+            </span>
+          ) : null}
         </div>
+        {bridge ? (
+          <Button type="button" variant="ghost" size="xs" className="shrink-0 text-muted-foreground hover:text-foreground" onClick={() => void handleOpenFolder()}>
+            <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />
+            {copy.openFolder}
+          </Button>
+        ) : null}
+      </div>
 
-        <div className="space-y-2">
-          <label className="text-xs font-medium text-muted-foreground">{copy.cookieSource}</label>
-          <Select
-            value={browser}
-            onValueChange={(value) => setBrowser(value as LocalEngineBrowser)}
-            disabled={disabled || bridge?.busy}
-          >
-            <SelectTrigger className="h-10 min-w-0 max-w-full bg-background">
+      {bridge?.busy ? (
+        <div className="mt-3 space-y-1.5" role="status" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+            <span className="min-w-0 truncate">{bridge.detail || bridge.status}</span>
+            <span className="shrink-0 tabular-nums">{Math.round(bridge.progress)}%</span>
+          </div>
+          <div className="h-1 overflow-hidden bg-muted">
+            <div className="h-full bg-foreground transition-[width] duration-300" style={{ width: `${bridge.progress}%` }} />
+          </div>
+          <div className="flex justify-between gap-3 text-[10px] tabular-nums text-muted-foreground">
+            <span>{bridge.speed}</span><span>{bridge.downloaded}</span><span>ETA {bridge.eta}</span>
+          </div>
+        </div>
+      ) : null}
+
+      {queuedJobs.length > 0 ? (
+        <div className="mt-3 border-y" aria-label={copy.queueJobs}>
+          <div className="flex min-h-8 items-center justify-between gap-2 px-1 text-[11px] font-medium">
+            <span>{copy.queueJobs}</span>
+            <span className="tabular-nums text-muted-foreground">{queueStatus}</span>
+          </div>
+          <div className="divide-y border-t">
+            {queuedJobs.map((queuedJob) => {
+              const cancelling = cancellingQueuedJobId === queuedJob.id;
+              return (
+                <div key={queuedJob.id} className="flex min-h-9 min-w-0 items-center gap-2 px-1 py-1">
+                  <span className="w-6 shrink-0 text-[10px] tabular-nums text-muted-foreground">#{queuedJob.position}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium" title={queuedJob.label}>{queuedJob.label}</div>
+                    {queuedJob.sourceHost && queuedJob.sourceHost !== queuedJob.label ? (
+                      <div className="truncate text-[10px] text-muted-foreground">{queuedJob.sourceHost}</div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={disabled || cancellingQueuedJobId !== null}
+                    onClick={() => void handleCancelQueued(queuedJob.id)}
+                    aria-label={`${copy.cancelQueued}: ${queuedJob.label}`}
+                    title={copy.cancelQueued}
+                    className="ui-pressable inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    {cancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <X className="h-3.5 w-3.5" aria-hidden="true" />}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <div className={`mt-3 grid gap-2 ${hasCollection ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]' : ''}`}>
+        <label className="space-y-1.5 text-[11px] font-medium text-muted-foreground">
+          <span>{copy.cookieSource}</span>
+          <Select value={browser} onValueChange={(value) => setBrowser(value as LocalEngineBrowser)} disabled={disabled}>
+            <SelectTrigger className="h-8 bg-background text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -448,70 +490,120 @@ export function LocalEngineDownloadCard({
               <SelectItem value="firefox">{copy.firefox}</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-[11px] leading-4 text-muted-foreground">{copy.cookieHelp}</p>
-        </div>
+        </label>
 
-        <div className="grid gap-2">
-          {bridge?.busy ? (
-            <Button type="button" variant="destructive" className="min-h-11 w-full min-w-0 whitespace-normal text-center font-semibold leading-5" onClick={() => void handleCancel()}>
-              <X className="h-4 w-4" aria-hidden="true" />
-              {copy.cancel}
+        {hasCollection ? (
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-medium text-muted-foreground">{copy.collection}</div>
+            <div className="grid grid-cols-3 gap-0.5 rounded-md border bg-background p-0.5">
+              {modeButton('single', copy.single)}
+              {modeButton('all', copy.all)}
+              {modeButton('selected', copy.selected)}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <label className="mt-2 flex cursor-pointer items-start gap-2 border-y py-2 text-[11px] text-muted-foreground" title={copy.skipDownloadedHint}>
+        <input
+          type="checkbox"
+          checked={skipPreviouslyDownloaded}
+          disabled={disabled}
+          onChange={(event) => setSkipPreviouslyDownloaded(event.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+        />
+        <span className="min-w-0">
+          <span className="font-medium text-foreground">{copy.skipDownloaded}</span>
+          <span className="ms-1.5 opacity-80">{copy.skipDownloadedHint}</span>
+        </span>
+      </label>
+
+      {hasCollection && collectionMode === 'selected' ? (
+        <div className="mt-2 border-t pt-2">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium">{copy.selectedCount.replace('{count}', String(selectedItems.length))}</span>
+            <div className="flex items-center gap-1 text-[11px]">
+              <button type="button" disabled={disabled} className="rounded px-1.5 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50" onClick={() => setSelectedItems(collectionItems.map((item) => item.page))}>{copy.selectAll}</button>
+              <button type="button" disabled={disabled} className="rounded px-1.5 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50" onClick={() => setSelectedItems([])}>{copy.clear}</button>
+            </div>
+          </div>
+          <div className="max-h-36 divide-y overflow-y-auto border-y">
+            {collectionItems.map((item, index) => {
+              const checked = selectedItems.includes(item.page);
+              return (
+                <label key={`${item.page}-${item.cid}`} className="flex min-h-8 cursor-pointer items-center gap-2 px-1 py-1 text-xs hover:bg-muted/60">
+                  <input type="checkbox" disabled={disabled} checked={checked} onChange={() => toggleItem(item.page)} className="h-3.5 w-3.5 accent-foreground" />
+                  <span className="w-8 shrink-0 tabular-nums text-muted-foreground">#{item.page}</span>
+                  <span className={`min-w-0 flex-1 truncate ${checked ? 'font-medium' : ''}`}>{compactItemTitle(item.part, index + 1)}</span>
+                  {checked ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <LocalEngineAdvancedControls
+        value={advancedOptions}
+        onChange={setAdvancedOptions}
+        disabled={disabled || launching}
+        aria2Ready={Boolean(advancedBridge?.aria2Ready)}
+        subtitles={subtitleTracks}
+      />
+
+      <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
+        {bridge?.busy ? (
+          <>
+            <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
+              <X className="h-4 w-4" aria-hidden="true" />{copy.cancel}
             </Button>
-          ) : (
             <Button
               type="button"
-              className="min-h-11 w-full min-w-0 whitespace-normal text-center font-semibold leading-5"
+              size="sm"
               onClick={() => void handleLaunch()}
-              disabled={disabled || launching}
+              disabled={disabled || launching || queueFull || (collectionMode === 'selected' && selectedItems.length === 0)}
             >
               {launching ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <HardDriveDownload className="h-4 w-4" aria-hidden="true" />}
-              {copy.launch}
+              {queueFull ? copy.queueFull : copy.queueAction}
             </Button>
-          )}
+          </>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            className={bridge ? 'sm:col-span-2' : undefined}
+            onClick={() => void handleLaunch()}
+            disabled={disabled || launching || (collectionMode === 'selected' && selectedItems.length === 0)}
+          >
+            {launching ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <HardDriveDownload className="h-4 w-4" aria-hidden="true" />}
+            {copy.launch}
+          </Button>
+        )}
 
-          {bridge ? (
-            <Button type="button" variant="outline" className="min-h-10 w-full min-w-0 whitespace-normal text-center leading-5" onClick={() => void handleOpenFolder()}>
-              <FolderOpen className="h-4 w-4" aria-hidden="true" />
-              {copy.openFolder}
-            </Button>
-          ) : (
-            <div className="grid gap-2">
-              <Button type="button" variant="outline" className="min-h-10 w-full min-w-0 whitespace-normal text-center leading-5" asChild>
-                <a href={LOCAL_ENGINE_RELEASE_URL}>
-                  <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
-                  {copy.install}
-                </a>
-              </Button>
-              <Button type="button" variant="ghost" className="min-h-9 w-full min-w-0 whitespace-normal text-center text-xs leading-5" asChild>
-                <a href={LOCAL_ENGINE_GITHUB_URL} target="_blank" rel="noreferrer">
-                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                  {copy.githubMirror}
-                </a>
-              </Button>
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
-          <div className="text-xs font-semibold text-foreground">{copy.guideTitle}</div>
-          <ol className="mt-2 space-y-2">
-            {copy.guideSteps.map((step, index) => (
-              <li key={step} className="flex gap-2 text-[11px] leading-4 text-muted-foreground">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
-                  {index + 1}
-                </span>
-                <span className="pt-0.5">{step}</span>
-              </li>
-            ))}
-          </ol>
-          <p className="mt-2 border-t pt-2 text-[11px] leading-4 text-muted-foreground">{copy.guideTip}</p>
-        </div>
-
-        <div className="flex items-start gap-2 border-t border-primary/10 pt-3 text-xs leading-5 text-muted-foreground">
-          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-          <span>{copy.privacy}</span>
-        </div>
+        {!bridge ? (
+          <Button type="button" variant="outline" size="sm" asChild>
+            <a href={LOCAL_ENGINE_RELEASE_URL}>{copy.install}</a>
+          </Button>
+        ) : null}
       </div>
+
+      {!bridge ? (
+        <details className="group mt-2 border-t pt-1 text-[11px] text-muted-foreground">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-0.5 py-1.5 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            <ChevronDown className="h-3.5 w-3.5 transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
+            {copy.setup}
+          </summary>
+          <div className="ms-1.5 mt-1 space-y-1.5 border-s ps-3 leading-5">
+            <p>{copy.setupHint}</p>
+            <a href={LOCAL_ENGINE_GITHUB_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline underline-offset-4 hover:text-foreground">
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />{copy.githubMirror}
+            </a>
+            <p>{launchHint}</p>
+          </div>
+        </details>
+      ) : null}
+
+      <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{copy.privacy}</p>
     </section>
   );
 }

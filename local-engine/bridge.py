@@ -16,10 +16,11 @@ from urllib.parse import urlparse
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = int(os.getenv("GALAXY_LOCAL_BRIDGE_PORT", "17836"))
 BRIDGE_BASE_URL = f"http://{BRIDGE_HOST}:{BRIDGE_PORT}"
-BRIDGE_PROTOCOL_VERSION = 3
+BRIDGE_PROTOCOL_VERSION = 4
 MAX_REQUEST_BYTES = 32 * 1024
 LOCAL_PARSE_TIMEOUT_SECONDS = 45
 SUPPORTED_BROWSERS = {"none", "edge", "chrome", "firefox", "brave", "chromium", "opera", "vivaldi"}
+MAX_COLLECTION_PREVIEW_ITEMS = 200
 
 AUTH_REQUIRED_PATTERNS = (
     "use --cookies-from-browser",
@@ -177,6 +178,13 @@ def _stream_url(item: dict[str, Any] | None) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def _formats(info: dict[str, Any]) -> list[dict[str, Any]]:
+    source = info.get("formats")
+    if not isinstance(source, list):
+        return []
+    return [item for item in source if isinstance(item, dict)]
+
+
 def _quality_options(formats: list[dict[str, Any]]) -> list[dict[str, Any]]:
     candidates = [item for item in formats if _has_video(item) and _stream_url(item)]
     candidates.sort(key=_format_score, reverse=True)
@@ -269,6 +277,53 @@ def _subtitle_tracks(info: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def _best_media_urls(info: dict[str, Any]) -> tuple[str | None, str | None, bool, bool, str]:
+    formats = _formats(info)
+    muxed = max(
+        (
+            item
+            for item in formats
+            if _has_video(item) and _has_audio(item) and _stream_url(item)
+        ),
+        key=_format_score,
+        default=None,
+    )
+    video_only = max(
+        (item for item in formats if _has_video(item) and _stream_url(item)),
+        key=_format_score,
+        default=None,
+    )
+    audio_only = max(
+        (
+            item
+            for item in formats
+            if not _has_video(item) and _has_audio(item) and _stream_url(item)
+        ),
+        key=lambda item: (_number(item.get("abr")), _number(item.get("tbr"))),
+        default=None,
+    )
+
+    top_url = info.get("url") if isinstance(info.get("url"), str) else None
+    selected_video_url = _stream_url(muxed) or _stream_url(video_only) or top_url
+    selected_audio_url = _stream_url(audio_only)
+    has_video = bool(selected_video_url) or any(_has_video(item) for item in formats)
+    has_audio = (
+        bool(selected_audio_url)
+        or bool(muxed and _has_audio(muxed))
+        or any(_has_audio(item) for item in formats)
+    )
+    mode = (
+        "muxed"
+        if muxed or (has_video and has_audio and not selected_audio_url)
+        else "separate"
+        if has_video and has_audio
+        else "pure_music"
+        if has_audio
+        else "not_applicable"
+    )
+    return selected_video_url, selected_audio_url, has_video, has_audio, mode
+
+
 def _normalize_info(raw_info: dict[str, Any]) -> dict[str, Any]:
     entries = raw_info.get("entries")
     if isinstance(entries, list):
@@ -280,9 +335,47 @@ def _normalize_info(raw_info: dict[str, Any]) -> dict[str, Any]:
     return raw_info
 
 
+def _collection_pages(raw_info: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = raw_info.get("entries")
+    if not isinstance(entries, list):
+        return []
+    valid_entries = [entry for entry in entries if isinstance(entry, dict)]
+    if len(valid_entries) <= 1:
+        return []
+
+    parent_title = str(raw_info.get("title") or "").strip()
+    pages: list[dict[str, Any]] = []
+    for index, entry in enumerate(valid_entries[:MAX_COLLECTION_PREVIEW_ITEMS], start=1):
+        video_url, audio_url, _has_v, _has_a, mode = _best_media_urls(entry)
+        entry_title = str(
+            entry.get("title")
+            or entry.get("fulltitle")
+            or entry.get("description")
+            or ""
+        ).strip()
+        if not entry_title or entry_title == parent_title:
+            entry_title = f"{parent_title or 'Collection item'} · {index}"
+        entry_id = str(entry.get("id") or entry.get("display_id") or index)
+        pages.append(
+            {
+                "page": index,
+                "cid": entry_id,
+                "part": entry_title,
+                "duration": int(_number(entry.get("duration"))),
+                "downloadAudioUrl": audio_url,
+                "downloadVideoUrl": video_url,
+                "videoAudioMode": mode,
+                "qualityOptions": _quality_options(_formats(entry)),
+                "subtitles": _subtitle_tracks(entry),
+            }
+        )
+    return pages
+
+
 def _run_parse(executable: Path, source_url: str, browser: str = "none") -> subprocess.CompletedProcess[str] | dict[str, Any]:
     command = [
         str(executable),
+        "--ignore-config",
         "--dump-single-json",
         "--skip-download",
         "--no-playlist",
@@ -347,53 +440,13 @@ def _success_payload(completed: subprocess.CompletedProcess[str], source_url: st
             "error": "本地解析器返回了不支持的数据格式。",
         }
 
+    pages = _collection_pages(raw_info)
     info = _normalize_info(raw_info)
-    formats = (
-        [item for item in info.get("formats", []) if isinstance(item, dict)]
-        if isinstance(info.get("formats"), list)
-        else []
-    )
-    muxed = max(
-        (
-            item
-            for item in formats
-            if _has_video(item) and _has_audio(item) and _stream_url(item)
-        ),
-        key=_format_score,
-        default=None,
-    )
-    video_only = max(
-        (item for item in formats if _has_video(item) and _stream_url(item)),
-        key=_format_score,
-        default=None,
-    )
-    audio_only = max(
-        (
-            item
-            for item in formats
-            if not _has_video(item) and _has_audio(item) and _stream_url(item)
-        ),
-        key=lambda item: (_number(item.get("abr")), _number(item.get("tbr"))),
-        default=None,
-    )
-
-    top_url = info.get("url") if isinstance(info.get("url"), str) else None
-    selected_video_url = _stream_url(muxed) or _stream_url(video_only) or top_url
-    selected_audio_url = _stream_url(audio_only)
-    has_video = bool(selected_video_url) or any(_has_video(item) for item in formats)
-    has_audio = (
-        bool(selected_audio_url)
-        or bool(muxed and _has_audio(muxed))
-        or any(_has_audio(item) for item in formats)
-    )
-    mode = (
-        "muxed"
-        if muxed or (has_video and has_audio and not selected_audio_url)
-        else "separate"
-        if has_video and has_audio
-        else "pure_music"
-        if has_audio
-        else "not_applicable"
+    formats = _formats(info)
+    selected_video_url, selected_audio_url, has_video, has_audio, mode = _best_media_urls(info)
+    muxed = any(
+        _has_video(item) and _has_audio(item) and _stream_url(item)
+        for item in formats
     )
 
     title = str(
@@ -404,39 +457,49 @@ def _success_payload(completed: subprocess.CompletedProcess[str], source_url: st
     ).strip()
     description = str(info.get("description") or "").strip()
     thumbnail = info.get("thumbnail") if isinstance(info.get("thumbnail"), str) else None
+    current_item_id = str(info.get("id") or info.get("display_id") or "").strip() or None
 
-    return {
-        "success": True,
-        "data": {
-            "title": title,
-            "desc": description,
-            "cover": thumbnail,
-            "platform": _platform_name(info),
-            "downloadAudioUrl": selected_audio_url,
-            "downloadVideoUrl": selected_video_url,
-            "originDownloadAudioUrl": selected_audio_url,
-            "originDownloadVideoUrl": selected_video_url,
-            "videoAudioMode": mode,
-            "mediaActions": {
-                "video": "direct-download"
-                if muxed
-                else "merge-then-download"
-                if has_video
-                else "hide",
-                "audio": "direct-download"
-                if selected_audio_url
-                else "extract-audio"
-                if has_audio
-                else "hide",
-            },
-            "qualityOptions": _quality_options(formats),
-            "subtitles": _subtitle_tracks(info),
-            "url": source_url,
-            "duration": info.get("duration"),
-            "kind": "video" if has_video else "audio" if has_audio else "video",
-            "localAuthBrowser": None if browser_used == "none" else browser_used,
+    data: dict[str, Any] = {
+        "title": title,
+        "desc": description,
+        "cover": thumbnail,
+        "platform": _platform_name(info),
+        "downloadAudioUrl": selected_audio_url,
+        "downloadVideoUrl": selected_video_url,
+        "originDownloadAudioUrl": selected_audio_url,
+        "originDownloadVideoUrl": selected_video_url,
+        "videoAudioMode": mode,
+        "mediaActions": {
+            "video": "direct-download"
+            if muxed
+            else "merge-then-download"
+            if has_video
+            else "hide",
+            "audio": "direct-download"
+            if selected_audio_url
+            else "extract-audio"
+            if has_audio
+            else "hide",
         },
+        "qualityOptions": _quality_options(formats),
+        "subtitles": _subtitle_tracks(info),
+        "url": source_url,
+        "duration": info.get("duration"),
+        "kind": "video" if has_video else "audio" if has_audio else "video",
+        "localAuthBrowser": None if browser_used == "none" else browser_used,
     }
+    if pages:
+        data.update(
+            {
+                "isMultiPart": True,
+                "currentPage": 1,
+                "currentItemId": current_item_id or pages[0]["cid"],
+                "pages": pages,
+                "collectionCount": len(pages),
+            }
+        )
+
+    return {"success": True, "data": data}
 
 
 def parse_with_bundled_ytdlp(source_url: str, browser: str = "none") -> dict[str, Any]:
@@ -459,8 +522,6 @@ def parse_with_bundled_ytdlp(source_url: str, browser: str = "none") -> dict[str
 
     requested_browser = _validated_browser(browser)
 
-    # Public media should never require browser cookies. Try the clean path
-    # first so an open Chromium browser cannot break ordinary parsing.
     public_attempt = _run_parse(executable, source_url, "none")
     if isinstance(public_attempt, dict):
         return public_attempt
@@ -485,8 +546,6 @@ def parse_with_bundled_ytdlp(source_url: str, browser: str = "none") -> dict[str
             "details": {"raw": public_error[-1200:]},
         }
 
-    # The website passes the browser it is currently running in. Retry with
-    # that browser only after yt-dlp has confirmed that authentication is needed.
     browser_attempt = _run_parse(executable, source_url, requested_browser)
     if isinstance(browser_attempt, dict):
         return browser_attempt
@@ -500,9 +559,9 @@ def parse_with_bundled_ytdlp(source_url: str, browser: str = "none") -> dict[str
             "code": "BROWSER_COOKIE_UNAVAILABLE",
             "status": 409,
             "error": (
-                f"Instagram 需要登录状态，但当前无法读取 {requested_browser.title()} 的 Cookie。"
+                f"该内容需要登录状态，但当前无法读取 {requested_browser.title()} 的 Cookie。"
                 "如果浏览器正在占用 Cookie 数据库，请完全退出该浏览器后重试；"
-                "也可以改用另一个已经登录 Instagram 的浏览器。"
+                "也可以改用另一个已经登录目标平台的浏览器。"
             ),
             "details": {"browser": requested_browser, "raw": browser_error[-1200:]},
         }
@@ -513,8 +572,8 @@ def parse_with_bundled_ytdlp(source_url: str, browser: str = "none") -> dict[str
             "code": "AUTH_REQUIRED",
             "status": 401,
             "error": (
-                f"已尝试读取 {requested_browser.title()} 登录状态，但 Instagram 仍拒绝返回媒体。"
-                "请确认该浏览器已经登录 Instagram，并且此 Reel 在该账号中可以正常播放。"
+                f"已尝试读取 {requested_browser.title()} 登录状态，但平台仍拒绝返回媒体。"
+                "请确认该浏览器已经登录目标平台，并且此内容在该账号中可以正常播放。"
             ),
             "details": {"browser": requested_browser, "raw": browser_error[-1200:]},
         }
@@ -550,7 +609,7 @@ class LocalBridge:
         bridge = self
 
         class Handler(BaseHTTPRequestHandler):
-            server_version = "GalaxyLocalBridge/3"
+            server_version = "GalaxyLocalBridge/4"
 
             def log_message(self, _format: str, *_args: object) -> None:
                 return

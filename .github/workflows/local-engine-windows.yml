@@ -5,12 +5,34 @@ on:
   pull_request:
     paths:
       - 'local-engine/**'
+      - 'scripts/test-dynamic-document.py'
+      - 'scripts/test-local-document-policy.py'
+      - 'scripts/test-local-entrypoint-policy.py'
+      - 'scripts/test-local-browser-auth.py'
+      - 'scripts/test-local-image-download.py'
+      - 'scripts/test-local-image-bridge.py'
+      - 'scripts/test-local-job-queue.py'
+      - 'scripts/test-local-bridge-submission.py'
+      - 'scripts/test-local-archive-policy.py'
+      - 'scripts/test-local-media-policy.py'
+      - 'scripts/test-local-image-archive-policy.py'
       - '.github/workflows/local-engine-windows.yml'
   push:
     branches:
       - main
     paths:
       - 'local-engine/**'
+      - 'scripts/test-dynamic-document.py'
+      - 'scripts/test-local-document-policy.py'
+      - 'scripts/test-local-entrypoint-policy.py'
+      - 'scripts/test-local-browser-auth.py'
+      - 'scripts/test-local-image-download.py'
+      - 'scripts/test-local-image-bridge.py'
+      - 'scripts/test-local-job-queue.py'
+      - 'scripts/test-local-bridge-submission.py'
+      - 'scripts/test-local-archive-policy.py'
+      - 'scripts/test-local-media-policy.py'
+      - 'scripts/test-local-image-archive-policy.py'
       - '.github/workflows/local-engine-windows.yml'
 
 permissions:
@@ -29,20 +51,63 @@ jobs:
           cache: 'pip'
 
       - name: Install build dependencies
-        run: python -m pip install -r local-engine/requirements.txt
+        shell: pwsh
+        run: |
+          python -m pip install -r local-engine/requirements.txt
+          python -m pip install "pillow>=11,<12"
+
+      - name: Generate branded Windows icon
+        run: python local-engine/generate_icon.py --output local-engine/GalaxyLocalEngine.ico
 
       - name: Compile-check engine source
-        run: python -m py_compile local-engine/engine.py local-engine/bridge.py local-engine/external_ytdlp.py local-engine/wechat_channels.py
+        run: >-
+          python -m py_compile
+          local-engine/entrypoint.py
+          local-engine/engine.py
+          local-engine/bridge.py
+          local-engine/bridge_submission_policy.py
+          local-engine/archive_policy.py
+          local-engine/media_policy.py
+          local-engine/job_queue.py
+          local-engine/desktop_ui.py
+          local-engine/update_check.py
+          local-engine/browser_auth.py
+          local-engine/image_archive_policy.py
+          local-engine/image_bridge.py
+          local-engine/image_download.py
+          local-engine/web_document.py
+          local-engine/document_policy.py
+          local-engine/document_markdown.py
+          local-engine/dynamic_document.py
+          local-engine/url_policy.py
+          local-engine/external_ytdlp.py
+          local-engine/wechat_channels.py
 
       - name: Validate source self-test and version
         shell: pwsh
         run: |
-          python local-engine/engine.py --self-test
+          python local-engine/entrypoint.py --self-test
           $expected = (Get-Content 'local-engine/VERSION' -Raw).Trim()
-          $actual = (python local-engine/engine.py --version | Select-Object -Last 1).Trim()
+          $actual = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
           if ($actual -ne $expected) {
             throw "Engine version '$actual' does not match VERSION '$expected'"
           }
+
+      - name: Validate Local Engine policies
+        run: |
+          python scripts/test-local-document-policy.py
+          python scripts/test-local-entrypoint-policy.py
+          python scripts/test-local-browser-auth.py
+          python scripts/test-local-image-download.py
+          python scripts/test-local-image-bridge.py
+          python scripts/test-local-job-queue.py
+          python scripts/test-local-bridge-submission.py
+          python scripts/test-local-archive-policy.py
+          python scripts/test-local-media-policy.py
+          python scripts/test-local-image-archive-policy.py
+
+      - name: Exercise Edge or Chrome CDP renderer
+        run: python scripts/test-dynamic-document.py
 
       - name: Build portable executable
         run: >-
@@ -52,9 +117,10 @@ jobs:
           --onefile
           --windowed
           --name GalaxyLocalEngine
+          --icon "local-engine/GalaxyLocalEngine.ico"
           --collect-all yt_dlp
           --add-data "local-engine/VERSION;."
-          local-engine/engine.py
+          local-engine/entrypoint.py
 
       - name: Validate packaged executable
         shell: pwsh

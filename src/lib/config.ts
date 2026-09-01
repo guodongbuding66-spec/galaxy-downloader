@@ -5,6 +5,7 @@
 const DEFAULT_DEV_API_BASE_URL = 'http://localhost:8788'
 const DEFAULT_PROD_API_BASE_URL = 'https://downloader-api.bhwa233.com'
 const FIRST_PARTY_LOCAL_PARSE_ENDPOINT = '/api/local-parse'
+const FIRST_PARTY_WEB_DOCUMENT_ENDPOINT = '/api/web-document'
 const FIRST_PARTY_PARSE_STATS_ENDPOINT = '/api/site-stats'
 
 function normalizeBaseUrl(value: string): string {
@@ -35,10 +36,6 @@ function resolveContainerApiBaseUrl(): string {
     return normalizeBaseUrl(value)
 }
 
-function resolvePlaybackApiBaseUrl(): string {
-    return resolveContainerApiBaseUrl() || resolvePublicApiBaseUrl()
-}
-
 function buildApiUrl(pathname: string, baseUrl = resolvePublicApiBaseUrl()): string {
     const normalizedPathname = pathname.startsWith('/') ? pathname : `/${pathname}`
 
@@ -47,6 +44,18 @@ function buildApiUrl(pathname: string, baseUrl = resolvePublicApiBaseUrl()): str
     }
 
     return new URL(normalizedPathname, `${baseUrl}/`).toString()
+}
+
+function buildPlaybackApiUrl(): string {
+    const containerBase = resolveContainerApiBaseUrl()
+    if (containerBase) {
+        return buildApiUrl('/api/play', containerBase)
+    }
+
+    // The existing shared backend may not have Galaxy's new range-aware
+    // /api/play route yet. Preserve its established /api/download playback
+    // behavior when no first-party Container backend is configured.
+    return buildApiUrl('/api/download')
 }
 
 function endpointCandidates(pathname: string): string[] {
@@ -72,12 +81,14 @@ function parseEndpointCandidates(): string[] {
 export const API_ENDPOINTS = {
     unified: {
         parse: buildApiUrl('/api/parse'),
+        documentParse: FIRST_PARTY_WEB_DOCUMENT_ENDPOINT,
         download: buildApiUrl('/api/download'),
-        // Playback uses the same source-aware media route as downloads instead
-        // of the legacy /api/play endpoint. Prefer the user's container backend
-        // when configured so preview and download share the same yt-dlp/network
-        // identity and do not fail on short-lived or IP-bound media URLs.
-        play: buildApiUrl('/api/download', resolvePlaybackApiBaseUrl()),
+        // Preview is deliberately separate from final-file download whenever
+        // Galaxy's Container backend is configured. /api/play resolves one
+        // browser-playable progressive stream and relays Range requests, while
+        // /api/download remains best-video + best-audio + FFmpeg. Without the
+        // Container backend we retain the legacy shared endpoint as a fallback.
+        play: buildPlaybackApiUrl(),
     },
     feedback: buildApiUrl('/api/feedback'),
     stats: {
@@ -88,12 +99,9 @@ export const API_ENDPOINTS = {
 } as const
 
 /**
- * Ordered media backend candidates.
- *
- * Parsing tries Galaxy's same-origin lightweight parser first. Unsupported
- * platforms then continue to the existing shared/container backends. Keeping
- * one first-party endpoint avoids route-registration differences between
- * local vinext builds and the deployed Cloudflare Worker.
+ * Ordered media backend candidates used after the document-first probe and
+ * local-engine attempt. Keeping the generic document route out of this list
+ * avoids fetching the same product/article page twice on failures.
  */
 export const API_ENDPOINT_CANDIDATES = {
     unified: {

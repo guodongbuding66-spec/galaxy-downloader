@@ -2,6 +2,13 @@
   "name": "bilibili-audio-downloader",
   "packageManager": "pnpm@11.8.0",
   "version": "2.0.0",
+  "description": "SparkDownloader - online video, audio, image, document and HLS download tools",
+  "author": "guodongbuding66-spec",
+  "homepage": "https://galaxy-downloader.guodongbuding66.workers.dev/zh",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/guodongbuding66-spec/galaxy-downloader.git"
+  },
   "scripts": {
     "prepare:ffmpeg-core": "node scripts/sync-ffmpeg-core.mjs",
     "pretest": "pnpm run prepare:ffmpeg-core",

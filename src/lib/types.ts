@@ -24,6 +24,7 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number]
 export type ApiErrorDetails = Record<string, unknown>
 export type VideoAudioMode = 'muxed' | 'separate' | 'pure_music' | 'not_applicable'
 export type ResultKind = 'video' | 'audio' | 'picker' | 'image'
+export type WebDocumentType = 'post' | 'article' | 'product' | 'gallery' | 'webpage'
 
 export interface PodcastEpisodeInfo {
     id: string;
@@ -116,6 +117,14 @@ export interface UnifiedParseResult {
     data?: {
         title: string;
         desc?: string;
+        /** Full post/article text when the parser can extract more than a short description. */
+        textContent?: string;
+        /** Structure-preserving Markdown for article/document archives when available. */
+        markdownContent?: string;
+        author?: string;
+        publishedAt?: string;
+        siteName?: string;
+        documentType?: WebDocumentType;
         cover?: string | null;
         platform: string;
         downloadAudioUrl: string | null;
@@ -136,10 +145,10 @@ export interface UnifiedParseResult {
         currentPage?: number;
         currentItemId?: string;
         pages?: PageInfo[];
-        // 小红书相关字段
+        // 小红书/抖音/网页图文相关字段
         noteType?: 'video' | 'image' | 'audio';
         images?: Array<string | UnifiedParseResultImage>;
-        // 微信公众号文章视频列表
+        // 微信公众号文章、商品页、普通网页中的嵌入视频列表
         videos?: EmbeddedVideoInfo[];
         // 结果类型（picker = 多集选择器，如 Apple Podcasts 节目页）
         kind?: ResultKind;
