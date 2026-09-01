@@ -189,14 +189,15 @@ class LocalJobQueueTests(unittest.TestCase):
         self.assertEqual(result.status, 400)
         self.assertEqual(result.code, "BAD_REQUEST")
 
-    def test_shutdown_drops_waiting_jobs(self):
+    def test_shutdown_drops_waiting_jobs_without_overwriting_active_state(self):
         _engine, window = self.make_window()
         self.queue(window, "https://example.com/1")
         self.queue(window, "https://example.com/2")
         window._galaxy_close_pending = True
         window._start_next_queued_job()
         self.assertEqual(window.pending_jobs, [])
-        self.assertFalse(window.running)
+        self.assertTrue(window.running)
+        self.assertEqual(window.started, [])
 
     def test_clear_queued_jobs_returns_removed_count(self):
         _engine, window = self.make_window()
