@@ -7,6 +7,10 @@ on:
       - 'local-engine/**'
       - 'scripts/test-dynamic-document.py'
       - 'scripts/test-local-document-policy.py'
+      - 'scripts/test-local-entrypoint-policy.py'
+      - 'scripts/test-local-image-download.py'
+      - 'scripts/test-local-image-bridge.py'
+      - 'scripts/test-local-job-queue.py'
       - '.github/workflows/local-engine-windows.yml'
   push:
     branches:
@@ -15,6 +19,10 @@ on:
       - 'local-engine/**'
       - 'scripts/test-dynamic-document.py'
       - 'scripts/test-local-document-policy.py'
+      - 'scripts/test-local-entrypoint-policy.py'
+      - 'scripts/test-local-image-download.py'
+      - 'scripts/test-local-image-bridge.py'
+      - 'scripts/test-local-job-queue.py'
       - '.github/workflows/local-engine-windows.yml'
 
 permissions:
@@ -36,7 +44,21 @@ jobs:
         run: python -m pip install -r local-engine/requirements.txt
 
       - name: Compile-check engine source
-        run: python -m py_compile local-engine/entrypoint.py local-engine/engine.py local-engine/bridge.py local-engine/web_document.py local-engine/document_policy.py local-engine/document_markdown.py local-engine/dynamic_document.py local-engine/external_ytdlp.py local-engine/wechat_channels.py
+        run: >-
+          python -m py_compile
+          local-engine/entrypoint.py
+          local-engine/engine.py
+          local-engine/bridge.py
+          local-engine/job_queue.py
+          local-engine/image_bridge.py
+          local-engine/image_download.py
+          local-engine/web_document.py
+          local-engine/document_policy.py
+          local-engine/document_markdown.py
+          local-engine/dynamic_document.py
+          local-engine/url_policy.py
+          local-engine/external_ytdlp.py
+          local-engine/wechat_channels.py
 
       - name: Validate source self-test and version
         shell: pwsh
@@ -48,8 +70,13 @@ jobs:
             throw "Engine version '$actual' does not match VERSION '$expected'"
           }
 
-      - name: Validate document routing and Markdown policies
-        run: python scripts/test-local-document-policy.py
+      - name: Validate Local Engine policies
+        run: |
+          python scripts/test-local-document-policy.py
+          python scripts/test-local-entrypoint-policy.py
+          python scripts/test-local-image-download.py
+          python scripts/test-local-image-bridge.py
+          python scripts/test-local-job-queue.py
 
       - name: Exercise Edge or Chrome CDP renderer
         run: python scripts/test-dynamic-document.py
