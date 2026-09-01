@@ -42,6 +42,8 @@ jobs:
           python3 -m py_compile \
             local-engine/entrypoint.py \
             local-engine/bridge.py \
+            local-engine/bridge_submission_policy.py \
+            local-engine/archive_policy.py \
             local-engine/image_bridge.py \
             local-engine/image_download.py \
             local-engine/job_queue.py \
@@ -59,6 +61,8 @@ jobs:
           python3 scripts/test-local-image-download.py
           python3 scripts/test-local-image-bridge.py
           python3 scripts/test-local-job-queue.py
+          python3 scripts/test-local-bridge-submission.py
+          python3 scripts/test-local-archive-policy.py
 
       - name: Run tests
         run: pnpm test
