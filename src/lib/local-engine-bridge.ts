@@ -1,4 +1,8 @@
-import type { LocalEngineBrowser, LocalEngineCollectionMode } from '@/lib/local-engine'
+import {
+  LOCAL_ENGINE_REQUIRED_VERSION,
+  type LocalEngineBrowser,
+  type LocalEngineCollectionMode,
+} from '@/lib/local-engine'
 import type { UnifiedParseResult } from '@/lib/types'
 
 const LOCAL_ENGINE_BRIDGE_BASE_URLS = [
@@ -8,7 +12,6 @@ const LOCAL_ENGINE_BRIDGE_BASE_URLS = [
 
 export const LOCAL_ENGINE_BRIDGE_BASE_URL = LOCAL_ENGINE_BRIDGE_BASE_URLS[0]
 const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1800
-const MIN_LOCAL_ENGINE_VERSION = '0.6.0'
 const MIN_PARSE_BRIDGE_PROTOCOL = 4
 
 export interface LocalEngineBridgeStatus {
@@ -25,6 +28,8 @@ export interface LocalEngineBridgeStatus {
   downloaded: string
   ffmpegReady: boolean
   ytDlpReady: boolean
+  queueLength: number
+  queueCapacity: number
 }
 
 export interface LocalEngineBridgeJob {
@@ -149,10 +154,16 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
       lastBridgeDiagnostic = 'Galaxy Local Engine 返回了无效状态，请重新启动本地引擎。'
       return null
     }
-    if (!versionAtLeast(payload.version, MIN_LOCAL_ENGINE_VERSION)) {
-      lastBridgeDiagnostic = `Galaxy Local Engine 版本过低（当前 ${payload.version}，需要 ${MIN_LOCAL_ENGINE_VERSION}+）。请下载最新版并重新运行 install.cmd。`
+    if (!versionAtLeast(payload.version, LOCAL_ENGINE_REQUIRED_VERSION)) {
+      lastBridgeDiagnostic = `Galaxy Local Engine 版本过低（当前 ${payload.version}，需要 ${LOCAL_ENGINE_REQUIRED_VERSION}+）。请下载最新版并重新运行 install.cmd。`
       return null
     }
+
+    const queueCapacity = Math.max(0, Math.floor(Number(payload.queueCapacity || 0)))
+    const queueLength = Math.max(
+      0,
+      Math.min(queueCapacity || Number.MAX_SAFE_INTEGER, Math.floor(Number(payload.queueLength || 0))),
+    )
 
     lastBridgeDiagnostic = null
     return {
@@ -169,6 +180,8 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
       downloaded: String(payload.downloaded || '—'),
       ffmpegReady: Boolean(payload.ffmpegReady),
       ytDlpReady: Boolean(payload.ytDlpReady),
+      queueLength,
+      queueCapacity,
     }
   } catch (error) {
     lastBridgeDiagnostic = localNetworkHelp(errorText(error))
@@ -297,24 +310,24 @@ async function postBridgeAction(path: string, body?: unknown): Promise<Response>
   }, 2500)
 }
 
-export async function submitLocalEngineBridgeJob(job: LocalEngineBridgeJob): Promise<void> {
+export async function submitLocalEngineBridgeJob(job: LocalEngineBridgeJob): Promise<string> {
   const status = await getLocalEngineBridgeStatus()
   if (!status) {
-    throw new Error(lastBridgeDiagnostic || `Galaxy Local Engine ${MIN_LOCAL_ENGINE_VERSION}+ is required`)
+    throw new Error(lastBridgeDiagnostic || `Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ is required`)
   }
   if (status.bridgeProtocol < MIN_PARSE_BRIDGE_PROTOCOL) {
     throw new Error(`Galaxy Local Engine bridge protocol ${MIN_PARSE_BRIDGE_PROTOCOL}+ is required`)
   }
 
   const response = await postBridgeAction('/download', job)
-  if (response.ok) return
-  let message = `Local engine rejected the job (${response.status})`
+  let message = response.ok ? 'Download job accepted' : `Local engine rejected the job (${response.status})`
   try {
     const payload = await response.json() as { message?: string; error?: string }
     message = payload.message || payload.error || message
   } catch {
     // Keep the status-based message.
   }
+  if (response.ok) return message
   throw new Error(message)
 }
 
