@@ -73,6 +73,10 @@ class LocalDocumentPolicyTests(unittest.TestCase):
         self.assertFalse(document_policy.should_try_web_document("https://www.instagram.com/reel/ABC123/"))
         self.assertTrue(document_policy.should_try_web_document("https://www.tiktok.com/@demo/photo/123"))
         self.assertTrue(document_policy.should_try_web_document("https://x.com/demo/status/123"))
+        self.assertTrue(document_policy.should_try_web_document("https://www.facebook.com/demo/posts/123"))
+        self.assertTrue(document_policy.should_try_web_document("https://weibo.com/123456/ABCDEF"))
+        self.assertTrue(document_policy.should_try_web_document("https://t.me/demo/123"))
+        self.assertTrue(document_policy.should_try_web_document("https://www.kuaishou.com/short-video/abc"))
         self.assertFalse(document_policy.should_try_web_document("https://www.youtube.com/watch?v=abc"))
 
     def test_ambiguous_social_posts_are_media_first(self):
@@ -83,6 +87,12 @@ class LocalDocumentPolicyTests(unittest.TestCase):
             "https://www.threads.net/@demo/post/ABC123",
             "https://www.pinterest.com/pin/123456/",
             "https://demo.tumblr.com/post/123456/example",
+            "https://www.facebook.com/demo/posts/123456",
+            "https://fb.watch/ABC123/",
+            "https://weibo.com/123456/ABCDEF",
+            "https://t.me/demo/123",
+            "https://www.kuaishou.com/short-video/abc",
+            "https://v.kuaishou.com/abc123",
         )
         for url in media_first:
             with self.subTest(url=url):
