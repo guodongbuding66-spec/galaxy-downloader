@@ -36,6 +36,38 @@ class LocalEntrypointPolicyTests(unittest.TestCase):
                 "galaxy-downloader://download?url=http%3A%2F%2F127.0.0.1%3A8080%2Fprivate.mp4"
             )
 
+    def test_ambiguous_social_video_returns_media_before_document_scrape(self):
+        url = "https://www.instagram.com/p/ABC123/"
+        media = {"success": True, "data": {"kind": "video", "title": "video"}}
+        with (
+            mock.patch.object(entrypoint, "is_public_http_url", return_value=True),
+            mock.patch.object(entrypoint, "prefer_media_first", return_value=True),
+            mock.patch.object(entrypoint, "_original_media_parse", return_value=media) as media_parse,
+            mock.patch.object(entrypoint, "parse_web_document") as document_parse,
+            mock.patch.object(entrypoint, "parse_dynamic_web_document") as dynamic_parse,
+        ):
+            payload = entrypoint._hybrid_parse(url, "none")
+        self.assertEqual(payload, media)
+        media_parse.assert_called_once_with(url, "none")
+        document_parse.assert_not_called()
+        dynamic_parse.assert_not_called()
+
+    def test_ambiguous_social_photo_falls_back_to_document_after_media_failure(self):
+        url = "https://x.com/demo/status/123"
+        media_failure = {"success": False, "code": "PARSE_FAILED", "error": "no playable media"}
+        document = {"success": True, "data": {"kind": "image", "images": ["https://img.example/1.jpg"]}}
+        with (
+            mock.patch.object(entrypoint, "is_public_http_url", return_value=True),
+            mock.patch.object(entrypoint, "prefer_media_first", return_value=True),
+            mock.patch.object(entrypoint, "should_try_web_document", return_value=True),
+            mock.patch.object(entrypoint, "_original_media_parse", return_value=media_failure),
+            mock.patch.object(entrypoint, "parse_web_document", return_value=document),
+            mock.patch.object(entrypoint, "parse_dynamic_web_document") as dynamic_parse,
+        ):
+            payload = entrypoint._hybrid_parse(url, "none")
+        self.assertEqual(payload, document)
+        dynamic_parse.assert_not_called()
+
     def test_desktop_close_handler_uses_graceful_shutdown_policy(self):
         self.assertIs(entrypoint.engine.EngineWindow.close_app, entrypoint._graceful_close_app)
 
