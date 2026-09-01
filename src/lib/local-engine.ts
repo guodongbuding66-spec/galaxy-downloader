@@ -91,12 +91,21 @@ export interface LocalDesktopJobOptions {
   playlist?: boolean
 }
 
-// Primary route goes through the Galaxy website so users whose network cannot
-// directly reach GitHub can still download the official release package.
-export const LOCAL_ENGINE_RELEASE_URL = '/api/local-engine/download'
+// Keep one source of truth for the website/bridge/image-engine requirement and
+// for the exact GitHub release tag the website serves. This prevents a newer
+// website build from silently downloading an older `releases/latest` package.
+export const LOCAL_ENGINE_REQUIRED_VERSION = '0.8.0'
+export const LOCAL_ENGINE_RELEASE_TAG = `local-engine-v${LOCAL_ENGINE_REQUIRED_VERSION}`
 
-// Keep the original GitHub Latest Release as a visible backup mirror.
-export const LOCAL_ENGINE_GITHUB_URL = 'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/latest/download/GalaxyLocalEngine-Windows.zip'
+// Primary route goes through the Galaxy website so users whose network cannot
+// directly reach GitHub can still download the exact release required by this
+// website build.
+export const LOCAL_ENGINE_RELEASE_URL =
+  `/api/local-engine/download?version=${LOCAL_ENGINE_REQUIRED_VERSION}`
+
+// Keep GitHub as a visible backup mirror, but pin it to the same exact tag.
+export const LOCAL_ENGINE_GITHUB_URL =
+  `https://github.com/guodongbuding66-spec/galaxy-downloader/releases/download/${LOCAL_ENGINE_RELEASE_TAG}/GalaxyLocalEngine-Windows.zip`
 
 const COMMON_VIDEO_HEIGHTS = new Set([144, 240, 360, 480, 540, 720, 1080, 1440, 2160, 4320])
 
