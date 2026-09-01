@@ -4,7 +4,7 @@ import json
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Iterator
 
 import bridge as base_bridge
 
@@ -15,6 +15,12 @@ class JobSubmissionResult:
     message: str
     status: int
     code: str
+
+    def __iter__(self) -> Iterator[object]:
+        # Keep compatibility with older callers/tests that unpacked the original
+        # two-item ``(accepted, message)`` callback result.
+        yield self.accepted
+        yield self.message
 
 
 def normalize_submission_result(value: object) -> JobSubmissionResult:
