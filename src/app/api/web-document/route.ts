@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import type { EmbeddedVideoInfo, UnifiedParseResult } from '@/lib/types'
 import { extractDocumentMarkdown } from '@/lib/document-markdown'
+import { isSafePublicHttpUrl } from '@/lib/public-url'
+import type { EmbeddedVideoInfo, UnifiedParseResult } from '@/lib/types'
 import { extractWebDocumentFromHtml, type ParsedWebDocument } from '@/lib/web-document'
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
@@ -22,31 +23,6 @@ function noStoreJson(payload: UnifiedParseResult, status = 200) {
     response.headers.set('Cache-Control', 'no-store')
     response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
     return response
-}
-
-function isPrivateIpv4(hostname: string): boolean {
-    const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-    if (!match) return false
-    const octets = match.slice(1).map(Number)
-    if (octets.some((value) => value < 0 || value > 255)) return true
-    const [a, b] = octets
-    return a === 0
-        || a === 10
-        || a === 127
-        || (a === 169 && b === 254)
-        || (a === 172 && b >= 16 && b <= 31)
-        || (a === 192 && b === 168)
-        || (a === 100 && b >= 64 && b <= 127)
-        || a >= 224
-}
-
-function isSafePublicUrl(url: URL): boolean {
-    if (!['http:', 'https:'].includes(url.protocol)) return false
-    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
-    if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) return false
-    if (isPrivateIpv4(hostname)) return false
-    if (hostname === '::1' || hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80:')) return false
-    return true
 }
 
 function hostMatches(hostname: string, domain: string): boolean {
@@ -80,7 +56,7 @@ function isVideoFirstHost(url: URL): boolean {
 async function fetchHtml(startUrl: URL): Promise<{ html: string; finalUrl: URL }> {
     let current = startUrl
     for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-        if (!isSafePublicUrl(current)) throw new Error('URL is not allowed')
+        if (!isSafePublicHttpUrl(current)) throw new Error('URL is not allowed')
         const response = await fetch(current, {
             method: 'GET',
             redirect: 'manual',
@@ -95,6 +71,7 @@ async function fetchHtml(startUrl: URL): Promise<{ html: string; finalUrl: URL }
         if (response.status >= 300 && response.status < 400) {
             const location = response.headers.get('location')
             if (!location) throw new Error(`Redirect ${response.status} without Location`)
+            void response.body?.cancel()
             current = new URL(location, current)
             continue
         }
@@ -150,7 +127,7 @@ export async function GET(request: NextRequest) {
     } catch {
         return noStoreJson({ success: false, code: 'BAD_REQUEST', status: 400, error: 'Invalid source URL', url: sourceUrl }, 400)
     }
-    if (!isSafePublicUrl(parsed)) {
+    if (!isSafePublicHttpUrl(parsed)) {
         return noStoreJson({ success: false, code: 'BAD_REQUEST', status: 400, error: 'URL is not allowed', url: sourceUrl }, 400)
     }
     if (isVideoFirstHost(parsed)) {
