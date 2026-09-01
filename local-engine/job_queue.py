@@ -1,11 +1,54 @@
 from __future__ import annotations
 
 import threading
+import uuid
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
-from bridge_submission_policy import JobSubmissionResult, StructuredLocalBridge
+from bridge_submission_policy import (
+    JobSubmissionResult,
+    QueueCancellationResult,
+    StructuredLocalBridge,
+)
 
 MAX_QUEUED_MEDIA_JOBS = 25
+MAX_QUEUE_LABEL_CHARS = 120
+
+
+@dataclass(frozen=True)
+class QueuedMediaJob:
+    job_id: str
+    job: Any
+    label: str
+    source_host: str
+
+
+def _safe_queue_text(value: object, limit: int = MAX_QUEUE_LABEL_CHARS) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    return text[:limit]
+
+
+def _job_source_url(job: Any) -> str:
+    source = getattr(job, "source_url", None)
+    if source is None and isinstance(job, dict):
+        source = job.get("sourceUrl") or job.get("source_url")
+    return str(source or "").strip()
+
+
+def _queued_media_job(payload: dict[str, Any], job: Any) -> QueuedMediaJob:
+    source_url = _job_source_url(job)
+    try:
+        source_host = _safe_queue_text(urlparse(source_url).hostname or "")
+    except ValueError:
+        source_host = ""
+    label = _safe_queue_text(payload.get("displayTitle")) or source_host or "Queued download"
+    return QueuedMediaJob(
+        job_id=uuid.uuid4().hex,
+        job=job,
+        label=label,
+        source_host=source_host,
+    )
 
 
 def install_job_queue_policy(engine_module):
@@ -16,6 +59,10 @@ def install_job_queue_policy(engine_module):
     them made galaxy-downloader:// launch a second process, which then failed to
     bind the already-used loopback port. A queue keeps one resident engine and
     hands the next job to it after the current worker exits.
+
+    Queue status deliberately exposes only a generated job id, a user-facing
+    label and the source hostname. The full source URL may contain private query
+    tokens and is never copied into the status endpoint.
     """
     base_window = engine_module.EngineWindow
     if getattr(base_window, "_galaxy_queue_enabled", False):
@@ -30,13 +77,25 @@ def install_job_queue_policy(engine_module):
         _galaxy_queue_enabled = True
 
         def __init__(self, job):
-            self.pending_jobs: list[Any] = []
+            self.pending_jobs: list[QueuedMediaJob] = []
+            self._queue_lock = threading.Lock()
             super().__init__(job)
 
         def bridge_status(self) -> dict[str, Any]:
             payload = super().bridge_status()
-            payload["queueLength"] = len(self.pending_jobs)
+            with self._queue_lock:
+                queued_jobs = [
+                    {
+                        "id": queued.job_id,
+                        "position": position,
+                        "label": queued.label,
+                        "sourceHost": queued.source_host,
+                    }
+                    for position, queued in enumerate(self.pending_jobs, start=1)
+                ]
+            payload["queueLength"] = len(queued_jobs)
             payload["queueCapacity"] = MAX_QUEUED_MEDIA_JOBS
+            payload["queuedJobs"] = queued_jobs
             return payload
 
         def submit_bridge_job(self, payload: dict[str, Any]) -> JobSubmissionResult:
@@ -62,7 +121,14 @@ def install_job_queue_policy(engine_module):
                         code="ENGINE_SHUTTING_DOWN",
                     )
                 elif self.running:
-                    if len(self.pending_jobs) >= MAX_QUEUED_MEDIA_JOBS:
+                    with self._queue_lock:
+                        if len(self.pending_jobs) >= MAX_QUEUED_MEDIA_JOBS:
+                            queue_position = None
+                        else:
+                            queued = _queued_media_job(payload, job)
+                            self.pending_jobs.append(queued)
+                            queue_position = len(self.pending_jobs)
+                    if queue_position is None:
                         result.update(
                             accepted=False,
                             message=f"Download queue is full ({MAX_QUEUED_MEDIA_JOBS} waiting jobs)",
@@ -70,11 +136,9 @@ def install_job_queue_policy(engine_module):
                             code="QUEUE_FULL",
                         )
                     else:
-                        self.pending_jobs.append(job)
-                        position = len(self.pending_jobs)
                         result.update(
                             accepted=True,
-                            message=f"Download queued at position {position}",
+                            message=f"Download queued at position {queue_position}",
                             status=202,
                             code="QUEUED",
                         )
@@ -112,11 +176,15 @@ def install_job_queue_policy(engine_module):
 
         def _start_next_queued_job(self) -> None:
             if getattr(self, "_galaxy_close_pending", False):
-                self.pending_jobs.clear()
+                self.clear_queued_jobs()
                 return
-            if self.running or not self.pending_jobs:
+            if self.running:
                 return
-            self.job = self.pending_jobs.pop(0)
+            with self._queue_lock:
+                queued = self.pending_jobs.pop(0) if self.pending_jobs else None
+            if queued is None:
+                return
+            self.job = queued.job
             self.start_job()
 
         def _run_job(self) -> None:
@@ -125,11 +193,62 @@ def install_job_queue_policy(engine_module):
                 self.ui(self._start_next_queued_job)
             except Exception:
                 # Tk may already be tearing down after a system-level shutdown.
-                self.pending_jobs.clear()
+                self.clear_queued_jobs()
+
+        def cancel_queued_job_from_bridge(self, job_id: str) -> QueueCancellationResult:
+            completed = threading.Event()
+            result: dict[str, Any] = {
+                "cancelled": False,
+                "message": "Queued download not found",
+                "status": 404,
+                "code": "QUEUE_ITEM_NOT_FOUND",
+            }
+
+            def cancel_waiting_job() -> None:
+                if getattr(self, "_galaxy_close_pending", False):
+                    result.update(
+                        cancelled=False,
+                        message="Galaxy Local Engine is shutting down",
+                        status=503,
+                        code="ENGINE_SHUTTING_DOWN",
+                    )
+                    completed.set()
+                    return
+
+                removed: QueuedMediaJob | None = None
+                with self._queue_lock:
+                    for index, queued in enumerate(self.pending_jobs):
+                        if queued.job_id == job_id:
+                            removed = self.pending_jobs.pop(index)
+                            break
+                if removed is not None:
+                    result.update(
+                        cancelled=True,
+                        message="Queued download cancelled",
+                        status=200,
+                        code="QUEUE_ITEM_CANCELLED",
+                    )
+                completed.set()
+
+            self.after(0, cancel_waiting_job)
+            if not completed.wait(timeout=2.0):
+                return QueueCancellationResult(
+                    False,
+                    "Timed out while handing queue cancellation to the desktop window",
+                    504,
+                    "ENGINE_HANDOFF_TIMEOUT",
+                )
+            return QueueCancellationResult(
+                bool(result["cancelled"]),
+                str(result["message"]),
+                int(result["status"]),
+                str(result["code"]),
+            )
 
         def clear_queued_jobs(self) -> int:
-            count = len(self.pending_jobs)
-            self.pending_jobs.clear()
+            with self._queue_lock:
+                count = len(self.pending_jobs)
+                self.pending_jobs.clear()
             return count
 
     QueuedEngineWindow.__name__ = "QueuedEngineWindow"
