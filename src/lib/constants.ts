@@ -2,9 +2,16 @@
  * 应用常量配置
  */
 
-// 下载历史相关
-export const DOWNLOAD_HISTORY_MAX_COUNT = 30;
-export const DOWNLOAD_HISTORY_STORAGE_KEY = 'download-history';
+// 最近解析记录。为了不清空现有用户浏览器数据，继续读取历史版本使用的
+// `download-history` key；它不是“下载已完成”证明，真正的去重由 Local Engine
+// download archive 负责。
+export const RECENT_PARSE_HISTORY_MAX_COUNT = 30;
+export const RECENT_PARSE_HISTORY_STORAGE_KEY = 'download-history';
+
+/** @deprecated Use RECENT_PARSE_HISTORY_MAX_COUNT. */
+export const DOWNLOAD_HISTORY_MAX_COUNT = RECENT_PARSE_HISTORY_MAX_COUNT;
+/** @deprecated Use RECENT_PARSE_HISTORY_STORAGE_KEY. */
+export const DOWNLOAD_HISTORY_STORAGE_KEY = RECENT_PARSE_HISTORY_STORAGE_KEY;
 
 // Cookie 相关
 export const LOCALE_COOKIE_NAME = 'NEXT_LOCALE';
