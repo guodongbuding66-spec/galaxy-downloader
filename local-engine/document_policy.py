@@ -21,6 +21,18 @@ SOCIAL_POST_PLATFORMS = {
     "telegram",
 }
 
+# These URL families are genuinely ambiguous: the same route can be a video,
+# a carousel, or a photo post. They must be offered to the media extractor first
+# so a playable video can never be replaced by a page-wide image scrape.
+MEDIA_FIRST_SOCIAL_PLATFORMS = {
+    "instagram",
+    "x",
+    "reddit",
+    "pinterest",
+    "threads",
+    "tumblr",
+}
+
 _EXTRA_EXTENSIONLESS_IMAGE_HOSTS = (
     "fbcdn.net",
     "cdninstagram.com",
@@ -66,6 +78,38 @@ def _host_matches(host: str, suffix: str) -> bool:
 def _looks_like_challenge(raw_html: str, final_url: str) -> bool:
     sample = f"{final_url}\n{raw_html[:1_500_000]}".lower()
     return any(re.search(pattern, sample, re.I) for pattern in _CHALLENGE_PATTERNS)
+
+
+def prefer_media_first(source_url: str) -> bool:
+    """Return True for social post routes that can contain either video or images.
+
+    Explicit photo-only routes such as TikTok /photo/, Douyin /note/ and Reddit
+    /gallery/ stay document-first. Ambiguous routes get yt-dlp first and only use
+    the document parser as a fallback if no playable media is found.
+    """
+    try:
+        parsed = urlparse(source_url)
+    except ValueError:
+        return False
+
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path or "/"
+
+    if _host_matches(host, "instagram.com"):
+        return re.search(r"(?:^|/)p(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "twitter.com") or _host_matches(host, "x.com"):
+        return re.search(r"(?:^|/)status(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "reddit.com") or _host_matches(host, "redd.it"):
+        if re.search(r"(?:^|/)gallery(?:/|$)", path, re.I):
+            return False
+        return re.search(r"(?:^|/)comments(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "threads.net"):
+        return re.search(r"(?:^|/)post(?:/|$)", path, re.I) is not None
+    if _host_matches(host, "pinterest.com") or host == "pin.it":
+        return True
+    if _host_matches(host, "tumblr.com"):
+        return True
+    return False
 
 
 def should_try_web_document(source_url: str) -> bool:
@@ -180,6 +224,7 @@ def _document_payload(
         data["markdownContent"] = markdown
 
     document_type = str(data.get("documentType") or "webpage")
+    platform = str(data.get("platform") or "").lower().strip()
     text = str(data.get("textContent") or data.get("desc") or "").strip()
     images = data.get("images") if isinstance(data.get("images"), list) else []
     videos = data.get("videos") if isinstance(data.get("videos"), list) else []
@@ -197,6 +242,13 @@ def _document_payload(
         # Do not let a normal video post collapse into its poster image. Mixed
         # media carousels with multiple images remain document results.
         if videos and len(images) <= 1:
+            return None
+
+        # Hitting the parser's hard image ceiling on an ambiguous social post is
+        # almost always page chrome / CDN asset scraping, not a 120-image post.
+        # Fall through instead of displaying a bogus giant image gallery.
+        max_images = int(getattr(base, "MAX_IMAGES", 120))
+        if platform in MEDIA_FIRST_SOCIAL_PLATFORMS and not videos and len(images) >= max_images:
             return None
 
     return result
