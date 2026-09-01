@@ -8,6 +8,7 @@ on:
       - 'fixtures/document-live-targets.json'
       - 'scripts/document-live-smoke.py'
       - 'scripts/test-local-document-policy.py'
+      - 'scripts/test-local-entrypoint-policy.py'
       - '.github/workflows/document-live-smoke.yml'
   schedule:
     - cron: '23 3 * * 2,5'
@@ -35,7 +36,9 @@ jobs:
         run: python -m pip install -r local-engine/requirements.txt
 
       - name: Validate deterministic document policies
-        run: python scripts/test-local-document-policy.py
+        run: |
+          python scripts/test-local-document-policy.py
+          python scripts/test-local-entrypoint-policy.py
 
       - name: Probe real commerce and WeChat pages
         run: python scripts/document-live-smoke.py
