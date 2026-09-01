@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import sys
@@ -225,9 +224,9 @@ def install_runtime_health(engine_module):
         except Exception:
             state = ""
         if state == "completed":
-            window.ui(_completion_alert, window, failed=False)
+            window.ui(lambda: _completion_alert(window, failed=False))
         elif state == "failed":
-            window.ui(_completion_alert, window, failed=True)
+            window.ui(lambda: _completion_alert(window, failed=True))
 
     window_cls._run_job = run_job
     window_cls._galaxy_runtime_health_installed = True
