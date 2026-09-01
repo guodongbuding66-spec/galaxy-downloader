@@ -34,12 +34,16 @@ describe('document media download plumbing', () => {
             'http://203.0.113.10/video.mp4',
             'http://[::1]/video.mp4',
             'http://[::ffff:127.0.0.1]/video.mp4',
+            'http://[fe80::1]/video.mp4',
+            'http://[fec0::1]/video.mp4',
+            'http://[2001:db8::1]/video.mp4',
             'https://user:secret@example.com/video.mp4',
         ]
         for (const value of blocked) {
             expect(isSafePublicHttpUrl(new URL(value)), value).toBe(false)
         }
         expect(isSafePublicHttpUrl(new URL('https://cdn.example.com/video.mp4'))).toBe(true)
+        expect(isSafePublicHttpUrl(new URL('https://[2606:4700:4700::1111]/video.mp4'))).toBe(true)
 
         for (const path of [
             'src/app/api/proxy-image/route.ts',
