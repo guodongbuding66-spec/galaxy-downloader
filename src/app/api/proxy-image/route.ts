@@ -18,8 +18,11 @@ const ALLOWED_IMAGE_HOSTS = [
 // format and must never be reflected through this same-origin proxy.
 const PREVIEW_ACCEPT =
     'image/avif,image/webp,image/apng,image/png,image/jpeg,image/gif,image/bmp;q=0.9,application/octet-stream;q=0.2,*/*;q=0.1';
+// Download mode intentionally does not advertise AVIF/WebP. Several source CDNs
+// (notably WeChat) use Accept negotiation to transcode the original JPEG/PNG;
+// preserving the legacy request keeps "download original" semantics intact.
 const DOWNLOAD_ACCEPT =
-    'image/avif,image/webp,image/apng,image/png,image/jpeg,image/gif,image/bmp;q=0.9,application/octet-stream;q=0.2,*/*;q=0.1';
+    'image/jpeg,image/png,image/gif,image/bmp;q=0.9,application/octet-stream;q=0.2,*/*;q=0.1';
 const MAX_REDIRECTS = 5;
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const IMAGE_SNIFF_BYTES = 16;
