@@ -9,6 +9,7 @@ import {
     resolveImageDownloadSrc,
     resolveImageSrc,
 } from '@/components/downloader/result-card-utils'
+import { shouldUseFrontendImageProxy } from '@/components/downloader/result-card-visibility'
 
 describe('document image source policy', () => {
     it('selects the largest srcset candidate instead of the thumbnail', () => {
@@ -50,5 +51,14 @@ describe('document image source policy', () => {
         expect(download).toContain('mode=download')
         expect(download).toContain(encodeURIComponent('https://mp.weixin.qq.com/'))
         expect(download).not.toContain('token%3Dsecret')
+    })
+
+    it('routes external image-proxy URLs through the local relay instead of loading them directly', () => {
+        const upstreamProxy = 'https://downloader-api.bhwa233.com/api/image-proxy?url=https%3A%2F%2Fmmbiz.qpic.cn%2Fdemo%2F640'
+        expect(shouldUseFrontendImageProxy(upstreamProxy)).toBe(true)
+        expect(resolveImageSrc(upstreamProxy)).toContain('/api/proxy-image?')
+
+        const dedicatedDownload = 'https://media.example/download?index=1'
+        expect(shouldUseFrontendImageProxy(dedicatedDownload)).toBe(false)
     })
 })
