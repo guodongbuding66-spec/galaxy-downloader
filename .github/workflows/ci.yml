@@ -44,6 +44,7 @@ jobs:
             local-engine/bridge.py \
             local-engine/image_bridge.py \
             local-engine/image_download.py \
+            local-engine/job_queue.py \
             local-engine/web_document.py \
             local-engine/document_policy.py \
             local-engine/document_markdown.py \
@@ -57,6 +58,7 @@ jobs:
           python3 scripts/test-local-url-policy.py
           python3 scripts/test-local-image-download.py
           python3 scripts/test-local-image-bridge.py
+          python3 scripts/test-local-job-queue.py
 
       - name: Run tests
         run: pnpm test
