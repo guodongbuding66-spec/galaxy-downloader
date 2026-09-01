@@ -37,8 +37,8 @@ export function isPrivateOrReservedIpv6Literal(hostname: string): boolean {
     // cannot bypass the IPv4 checks above.
     if (host.includes('%') || host === '::' || host.startsWith('::')) return true;
     if (host.startsWith('fc') || host.startsWith('fd')) return true; // fc00::/7 ULA
-    if (/^fe[89ab]:/i.test(host)) return true; // fe80::/10 link-local
-    if (/^fe[c-f]:/i.test(host)) return true; // deprecated site-local
+    if (/^fe[89ab][0-9a-f]*:/i.test(host)) return true; // fe80::/10 link-local
+    if (/^fe[c-f][0-9a-f]*:/i.test(host)) return true; // deprecated site-local
     if (host.startsWith('ff')) return true; // multicast
     if (host === '100::' || host.startsWith('100::')) return true; // discard-only 100::/64
     if (host === '2001:db8::' || host.startsWith('2001:db8:')) return true; // documentation
