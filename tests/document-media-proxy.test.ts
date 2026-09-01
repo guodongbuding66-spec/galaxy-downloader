@@ -88,4 +88,23 @@ describe('document media download plumbing', () => {
         expect(mediaProxy).toContain('normalizeSingleByteRange')
         expect(mediaProxy).toContain("{ error: 'Range must be a single valid bytes range' }")
     })
+
+    it('never reflects active SVG/XML through the same-origin image proxy', () => {
+        const imageProxy = readFileSync(resolve(process.cwd(), 'src/app/api/proxy-image/route.ts'), 'utf8')
+        expect(imageProxy).toContain('SAFE_RASTER_CONTENT_TYPES')
+        expect(imageProxy).toContain('SAFE_RASTER_CONTENT_TYPES.has(contentType)')
+        expect(imageProxy).toContain('SAFE_RASTER_CONTENT_TYPES.has(upstreamContentType)')
+        expect(imageProxy).not.toContain('image/svg+xml')
+        expect(imageProxy).not.toContain("contentType.startsWith('image/')")
+        expect(imageProxy).toContain('X-Content-Type-Options')
+    })
+
+    it('enforces the media byte ceiling on the actual stream, not only Content-Length', () => {
+        const mediaProxy = readFileSync(resolve(process.cwd(), 'src/app/api/proxy-media/route.ts'), 'utf8')
+        expect(mediaProxy).toContain("from '@/lib/stream-byte-limit'")
+        expect(mediaProxy).toContain('declaredContentLength(upstream.headers)')
+        expect(mediaProxy).toContain('limitReadableStream(upstream.body, MAX_MEDIA_BYTES)')
+        expect(mediaProxy).toContain('X-Galaxy-Max-Media-Bytes')
+        expect(mediaProxy).not.toContain("Number(upstream.headers.get('content-length') || 0)")
+    })
 })

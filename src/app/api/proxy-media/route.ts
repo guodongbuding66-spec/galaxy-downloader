@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { normalizeSingleByteRange } from '@/lib/http-range'
 import { isSafePublicHttpUrl } from '@/lib/public-url'
+import { declaredContentLength, limitReadableStream } from '@/lib/stream-byte-limit'
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
 const MAX_REDIRECTS = 5
-const MAX_DECLARED_BYTES = 8 * 1024 * 1024 * 1024
+const MAX_MEDIA_BYTES = 8 * 1024 * 1024 * 1024
 
 function safeSourceReferer(value: string | null): string | null {
     if (!value) return null
@@ -97,8 +98,8 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Upstream media has no response body' }, { status: 502 })
         }
 
-        const declaredLength = Number(upstream.headers.get('content-length') || 0)
-        if (declaredLength > MAX_DECLARED_BYTES) {
+        const declaredLength = declaredContentLength(upstream.headers)
+        if (declaredLength !== null && declaredLength > MAX_MEDIA_BYTES) {
             void upstream.body.cancel()
             return NextResponse.json({ error: 'Media exceeds size limit' }, { status: 413 })
         }
@@ -121,12 +122,17 @@ export async function GET(request: NextRequest) {
         headers.set('Cache-Control', 'private, no-store')
         headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
         headers.set('Cross-Origin-Resource-Policy', 'same-origin')
+        headers.set('X-Content-Type-Options', 'nosniff')
+        headers.set('X-Galaxy-Max-Media-Bytes', String(MAX_MEDIA_BYTES))
         for (const name of ['content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) {
             const value = upstream.headers.get(name)
             if (value) headers.set(name, value)
         }
 
-        return new NextResponse(upstream.body, {
+        // Content-Length is only advisory: chunked responses may omit it or lie.
+        // Always enforce the byte ceiling on the actual stream as well.
+        const limitedBody = limitReadableStream(upstream.body, MAX_MEDIA_BYTES)
+        return new NextResponse(limitedBody, {
             status: upstream.status === 206 ? 206 : 200,
             headers,
         })
