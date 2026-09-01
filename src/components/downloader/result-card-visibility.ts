@@ -197,6 +197,14 @@ export function resolveResultDisplayImages({
     return normalizedImages.filter((imageUrl) => imageUrl !== normalizedCoverUrl)
 }
 
+function isLoopbackImageProxy(parsed: URL): boolean {
+    if (parsed.pathname !== '/api/image-proxy') return false
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    return hostname === 'localhost'
+        || hostname === '127.0.0.1'
+        || hostname === '::1'
+}
+
 export function shouldUseFrontendImageProxy(imageUrl: string | null | undefined): boolean {
     if (!hasSourceUrl(imageUrl)) {
         return false
@@ -214,10 +222,16 @@ export function shouldUseFrontendImageProxy(imageUrl: string | null | undefined)
             return false
         }
 
-        // External image proxy URLs must still pass through our own relay. The
-        // local /api/proxy-image route can unwrap known upstream proxies and add
-        // the correct Referer/original-image retry policy. Skipping solely by
-        // pathname caused intermittent hotlink failures for WeChat and others.
+        // A loopback backend is already the user's trusted Local Engine relay;
+        // wrapping it again is unnecessary and breaks the existing local path.
+        if (isLoopbackImageProxy(parsed)) {
+            return false
+        }
+
+        // External image-proxy URLs still pass through our own relay. The local
+        // /api/proxy-image route can unwrap known upstream proxies and add the
+        // correct Referer/original-image retry policy. This avoids intermittent
+        // WeChat hotlink failures without changing Local Engine proxy behavior.
         return true
     } catch {
         return false
