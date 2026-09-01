@@ -15,6 +15,7 @@ from image_download import (
     _wechat_original_candidate,
     cancel_image_download_job,
 )
+from job_queue import install_job_queue_policy
 from url_policy import is_public_http_url, validated_public_http_url
 
 # Static document redirects and CDP request interception resolve this helper from
@@ -77,6 +78,7 @@ bridge.parse_with_bundled_ytdlp = _hybrid_parse
 import engine  # noqa: E402  import after bridge/document policy installation
 
 engine._validated_source_url = validated_public_http_url
+install_job_queue_policy(engine)
 
 
 # EngineWindow used to destroy Tk immediately after setting the media cancel
@@ -89,6 +91,10 @@ _original_close_app = engine.EngineWindow.close_app
 def _graceful_close_app(window: engine.EngineWindow) -> None:
     if getattr(window, "_galaxy_close_pending", False):
         return
+
+    clear_queue = getattr(window, "clear_queued_jobs", None)
+    if callable(clear_queue):
+        clear_queue()
 
     media_active = bool(window.running)
     image_active = _IMAGE_JOB_LOCK.locked()
@@ -150,6 +156,7 @@ def _run_image_self_test() -> None:
     assert "tp=webp" not in original
     assert _sniff_extension(b"\xff\xd8\xff\xe0", "application/octet-stream", sample) == "jpg"
     assert _sniff_extension(b"RIFF\x00\x00\x00\x00WEBP", "", sample) == "webp"
+    assert getattr(engine.EngineWindow, "_galaxy_queue_enabled", False) is True
 
 
 def _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:
