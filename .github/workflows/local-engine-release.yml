@@ -74,6 +74,8 @@ jobs:
             local-engine/archive_policy.py `
             local-engine/media_policy.py `
             local-engine/workspace_policy.py `
+            local-engine/recovery_policy.py `
+            local-engine/failure_policy.py `
             local-engine/runtime_health.py `
             local-engine/job_queue.py `
             local-engine/queue_controls.py `
@@ -82,6 +84,7 @@ jobs:
             local-engine/desktop_extras.py `
             local-engine/desktop_manager.py `
             local-engine/desktop_runtime.py `
+            local-engine/task_center.py `
             local-engine/update_check.py `
             local-engine/browser_auth.py `
             local-engine/image_archive_policy.py `
@@ -109,6 +112,7 @@ jobs:
           python scripts/test-local-image-archive-policy.py
           python scripts/test-local-manager-policy.py
           python scripts/test-local-runtime-policy.py
+          python scripts/test-local-recovery-policy.py
           python scripts/test-dynamic-document.py
           $engineVersion = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
           $releaseVersion = '${{ steps.release.outputs.version }}'
@@ -254,17 +258,19 @@ jobs:
           6. 下载的视频和图片保存在解压目录下的 `downloads` 文件夹。
           7. 返回 SparkDownloader，等待显示 **“本地引擎已连接”** 后即可使用。
 
-          ### 0.13.0
-          - 工作台设置新增网络重试策略：标准、弱网增强、快速失败；默认继续使用 0.12 的 10/10/5 重试参数。
-          - 新增并发分片设置 1 / 2 / 4 / 8 / 16，默认仍为 4；同时支持可选下载速度上限 1–100 Mbps，默认不限速。
-          - 新增 downloads 磁盘剩余空间显示与低空间提醒阈值；该功能只提醒，不会自动取消或阻止任务。
-          - 新增可选完成/失败提示：Windows 使用系统提示音并闪烁任务栏，默认关闭。
-          - 新增可选本机诊断日志与日志查看器，默认关闭；日志自动移除 URL 凭据、query、fragment 以及常见 token/cookie/session 字段。
-          - 诊断日志支持筛选、复制、清空和打开日志目录，并可设置 128 KB–2 MB 的本地上限。
-          - 当前任务详情显示实际生效的重试策略、并发分片和速度上限。
-          - 解析顺序、腾讯元宝登录复用、格式选择、FFmpeg、队列、历史和 Download Archive 默认行为保持不变。
-          - 网站与 GitHub 备份下载地址精确绑定 `local-engine-v0.13.0`，不使用 `releases/latest`。
+          ### 0.14.0
+          - 新增统一“任务中心”：当前下载、等待队列、成功历史、失败历史与取消任务放在同一个桌面工作区。
+          - 任务中心支持搜索与状态筛选，并保留队列暂停、上移/下移、批量移到顶部和批量移除等能力。
+          - 失败历史新增原因分类：源站限流、浏览器 Cookie、登录验证、磁盘、区域限制、内容不可用、FFmpeg 后处理、解析器、网络、403 访问拒绝和未知错误。
+          - 新增“智能重试”：仅对网络、429 限流和未知瞬态失败自动创建一次更保守的单任务恢复配置。
+          - 智能重试参数只绑定到该任务，不会修改用户的工作台全局网络设置，也不会影响队列中的其他任务。
+          - 429 恢复使用弱网增强 + 1 分片 + 5 Mbps；普通网络失败使用弱网增强 + 2 分片；需要登录、Cookie、磁盘、区域或解析器更新的错误不会盲目自动重试。
+          - 下载历史的错误详情进一步隐私脱敏：URL 凭据、query、fragment、token、authorization、cookie、session、password 与 secret 不写入历史。
+          - 历史重试会保留实际使用的单任务恢复参数，Download Archive 仍会在用户主动重试时关闭以避免把重试任务跳过。
+          - 解析顺序、腾讯元宝登录复用、FFmpeg、图片/文档下载、队列执行语义、网站 Bridge 与默认 0.13 网络参数保持不变。
+          - 网站和 GitHub 备份下载地址精确绑定 `local-engine-v0.14.0`，不使用 `releases/latest`。
 
+          0.13.0 新增网络重试/分片/限速设置、磁盘健康、完成提醒和隐私安全诊断日志。
           0.12.0 新增历史搜索/重试、完整队列管理器、文件命名与来源目录设置。
           0.11.0 新增持久化下载历史、任务详情、等待任务上移/下移，以及完成后暂停/继续队列。
           0.10.0 新增深色桌面工作台、高级媒体预设、片段/章节、字幕/音轨、SponsorBlock、aria2c 与稳定版更新检查。
