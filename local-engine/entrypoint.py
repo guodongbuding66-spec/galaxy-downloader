@@ -80,6 +80,22 @@ import engine  # noqa: E402  import after bridge/document policy installation
 engine._validated_source_url = validated_public_http_url
 install_job_queue_policy(engine)
 
+# A protocol handoff that reaches an already-running bridge but gets a 4xx (for
+# example, a full queue) must still count as "the resident instance handled the
+# launch". Otherwise engine.main() starts a second Tk process which can never
+# bind port 17836. The website gets the actual 4xx directly and can show it; the
+# protocol helper's responsibility is only single-instance coordination.
+_original_protocol_handoff = engine.post_job_to_running_engine
+
+
+def _single_instance_protocol_handoff(payload: dict[str, object], timeout: float = 0.8) -> bool:
+    if _original_protocol_handoff(payload, timeout):
+        return True
+    return engine.bridge_is_running(timeout=min(max(timeout, 0.1), 0.8))
+
+
+engine.post_job_to_running_engine = _single_instance_protocol_handoff
+
 
 # EngineWindow used to destroy Tk immediately after setting the media cancel
 # event. A bundled yt-dlp/FFmpeg child or the separate image worker could still
@@ -157,6 +173,7 @@ def _run_image_self_test() -> None:
     assert _sniff_extension(b"\xff\xd8\xff\xe0", "application/octet-stream", sample) == "jpg"
     assert _sniff_extension(b"RIFF\x00\x00\x00\x00WEBP", "", sample) == "webp"
     assert getattr(engine.EngineWindow, "_galaxy_queue_enabled", False) is True
+    assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
 
 
 def _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:
