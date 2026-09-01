@@ -33,6 +33,7 @@ from job_history import install_history_policy, run_history_self_test
 from job_queue import install_job_queue_policy
 from media_policy import install_media_policy
 from queue_controls import install_queue_controls, run_queue_controls_self_test
+from recovery_display import install_recovery_display, run_recovery_display_self_test
 from recovery_policy import install_recovery_policy, run_recovery_self_test
 from runtime_health import install_runtime_health, run_runtime_health_self_test
 from task_center import install_task_center, run_task_center_self_test
@@ -136,6 +137,7 @@ install_desktop_ui(engine)
 install_desktop_extras(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
+install_recovery_display(engine)
 install_task_center(engine)
 
 # A protocol handoff that reaches an already-running bridge but gets a 4xx (for
@@ -238,12 +240,14 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_task_center_installed", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
     assert getattr(engine, "_galaxy_media_policy_installed", False) is True
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True
     assert getattr(engine, "_galaxy_runtime_health_installed", False) is True
+    assert getattr(engine, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine, "_galaxy_task_center_installed", False) is True
     assert getattr(image_download, "_galaxy_image_archive_policy_installed", False) is True
     assert engine.LocalBridge is StructuredLocalBridge
@@ -251,6 +255,7 @@ def _run_image_self_test() -> None:
     run_queue_controls_self_test()
     run_failure_policy_self_test()
     run_recovery_self_test()
+    run_recovery_display_self_test()
     run_history_self_test()
     run_workspace_self_test()
     run_runtime_health_self_test()
