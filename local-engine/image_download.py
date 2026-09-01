@@ -7,9 +7,11 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -18,8 +20,11 @@ from url_policy import PublicUrlError, validated_public_http_url
 MAX_IMAGES_PER_JOB = 300
 MAX_IMAGE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_BATCH_BYTES = 20 * 1024 * 1024 * 1024
+MIN_FREE_BYTES = 512 * 1024 * 1024
 CHUNK_BYTES = 512 * 1024
 REQUEST_TIMEOUT_SECONDS = 35
+MAX_DOWNLOAD_ATTEMPTS = 3
+RETRYABLE_HTTP_STATUS = {408, 425, 429, 500, 502, 503, 504}
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
@@ -27,6 +32,7 @@ USER_AGENT = (
 
 _IMAGE_JOB_LOCK = threading.Lock()
 _STATE_LOCK = threading.Lock()
+_IMAGE_JOB_CANCEL = threading.Event()
 _IMAGE_JOB_STATE: dict[str, Any] = {
     "busy": False,
     "progress": 0,
@@ -36,6 +42,10 @@ _IMAGE_JOB_STATE: dict[str, Any] = {
     "detail": "Waiting for an image download job",
     "lastPath": None,
 }
+
+
+class ImageJobCancelled(RuntimeError):
+    pass
 
 
 def _app_dir() -> Path:
@@ -131,6 +141,18 @@ def _image_candidates(value: str) -> list[str]:
     return result
 
 
+def _dedupe_images(values: list[object]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
 class _PublicRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
         validated_public_http_url(str(newurl))
@@ -198,6 +220,42 @@ def _unique_path(directory: Path, stem: str, extension: str) -> Path:
     raise RuntimeError("Could not allocate a unique image filename")
 
 
+def _raise_if_cancelled() -> None:
+    if _IMAGE_JOB_CANCEL.is_set():
+        raise ImageJobCancelled("Image download cancelled")
+
+
+def _retryable_error(error: Exception) -> bool:
+    if isinstance(error, HTTPError):
+        return error.code in RETRYABLE_HTTP_STATUS
+    if isinstance(error, (URLError, TimeoutError, ConnectionError)):
+        return True
+    return False
+
+
+def _retry_delay(error: Exception, attempt: int) -> float:
+    if isinstance(error, HTTPError):
+        retry_after = error.headers.get("Retry-After") if error.headers else None
+        if retry_after:
+            try:
+                return min(10.0, max(0.25, float(retry_after)))
+            except ValueError:
+                pass
+    return min(4.0, 0.5 * (2 ** attempt))
+
+
+def _wait_for_retry(seconds: float) -> None:
+    if _IMAGE_JOB_CANCEL.wait(timeout=seconds):
+        raise ImageJobCancelled("Image download cancelled")
+
+
+def _ensure_free_space(directory: Path, expected_bytes: int = 0) -> None:
+    free = shutil.disk_usage(directory).free
+    required = MIN_FREE_BYTES + max(0, expected_bytes)
+    if free < required:
+        raise OSError("Not enough free disk space for the image download")
+
+
 def _download_one(
     raw_url: str,
     destination_dir: Path,
@@ -206,48 +264,66 @@ def _download_one(
 ) -> tuple[Path, int]:
     last_error: Exception | None = None
     for candidate in _image_candidates(validated_public_http_url(raw_url)):
-        try:
-            validated = validated_public_http_url(candidate)
-            parsed = urlparse(validated)
-            headers = {
-                "User-Agent": USER_AGENT,
-                "Accept": "image/jpeg,image/png,image/gif,image/webp,image/avif,image/*;q=0.8,*/*;q=0.1",
-                "Accept-Encoding": "identity",
-            }
-            referer = source_referer or _default_referer(parsed.hostname or "")
-            if referer:
-                headers["Referer"] = referer
-            request = Request(validated, headers=headers, method="GET")
-            with _OPENER.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-                declared = int(response.headers.get("Content-Length") or "0")
-                if declared > MAX_IMAGE_BYTES:
-                    raise ValueError("Image exceeds the local per-image safety limit")
-                first = response.read(CHUNK_BYTES)
-                extension = _sniff_extension(
-                    first,
-                    response.headers.get("Content-Type") or "",
-                    response.geturl() or validated,
-                )
-                if not extension:
-                    raise ValueError("Upstream response is not a recognized image")
-                destination = _unique_path(destination_dir, stem, extension)
-                part = destination.with_suffix(destination.suffix + ".part")
-                total = len(first)
-                with part.open("wb") as handle:
-                    handle.write(first)
-                    while True:
-                        chunk = response.read(CHUNK_BYTES)
-                        if not chunk:
-                            break
-                        total += len(chunk)
-                        if total > MAX_IMAGE_BYTES:
-                            raise ValueError("Image exceeds the local per-image safety limit")
-                        handle.write(chunk)
-                part.replace(destination)
-                return destination, total
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            continue
+        for attempt in range(MAX_DOWNLOAD_ATTEMPTS):
+            part: Path | None = None
+            try:
+                _raise_if_cancelled()
+                validated = validated_public_http_url(candidate)
+                parsed = urlparse(validated)
+                headers = {
+                    "User-Agent": USER_AGENT,
+                    "Accept": "image/jpeg,image/png,image/gif,image/webp,image/avif,image/*;q=0.8,*/*;q=0.1",
+                    "Accept-Encoding": "identity",
+                }
+                referer = source_referer or _default_referer(parsed.hostname or "")
+                if referer:
+                    headers["Referer"] = referer
+                request = Request(validated, headers=headers, method="GET")
+                with _OPENER.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                    try:
+                        declared = int(response.headers.get("Content-Length") or "0")
+                    except (TypeError, ValueError):
+                        declared = 0
+                    if declared > MAX_IMAGE_BYTES:
+                        raise ValueError("Image exceeds the local per-image safety limit")
+                    _ensure_free_space(destination_dir, declared)
+                    first = response.read(CHUNK_BYTES)
+                    _raise_if_cancelled()
+                    extension = _sniff_extension(
+                        first,
+                        response.headers.get("Content-Type") or "",
+                        response.geturl() or validated,
+                    )
+                    if not extension:
+                        raise ValueError("Upstream response is not a recognized image")
+                    destination = _unique_path(destination_dir, stem, extension)
+                    part = destination.with_suffix(destination.suffix + ".part")
+                    total = len(first)
+                    with part.open("wb") as handle:
+                        handle.write(first)
+                        while True:
+                            _raise_if_cancelled()
+                            chunk = response.read(CHUNK_BYTES)
+                            if not chunk:
+                                break
+                            total += len(chunk)
+                            if total > MAX_IMAGE_BYTES:
+                                raise ValueError("Image exceeds the local per-image safety limit")
+                            handle.write(chunk)
+                    part.replace(destination)
+                    return destination, total
+            except ImageJobCancelled:
+                if part is not None:
+                    part.unlink(missing_ok=True)
+                raise
+            except Exception as exc:  # noqa: BLE001
+                if part is not None:
+                    part.unlink(missing_ok=True)
+                last_error = exc
+                if attempt + 1 < MAX_DOWNLOAD_ATTEMPTS and _retryable_error(exc):
+                    _wait_for_retry(_retry_delay(exc, attempt))
+                    continue
+                break
     raise last_error or RuntimeError("Image download failed")
 
 
@@ -257,24 +333,46 @@ def _convert_modern_image(path: Path, original_url: str) -> Path:
     ffmpeg = _ffmpeg_executable()
     if not ffmpeg:
         return path
+    _raise_if_cancelled()
+    _ensure_free_space(path.parent, min(MAX_IMAGE_BYTES, max(path.stat().st_size * 4, 64 * 1024 * 1024)))
     extension = "jpg" if _source_prefers_jpeg(original_url) else "png"
     output = path.with_suffix(f".{extension}")
     command = [str(ffmpeg), "-hide_banner", "-loglevel", "error", "-y", "-i", str(path)]
     if extension == "jpg":
         command.extend(["-q:v", "2"])
-    command.extend(["-frames:v", "1", str(output)])
+    command.extend(["-frames:v", "1", "-fs", str(MAX_IMAGE_BYTES), str(output)])
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    process: subprocess.Popen[bytes] | None = None
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=180,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+            creationflags=creationflags,
         )
-    except (OSError, subprocess.TimeoutExpired):
+        deadline = time.monotonic() + 180
+        while process.poll() is None:
+            if _IMAGE_JOB_CANCEL.wait(timeout=0.15):
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                output.unlink(missing_ok=True)
+                raise ImageJobCancelled("Image download cancelled")
+            if time.monotonic() >= deadline:
+                process.kill()
+                process.wait(timeout=3)
+                output.unlink(missing_ok=True)
+                return path
+        returncode = process.returncode
+    except OSError:
+        output.unlink(missing_ok=True)
         return path
-    if completed.returncode != 0 or not output.exists() or output.stat().st_size <= 0:
+    if returncode != 0 or not output.exists() or output.stat().st_size <= 0:
+        output.unlink(missing_ok=True)
+        return path
+    if output.stat().st_size > MAX_IMAGE_BYTES:
         output.unlink(missing_ok=True)
         return path
     path.unlink(missing_ok=True)
@@ -315,13 +413,13 @@ def _archive_markdown(payload: dict[str, Any], files: list[tuple[str, Path]]) ->
 
 
 def _run_image_job(payload: dict[str, Any]) -> None:
-    images = [str(value).strip() for value in payload.get("images", []) if str(value).strip()]
-    images = images[:MAX_IMAGES_PER_JOB]
+    images = _dedupe_images(list(payload.get("images", [])))[:MAX_IMAGES_PER_JOB]
     title = _safe_filename(payload.get("title"), "images")
     package = bool(payload.get("package", False))
     referer = _origin_referer(payload.get("sourceUrl"))
     downloads = _download_dir()
     work_dir: Path | None = None
+    zip_path: Path | None = None
     downloaded: list[tuple[str, Path]] = []
     total_bytes = 0
 
@@ -343,12 +441,15 @@ def _run_image_job(payload: dict[str, Any]) -> None:
             destination_dir = work_dir
 
         for index, image_url in enumerate(images, start=1):
+            _raise_if_cancelled()
             stem = f"{title}-{index}"
-            path, size = _download_one(image_url, destination_dir, stem, referer)
+            path, _downloaded_size = _download_one(image_url, destination_dir, stem, referer)
             path = _convert_modern_image(path, image_url)
-            total_bytes += size
-            if total_bytes > MAX_BATCH_BYTES:
+            final_size = path.stat().st_size
+            if total_bytes + final_size > MAX_BATCH_BYTES:
+                path.unlink(missing_ok=True)
                 raise ValueError("Image batch exceeds the local safety limit")
+            total_bytes += final_size
             downloaded.append((image_url, path))
             _set_state(
                 completed=index,
@@ -357,11 +458,13 @@ def _run_image_job(payload: dict[str, Any]) -> None:
             )
 
         if package:
+            _raise_if_cancelled()
             zip_path = _unique_path(downloads, title, "zip")
             text = _archive_text(payload)
             markdown = _archive_markdown(payload, downloaded)
             with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as archive:
                 for _source, path in downloaded:
+                    _raise_if_cancelled()
                     archive.write(path, arcname=path.name)
                 if text:
                     archive.writestr(f"{title}.txt", text.encode("utf-8"))
@@ -377,7 +480,17 @@ def _run_image_job(payload: dict[str, Any]) -> None:
             detail=f"Saved to {final_path}",
             lastPath=str(final_path),
         )
+    except ImageJobCancelled:
+        if zip_path is not None:
+            zip_path.unlink(missing_ok=True)
+        _set_state(
+            busy=False,
+            status="Cancelled",
+            detail="Image download cancelled",
+        )
     except Exception as exc:  # noqa: BLE001
+        if zip_path is not None:
+            zip_path.unlink(missing_ok=True)
         _set_state(
             busy=False,
             status="Download failed",
@@ -386,6 +499,7 @@ def _run_image_job(payload: dict[str, Any]) -> None:
     finally:
         if work_dir is not None:
             shutil.rmtree(work_dir, ignore_errors=True)
+        _IMAGE_JOB_CANCEL.clear()
         _IMAGE_JOB_LOCK.release()
 
 
@@ -397,10 +511,24 @@ def start_image_download_job(payload: dict[str, Any]) -> tuple[bool, str]:
         return False, f"A maximum of {MAX_IMAGES_PER_JOB} images is allowed per job"
     if not _IMAGE_JOB_LOCK.acquire(blocking=False):
         return False, "Galaxy Local Engine is already processing an image job"
-    threading.Thread(
-        target=_run_image_job,
-        args=(dict(payload),),
-        name="GalaxyImageDownload",
-        daemon=True,
-    ).start()
+    _IMAGE_JOB_CANCEL.clear()
+    try:
+        thread = threading.Thread(
+            target=_run_image_job,
+            args=(dict(payload),),
+            name="GalaxyImageDownload",
+            daemon=True,
+        )
+        thread.start()
+    except Exception:
+        _IMAGE_JOB_LOCK.release()
+        raise
     return True, "Image download job accepted"
+
+
+def cancel_image_download_job() -> tuple[bool, str]:
+    if not _IMAGE_JOB_LOCK.locked():
+        return False, "No image download job is running"
+    _IMAGE_JOB_CANCEL.set()
+    _set_state(status="Cancelling", detail="Stopping the current image download job")
+    return True, "Image download cancellation requested"
