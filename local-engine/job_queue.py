@@ -29,6 +29,7 @@ def install_job_queue_policy(engine_module):
         def bridge_status(self) -> dict[str, Any]:
             payload = super().bridge_status()
             payload["queueLength"] = len(self.pending_jobs)
+            payload["queueCapacity"] = MAX_QUEUED_MEDIA_JOBS
             return payload
 
         def submit_bridge_job(self, payload: dict[str, Any]) -> tuple[bool, str]:
