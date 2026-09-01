@@ -55,6 +55,16 @@ class LocalJobQueueTests(unittest.TestCase):
         window_type = job_queue.install_job_queue_policy(fake_engine)
         return fake_engine, window_type(None)
 
+    def queue(self, window, source_url: str, title: str | None = None):
+        window.running = True
+        payload = {"sourceUrl": source_url}
+        if title is not None:
+            payload["displayTitle"] = title
+        result = window.submit_bridge_job(payload)
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.code, "QUEUED")
+        return window.pending_jobs[-1]
+
     def test_idle_job_starts_immediately(self):
         fake_engine, window = self.make_window()
         result = window.submit_bridge_job({"sourceUrl": "https://example.com/1"})
@@ -68,34 +78,55 @@ class LocalJobQueueTests(unittest.TestCase):
         self.assertEqual(window.started[-1]["sourceUrl"], "https://example.com/1")
         self.assertEqual(window.pending_jobs, [])
 
-    def test_busy_job_is_queued_and_reported_in_status(self):
+    def test_busy_job_is_queued_with_safe_visible_summary(self):
         _engine, window = self.make_window()
-        window.running = True
-        result = window.submit_bridge_job({"sourceUrl": "https://example.com/2"})
-        accepted, message = result
-        self.assertTrue(accepted)
-        self.assertIn("position 1", message)
-        self.assertEqual(result.status, 202)
-        self.assertEqual(result.code, "QUEUED")
-        self.assertEqual(len(window.pending_jobs), 1)
-        self.assertEqual(window.bridge_status()["queueLength"], 1)
+        queued = self.queue(
+            window,
+            "https://example.com/watch?id=secret-token",
+            "  Example   title  ",
+        )
+        status = window.bridge_status()
+        self.assertEqual(status["queueLength"], 1)
+        self.assertEqual(status["queueCapacity"], job_queue.MAX_QUEUED_MEDIA_JOBS)
+        self.assertEqual(status["queuedJobs"], [
+            {
+                "id": queued.job_id,
+                "position": 1,
+                "label": "Example title",
+                "sourceHost": "example.com",
+            }
+        ])
+        rendered = repr(status["queuedJobs"])
+        self.assertNotIn("secret-token", rendered)
+        self.assertNotIn("sourceUrl", rendered)
+
+    def test_hostname_is_fallback_label_without_display_title(self):
+        _engine, window = self.make_window()
+        queued = self.queue(window, "https://media.example.org/private/path?token=hidden")
+        self.assertEqual(queued.label, "media.example.org")
+        self.assertEqual(queued.source_host, "media.example.org")
 
     def test_next_job_starts_after_current_worker_finishes(self):
         _engine, window = self.make_window()
-        window.running = True
-        window.pending_jobs.extend([
-            {"sourceUrl": "https://example.com/2"},
-            {"sourceUrl": "https://example.com/3"},
-        ])
+        self.queue(window, "https://example.com/2")
+        self.queue(window, "https://example.com/3")
         window._run_job()
         self.assertTrue(window.running)
         self.assertEqual(window.started[-1]["sourceUrl"], "https://example.com/2")
-        self.assertEqual([job["sourceUrl"] for job in window.pending_jobs], ["https://example.com/3"])
+        self.assertEqual(
+            [queued.job["sourceUrl"] for queued in window.pending_jobs],
+            ["https://example.com/3"],
+        )
 
     def test_queue_is_bounded_with_conflict_status(self):
         _engine, window = self.make_window()
         window.running = True
-        window.pending_jobs.extend({"id": index} for index in range(job_queue.MAX_QUEUED_MEDIA_JOBS))
+        for index in range(job_queue.MAX_QUEUED_MEDIA_JOBS):
+            queued = job_queue._queued_media_job(
+                {"sourceUrl": f"https://example.com/{index}"},
+                {"sourceUrl": f"https://example.com/{index}"},
+            )
+            window.pending_jobs.append(queued)
         result = window.submit_bridge_job({"sourceUrl": "https://example.com/overflow"})
         accepted, message = result
         self.assertFalse(accepted)
@@ -104,11 +135,45 @@ class LocalJobQueueTests(unittest.TestCase):
         self.assertEqual(result.code, "QUEUE_FULL")
         self.assertEqual(len(window.pending_jobs), job_queue.MAX_QUEUED_MEDIA_JOBS)
 
+    def test_cancel_one_waiting_job_preserves_fifo_order(self):
+        _engine, window = self.make_window()
+        first = self.queue(window, "https://example.com/1", "One")
+        second = self.queue(window, "https://example.com/2", "Two")
+        third = self.queue(window, "https://example.com/3", "Three")
+
+        result = window.cancel_queued_job_from_bridge(second.job_id)
+        self.assertTrue(result.cancelled)
+        self.assertEqual(result.status, 200)
+        self.assertEqual(result.code, "QUEUE_ITEM_CANCELLED")
+        self.assertEqual([queued.job_id for queued in window.pending_jobs], [first.job_id, third.job_id])
+        self.assertEqual(
+            [item["position"] for item in window.bridge_status()["queuedJobs"]],
+            [1, 2],
+        )
+
+    def test_cancel_unknown_waiting_job_is_not_found(self):
+        _engine, window = self.make_window()
+        self.queue(window, "https://example.com/1")
+        result = window.cancel_queued_job_from_bridge("0" * 32)
+        self.assertFalse(result.cancelled)
+        self.assertEqual(result.status, 404)
+        self.assertEqual(result.code, "QUEUE_ITEM_NOT_FOUND")
+        self.assertEqual(len(window.pending_jobs), 1)
+
     def test_shutting_down_rejects_with_service_unavailable(self):
         _engine, window = self.make_window()
         window._galaxy_close_pending = True
         result = window.submit_bridge_job({"sourceUrl": "https://example.com/new"})
         self.assertFalse(result.accepted)
+        self.assertEqual(result.status, 503)
+        self.assertEqual(result.code, "ENGINE_SHUTTING_DOWN")
+
+    def test_shutting_down_rejects_queue_cancellation(self):
+        _engine, window = self.make_window()
+        queued = self.queue(window, "https://example.com/1")
+        window._galaxy_close_pending = True
+        result = window.cancel_queued_job_from_bridge(queued.job_id)
+        self.assertFalse(result.cancelled)
         self.assertEqual(result.status, 503)
         self.assertEqual(result.code, "ENGINE_SHUTTING_DOWN")
 
@@ -126,11 +191,19 @@ class LocalJobQueueTests(unittest.TestCase):
 
     def test_shutdown_drops_waiting_jobs(self):
         _engine, window = self.make_window()
-        window.pending_jobs.extend([{"id": 1}, {"id": 2}])
+        self.queue(window, "https://example.com/1")
+        self.queue(window, "https://example.com/2")
         window._galaxy_close_pending = True
         window._start_next_queued_job()
         self.assertEqual(window.pending_jobs, [])
         self.assertFalse(window.running)
+
+    def test_clear_queued_jobs_returns_removed_count(self):
+        _engine, window = self.make_window()
+        self.queue(window, "https://example.com/1")
+        self.queue(window, "https://example.com/2")
+        self.assertEqual(window.clear_queued_jobs(), 2)
+        self.assertEqual(window.bridge_status()["queuedJobs"], [])
 
     def test_install_is_idempotent(self):
         fake_engine, _window = self.make_window()
