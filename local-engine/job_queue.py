@@ -3,6 +3,8 @@ from __future__ import annotations
 import threading
 from typing import Any
 
+from bridge_submission_policy import JobSubmissionResult, StructuredLocalBridge
+
 MAX_QUEUED_MEDIA_JOBS = 25
 
 
@@ -19,6 +21,11 @@ def install_job_queue_policy(engine_module):
     if getattr(base_window, "_galaxy_queue_enabled", False):
         return base_window
 
+    # EngineWindow resolves this module global when an instance is created.
+    # Replace it before any window exists so /download can expose precise
+    # 400/409/503/504 semantics while keeping the stable parse bridge intact.
+    engine_module.LocalBridge = StructuredLocalBridge
+
     class QueuedEngineWindow(base_window):
         _galaxy_queue_enabled = True
 
@@ -32,26 +39,35 @@ def install_job_queue_policy(engine_module):
             payload["queueCapacity"] = MAX_QUEUED_MEDIA_JOBS
             return payload
 
-        def submit_bridge_job(self, payload: dict[str, Any]) -> tuple[bool, str]:
+        def submit_bridge_job(self, payload: dict[str, Any]) -> JobSubmissionResult:
             try:
                 job = engine_module.job_from_payload(payload)
             except ValueError as exc:
-                return False, str(exc)
+                return JobSubmissionResult(False, str(exc), 400, "BAD_REQUEST")
 
             completed = threading.Event()
             result: dict[str, Any] = {
                 "accepted": False,
                 "message": "Local engine did not accept the job",
+                "status": 409,
+                "code": "ENGINE_BUSY",
             }
 
             def accept() -> None:
                 if getattr(self, "_galaxy_close_pending", False):
-                    result.update(accepted=False, message="Galaxy Local Engine is shutting down")
+                    result.update(
+                        accepted=False,
+                        message="Galaxy Local Engine is shutting down",
+                        status=503,
+                        code="ENGINE_SHUTTING_DOWN",
+                    )
                 elif self.running:
                     if len(self.pending_jobs) >= MAX_QUEUED_MEDIA_JOBS:
                         result.update(
                             accepted=False,
                             message=f"Download queue is full ({MAX_QUEUED_MEDIA_JOBS} waiting jobs)",
+                            status=409,
+                            code="QUEUE_FULL",
                         )
                     else:
                         self.pending_jobs.append(job)
@@ -59,6 +75,8 @@ def install_job_queue_policy(engine_module):
                         result.update(
                             accepted=True,
                             message=f"Download queued at position {position}",
+                            status=202,
+                            code="QUEUED",
                         )
                 else:
                     self.job = job
@@ -69,13 +87,28 @@ def install_job_queue_policy(engine_module):
                     except Exception:
                         pass
                     self.start_job()
-                    result.update(accepted=True, message="Download job accepted")
+                    result.update(
+                        accepted=True,
+                        message="Download job accepted",
+                        status=202,
+                        code="ACCEPTED",
+                    )
                 completed.set()
 
             self.after(0, accept)
             if not completed.wait(timeout=2.0):
-                return False, "Timed out while handing the job to the desktop window"
-            return bool(result["accepted"]), str(result["message"])
+                return JobSubmissionResult(
+                    False,
+                    "Timed out while handing the job to the desktop window",
+                    504,
+                    "ENGINE_HANDOFF_TIMEOUT",
+                )
+            return JobSubmissionResult(
+                bool(result["accepted"]),
+                str(result["message"]),
+                int(result["status"]),
+                str(result["code"]),
+            )
 
         def _start_next_queued_job(self) -> None:
             if getattr(self, "_galaxy_close_pending", False):
