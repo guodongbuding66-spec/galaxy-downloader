@@ -34,6 +34,7 @@ describe('proxy-image original image behavior', () => {
 
         expect(response.status).toBe(200)
         expect(response.headers.get('content-type')).toBe('image/jpeg')
+        expect(response.headers.get('x-galaxy-max-image-bytes')).toBe(String(32 * 1024 * 1024))
         expect(calls).toHaveLength(1)
 
         const requested = new URL(calls[0]!.url)
@@ -70,5 +71,22 @@ describe('proxy-image original image behavior', () => {
         expect(requestedUrls).toHaveLength(2)
         expect(new URL(requestedUrls[0]!).pathname.endsWith('/0')).toBe(true)
         expect(new URL(requestedUrls[1]!).pathname.endsWith('/640')).toBe(true)
+    })
+
+    it('rejects a declared oversized image before streaming it to the client', async () => {
+        const fetchMock = vi.fn(async () => new Response(new Uint8Array([0xff, 0xd8, 0xff]), {
+            status: 200,
+            headers: {
+                'Content-Type': 'image/jpeg',
+                'Content-Length': String(32 * 1024 * 1024 + 1),
+            },
+        }))
+        vi.stubGlobal('fetch', fetchMock)
+
+        const params = new URLSearchParams({ url: WECHAT_IMAGE, mode: 'download' })
+        const response = await GET(new NextRequest(`https://galaxy.example/api/proxy-image?${params.toString()}`))
+
+        expect(response.status).toBe(413)
+        await expect(response.json()).resolves.toEqual({ error: 'Image exceeds 32 MiB proxy limit' })
     })
 })
