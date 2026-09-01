@@ -41,12 +41,17 @@ jobs:
         run: |
           python3 -m py_compile \
             local-engine/entrypoint.py \
+            local-engine/engine.py \
             local-engine/bridge.py \
             local-engine/bridge_submission_policy.py \
             local-engine/archive_policy.py \
+            local-engine/media_policy.py \
+            local-engine/job_queue.py \
+            local-engine/desktop_ui.py \
+            local-engine/update_check.py \
+            local-engine/image_archive_policy.py \
             local-engine/image_bridge.py \
             local-engine/image_download.py \
-            local-engine/job_queue.py \
             local-engine/web_document.py \
             local-engine/document_policy.py \
             local-engine/document_markdown.py \
@@ -63,6 +68,8 @@ jobs:
           python3 scripts/test-local-job-queue.py
           python3 scripts/test-local-bridge-submission.py
           python3 scripts/test-local-archive-policy.py
+          python3 scripts/test-local-media-policy.py
+          python3 scripts/test-local-image-archive-policy.py
 
       - name: Run tests
         run: pnpm test
