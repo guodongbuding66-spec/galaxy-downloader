@@ -26,9 +26,30 @@ describe('oversized image relay handoff', () => {
       'https://cdn.example/original.jpg',
     ])).rejects.toBeInstanceOf(ImageRelayLimitError)
 
-    // The direct-browser fallback is intentionally not attempted. Large files
-    // must be handed to Local Engine instead of consuming browser memory or
-    // bypassing the server relay safety policy.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('hands an unknown-length bounded stream failure to Local Engine without direct fallback', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))
+        controller.error(new Error('bounded relay stream terminated'))
+      },
+    })
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'X-Galaxy-Max-Image-Bytes': String(32 * 1024 * 1024),
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(fetchImageBlobCandidates([
+      '/api/proxy-image?url=https%3A%2F%2Fcdn.example%2Fchunked.jpg&mode=download',
+      'https://cdn.example/chunked.jpg',
+    ])).rejects.toBeInstanceOf(ImageRelayLimitError)
+
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
