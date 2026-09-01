@@ -49,6 +49,9 @@ jobs:
             local-engine/archive_policy.py \
             local-engine/media_policy.py \
             local-engine/workspace_policy.py \
+            local-engine/recovery_policy.py \
+            local-engine/recovery_display.py \
+            local-engine/failure_policy.py \
             local-engine/runtime_health.py \
             local-engine/job_queue.py \
             local-engine/queue_controls.py \
@@ -57,6 +60,7 @@ jobs:
             local-engine/desktop_extras.py \
             local-engine/desktop_manager.py \
             local-engine/desktop_runtime.py \
+            local-engine/task_center.py \
             local-engine/update_check.py \
             local-engine/browser_auth.py \
             local-engine/wechat_channels.py \
@@ -85,6 +89,7 @@ jobs:
           python3 scripts/test-local-image-archive-policy.py
           python3 scripts/test-local-manager-policy.py
           python3 scripts/test-local-runtime-policy.py
+          python3 scripts/test-local-recovery-policy.py
 
       - name: Run tests
         run: pnpm test

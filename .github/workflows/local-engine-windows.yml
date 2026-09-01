@@ -18,6 +18,7 @@ on:
       - 'scripts/test-local-image-archive-policy.py'
       - 'scripts/test-local-manager-policy.py'
       - 'scripts/test-local-runtime-policy.py'
+      - 'scripts/test-local-recovery-policy.py'
       - '.github/workflows/local-engine-windows.yml'
   push:
     branches:
@@ -37,6 +38,7 @@ on:
       - 'scripts/test-local-image-archive-policy.py'
       - 'scripts/test-local-manager-policy.py'
       - 'scripts/test-local-runtime-policy.py'
+      - 'scripts/test-local-recovery-policy.py'
       - '.github/workflows/local-engine-windows.yml'
 
 permissions:
@@ -73,6 +75,8 @@ jobs:
           local-engine/archive_policy.py
           local-engine/media_policy.py
           local-engine/workspace_policy.py
+          local-engine/recovery_policy.py
+          local-engine/failure_policy.py
           local-engine/runtime_health.py
           local-engine/job_queue.py
           local-engine/queue_controls.py
@@ -81,6 +85,7 @@ jobs:
           local-engine/desktop_extras.py
           local-engine/desktop_manager.py
           local-engine/desktop_runtime.py
+          local-engine/task_center.py
           local-engine/update_check.py
           local-engine/browser_auth.py
           local-engine/image_archive_policy.py
@@ -118,6 +123,7 @@ jobs:
           python scripts/test-local-image-archive-policy.py
           python scripts/test-local-manager-policy.py
           python scripts/test-local-runtime-policy.py
+          python scripts/test-local-recovery-policy.py
 
       - name: Exercise Edge or Chrome CDP renderer
         run: python scripts/test-dynamic-document.py

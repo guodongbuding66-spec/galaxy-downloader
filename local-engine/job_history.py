@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from failure_policy import classify_failure, sanitize_failure_detail
 from workspace_policy import load_workspace_preferences
 
 HISTORY_FILENAME = "download-history.json"
@@ -37,6 +38,10 @@ _RETRY_PAYLOAD_KEYS = {
     "audioLanguages",
     "sponsorBlockCategories",
     "useAria2c",
+    # v0.14 smart recovery fields are per-job and contain no credentials.
+    "networkRetryProfile",
+    "rateLimitMbps",
+    "concurrentFragments",
 }
 
 
@@ -154,6 +159,12 @@ def _safe_retry_payload(value: object) -> dict[str, Any]:
         }:
             result[key] = bool(raw)
             continue
+        if key in {"rateLimitMbps", "concurrentFragments"}:
+            try:
+                result[key] = int(raw)
+            except (TypeError, ValueError):
+                continue
+            continue
         result[key] = None if raw is None else _safe_text(raw, 120)
     if not result.get("sourceUrl"):
         return {}
@@ -172,6 +183,16 @@ def _safe_download_path(engine_module, value: object) -> str:
         return ""
 
 
+def _failure_fields(detail: str, state: str) -> dict[str, Any]:
+    classified = classify_failure(detail, state)
+    return {
+        "failureCategory": str(classified.get("category") or ""),
+        "failureLabel": str(classified.get("label") or "")[:80],
+        "failureAdvice": str(classified.get("advice") or "")[:360],
+        "smartRetryable": bool(classified.get("smartRetryable", False)),
+    }
+
+
 def _clean_item(engine_module, value: object) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
@@ -188,14 +209,15 @@ def _clean_item(engine_module, value: object) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         duration = 0.0
     retry_payload = _safe_retry_payload(value.get("retryPayload"))
-    return {
+    detail = sanitize_failure_detail(value.get("detail"), 360)
+    result = {
         "id": _safe_text(value.get("id"), 64) or uuid.uuid4().hex,
         "finishedAt": _safe_text(value.get("finishedAt"), 40),
         "state": state,
         "label": _safe_text(value.get("label"), 220) or file_name or source_host or "Download",
         "sourceHost": source_host,
         "sourceUrl": source_url,
-        "detail": _safe_text(value.get("detail"), 280),
+        "detail": detail,
         "fileName": file_name,
         "filePath": file_path,
         "videoQuality": _safe_text(value.get("videoQuality"), 40),
@@ -205,6 +227,8 @@ def _clean_item(engine_module, value: object) -> dict[str, Any] | None:
         "retryPayload": retry_payload,
         "retryable": bool(retry_payload.get("sourceUrl")),
     }
+    result.update(_failure_fields(detail, state))
+    return result
 
 
 def load_history(engine_module) -> list[dict[str, Any]]:
@@ -264,17 +288,19 @@ def _history_record(engine_module, job: Any, snapshot: dict[str, Any], last_path
     file_path = _safe_download_path(engine_module, last_path)
     file_name = Path(file_path).name if file_path else ""
     state = str(snapshot.get("state") or "failed").lower()
-    detail = _safe_text(snapshot.get("detail"), 280)
+    if state not in _TERMINAL_STATES:
+        state = "failed"
+    detail = sanitize_failure_detail(snapshot.get("detail"), 360)
     label = file_name or source_host or "Download"
     try:
         retry_payload = dict(engine_module.job_to_payload(job))
     except Exception:
         retry_payload = {}
     retry_payload["sourceUrl"] = retry_source
-    return {
+    result = {
         "id": uuid.uuid4().hex,
         "finishedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-        "state": state if state in _TERMINAL_STATES else "failed",
+        "state": state,
         "label": label,
         "sourceHost": source_host,
         "sourceUrl": source_url,
@@ -287,6 +313,8 @@ def _history_record(engine_module, job: Any, snapshot: dict[str, Any], last_path
         "durationSeconds": round(max(0.0, duration), 1),
         "retryPayload": retry_payload,
     }
+    result.update(_failure_fields(detail, state))
+    return result
 
 
 def install_history_policy(engine_module):
@@ -369,5 +397,27 @@ def run_history_self_test() -> None:
         assert "tracking-secret" not in rendered
         assert "user:secret" not in rendered
         assert load_history(FakeEngine)[0]["fileName"] == "demo.mp4"
-        assert clear_history(FakeEngine) == 1
+
+        failed = append_history(
+            FakeEngine,
+            {
+                "state": "failed",
+                "sourceUrl": "https://example.com/watch/456?session=secret",
+                "detail": "HTTP Error 503 https://example.com/watch/456?token=very-secret authorization=raw-secret",
+                "retryPayload": {
+                    "sourceUrl": "https://example.com/watch/456?token=very-secret",
+                    "networkRetryProfile": "standard",
+                    "rateLimitMbps": 0,
+                    "concurrentFragments": 4,
+                },
+            },
+        )
+        assert failed is not None
+        assert failed["failureCategory"] == "network"
+        assert failed["smartRetryable"] is True
+        failed_json = json.dumps(failed)
+        assert "very-secret" not in failed_json
+        assert "raw-secret" not in failed_json
+        assert failed["retryPayload"]["concurrentFragments"] == 4
+        assert clear_history(FakeEngine) == 2
         assert load_history(FakeEngine) == []
