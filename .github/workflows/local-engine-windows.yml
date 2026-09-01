@@ -8,6 +8,7 @@ on:
       - 'scripts/test-dynamic-document.py'
       - 'scripts/test-local-document-policy.py'
       - 'scripts/test-local-entrypoint-policy.py'
+      - 'scripts/test-local-browser-auth.py'
       - 'scripts/test-local-image-download.py'
       - 'scripts/test-local-image-bridge.py'
       - 'scripts/test-local-job-queue.py'
@@ -24,6 +25,7 @@ on:
       - 'scripts/test-dynamic-document.py'
       - 'scripts/test-local-document-policy.py'
       - 'scripts/test-local-entrypoint-policy.py'
+      - 'scripts/test-local-browser-auth.py'
       - 'scripts/test-local-image-download.py'
       - 'scripts/test-local-image-bridge.py'
       - 'scripts/test-local-job-queue.py'
@@ -69,6 +71,7 @@ jobs:
           local-engine/job_queue.py
           local-engine/desktop_ui.py
           local-engine/update_check.py
+          local-engine/browser_auth.py
           local-engine/image_archive_policy.py
           local-engine/image_bridge.py
           local-engine/image_download.py
@@ -94,6 +97,7 @@ jobs:
         run: |
           python scripts/test-local-document-policy.py
           python scripts/test-local-entrypoint-policy.py
+          python scripts/test-local-browser-auth.py
           python scripts/test-local-image-download.py
           python scripts/test-local-image-bridge.py
           python scripts/test-local-job-queue.py
