@@ -19,6 +19,10 @@
       {
         "name": "PARSE_STATS",
         "class_name": "ParseStats"
+      },
+      {
+        "name": "PROXY_RATE_LIMITER",
+        "class_name": "ProxyRateLimiter"
       }
     ]
   },
@@ -27,6 +31,12 @@
       "tag": "v1",
       "new_sqlite_classes": [
         "ParseStats"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "ProxyRateLimiter"
       ]
     }
   ],
