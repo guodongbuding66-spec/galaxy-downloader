@@ -11,11 +11,15 @@ type LoopbackRequestInit = RequestInit & {
   targetAddressSpace?: 'loopback'
 }
 
+export type LocalImageArchiveFormat = 'zip' | 'cbz'
+
 export interface LocalImageDownloadJob {
   images: string[]
   title: string
   sourceUrl?: string | null
+  platform?: string | null
   package?: boolean
+  archiveFormat?: LocalImageArchiveFormat
   description?: string | null
   markdownContent?: string | null
   author?: string | null
