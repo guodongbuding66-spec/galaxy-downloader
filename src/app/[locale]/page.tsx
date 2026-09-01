@@ -27,7 +27,7 @@ export default async function HomePage({
                 leftRail={
                     <div className="grid gap-3 md:col-span-2 md:grid-cols-3 xl:col-span-3">
                         <TodayStatsCard dict={dict} />
-                        <QuickStartCard dict={dict} />
+                        <QuickStartCard dict={dict} locale={locale} />
                         <FreeSupportCard dict={dict} />
                     </div>
                 }
