@@ -2,7 +2,15 @@
 
 import { useMemo } from 'react';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, Gauge, Scissors, Subtitles } from 'lucide-react';
+import {
+  ChevronDown,
+  Gauge,
+  RotateCcw,
+  Scissors,
+  Sparkles,
+  Subtitles,
+  Zap,
+} from 'lucide-react';
 
 import type {
   LocalEngineSubtitleMode,
@@ -47,6 +55,25 @@ type Copy = {
   aria2Ready: string;
   aria2Missing: string;
   offByDefault: string;
+};
+
+type ExtraCopy = {
+  presets: string;
+  standard: string;
+  course: string;
+  clean: string;
+  fast: string;
+  intro: string;
+  outro: string;
+  preview: string;
+  musicOfftopic: string;
+  filler: string;
+  reset: string;
+  active: string;
+  standardHint: string;
+  courseHint: string;
+  cleanHint: string;
+  fastHint: string;
 };
 
 const COPY: Record<string, Copy> = {
@@ -94,9 +121,29 @@ const COPY: Record<string, Copy> = {
   },
 };
 
-function localeCopy(pathname: string | null): Copy {
-  const locale = pathname?.split('/').filter(Boolean)[0] || 'en';
-  return COPY[locale] || COPY.en;
+const EXTRA: Record<string, ExtraCopy> = {
+  zh: {
+    presets: '快捷方案', standard: '标准', course: '课程 / 播客', clean: '去赞助', fast: '高速', intro: '片头', outro: '片尾', preview: '预告 / 回顾', musicOfftopic: '离题音乐', filler: '填充片段', reset: '恢复默认', active: '项已启用', standardHint: '恢复完整视频与标准 yt-dlp 行为', courseHint: '按章节拆分，适合课程、播客和长视频', cleanHint: '移除赞助、自我推广和互动提醒', fastHint: '启用 aria2c，多连接下载由 yt-dlp 调度',
+  },
+  'zh-tw': {
+    presets: '快速方案', standard: '標準', course: '課程 / Podcast', clean: '去贊助', fast: '高速', intro: '片頭', outro: '片尾', preview: '預告 / 回顧', musicOfftopic: '離題音樂', filler: '填充片段', reset: '恢復預設', active: '項已啟用', standardHint: '恢復完整影片與標準 yt-dlp 行為', courseHint: '依章節拆分，適合課程、Podcast 與長影片', cleanHint: '移除贊助、自我推廣與互動提醒', fastHint: '啟用 aria2c，由 yt-dlp 調度多連線下載',
+  },
+  en: {
+    presets: 'Quick presets', standard: 'Standard', course: 'Course / podcast', clean: 'Remove sponsors', fast: 'Fast', intro: 'Intro', outro: 'Outro', preview: 'Preview / recap', musicOfftopic: 'Off-topic music', filler: 'Filler', reset: 'Reset defaults', active: 'active', standardHint: 'Full video with standard yt-dlp behavior', courseHint: 'Split chapters for courses, podcasts and long-form media', cleanHint: 'Remove sponsor, self-promo and interaction segments', fastHint: 'Enable aria2c while yt-dlp keeps orchestration',
+  },
+  ja: {
+    presets: 'クイック設定', standard: '標準', course: '講座 / Podcast', clean: 'スポンサー除去', fast: '高速', intro: 'イントロ', outro: 'アウトロ', preview: '予告 / 振り返り', musicOfftopic: '無関係な音楽', filler: '埋め草', reset: '既定に戻す', active: '項目有効', standardHint: '全編を標準の yt-dlp 動作で保存', courseHint: '講座・Podcast・長編をチャプター分割', cleanHint: 'スポンサー・自己宣伝・操作案内を除去', fastHint: 'aria2c を有効化し、yt-dlp が制御',
+  },
+  es: {
+    presets: 'Ajustes rápidos', standard: 'Estándar', course: 'Curso / podcast', clean: 'Quitar patrocinio', fast: 'Rápido', intro: 'Introducción', outro: 'Cierre', preview: 'Avance / resumen', musicOfftopic: 'Música ajena', filler: 'Relleno', reset: 'Restablecer', active: 'activos', standardHint: 'Vídeo completo con el comportamiento estándar de yt-dlp', courseHint: 'Divide capítulos para cursos, podcasts y vídeos largos', cleanHint: 'Elimina patrocinio, autopromoción e interacción', fastHint: 'Activa aria2c manteniendo yt-dlp como orquestador',
+  },
+  ru: {
+    presets: 'Быстрые профили', standard: 'Стандарт', course: 'Курс / подкаст', clean: 'Убрать рекламу', fast: 'Быстро', intro: 'Интро', outro: 'Аутро', preview: 'Анонс / повтор', musicOfftopic: 'Посторонняя музыка', filler: 'Заполнитель', reset: 'Сбросить', active: 'включено', standardHint: 'Полное видео со стандартным поведением yt-dlp', courseHint: 'Разделение по главам для курсов, подкастов и длинных видео', cleanHint: 'Удалить рекламу, саморекламу и призывы', fastHint: 'Включить aria2c, сохранив управление за yt-dlp',
+  },
+};
+
+function locale(pathname: string | null): string {
+  return pathname?.split('/').filter(Boolean)[0] || 'en';
 }
 
 function listFromText(value: string): string[] {
@@ -107,13 +154,23 @@ function listText(values: string[]): string {
   return values.join(',');
 }
 
-function toggleCategory(
-  values: SponsorBlockCategory[],
-  category: SponsorBlockCategory,
-): SponsorBlockCategory[] {
+function toggleCategory(values: SponsorBlockCategory[], category: SponsorBlockCategory): SponsorBlockCategory[] {
   return values.includes(category)
     ? values.filter((value) => value !== category)
     : [...values, category];
+}
+
+function defaultOptions(): LocalEngineAdvancedOptions {
+  return {
+    segmentStart: '',
+    segmentEnd: '',
+    splitChapters: false,
+    subtitleMode: 'both',
+    subtitleLanguages: [],
+    audioLanguages: [],
+    sponsorBlockCategories: [],
+    useAria2c: false,
+  };
 }
 
 export function LocalEngineAdvancedControls({
@@ -130,192 +187,288 @@ export function LocalEngineAdvancedControls({
   subtitles?: SubtitleTrack[];
 }) {
   const pathname = usePathname();
-  const copy = localeCopy(pathname);
+  const language = locale(pathname);
+  const copy = COPY[language] || COPY.en;
+  const extra = EXTRA[language] || EXTRA.en;
   const detectedSubtitles = useMemo(() => {
     const unique = new Map<string, SubtitleTrack>();
     for (const track of subtitles) {
-      const language = track.language?.trim();
-      if (!language) continue;
-      const key = `${language}:${track.isAutoGenerated ? 'auto' : 'manual'}`;
+      const trackLanguage = track.language?.trim();
+      if (!trackLanguage) continue;
+      const key = `${trackLanguage}:${track.isAutoGenerated ? 'auto' : 'manual'}`;
       if (!unique.has(key)) unique.set(key, track);
     }
     return [...unique.values()].slice(0, 12);
   }, [subtitles]);
 
+  const activeCount = useMemo(() => {
+    let count = 0;
+    if (value.segmentStart || value.segmentEnd) count += 1;
+    if (value.splitChapters) count += 1;
+    if (value.subtitleLanguages.length) count += 1;
+    if (value.audioLanguages.length) count += 1;
+    if (value.sponsorBlockCategories.length) count += 1;
+    if (value.useAria2c) count += 1;
+    return count;
+  }, [value]);
+
   const update = (changes: Partial<LocalEngineAdvancedOptions>) => {
     onChange({ ...value, ...changes });
   };
 
-  const selectDetectedLanguage = (language: string) => {
-    if (!language) return;
-    const exists = value.subtitleLanguages.includes(language);
+  const applyPreset = (preset: 'standard' | 'course' | 'clean' | 'fast') => {
+    const base = defaultOptions();
+    if (preset === 'course') {
+      onChange({ ...base, splitChapters: true, subtitleMode: 'both' });
+      return;
+    }
+    if (preset === 'clean') {
+      onChange({ ...base, sponsorBlockCategories: ['sponsor', 'selfpromo', 'interaction'] });
+      return;
+    }
+    if (preset === 'fast') {
+      onChange({ ...base, useAria2c: aria2Ready });
+      return;
+    }
+    onChange(base);
+  };
+
+  const selectDetectedLanguage = (trackLanguage: string) => {
+    if (!trackLanguage) return;
+    const exists = value.subtitleLanguages.includes(trackLanguage);
     update({
       subtitleLanguages: exists
-        ? value.subtitleLanguages.filter((item) => item !== language)
-        : [...value.subtitleLanguages, language].slice(0, 12),
+        ? value.subtitleLanguages.filter((item) => item !== trackLanguage)
+        : [...value.subtitleLanguages, trackLanguage].slice(0, 12),
     });
   };
 
+  const sponsorOptions: Array<[SponsorBlockCategory, string]> = [
+    ['sponsor', copy.sponsor],
+    ['selfpromo', copy.selfPromo],
+    ['interaction', copy.interaction],
+    ['intro', extra.intro],
+    ['outro', extra.outro],
+    ['preview', extra.preview],
+    ['music_offtopic', extra.musicOfftopic],
+    ['filler', extra.filler],
+  ];
+
+  const presetOptions: Array<{
+    id: 'standard' | 'course' | 'clean' | 'fast';
+    label: string;
+    hint: string;
+    disabled?: boolean;
+  }> = [
+    { id: 'standard', label: extra.standard, hint: extra.standardHint },
+    { id: 'course', label: extra.course, hint: extra.courseHint },
+    { id: 'clean', label: extra.clean, hint: extra.cleanHint },
+    { id: 'fast', label: extra.fast, hint: extra.fastHint, disabled: !aria2Ready },
+  ];
+
   return (
-    <details className="group mt-2 border-y py-1.5">
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md py-1 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    <details className="group mt-2 overflow-hidden rounded-xl border bg-card/40">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11px] outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring">
         <Gauge className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-        <span className="font-medium">{copy.title}</span>
+        <span className="font-semibold">{copy.title}</span>
         <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">{copy.summary}</span>
+        {activeCount > 0 ? (
+          <span className="rounded-full border bg-background px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-muted-foreground">
+            {activeCount} {extra.active}
+          </span>
+        ) : null}
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
       </summary>
 
-      <div className="space-y-3 pb-1 pt-2.5">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5 text-[11px] font-medium">
-            <Scissors className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-            {copy.segment}
+      <div className="border-t px-3 pb-3 pt-2.5">
+        <div className="mb-3 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium">
+              <Sparkles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+              {extra.presets}
+            </div>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(defaultOptions())}
+              className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            >
+              <RotateCcw className="h-3 w-3" aria-hidden="true" />
+              {extra.reset}
+            </button>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="space-y-1 text-[10px] text-muted-foreground">
-              <span>{copy.start}</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={value.segmentStart}
-                disabled={disabled}
-                placeholder="01:20"
-                onChange={(event) => update({ segmentStart: event.target.value })}
-                className="h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-              />
-            </label>
-            <label className="space-y-1 text-[10px] text-muted-foreground">
-              <span>{copy.end}</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={value.segmentEnd}
-                disabled={disabled}
-                placeholder="03:45"
-                onChange={(event) => update({ segmentEnd: event.target.value })}
-                className="h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-              />
-            </label>
-          </div>
-          <p className="text-[10px] leading-4 text-muted-foreground">{copy.segmentHint}</p>
-        </div>
-
-        <label className="flex cursor-pointer items-center gap-2 text-[11px]">
-          <input
-            type="checkbox"
-            checked={value.splitChapters}
-            disabled={disabled}
-            onChange={(event) => update({ splitChapters: event.target.checked })}
-            className="h-3.5 w-3.5 accent-foreground"
-          />
-          <span>{copy.splitChapters}</span>
-        </label>
-
-        <div className="space-y-2 border-t pt-2.5">
-          <div className="flex items-center gap-1.5 text-[11px] font-medium">
-            <Subtitles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-            {copy.subtitleMode}
-          </div>
-          <div className="grid grid-cols-3 gap-1 rounded-md border bg-background p-0.5">
-            {([
-              ['manual', copy.manual],
-              ['auto', copy.auto],
-              ['both', copy.both],
-            ] as Array<[LocalEngineSubtitleMode, string]>).map(([mode, label]) => (
+          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
+            {presetOptions.map((preset) => (
               <button
-                key={mode}
+                key={preset.id}
                 type="button"
-                disabled={disabled}
-                aria-pressed={value.subtitleMode === mode}
-                onClick={() => update({ subtitleMode: mode })}
-                className={`min-h-7 rounded px-1.5 text-[10px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${value.subtitleMode === mode ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                disabled={disabled || preset.disabled}
+                onClick={() => applyPreset(preset.id)}
+                title={preset.hint}
+                className="min-h-9 rounded-lg border bg-background px-2 py-1.5 text-left outline-none transition-colors hover:border-foreground/30 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {label}
+                <span className="block text-[10px] font-semibold">{preset.label}</span>
+                <span className="mt-0.5 block truncate text-[9px] text-muted-foreground">{preset.hint}</span>
               </button>
             ))}
           </div>
-          <label className="block space-y-1 text-[10px] text-muted-foreground">
-            <span>{copy.subtitleLanguages}</span>
-            <input
-              type="text"
-              value={listText(value.subtitleLanguages)}
-              disabled={disabled}
-              placeholder="zh-Hans,en"
-              onChange={(event) => update({ subtitleLanguages: listFromText(event.target.value) })}
-              className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-            />
-          </label>
-          {detectedSubtitles.length ? (
-            <div className="flex flex-wrap gap-1" aria-label={copy.detected}>
-              {detectedSubtitles.map((track, index) => {
-                const selected = value.subtitleLanguages.includes(track.language);
-                return (
-                  <button
-                    key={`${track.language}-${track.isAutoGenerated ? 'auto' : 'manual'}-${index}`}
-                    type="button"
-                    disabled={disabled}
-                    aria-pressed={selected}
-                    onClick={() => selectDetectedLanguage(track.language)}
-                    className={`rounded border px-1.5 py-0.5 text-[9px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {track.language} · {track.isAutoGenerated ? copy.autoShort : copy.manualShort}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
         </div>
 
-        <label className="block space-y-1 text-[10px] text-muted-foreground">
-          <span>{copy.audioLanguages}</span>
-          <input
-            type="text"
-            value={listText(value.audioLanguages)}
-            disabled={disabled}
-            placeholder="zh,en,ja"
-            onChange={(event) => update({ audioLanguages: listFromText(event.target.value) })}
-            className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-          />
-          <span className="block leading-4">{copy.audioHint}</span>
-        </label>
-
-        <div className="space-y-1.5 border-t pt-2.5">
-          <div className="text-[11px] font-medium">{copy.sponsorBlock}</div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-            {([
-              ['sponsor', copy.sponsor],
-              ['selfpromo', copy.selfPromo],
-              ['interaction', copy.interaction],
-            ] as Array<[SponsorBlockCategory, string]>).map(([category, label]) => (
-              <label key={category} className="flex cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground">
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="space-y-3">
+            <section className="rounded-lg border bg-background/60 p-2.5">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium">
+                <Scissors className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                {copy.segment}
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-[10px] text-muted-foreground">
+                  <span>{copy.start}</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={value.segmentStart}
+                    disabled={disabled}
+                    placeholder="01:20"
+                    onChange={(event) => update({ segmentStart: event.target.value })}
+                    className="h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  />
+                </label>
+                <label className="space-y-1 text-[10px] text-muted-foreground">
+                  <span>{copy.end}</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={value.segmentEnd}
+                    disabled={disabled}
+                    placeholder="03:45"
+                    onChange={(event) => update({ segmentEnd: event.target.value })}
+                    className="h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  />
+                </label>
+              </div>
+              <p className="mt-1.5 text-[9px] leading-4 text-muted-foreground">{copy.segmentHint}</p>
+              <label className="mt-2 flex cursor-pointer items-center gap-2 text-[10px]">
                 <input
                   type="checkbox"
-                  checked={value.sponsorBlockCategories.includes(category)}
+                  checked={value.splitChapters}
                   disabled={disabled}
-                  onChange={() => update({ sponsorBlockCategories: toggleCategory(value.sponsorBlockCategories, category) })}
+                  onChange={(event) => update({ splitChapters: event.target.checked })}
                   className="h-3.5 w-3.5 accent-foreground"
                 />
-                {label}
+                <span>{copy.splitChapters}</span>
               </label>
-            ))}
+            </section>
+
+            <section className="rounded-lg border bg-background/60 p-2.5">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium">
+                <Subtitles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                {copy.subtitleMode}
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-1 rounded-md border bg-card p-0.5">
+                {([
+                  ['manual', copy.manual],
+                  ['auto', copy.auto],
+                  ['both', copy.both],
+                ] as Array<[LocalEngineSubtitleMode, string]>).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    disabled={disabled}
+                    aria-pressed={value.subtitleMode === mode}
+                    onClick={() => update({ subtitleMode: mode })}
+                    className={`min-h-7 rounded px-1.5 text-[10px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${value.subtitleMode === mode ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <label className="mt-2 block space-y-1 text-[10px] text-muted-foreground">
+                <span>{copy.subtitleLanguages}</span>
+                <input
+                  type="text"
+                  value={listText(value.subtitleLanguages)}
+                  disabled={disabled}
+                  placeholder="zh-Hans,en"
+                  onChange={(event) => update({ subtitleLanguages: listFromText(event.target.value) })}
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                />
+              </label>
+              {detectedSubtitles.length ? (
+                <div className="mt-1.5 flex flex-wrap gap-1" aria-label={copy.detected}>
+                  {detectedSubtitles.map((track, index) => {
+                    const selected = value.subtitleLanguages.includes(track.language);
+                    return (
+                      <button
+                        key={`${track.language}-${track.isAutoGenerated ? 'auto' : 'manual'}-${index}`}
+                        type="button"
+                        disabled={disabled}
+                        aria-pressed={selected}
+                        onClick={() => selectDetectedLanguage(track.language)}
+                        className={`rounded border px-1.5 py-0.5 text-[9px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
+                      >
+                        {track.language} · {track.isAutoGenerated ? copy.autoShort : copy.manualShort}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              <label className="mt-2 block space-y-1 text-[10px] text-muted-foreground">
+                <span>{copy.audioLanguages}</span>
+                <input
+                  type="text"
+                  value={listText(value.audioLanguages)}
+                  disabled={disabled}
+                  placeholder="zh,en,ja"
+                  onChange={(event) => update({ audioLanguages: listFromText(event.target.value) })}
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                />
+                <span className="block leading-4">{copy.audioHint}</span>
+              </label>
+            </section>
+          </div>
+
+          <div className="space-y-3">
+            <section className="rounded-lg border bg-background/60 p-2.5">
+              <div className="text-[11px] font-medium">{copy.sponsorBlock}</div>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
+                {sponsorOptions.map(([category, label]) => (
+                  <label key={category} className="flex cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={value.sponsorBlockCategories.includes(category)}
+                      disabled={disabled}
+                      onChange={() => update({ sponsorBlockCategories: toggleCategory(value.sponsorBlockCategories, category) })}
+                      className="h-3.5 w-3.5 accent-foreground"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-lg border bg-background/60 p-2.5">
+              <label className={`flex items-start gap-2 text-[10px] ${aria2Ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                <input
+                  type="checkbox"
+                  checked={aria2Ready && value.useAria2c}
+                  disabled={disabled || !aria2Ready}
+                  onChange={(event) => update({ useAria2c: event.target.checked })}
+                  className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+                />
+                <span>
+                  <span className="flex items-center gap-1 text-[11px] font-medium text-foreground">
+                    <Zap className="h-3 w-3" aria-hidden="true" />
+                    {copy.aria2}
+                  </span>
+                  <span className="mt-0.5 block leading-4 text-muted-foreground">{aria2Ready ? copy.aria2Ready : copy.aria2Missing}</span>
+                </span>
+              </label>
+            </section>
+
+            <p className="px-0.5 text-[9px] leading-4 text-muted-foreground">{copy.offByDefault}</p>
           </div>
         </div>
-
-        <label className={`flex items-start gap-2 border-t pt-2.5 text-[10px] ${aria2Ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
-          <input
-            type="checkbox"
-            checked={aria2Ready && value.useAria2c}
-            disabled={disabled || !aria2Ready}
-            onChange={(event) => update({ useAria2c: event.target.checked })}
-            className="mt-0.5 h-3.5 w-3.5 accent-foreground"
-          />
-          <span>
-            <span className="block text-[11px] font-medium text-foreground">{copy.aria2}</span>
-            <span className="mt-0.5 block leading-4 text-muted-foreground">{aria2Ready ? copy.aria2Ready : copy.aria2Missing}</span>
-          </span>
-        </label>
-
-        <p className="text-[9px] leading-4 text-muted-foreground">{copy.offByDefault}</p>
       </div>
     </details>
   );
