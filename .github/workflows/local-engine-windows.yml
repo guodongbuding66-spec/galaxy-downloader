@@ -11,6 +11,8 @@ on:
       - 'scripts/test-local-image-download.py'
       - 'scripts/test-local-image-bridge.py'
       - 'scripts/test-local-job-queue.py'
+      - 'scripts/test-local-bridge-submission.py'
+      - 'scripts/test-local-archive-policy.py'
       - '.github/workflows/local-engine-windows.yml'
   push:
     branches:
@@ -23,6 +25,8 @@ on:
       - 'scripts/test-local-image-download.py'
       - 'scripts/test-local-image-bridge.py'
       - 'scripts/test-local-job-queue.py'
+      - 'scripts/test-local-bridge-submission.py'
+      - 'scripts/test-local-archive-policy.py'
       - '.github/workflows/local-engine-windows.yml'
 
 permissions:
@@ -49,6 +53,8 @@ jobs:
           local-engine/entrypoint.py
           local-engine/engine.py
           local-engine/bridge.py
+          local-engine/bridge_submission_policy.py
+          local-engine/archive_policy.py
           local-engine/job_queue.py
           local-engine/image_bridge.py
           local-engine/image_download.py
@@ -77,6 +83,8 @@ jobs:
           python scripts/test-local-image-download.py
           python scripts/test-local-image-bridge.py
           python scripts/test-local-job-queue.py
+          python scripts/test-local-bridge-submission.py
+          python scripts/test-local-archive-policy.py
 
       - name: Exercise Edge or Chrome CDP renderer
         run: python scripts/test-dynamic-document.py
