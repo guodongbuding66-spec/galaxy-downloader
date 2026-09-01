@@ -184,6 +184,7 @@ def build_external_command(
     include_cover: bool,
     collection_mode: str | None = None,
     selected_items: tuple[int, ...] | list[int] | None = None,
+    download_archive: Path | None = None,
 ) -> list[str]:
     command = [
         str(executable),
@@ -227,6 +228,9 @@ def build_external_command(
         # playlist. Instagram carousels and some gallery extractors can be a
         # playlist object themselves, so cap them to the first entry as well.
         command.extend(["--no-playlist", "--playlist-items", "1"])
+
+    if download_archive is not None:
+        command.extend(["--download-archive", str(download_archive)])
 
     if ffmpeg_location:
         command.extend(["--ffmpeg-location", str(ffmpeg_location)])
@@ -273,6 +277,7 @@ def _run_external_once(
     include_cover: bool,
     collection_mode: str | None,
     selected_items: tuple[int, ...] | list[int] | None,
+    download_archive: Path | None,
     cancelled: Callable[[], bool],
     on_progress: Callable[[float, str, str, str, str], None],
     on_status: Callable[[str], None],
@@ -290,6 +295,7 @@ def _run_external_once(
         include_cover=include_cover,
         collection_mode=collection_mode,
         selected_items=selected_items,
+        download_archive=download_archive,
     )
 
     on_status("[Galaxy] 正在连接源站并读取媒体信息…")
@@ -385,6 +391,7 @@ def download_with_external_ytdlp(
     on_status: Callable[[str], None],
     collection_mode: str | None = None,
     selected_items: tuple[int, ...] | list[int] | None = None,
+    download_archive: Path | None = None,
 ) -> Path | None:
     # A selected browser session is a fallback, not the first step. Most public
     # videos do not require cookies at all, and Chromium browsers commonly keep
@@ -406,6 +413,7 @@ def download_with_external_ytdlp(
                 include_cover=include_cover,
                 collection_mode=collection_mode,
                 selected_items=selected_items,
+                download_archive=download_archive,
                 cancelled=cancelled,
                 on_progress=on_progress,
                 on_status=on_status,
@@ -431,6 +439,7 @@ def download_with_external_ytdlp(
                     include_cover=include_cover,
                     collection_mode=collection_mode,
                     selected_items=selected_items,
+                    download_archive=download_archive,
                     cancelled=cancelled,
                     on_progress=on_progress,
                     on_status=on_status,
@@ -462,6 +471,7 @@ def download_with_external_ytdlp(
         include_cover=include_cover,
         collection_mode=collection_mode,
         selected_items=selected_items,
+        download_archive=download_archive,
         cancelled=cancelled,
         on_progress=on_progress,
         on_status=on_status,
