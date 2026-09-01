@@ -36,6 +36,21 @@ class LocalEntrypointPolicyTests(unittest.TestCase):
                 "galaxy-downloader://download?url=http%3A%2F%2F127.0.0.1%3A8080%2Fprivate.mp4"
             )
 
+    def test_desktop_close_handler_uses_graceful_shutdown_policy(self):
+        self.assertIs(entrypoint.engine.EngineWindow.close_app, entrypoint._graceful_close_app)
+
+    def test_non_gui_exit_requests_image_cancel_before_waiting(self):
+        fake_lock = mock.Mock()
+        fake_lock.locked.side_effect = [True, False]
+        with (
+            mock.patch.object(entrypoint, "_IMAGE_JOB_LOCK", fake_lock),
+            mock.patch.object(entrypoint, "cancel_image_download_job") as cancel,
+            mock.patch.object(entrypoint.time, "sleep") as sleep,
+        ):
+            entrypoint._cancel_image_worker_before_exit(timeout_seconds=1)
+        cancel.assert_called_once_with()
+        sleep.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
