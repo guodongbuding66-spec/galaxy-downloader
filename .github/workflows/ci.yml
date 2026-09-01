@@ -35,7 +35,9 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile
+          python3 -m pip install -r local-engine/requirements.txt
 
       - name: Validate Python media policies
         run: |
