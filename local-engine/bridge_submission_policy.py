@@ -4,7 +4,7 @@ import json
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import bridge as base_bridge
 
@@ -21,6 +21,14 @@ class JobSubmissionResult:
         # two-item ``(accepted, message)`` callback result.
         yield self.accepted
         yield self.message
+
+
+@dataclass(frozen=True)
+class QueueCancellationResult:
+    cancelled: bool
+    message: str
+    status: int
+    code: str
 
 
 def normalize_submission_result(value: object) -> JobSubmissionResult:
@@ -53,7 +61,32 @@ def normalize_submission_result(value: object) -> JobSubmissionResult:
 
 
 class StructuredLocalBridge(base_bridge.LocalBridge):
-    """Local bridge variant with stable HTTP status/code semantics for /download."""
+    """Local bridge variant with stable HTTP status/code semantics.
+
+    Queue cancellation is discovered from the bound status provider when the
+    queue-enabled EngineWindow is installed. This keeps the legacy LocalBridge
+    constructor compatible while allowing 0.8.0 to add queue controls without
+    changing older non-queue callers.
+    """
+
+    def __init__(
+        self,
+        *,
+        status_provider: Callable[[], dict[str, Any]],
+        submit_job: Callable[[dict[str, Any]], object],
+        cancel_job: Callable[[], None],
+        open_folder: Callable[[], None],
+        cancel_queued_job: Callable[[str], QueueCancellationResult] | None = None,
+    ) -> None:
+        super().__init__(
+            status_provider=status_provider,
+            submit_job=submit_job,
+            cancel_job=cancel_job,
+            open_folder=open_folder,
+        )
+        owner = getattr(status_provider, "__self__", None)
+        discovered = getattr(owner, "cancel_queued_job_from_bridge", None)
+        self._cancel_queued_job = cancel_queued_job or (discovered if callable(discovered) else None)
 
     def start(self) -> None:
         if self._server is not None:
@@ -137,6 +170,36 @@ class StructuredLocalBridge(base_bridge.LocalBridge):
                     return None
                 return payload
 
+            def _cancel_queued(self) -> None:
+                payload = self._read_json()
+                if payload is None:
+                    return
+                job_id = str(payload.get("jobId") or "").strip()
+                if not job_id or len(job_id) > 128 or not job_id.isalnum():
+                    self._json(400, {"ok": False, "code": "BAD_REQUEST", "error": "Valid queue jobId required"})
+                    return
+                if local_bridge._cancel_queued_job is None:
+                    self._json(
+                        501,
+                        {
+                            "ok": False,
+                            "code": "QUEUE_CONTROL_UNAVAILABLE",
+                            "error": "This local engine does not expose queue item controls",
+                        },
+                    )
+                    return
+                result = local_bridge._cancel_queued_job(job_id)
+                self._json(
+                    result.status,
+                    {
+                        "ok": result.cancelled,
+                        "cancelled": result.cancelled,
+                        "code": result.code,
+                        "message": result.message,
+                        "jobId": job_id,
+                    },
+                )
+
             def do_POST(self) -> None:  # noqa: N802
                 if self._reject_origin():
                     return
@@ -166,6 +229,9 @@ class StructuredLocalBridge(base_bridge.LocalBridge):
                             "message": submission.message,
                         },
                     )
+                    return
+                if self.path == "/queue/cancel":
+                    self._cancel_queued()
                     return
                 if self.path == "/cancel":
                     local_bridge._cancel_job()
