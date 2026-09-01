@@ -59,9 +59,28 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
-          python -m py_compile local-engine/entrypoint.py local-engine/engine.py local-engine/bridge.py local-engine/web_document.py local-engine/document_policy.py local-engine/document_markdown.py local-engine/dynamic_document.py local-engine/external_ytdlp.py local-engine/wechat_channels.py
+          python -m py_compile `
+            local-engine/entrypoint.py `
+            local-engine/engine.py `
+            local-engine/bridge.py `
+            local-engine/job_queue.py `
+            local-engine/image_bridge.py `
+            local-engine/image_download.py `
+            local-engine/web_document.py `
+            local-engine/document_policy.py `
+            local-engine/document_markdown.py `
+            local-engine/dynamic_document.py `
+            local-engine/url_policy.py `
+            local-engine/external_ytdlp.py `
+            local-engine/wechat_channels.py
           python local-engine/entrypoint.py --self-test
+          python scripts/test-local-engine-policy.py
+          python scripts/test-local-url-policy.py
           python scripts/test-local-document-policy.py
+          python scripts/test-local-entrypoint-policy.py
+          python scripts/test-local-image-download.py
+          python scripts/test-local-image-bridge.py
+          python scripts/test-local-job-queue.py
           python scripts/test-dynamic-document.py
           $engineVersion = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
           $releaseVersion = '${{ steps.release.outputs.version }}'
@@ -197,7 +216,7 @@ jobs:
 
           Windows 便携式本地 yt-dlp + FFmpeg 下载引擎。
 
-          ### 这版安装方式
+          ### 安装方式
           1. 下载 `GalaxyLocalEngine-Windows.zip`。
           2. 完整解压 ZIP，不要直接在压缩包内运行。
           3. 双击 `install.cmd`。
@@ -206,9 +225,16 @@ jobs:
           6. 下载的视频和图片保存在解压目录下的 `downloads` 文件夹。
           7. 返回 Galaxy Downloader，等待显示 **“本地引擎已连接”** 后即可使用。
 
-          0.6.0 起新增网页文档解析与 Edge/Chrome CDP 动态渲染兜底，可用于商品页、图文帖和公众号文章；浏览器登录 Cookie 仍只在明确需要认证时读取。
+          ### 0.8.0
+          - 新增有界 FIFO 媒体下载队列：当前任务运行时可继续提交后续下载，单实例自动顺序处理。
+          - 关闭程序时会先安全取消当前媒体/图片任务并清空等待队列，降低残留 yt-dlp、FFmpeg 和 `.part` 文件风险。
+          - 图片下载增加重复 URL 去重、429/5xx/网络错误退避重试、取消支持和失败临时文件清理。
+          - WebP/AVIF 转码按最终文件大小计入安全上限；未知长度下载会周期检查剩余磁盘空间；ZIP 前额外预留归档空间。
+          - 网页与 GitHub 备用下载固定到准确的 `local-engine-v0.8.0` 发布资产，避免 `releases/latest` 版本漂移。
 
-          0.7.0 新增本地原图下载、超大图片本机直连、WebP/AVIF 本机转换以及多图本地 ZIP 打包，减少 Galaxy 服务器的图片中转带宽与内存压力。
+          0.7.0 新增本地原图下载、超大图片本机直连、WebP/AVIF 本机转换以及多图本地 ZIP 打包。
+
+          0.6.0 新增网页文档解析与 Edge/Chrome CDP 动态渲染兜底，可用于商品页、图文帖和公众号文章；浏览器登录 Cookie 仍只在明确需要认证时读取。
 
           安装包内包含 `使用说明.txt` 和 `README.md`。如果以后移动整个解压文件夹，只需在新位置再运行一次 `install.cmd` 以刷新 Windows 协议路径。
 
