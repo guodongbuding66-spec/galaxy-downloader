@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -14,8 +14,8 @@ describe('repository security baseline', () => {
     expect(workflow).toContain('javascript-typescript')
     expect(workflow).toContain('python')
     expect(workflow).toContain('security-extended,security-and-quality')
-    expect(workflow).toContain('github/codeql-action/init@v3')
-    expect(workflow).toContain('github/codeql-action/analyze@v3')
+    expect(workflow).toContain('github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938')
+    expect(workflow).toContain('github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938')
   })
 
   it('audits installed JavaScript and Python package ecosystems', () => {
@@ -23,7 +23,7 @@ describe('repository security baseline', () => {
 
     expect(workflow).toContain('pnpm audit --prod --audit-level=high')
     expect(workflow).toContain("pip-audit>=2.9,<3")
-    expect(workflow).toContain('pnpm/setup@v2.1.0')
+    expect(workflow).toContain('pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b')
     expect(workflow).toContain('local-engine/requirements.txt')
     expect(workflow).toContain('container-backend/requirements.txt')
     expect(workflow).not.toContain('actions/dependency-review-action')
@@ -41,12 +41,26 @@ describe('repository security baseline', () => {
   it('uses current action runtimes in primary CI', () => {
     const workflow = read('.github/workflows/ci.yml')
 
-    expect(workflow).toContain('actions/checkout@v7')
-    expect(workflow).toContain('pnpm/setup@v2')
+    expect(workflow).toContain('actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0')
+    expect(workflow).toContain('pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b')
     expect(workflow).toContain('runtime: node@22')
     expect(workflow).not.toContain('actions/checkout@v4')
     expect(workflow).not.toContain('actions/setup-node@v4')
     expect(workflow).not.toContain('pnpm/action-setup@v4')
+  })
+
+  it('pins every external GitHub Action to an immutable commit SHA', () => {
+    const workflowDir = resolve(process.cwd(), '.github/workflows')
+    const workflowFiles = readdirSync(workflowDir).filter((file) => /\.ya?ml$/.test(file))
+
+    for (const file of workflowFiles) {
+      const workflow = read(`.github/workflows/${file}`)
+      for (const match of workflow.matchAll(/^\s*uses:\s*([^\s#]+)(?:\s+#.*)?$/gm)) {
+        const action = match[1]
+        if (action.startsWith('./')) continue
+        expect(action).toMatch(/^[^@\s]+@[0-9a-f]{40}$/)
+      }
+    }
   })
 
   it('pins secret-bearing PR Agent execution and limits it to trusted PR actors', () => {
