@@ -23,6 +23,13 @@ export type PreparedImageDownload = {
     converted: boolean;
 };
 
+export class ImageRelayLimitError extends Error {
+    constructor() {
+        super('Image exceeds the public relay size limit and requires Local Engine');
+        this.name = 'ImageRelayLimitError';
+    }
+}
+
 export function replaceTemplate(template: string, token: string, value: string): string {
     return template.replace(token, value);
 }
@@ -75,7 +82,6 @@ export function triggerBlobDownload(blob: Blob, filename: string) {
     const objectUrl = URL.createObjectURL(blob);
     downloadFile(objectUrl, filename);
 
-    // Revoke after the click has been dispatched so browsers can resolve the blob URL.
     window.setTimeout(() => {
         URL.revokeObjectURL(objectUrl);
     }, 1000);
@@ -135,6 +141,13 @@ export async function fetchImageBlobCandidates(candidates: string[]): Promise<Re
     for (const candidate of dedupeUrls(candidates)) {
         try {
             const response = await fetch(candidate, { cache: 'no-store' });
+            if (response.status === 413) {
+                // Do not silently retry a large original through another browser
+                // path. This is the hand-off signal for Local Engine 0.7+, which
+                // streams the original source directly to disk without Galaxy
+                // server bandwidth or browser-memory pressure.
+                throw new ImageRelayLimitError();
+            }
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
@@ -148,6 +161,7 @@ export async function fetchImageBlobCandidates(candidates: string[]): Promise<Re
                 sourceUrl: candidate,
             };
         } catch (error) {
+            if (error instanceof ImageRelayLimitError) throw error;
             lastError = error;
         }
     }
