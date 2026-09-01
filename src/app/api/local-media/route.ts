@@ -354,7 +354,7 @@ async function handleDailymotionHls(request: NextRequest, headOnly: boolean) {
         Referer: 'https://www.dailymotion.com/',
     });
     const range = request.headers.get('range');
-    if (range) upstreamHeaders.set('Range', range);
+    if (range && !target.pathname.toLowerCase().endsWith('.m3u8')) upstreamHeaders.set('Range', range);
 
     let upstream: Response;
     try {
