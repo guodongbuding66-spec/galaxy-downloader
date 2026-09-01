@@ -1,184 +1,93 @@
-# 通用媒体下载器
+# Galaxy Downloader
 
-这是一个基于 [vinext](https://github.com/cloudflare/vinext) 运行的 Next.js App Router 兼容项目，支持从 Bilibili、YouTube、抖音、Instagram、小红书、TikTok、X、Telegram、Threads、微信公众号、微博、Niconico、Vimeo、Dailymotion、Streamable、Reddit、Newgrounds、Tumblr、Pinterest、VK、OK.ru、Twitch、SoundCloud 等平台解析和下载公开媒体内容。
+Galaxy Downloader is a multi-platform media and rich-document downloader with a browser workbench plus an optional Windows Local Engine for deterministic local downloads, FFmpeg processing, authenticated extraction, original-image downloads, and dynamic document rendering.
 
-## 功能特点
+## Local Engine 0.8.0
 
-- 🎬 视频 / 音频 / 图文统一解析与下载
-- 🎚️ **高级画质选择**：最佳画质、8K、4K、2K、1080p、720p、480p、360p 等预设；解析后端返回具体格式时优先展示真实可用格式
-- 🎵 **音频质量选择**：最佳、320 / 256 / 192 / 128 / 64 kbps 预设
-- 🖼️ **封面下载**：解析结果提供封面时可直接保存原始封面
-- 💬 **字幕下载**：兼容解析器返回的手动字幕和自动字幕轨道，支持 VTT / SRT / ASS 等原始格式
-- 🧾 **媒体信息导出**：一键导出标题、平台、原始链接、时长、画质、字幕和封面信息为 JSON
-- 🧠 **解析能力兼容层**：兼容 `qualityOptions`，也会识别常见 yt-dlp 风格的 `formats`、`subtitles`、`automatic_captions`
-- 🛡️ **下载代理**：外部媒体流统一经过 `/api/download`，降低 YouTube `googlevideo.com` 临时链接因 IP / 签名导致 403 的概率
-- 🎞️ 高画质下载优先使用原始页面 URL + `type=video&quality=...` 重新向解析后端选择流，不再固定复用解析阶段返回的单一低清 CDN 地址
-- 🎧 浏览器端 FFmpeg.wasm 音频提取、音视频合并
-- 📦 图文内容批量下载 / ZIP 打包
-- 📺 HLS / M3U8 浏览器端分片下载
-- 💾 本地下载历史记录
-- 🌍 多语言界面（简中、繁中、英文、日文、西班牙文、俄文）
-- ✅ GitHub Actions 自动运行测试、Lint 与生产构建
+The current website requires **Galaxy Local Engine 0.8.0+**.
 
-> 清晰度、字幕、音轨和容器格式最终取决于目标平台本身以及所连接解析后端实际返回的能力。项目不会绕过 DRM、付费墙、登录权限或其他访问控制。
+Download the Windows package from the website's **Install Local Engine** action. The website pins the package to the exact `local-engine-v0.8.0` release instead of following `releases/latest`, so the downloaded engine always matches the web build's minimum requirement.
 
-## 高级下载逻辑
+### Installation
 
-解析成功后，结果卡片会保留原来的快速“下载视频 / 下载音频”按钮，同时增加高级下载区：
+1. Download `GalaxyLocalEngine-Windows.zip`.
+2. Fully extract the ZIP to a permanent folder.
+3. Run `install.cmd`.
+4. Keep `GalaxyLocalEngine.exe` running while using local parsing/download features.
+5. Finished media and downloaded images are stored in the package's `downloads` folder.
 
-1. **视频清晰度**
-   - 如果解析器返回 `qualityOptions` / `formats`，界面优先展示真实格式、分辨率、FPS、容器和文件大小信息。
-   - 如果没有返回格式表，则提供通用画质预设。
-   - “最佳画质”与普通视频下载会重新使用原始页面 URL 请求后端选择媒体流，而不是直接打开可能较低清晰度的临时 CDN URL。
-2. **音频质量**
-   - 提供最佳、320、256、192、128、64 kbps 预设，并通过统一下载 API 请求。
-3. **附加资源**
-   - 下载原始封面。
-   - 解析器提供字幕轨道时选择语言并下载字幕。
-   - 导出媒体信息 JSON。
-   - 复制当前原始媒体链接。
-4. **多集 / 多 P**
-   - 高级选项会优先读取当前选中分集的格式与字幕能力。
-   - Bilibili 多 P 会把当前 `p` 参数写回源链接后再请求下载。
-5. **偏好记忆**
-   - 最近选择的视频画质和音频质量保存在浏览器 Local Storage，下次继续使用。
+The release package is offline-first: verified `yt-dlp.exe`, FFmpeg and FFprobe are already bundled. Installation does not need to download those dependencies from GitHub.
 
-## 开始使用
+### Download behavior
 
-```bash
-pnpm install
-pnpm dev
-```
+- The default media job saves one finished file: best video + best audio, merged when required.
+- Subtitles and cover embedding are opt-in.
+- Thumbnail, info JSON, description, comments and playlist metadata sidecars are disabled by default.
+- User/global yt-dlp configuration is ignored so a machine-specific config cannot silently change Galaxy's output policy.
+- Collections support **current item**, **entire collection**, and **selected items**.
+- A bounded FIFO queue accepts up to 25 waiting media jobs while another job is active.
+- The website shows the current queue length/capacity and allows additional jobs to be queued without starting a second engine process.
+- **Skip previously downloaded content** is optional and disabled by default. When enabled, yt-dlp uses the Local Engine's `state/download-archive.txt`; the archive state does not pollute the downloads folder.
+- Browser cookies are attempted only when an anonymous/public extraction explicitly reports that authentication is required.
 
-在浏览器中打开 `http://localhost:3010`。
+### Local Bridge
 
-## 使用方法
+The website talks to the resident Local Engine over the loopback bridge. Download submissions now expose stable status semantics:
 
-1. 复制媒体链接。
-2. 粘贴到输入框并点击“解析”。
-3. 使用快速下载按钮，或在“高级下载选项”中选择画质 / 音质。
-4. 需要时下载封面、字幕或媒体信息 JSON。
-5. 等待浏览器保存文件。
+- `202 ACCEPTED` — job started immediately.
+- `202 QUEUED` — job added to the FIFO queue.
+- `400 BAD_REQUEST` — invalid job/source URL.
+- `409 QUEUE_FULL` — the waiting queue reached its configured capacity.
+- `503 ENGINE_SHUTTING_DOWN` — the resident engine is closing.
+- `504 ENGINE_HANDOFF_TIMEOUT` — the desktop UI thread did not accept/reject the job in time.
 
-### 常见链接格式
+The browser client keeps the code and HTTP status and localizes known lifecycle/queue errors instead of parsing English error strings.
 
-- **YouTube**: `https://youtu.be/...`、`https://www.youtube.com/watch?v=...`
-- **Bilibili**: `https://www.bilibili.com/video/BV...`、`https://b23.tv/...`
-- **抖音**: `https://www.douyin.com/...`、`https://v.douyin.com/...`
-- **Instagram**: `https://www.instagram.com/reel/...`、`https://www.instagram.com/p/...`
-- **小红书**: `https://www.xiaohongshu.com/explore/...`、`https://xhslink.com/...`
-- **TikTok**: `https://www.tiktok.com/@.../video/...`
-- **X**: `https://x.com/.../status/...`
-- **Pinterest**: `https://www.pinterest.com/pin/...`
-- **VK**: `https://vk.com/video...`
-- **OK.ru**: `https://ok.ru/video/...`
-- **Twitch**: Twitch clip / video URL
-- **SoundCloud**: SoundCloud track URL
+## Rich documents and images
 
-## 当前平台支持
+The Local Engine document path is:
 
-- **YouTube**: 视频、音频；实际最高画质由解析后端与视频本身决定
-- **Bilibili**: 视频、音频、多 P / 合集、分享口令
-- **Bilibili TV**: 音频
-- **抖音**: 视频、图文、分享口令
-- **Instagram**: Reels、帖子、图文
-- **小红书**: 视频、图文
-- **TikTok**: 视频
-- **X / Twitter**: 视频
-- **Telegram**: 视频
-- **Threads**: 视频、图文
-- **微信公众号**: 文章视频、多视频
-- **微博**: 视频、图文、多视频
-- **Niconico**: 视频
-- **Vimeo / Dailymotion / Streamable**: 视频
-- **Reddit / Newgrounds / Tumblr**: 媒体内容
-- **Pinterest**: 图片、视频
-- **VK / OK.ru / Twitch**: 视频
-- **SoundCloud**: 音频
-- **Apple Podcasts**: 节目 / 单集音频
-- **HLS / M3U8**: 播放列表解析与浏览器端下载
+1. dedicated/platform-aware parser;
+2. static HTML, metadata, JSON-LD and hydration-state extraction;
+3. authenticated static retry when explicitly required;
+4. installed Edge/Chrome CDP dynamic rendering;
+5. yt-dlp media fallback.
 
-## 技术栈
+WeChat article conversion preserves available paragraph order, headings, links, lists, blockquotes, code/pre blocks, tables and inline image positions. ZIP packaging rewrites Markdown image references to the locally saved filenames.
 
-- vinext
-- Next.js 16 App Router API 兼容层
-- React 19
-- Vite 8
-- TypeScript 5
-- Tailwind CSS
-- shadcn/ui / Radix UI
-- Fetch API
-- FFmpeg.wasm
-- JSZip
-- Vitest
-- Cloudflare Workers
+For original-image workflows, the Local Engine supports direct local downloads, bounded retries, cancellation, temporary-file cleanup, disk-space checks, WebP/AVIF conversion where required, and local ZIP packaging. WeChat image handling tries original-size candidates before parsed derivatives where supported by the CDN.
 
-## 测试与质量检查
+## Playback
 
-```bash
-pnpm test
-pnpm lint
-pnpm build
-```
+The container backend exposes `/api/play` for progressive media preview with single-range forwarding and `206 Content-Range` support. Redirect targets are manually followed and revalidated. Cookie/Authorization headers are not forwarded. Malformed or multi-range requests are rejected. If a provider exposes only separated/DASH streams, the existing merged-download route remains the compatibility fallback.
 
-`.github/workflows/ci.yml` 会在 `main` 与 `feature/**` 分支自动执行以上检查，防止功能修改直接破坏生产部署。
+## Security boundaries
 
-## API 配置
+- Local Engine parse/download/protocol/static-document/CDP paths share a fail-closed public HTTP(S) source policy.
+- Localhost, local names, private/reserved literal addresses, credential-bearing URLs, IPv6 zone identifiers, mixed public/private DNS answers and unresolved hosts are rejected before local extraction starts.
+- Next.js media/document/image relays use the same class of public-URL restrictions and validate redirect hops.
+- Cloudflare image/media relays use a Durable Object fixed-window rate limiter rather than per-isolate in-memory counters.
+- Image relay bodies are bounded; oversized declared responses are rejected before relay and unknown-length bodies are counted while streaming.
+- Media relays accept only one syntactically valid byte range.
 
-部署时建议配置：
+### Deployment-level limitation
 
-- `NEXT_PUBLIC_API_BASE_URL`: 公开解析 / 下载 API，例如 `https://downloader-api.bhwa233.com`
-- `NEXT_PUBLIC_SITE_URL`: 当前站点公开地址
-- `SEO_INDEXABLE`: `true` / `false`
+Application URL validation reduces SSRF exposure but does **not** eliminate DNS-rebinding TOCTOU: DNS can theoretically change between validation and the later network connection. Production container/network policy should independently block private, link-local and metadata-service egress. WAF/rate/bandwidth controls are also recommended as a second layer for public deployments.
 
-本项目使用的主要 API 入口：
+## Validation
 
-- `GET /api/parse?url=...`：解析媒体信息
-- `GET /api/download?url=stream_url`：代理已有媒体流
-- `GET /api/download?url=source_url&type=video&quality=...`：按源链接请求视频 / 指定画质（兼容 Galaxy Downloader 历史统一下载接口）
-- `GET /api/download?url=source_url&type=audio&quality=...`：按源链接请求音频
-- `GET /api/play?...`：播放代理
+Pull request validation covers:
 
-如果解析后端返回更丰富的格式或字幕字段，前端会自动归一化并展示；如果后端没有提供某项能力，界面不会伪造不存在的字幕或格式文件。
+- Local Engine command/output policy;
+- public-URL policy;
+- download archive policy;
+- queue behavior and real loopback Bridge status semantics;
+- image download/bridge behavior;
+- document and CDP policies;
+- frontend Vitest/lint/production Next.js build;
+- container backend unit tests and production container startup;
+- live container/document smoke tests;
+- Windows source self-test, real browser CDP test, PyInstaller EXE self-test, offline dependency bundle, installer/custom-protocol lifecycle and artifact packaging;
+- the 33-platform live diagnostic workflow.
 
-## 本地开发
-
-```bash
-pnpm install
-pnpm dev
-```
-
-生产构建：
-
-```bash
-pnpm build
-pnpm start
-```
-
-## Cloudflare Workers 部署
-
-默认使用 `vinext` 生成 `dist/` 构建产物。
-
-本地直接部署：
-
-```bash
-pnpm deploy
-```
-
-如果 Cloudflare Builds 已经执行过 `pnpm build`：
-
-```bash
-pnpm deploy:ci
-```
-
-非生产分支预览：
-
-```bash
-pnpm deploy:preview
-```
-
-不要直接使用 `wrangler deploy` 替代上述 vinext 部署脚本。
-
-## 负责任使用
-
-本项目用于下载你有权保存、平台允许下载或公开授权的媒体。请遵守目标平台条款和当地法律。项目不设计用于绕过 DRM、付费内容、登录限制、验证码、地区限制或其他访问控制。
+The exact latest workflow run numbers are tracked in PR #41 while the branch remains under active development.
