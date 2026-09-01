@@ -50,6 +50,7 @@ jobs:
             local-engine/media_policy.py \
             local-engine/workspace_policy.py \
             local-engine/recovery_policy.py \
+            local-engine/recovery_display.py \
             local-engine/failure_policy.py \
             local-engine/runtime_health.py \
             local-engine/job_queue.py \
