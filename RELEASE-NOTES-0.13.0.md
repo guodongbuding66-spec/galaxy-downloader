@@ -3,15 +3,16 @@
 ## Network controls
 
 - Adds three retry profiles: Standard, Resilient, and Fast-fail.
-- Standard remains the default and preserves the 0.12 transport settings: 10 download retries, 10 fragment retries, 5 extractor retries, and a 30 second socket timeout.
+- Standard remains the default and preserves the 0.12 transport behavior: 10 download retries, 10 fragment retries, 5 extractor retries, 4 concurrent fragments, no rate cap, and no new external yt-dlp socket-timeout override.
+- The embedded fallback retains its established 30 second socket timeout; only explicit Resilient/Fast-fail profiles override transport timeouts.
 - Adds concurrent fragment controls: 1 / 2 / 4 / 8 / 16. The default remains 4.
 - Adds an optional 1–100 Mbps download speed cap. Unlimited remains the default.
-- The same network preferences are applied to both the bundled external yt-dlp path and the embedded fallback path.
+- The selected retry/fragments/rate controls are applied consistently to both the bundled external yt-dlp path and the embedded fallback where applicable.
 
 ## Runtime health
 
 - Shows remaining space for the portable `downloads` volume in the desktop workbench.
-- Adds a configurable low-space warning threshold. This is warning-only and never cancels, skips, or blocks downloads.
+- Adds a configurable low-space warning threshold. The threshold is disabled by default; when enabled it only warns and never cancels, skips, or blocks downloads.
 - Adds an optional completion/failure alert using the Windows system sound and taskbar flash. It is off by default.
 
 ## Privacy-safe diagnostics
