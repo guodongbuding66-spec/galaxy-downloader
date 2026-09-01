@@ -30,8 +30,8 @@ DEFAULT_WORKSPACE_PREFERENCES: dict[str, Any] = {
     "completionAlert": False,
     "diagnosticLogEnabled": False,
     "diagnosticLogLimitKb": 512,
-    # Warning only. It never blocks or cancels a download.
-    "lowDiskWarningGb": 5,
+    # Disk warning is also opt-in. Zero means no warning threshold.
+    "lowDiskWarningGb": 0,
 }
 
 RETRY_PROFILE_SETTINGS: dict[str, dict[str, int]] = {
@@ -93,7 +93,7 @@ def _clean_preferences(value: object) -> dict[str, Any]:
             DIAGNOSTIC_LOG_LIMITS_KB,
             512,
         ),
-        "lowDiskWarningGb": _nearest_allowed(raw.get("lowDiskWarningGb", 5), LOW_DISK_WARNING_GB, 5),
+        "lowDiskWarningGb": _nearest_allowed(raw.get("lowDiskWarningGb", 0), LOW_DISK_WARNING_GB, 0),
     }
 
 
@@ -172,13 +172,21 @@ def _insert_before_source(command: list[str], values: list[str]) -> None:
 
 
 def apply_external_network_options(command: list[str], preferences: dict[str, Any]) -> list[str]:
-    retry = retry_profile_settings(preferences.get("networkRetryProfile"))
+    profile = str(preferences.get("networkRetryProfile") or "standard").strip().lower()
+    if profile not in NETWORK_RETRY_PROFILES:
+        profile = "standard"
+    retry = retry_profile_settings(profile)
     _replace_flag_value(command, "--retries", str(retry["retries"]))
     _replace_flag_value(command, "--fragment-retries", str(retry["fragmentRetries"]))
     _replace_flag_value(command, "--extractor-retries", str(retry["extractorRetries"]))
     _replace_flag_value(command, "--concurrent-fragments", str(preferences.get("concurrentFragments") or 4))
+
+    # The 0.12 external yt-dlp command did not set --socket-timeout. Keep that
+    # exact behavior in Standard; only explicit non-standard profiles override it.
     _remove_flag_value(command, "--socket-timeout")
-    _insert_before_source(command, ["--socket-timeout", str(retry["socketTimeout"])])
+    if profile != "standard":
+        _insert_before_source(command, ["--socket-timeout", str(retry["socketTimeout"])])
+
     _remove_flag_value(command, "--limit-rate")
     limit = rate_limit_bytes(preferences)
     if limit is not None:
@@ -190,8 +198,8 @@ def install_workspace_policy(engine_module):
     """Apply safe, persistent output and network preferences to future jobs.
 
     Defaults intentionally reproduce the established output path, filename,
-    retry counts and four-fragment downloader. Rate limiting, notifications and
-    diagnostic logging remain disabled until the user explicitly opts in.
+    retry counts and four-fragment downloader. Rate limiting, notifications,
+    disk warnings and diagnostic logging remain disabled until explicitly set.
     """
     window_cls = engine_module.EngineWindow
     if getattr(window_cls, "_galaxy_workspace_policy_installed", False):
@@ -283,6 +291,23 @@ def run_workspace_self_test() -> None:
                 return downloads
 
         assert load_workspace_preferences(FakeEngine) == DEFAULT_WORKSPACE_PREFERENCES
+
+        standard_command = [
+            "yt-dlp",
+            "--retries", "10",
+            "--fragment-retries", "10",
+            "--extractor-retries", "5",
+            "--concurrent-fragments", "4",
+            "--", "https://example.com/watch",
+        ]
+        unchanged = apply_external_network_options(
+            standard_command,
+            dict(DEFAULT_WORKSPACE_PREFERENCES),
+        )
+        assert "--socket-timeout" not in unchanged
+        assert "--limit-rate" not in unchanged
+        assert unchanged[unchanged.index("--concurrent-fragments") + 1] == "4"
+
         saved = save_workspace_preferences(
             FakeEngine,
             {
