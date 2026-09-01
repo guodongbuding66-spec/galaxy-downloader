@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useDictionary } from '@/i18n/client';
 import { toast } from '@/lib/deferred-toast';
 import { buildDocumentArchiveMarkdown, type ArchiveImageFile } from '@/lib/document-archive';
+import { LOCAL_ENGINE_REQUIRED_VERSION } from '@/lib/local-engine';
 import { submitLocalImageDownload } from '@/lib/local-image-engine';
 import { sanitizeFilename } from '@/lib/utils';
 
@@ -23,6 +24,7 @@ import {
 } from './result-card-utils';
 
 const LOCAL_ENGINE_BATCH_THRESHOLD = 20;
+const LOCAL_ENGINE_LABEL = `Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+`;
 
 type ArchiveMetadata = {
     description?: string | null;
@@ -38,20 +40,20 @@ function pageLanguage(): string {
 
 function oversizedImageMessage(): string {
     const language = pageLanguage();
-    if (language.startsWith('zh')) return '原图超过服务器中转上限。请下载安装并启动 Galaxy Local Engine 0.7.0+ 后重试，原图会直接下载到你的电脑。';
-    if (language.startsWith('ja')) return '元画像がサーバー中継上限を超えています。Galaxy Local Engine 0.7.0+ を起動して再試行してください。';
-    if (language.startsWith('es')) return 'La imagen original supera el límite del servidor. Inicia Galaxy Local Engine 0.7.0+ y vuelve a intentarlo.';
-    if (language.startsWith('ru')) return 'Оригинал превышает лимит серверного прокси. Запустите Galaxy Local Engine 0.7.0+ и повторите попытку.';
-    return 'The original image exceeds the server relay limit. Start Galaxy Local Engine 0.7.0+ and retry for a direct local download.';
+    if (language.startsWith('zh')) return `原图超过服务器中转上限。请下载安装并启动 Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ 后重试，原图会直接下载到你的电脑。`;
+    if (language.startsWith('ja')) return `元画像がサーバー中継上限を超えています。Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ を起動して再試行してください。`;
+    if (language.startsWith('es')) return `La imagen original supera el límite del servidor. Inicia Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ y vuelve a intentarlo.`;
+    if (language.startsWith('ru')) return `Оригинал превышает лимит серверного прокси. Запустите Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ и повторите попытку.`;
+    return `The original image exceeds the server relay limit. Start Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ and retry for a direct local download.`;
 }
 
 function largeBatchMessage(count: number): string {
     const language = pageLanguage();
-    if (language.startsWith('zh')) return `本次包含 ${count} 张原图。为避免占用服务器带宽和浏览器内存，超过 ${LOCAL_ENGINE_BATCH_THRESHOLD} 张的批量下载必须使用 Galaxy Local Engine 0.7.0+。`;
-    if (language.startsWith('ja')) return `${count} 枚の原画像があります。${LOCAL_ENGINE_BATCH_THRESHOLD} 枚を超える一括保存には Galaxy Local Engine 0.7.0+ が必要です。`;
-    if (language.startsWith('es')) return `Este lote contiene ${count} imágenes. Los lotes de más de ${LOCAL_ENGINE_BATCH_THRESHOLD} imágenes requieren Galaxy Local Engine 0.7.0+.`;
-    if (language.startsWith('ru')) return `В наборе ${count} изображений. Для пакетов больше ${LOCAL_ENGINE_BATCH_THRESHOLD} изображений требуется Galaxy Local Engine 0.7.0+.`;
-    return `This batch contains ${count} originals. Batches over ${LOCAL_ENGINE_BATCH_THRESHOLD} images require Galaxy Local Engine 0.7.0+ to avoid server bandwidth and browser-memory pressure.`;
+    if (language.startsWith('zh')) return `本次包含 ${count} 张原图。为避免占用服务器带宽和浏览器内存，超过 ${LOCAL_ENGINE_BATCH_THRESHOLD} 张的批量下载必须使用 Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+。`;
+    if (language.startsWith('ja')) return `${count} 枚の原画像があります。${LOCAL_ENGINE_BATCH_THRESHOLD} 枚を超える一括保存には Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ が必要です。`;
+    if (language.startsWith('es')) return `Este lote contiene ${count} imágenes. Los lotes de más de ${LOCAL_ENGINE_BATCH_THRESHOLD} imágenes requieren Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+.`;
+    if (language.startsWith('ru')) return `В наборе ${count} изображений. Для пакетов больше ${LOCAL_ENGINE_BATCH_THRESHOLD} изображений требуется Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+.`;
+    return `This batch contains ${count} originals. Batches over ${LOCAL_ENGINE_BATCH_THRESHOLD} images require Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ to avoid server bandwidth and browser-memory pressure.`;
 }
 
 export function ImageNoteGrid({
@@ -202,7 +204,7 @@ function ImageNoteGridContent({
         } catch (error) {
             console.error(`Failed to download image ${index}:`, error);
             if (error instanceof ImageRelayLimitError) {
-                toast.error('Galaxy Local Engine 0.7.0+', { description: oversizedImageMessage() });
+                toast.error(LOCAL_ENGINE_LABEL, { description: oversizedImageMessage() });
                 return;
             }
             toast.error(dict.errors.downloadError);
@@ -237,7 +239,7 @@ function ImageNoteGridContent({
                 return;
             }
             if (images.length > LOCAL_ENGINE_BATCH_THRESHOLD) {
-                toast.error('Galaxy Local Engine 0.7.0+', {
+                toast.error(LOCAL_ENGINE_LABEL, {
                     description: largeBatchMessage(images.length),
                 });
                 return;
@@ -280,7 +282,7 @@ function ImageNoteGridContent({
         } catch (error) {
             console.error('Failed to package images:', error);
             if (error instanceof ImageRelayLimitError) {
-                toast.error('Galaxy Local Engine 0.7.0+', { description: oversizedImageMessage() });
+                toast.error(LOCAL_ENGINE_LABEL, { description: oversizedImageMessage() });
                 return;
             }
             toast.error(dict.errors.packageFailed);
