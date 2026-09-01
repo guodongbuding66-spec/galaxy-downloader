@@ -13,6 +13,7 @@ import { shouldHideSingleImagePreview } from './result-card-visibility';
 import {
     createInitialImageStates,
     fetchImageBlobCandidates,
+    ImageRelayLimitError,
     prepareImageDownloadBlob,
     replaceTemplate,
     resolveImageDownloadSrc,
@@ -28,6 +29,15 @@ type ArchiveMetadata = {
     publishedAt?: string | null;
     sourceUrl?: string | null;
 };
+
+function oversizedImageMessage(): string {
+    const language = typeof document === 'undefined' ? 'en' : document.documentElement.lang.toLowerCase();
+    if (language.startsWith('zh')) return '原图超过服务器中转上限。请下载安装并启动 Galaxy Local Engine 0.7.0+ 后重试，原图会直接下载到你的电脑。';
+    if (language.startsWith('ja')) return '元画像がサーバー中継上限を超えています。Galaxy Local Engine 0.7.0+ を起動して再試行してください。';
+    if (language.startsWith('es')) return 'La imagen original supera el límite del servidor. Inicia Galaxy Local Engine 0.7.0+ y vuelve a intentarlo.';
+    if (language.startsWith('ru')) return 'Оригинал превышает лимит серверного прокси. Запустите Galaxy Local Engine 0.7.0+ и повторите попытку.';
+    return 'The original image exceeds the server relay limit. Start Galaxy Local Engine 0.7.0+ and retry for a direct local download.';
+}
 
 export function ImageNoteGrid({
     images,
@@ -166,7 +176,6 @@ function ImageNoteGridContent({
             return;
         }
 
-        // Older/offline engines keep the existing bounded browser/server path.
         try {
             const { blob } = await fetchImageBlobCandidates(downloadCandidates(index, originalUrl));
             const prepared = await prepareImageDownloadBlob(blob, originalUrl);
@@ -177,6 +186,10 @@ function ImageNoteGridContent({
             );
         } catch (error) {
             console.error(`Failed to download image ${index}:`, error);
+            if (error instanceof ImageRelayLimitError) {
+                toast.error('Galaxy Local Engine 0.7.0+', { description: oversizedImageMessage() });
+                return;
+            }
             toast.error(dict.errors.downloadError);
         }
     };
@@ -209,10 +222,6 @@ function ImageNoteGridContent({
                 return;
             }
 
-            // Local Engine 0.7+ is the preferred path because it streams every
-            // original image directly to disk and creates the ZIP locally. The
-            // browser fallback below is retained for users who have not installed
-            // the engine yet and remains protected by the public proxy byte limit.
             const { default: JSZip } = await import('jszip');
             const zip = new JSZip();
             let successCount = 0;
@@ -222,7 +231,6 @@ function ImageNoteGridContent({
             for (let index = 0; index < images.length; index++) {
                 const originalUrl = images[index]!;
                 try {
-                    // A failed preview must not suppress a fresh download attempt.
                     const { blob } = await fetchImageBlobCandidates(downloadCandidates(index, originalUrl));
                     const prepared = await prepareImageDownloadBlob(blob, originalUrl);
                     const filename = `${safeTitle}-${index + 1}.${prepared.extension}`;
@@ -230,6 +238,7 @@ function ImageNoteGridContent({
                     archiveImages.push({ sourceUrl: originalUrl, filename });
                     successCount++;
                 } catch (error) {
+                    if (error instanceof ImageRelayLimitError) throw error;
                     console.error(`Failed to add image ${index} to zip:`, error);
                 }
                 setPackagingProgress(Math.round(((index + 1) / images.length) * 100));
@@ -249,6 +258,10 @@ function ImageNoteGridContent({
             triggerBlobDownload(zipBlob, `${safeTitle}.zip`);
         } catch (error) {
             console.error('Failed to package images:', error);
+            if (error instanceof ImageRelayLimitError) {
+                toast.error('Galaxy Local Engine 0.7.0+', { description: oversizedImageMessage() });
+                return;
+            }
             toast.error(dict.errors.packageFailed);
         } finally {
             setIsPackaging(false);
