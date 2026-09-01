@@ -7,12 +7,37 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from workspace_policy import load_workspace_preferences
 
 HISTORY_FILENAME = "download-history.json"
-MAX_HISTORY_ITEMS = 80
+DEFAULT_MAX_HISTORY_ITEMS = 80
 _HISTORY_LOCK = threading.Lock()
 _TERMINAL_STATES = {"completed", "failed", "cancelled"}
+_SAFE_YOUTUBE_QUERY_KEYS = {"v", "list", "index"}
+_RETRY_PAYLOAD_KEYS = {
+    "sourceUrl",
+    "videoQuality",
+    "audioQuality",
+    "includeAudio",
+    "includeSubtitle",
+    "subtitleLanguage",
+    "includeCover",
+    "skipPreviouslyDownloaded",
+    "browser",
+    "collectionMode",
+    "selectedItems",
+    "playlist",
+    "segmentStart",
+    "segmentEnd",
+    "splitChapters",
+    "subtitleMode",
+    "subtitleLanguages",
+    "audioLanguages",
+    "sponsorBlockCategories",
+    "useAria2c",
+}
 
 
 def _history_path(engine_module) -> Path:
@@ -21,29 +46,118 @@ def _history_path(engine_module) -> Path:
     return state_dir / HISTORY_FILENAME
 
 
+def _history_limit(engine_module) -> int:
+    try:
+        return int(load_workspace_preferences(engine_module).get("historyLimit") or DEFAULT_MAX_HISTORY_ITEMS)
+    except Exception:
+        return DEFAULT_MAX_HISTORY_ITEMS
+
+
 def _safe_text(value: object, limit: int = 240) -> str:
     return " ".join(str(value or "").split()).strip()[:limit]
 
 
-def _redacted_source_url(value: object) -> tuple[str, str]:
+def _safe_url_parts(value: object) -> tuple[object | None, str, str]:
     raw = str(value or "").strip()
     if not raw:
-        return "", ""
+        return None, "", ""
     try:
         parsed = urlsplit(raw)
-        hostname = parsed.hostname or ""
+        hostname = (parsed.hostname or "").lower()
         if parsed.scheme not in {"http", "https"} or not hostname:
-            return "", ""
+            return None, "", ""
         host = hostname
         try:
             if parsed.port:
                 host = f"{host}:{parsed.port}"
         except ValueError:
             pass
-        display = urlunsplit((parsed.scheme, host, parsed.path or "/", "", ""))
-        return display[:600], hostname[:160]
+        return parsed, host, hostname
     except ValueError:
+        return None, "", ""
+
+
+def _redacted_source_url(value: object) -> tuple[str, str]:
+    parsed, host, hostname = _safe_url_parts(value)
+    if parsed is None:
         return "", ""
+    display = urlunsplit((parsed.scheme, host, parsed.path or "/", "", ""))
+    return display[:600], hostname[:160]
+
+
+def _retry_source_url(value: object) -> tuple[str, str]:
+    """Keep only URL identity fields that are known to be non-secret.
+
+    Most media sites identify a post/video in the path, so all query data is
+    dropped. YouTube's watch URL is the important exception: v/list/index are
+    stable media identifiers and are preserved, while tracking/session fields
+    such as si, feature and tokens are removed.
+    """
+    parsed, host, hostname = _safe_url_parts(value)
+    if parsed is None:
+        return "", ""
+    query = ""
+    if hostname in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
+        safe_pairs: list[tuple[str, str]] = []
+        for key, raw_value in parse_qsl(parsed.query, keep_blank_values=False):
+            if key in _SAFE_YOUTUBE_QUERY_KEYS:
+                safe_pairs.append((key, raw_value[:200]))
+        query = urlencode(safe_pairs)
+    retry = urlunsplit((parsed.scheme, host, parsed.path or "/", query, ""))
+    return retry[:700], hostname[:160]
+
+
+def _safe_retry_payload(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    for key in _RETRY_PAYLOAD_KEYS:
+        if key not in value:
+            continue
+        raw = value.get(key)
+        if key == "sourceUrl":
+            source, _host = _retry_source_url(raw)
+            if source:
+                result[key] = source
+            continue
+        if key == "selectedItems":
+            items: list[int] = []
+            for candidate in raw if isinstance(raw, (list, tuple)) else []:
+                try:
+                    number = int(candidate)
+                except (TypeError, ValueError):
+                    continue
+                if number > 0 and number not in items:
+                    items.append(number)
+                if len(items) >= 500:
+                    break
+            result[key] = items
+            continue
+        if key in {"subtitleLanguages", "audioLanguages", "sponsorBlockCategories"}:
+            values: list[str] = []
+            for candidate in raw if isinstance(raw, (list, tuple)) else []:
+                text = _safe_text(candidate, 40)
+                if text and text not in values:
+                    values.append(text)
+                if len(values) >= 16:
+                    break
+            result[key] = values
+            continue
+        if key in {
+            "includeAudio",
+            "includeSubtitle",
+            "includeCover",
+            "skipPreviouslyDownloaded",
+            "playlist",
+            "splitChapters",
+            "useAria2c",
+        }:
+            result[key] = bool(raw)
+            continue
+        result[key] = None if raw is None else _safe_text(raw, 120)
+    if not result.get("sourceUrl"):
+        return {}
+    return result
 
 
 def _safe_download_path(engine_module, value: object) -> str:
@@ -73,6 +187,7 @@ def _clean_item(engine_module, value: object) -> dict[str, Any] | None:
         duration = max(0.0, min(float(value.get("durationSeconds") or 0), 14 * 24 * 3600))
     except (TypeError, ValueError):
         duration = 0.0
+    retry_payload = _safe_retry_payload(value.get("retryPayload"))
     return {
         "id": _safe_text(value.get("id"), 64) or uuid.uuid4().hex,
         "finishedAt": _safe_text(value.get("finishedAt"), 40),
@@ -87,6 +202,8 @@ def _clean_item(engine_module, value: object) -> dict[str, Any] | None:
         "audioQuality": _safe_text(value.get("audioQuality"), 40),
         "collectionMode": _safe_text(value.get("collectionMode"), 24),
         "durationSeconds": round(duration, 1),
+        "retryPayload": retry_payload,
+        "retryable": bool(retry_payload.get("sourceUrl")),
     }
 
 
@@ -97,8 +214,9 @@ def load_history(engine_module) -> list[dict[str, Any]]:
     except (OSError, ValueError, TypeError):
         return []
     values = raw if isinstance(raw, list) else []
+    limit = _history_limit(engine_module)
     result: list[dict[str, Any]] = []
-    for value in values[:MAX_HISTORY_ITEMS]:
+    for value in values[:limit]:
         cleaned = _clean_item(engine_module, value)
         if cleaned is not None:
             result.append(cleaned)
@@ -106,10 +224,11 @@ def load_history(engine_module) -> list[dict[str, Any]]:
 
 
 def _write_history(engine_module, items: list[dict[str, Any]]) -> None:
+    limit = _history_limit(engine_module)
     path = _history_path(engine_module)
     temporary = path.with_suffix(".tmp")
     temporary.write_text(
-        json.dumps(items[:MAX_HISTORY_ITEMS], ensure_ascii=False, indent=2),
+        json.dumps(items[:limit], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     temporary.replace(path)
@@ -141,11 +260,17 @@ def clear_history(engine_module) -> int:
 
 def _history_record(engine_module, job: Any, snapshot: dict[str, Any], last_path: object, duration: float) -> dict[str, Any]:
     source_url, source_host = _redacted_source_url(getattr(job, "source_url", ""))
+    retry_source, _retry_host = _retry_source_url(getattr(job, "source_url", ""))
     file_path = _safe_download_path(engine_module, last_path)
     file_name = Path(file_path).name if file_path else ""
     state = str(snapshot.get("state") or "failed").lower()
     detail = _safe_text(snapshot.get("detail"), 280)
     label = file_name or source_host or "Download"
+    try:
+        retry_payload = dict(engine_module.job_to_payload(job))
+    except Exception:
+        retry_payload = {}
+    retry_payload["sourceUrl"] = retry_source
     return {
         "id": uuid.uuid4().hex,
         "finishedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -160,6 +285,7 @@ def _history_record(engine_module, job: Any, snapshot: dict[str, Any], last_path
         "audioQuality": str(getattr(job, "audio_quality", "") or ""),
         "collectionMode": str(getattr(job, "collection_mode", "single") or "single"),
         "durationSeconds": round(max(0.0, duration), 1),
+        "retryPayload": retry_payload,
     }
 
 
@@ -178,6 +304,8 @@ def install_history_policy(engine_module):
         if job is None:
             return
         try:
+            if not bool(load_workspace_preferences(engine_module).get("historyEnabled", True)):
+                return
             snapshot = window.bridge_status()
             state = str(snapshot.get("state") or "").lower()
             if state not in _TERMINAL_STATES:
@@ -225,11 +353,21 @@ def run_history_self_test() -> None:
                 "videoQuality": "1080",
                 "audioQuality": "best",
                 "collectionMode": "single",
+                "retryPayload": {
+                    "sourceUrl": "https://www.youtube.com/watch?v=abc123&si=tracking-secret",
+                    "videoQuality": "1080",
+                    "includeAudio": True,
+                },
             },
         )
         assert item is not None
         assert item["sourceUrl"] == "https://example.com/watch/123"
-        assert "hidden" not in json.dumps(item)
+        assert item["retryPayload"]["sourceUrl"] == "https://www.youtube.com/watch?v=abc123"
+        assert item["retryable"] is True
+        rendered = json.dumps(item)
+        assert "hidden" not in rendered
+        assert "tracking-secret" not in rendered
+        assert "user:secret" not in rendered
         assert load_history(FakeEngine)[0]["fileName"] == "demo.mp4"
         assert clear_history(FakeEngine) == 1
         assert load_history(FakeEngine) == []

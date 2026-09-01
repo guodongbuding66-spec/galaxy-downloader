@@ -10,6 +10,7 @@ import web_document
 from archive_policy import install_archive_policy
 from bridge_submission_policy import StructuredLocalBridge
 from desktop_extras import install_desktop_extras
+from desktop_manager import install_desktop_manager
 from desktop_ui import install_desktop_ui
 from document_policy import (
     install_document_policy,
@@ -31,6 +32,7 @@ from job_queue import install_job_queue_policy
 from media_policy import install_media_policy
 from queue_controls import install_queue_controls, run_queue_controls_self_test
 from url_policy import is_public_http_url, validated_public_http_url
+from workspace_policy import install_workspace_policy, run_workspace_self_test
 
 # Static document redirects and CDP request interception resolve this helper from
 # the shared web_document module at request time. Install the fail-closed public
@@ -111,18 +113,20 @@ bridge.parse_with_bundled_ytdlp = _hybrid_parse
 import engine  # noqa: E402  import after bridge/document policy installation
 
 engine._validated_source_url = validated_public_http_url
-# Policy order matters: archive and advanced fields extend Job first; the queue
-# captures the final Job type; queue controls/history then wrap the resident
-# queue-enabled window; presentation is installed last before the first Tk
-# instance exists.
+# Policy order matters: archive/media fields extend Job first; workspace output
+# preferences patch the final downloader methods; the queue captures that Job
+# type; queue controls/history then wrap the resident queue-enabled window;
+# presentation is installed last before the first Tk instance exists.
 install_archive_policy(engine)
 install_media_policy(engine)
+install_workspace_policy(engine)
 install_job_queue_policy(engine)
 install_queue_controls(engine)
 install_history_policy(engine)
 install_image_archive_policy(image_download)
 install_desktop_ui(engine)
 install_desktop_extras(engine)
+install_desktop_manager(engine)
 
 # A protocol handoff that reaches an already-running bridge but gets a 4xx (for
 # example, a full queue) must still count as "the resident instance handled the
@@ -221,13 +225,16 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_history_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_ui_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
     assert getattr(engine, "_galaxy_media_policy_installed", False) is True
+    assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
     assert getattr(image_download, "_galaxy_image_archive_policy_installed", False) is True
     assert engine.LocalBridge is StructuredLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
     run_queue_controls_self_test()
     run_history_self_test()
+    run_workspace_self_test()
 
 
 def _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:
