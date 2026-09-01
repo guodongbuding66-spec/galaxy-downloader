@@ -9,6 +9,7 @@ import image_download
 import web_document
 from archive_policy import install_archive_policy
 from bridge_submission_policy import StructuredLocalBridge
+from desktop_extras import install_desktop_extras
 from desktop_ui import install_desktop_ui
 from document_policy import (
     install_document_policy,
@@ -25,8 +26,10 @@ from image_download import (
     _wechat_original_candidate,
     cancel_image_download_job,
 )
+from job_history import install_history_policy, run_history_self_test
 from job_queue import install_job_queue_policy
 from media_policy import install_media_policy
+from queue_controls import install_queue_controls, run_queue_controls_self_test
 from url_policy import is_public_http_url, validated_public_http_url
 
 # Static document redirects and CDP request interception resolve this helper from
@@ -108,14 +111,18 @@ bridge.parse_with_bundled_ytdlp = _hybrid_parse
 import engine  # noqa: E402  import after bridge/document policy installation
 
 engine._validated_source_url = validated_public_http_url
-# Policy order matters: archive and advanced fields extend Job first, the queue
-# then captures the final Job type, and presentation patches the queue-enabled
-# window before the first Tk instance is created.
+# Policy order matters: archive and advanced fields extend Job first; the queue
+# captures the final Job type; queue controls/history then wrap the resident
+# queue-enabled window; presentation is installed last before the first Tk
+# instance exists.
 install_archive_policy(engine)
 install_media_policy(engine)
 install_job_queue_policy(engine)
+install_queue_controls(engine)
+install_history_policy(engine)
 install_image_archive_policy(image_download)
 install_desktop_ui(engine)
+install_desktop_extras(engine)
 
 # A protocol handoff that reaches an already-running bridge but gets a 4xx (for
 # example, a full queue) must still count as "the resident instance handled the
@@ -210,12 +217,17 @@ def _run_image_self_test() -> None:
     assert _sniff_extension(b"\xff\xd8\xff\xe0", "application/octet-stream", sample) == "jpg"
     assert _sniff_extension(b"RIFF\x00\x00\x00\x00WEBP", "", sample) == "webp"
     assert getattr(engine.EngineWindow, "_galaxy_queue_enabled", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_queue_controls_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_history_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_ui_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
     assert getattr(engine, "_galaxy_media_policy_installed", False) is True
     assert getattr(image_download, "_galaxy_image_archive_policy_installed", False) is True
     assert engine.LocalBridge is StructuredLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
+    run_queue_controls_self_test()
+    run_history_self_test()
 
 
 def _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:
