@@ -1,39 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { normalizeSingleByteRange } from '@/lib/http-range'
+import { isSafePublicHttpUrl } from '@/lib/public-url'
+
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
 const MAX_REDIRECTS = 5
 const MAX_DECLARED_BYTES = 8 * 1024 * 1024 * 1024
-
-function isPrivateIpv4(hostname: string): boolean {
-    const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-    if (!match) return false
-    const octets = match.slice(1).map(Number)
-    if (octets.some((value) => value < 0 || value > 255)) return true
-    const [a, b] = octets
-    return a === 0
-        || a === 10
-        || a === 127
-        || (a === 169 && b === 254)
-        || (a === 172 && b >= 16 && b <= 31)
-        || (a === 192 && b === 168)
-        || (a === 100 && b >= 64 && b <= 127)
-        || a >= 224
-}
-
-function isSafePublicUrl(url: URL): boolean {
-    if (!['http:', 'https:'].includes(url.protocol)) return false
-    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
-    if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false
-    if (isPrivateIpv4(host)) return false
-    if (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) return false
-    return true
-}
 
 function safeSourceReferer(value: string | null): string | null {
     if (!value) return null
     try {
         const url = new URL(value)
-        if (!isSafePublicUrl(url)) return null
+        if (!isSafePublicHttpUrl(url)) return null
         return url.toString()
     } catch {
         return null
@@ -61,7 +39,7 @@ async function fetchMedia(
 ): Promise<{ response: Response; finalUrl: URL }> {
     let current = initialUrl
     for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
-        if (!isSafePublicUrl(current)) throw new Error('Media URL is not allowed')
+        if (!isSafePublicHttpUrl(current)) throw new Error('Media URL is not allowed')
         const headers = new Headers({
             Accept: 'video/mp4,video/webm,video/*;q=0.9,application/octet-stream;q=0.8,*/*;q=0.5',
             'Accept-Encoding': 'identity',
@@ -95,13 +73,19 @@ export async function GET(request: NextRequest) {
     } catch {
         return NextResponse.json({ error: 'Invalid media url' }, { status: 400 })
     }
-    if (!isSafePublicUrl(target)) {
+    if (!isSafePublicHttpUrl(target)) {
         return NextResponse.json({ error: 'Media url is not allowed' }, { status: 400 })
+    }
+
+    let range: string | null
+    try {
+        range = normalizeSingleByteRange(request.headers.get('range'))
+    } catch {
+        return NextResponse.json({ error: 'Range must be a single valid bytes range' }, { status: 400 })
     }
 
     const sourceReferer = safeSourceReferer(request.nextUrl.searchParams.get('source'))
     const requestedName = request.nextUrl.searchParams.get('name')?.trim() || ''
-    const range = request.headers.get('range')
 
     try {
         const { response: upstream, finalUrl } = await fetchMedia(target, sourceReferer, range)
