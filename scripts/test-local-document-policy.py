@@ -75,6 +75,29 @@ class LocalDocumentPolicyTests(unittest.TestCase):
         self.assertTrue(document_policy.should_try_web_document("https://x.com/demo/status/123"))
         self.assertFalse(document_policy.should_try_web_document("https://www.youtube.com/watch?v=abc"))
 
+    def test_ambiguous_social_posts_are_media_first(self):
+        media_first = (
+            "https://www.instagram.com/p/ABC123/",
+            "https://x.com/demo/status/123",
+            "https://www.reddit.com/r/demo/comments/abc123/example/",
+            "https://www.threads.net/@demo/post/ABC123",
+            "https://www.pinterest.com/pin/123456/",
+            "https://demo.tumblr.com/post/123456/example",
+        )
+        for url in media_first:
+            with self.subTest(url=url):
+                self.assertTrue(document_policy.prefer_media_first(url))
+
+        document_first = (
+            "https://www.reddit.com/gallery/abc123",
+            "https://www.tiktok.com/@demo/photo/123",
+            "https://www.douyin.com/note/123",
+            "https://www.instagram.com/reel/ABC123/",
+        )
+        for url in document_first:
+            with self.subTest(url=url):
+                self.assertFalse(document_policy.prefer_media_first(url))
+
     def test_commerce_platform_labels_are_preserved(self):
         fixtures = {
             "https://www.amazon.com/dp/B000000001": "amazon",
