@@ -21,12 +21,18 @@ def make_fake_engine(app_directory: Path):
     class BaseJob:
         source_url: str
 
+    engine = types.SimpleNamespace()
+    engine.Job = BaseJob
+
+    # Real engine.py resolves the module-level Job symbol at call time. The
+    # archive policy intentionally replaces that symbol with an extended
+    # dataclass, so this fake must do the same rather than closing over BaseJob.
     def parse_job(raw: str):
         query = parse_qs(urlparse(raw).query)
-        return BaseJob(query.get("url", [""])[0])
+        return engine.Job(query.get("url", [""])[0])
 
     def job_from_payload(payload):
-        return BaseJob(str(payload.get("sourceUrl") or ""))
+        return engine.Job(str(payload.get("sourceUrl") or ""))
 
     def job_to_payload(job):
         return {"sourceUrl": job.source_url}
@@ -35,8 +41,6 @@ def make_fake_engine(app_directory: Path):
         if value is None:
             return default
         return str(value).lower() in {"1", "true", "yes", "on"}
-
-    engine = types.SimpleNamespace()
 
     class FakeWindow:
         def __init__(self, job):
@@ -55,7 +59,6 @@ def make_fake_engine(app_directory: Path):
     def fake_external_download(*_args, **kwargs):
         return kwargs.get("download_archive")
 
-    engine.Job = BaseJob
     engine.EngineWindow = FakeWindow
     engine.parse_job = parse_job
     engine.job_from_payload = job_from_payload
