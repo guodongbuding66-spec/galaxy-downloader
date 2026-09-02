@@ -4,6 +4,7 @@ import {
   LocalEngineBridgeSubmissionError,
   localizeLocalEngineSubmissionMessage,
   normalizeLocalEngineQueuedJobs,
+  normalizeLocalEngineResumeJobs,
 } from '../src/lib/local-engine-bridge'
 
 describe('Local Engine bridge submission errors', () => {
@@ -18,6 +19,10 @@ describe('Local Engine bridge submission errors', () => {
       .toContain('otra tarea')
     expect(localizeLocalEngineSubmissionMessage('QUEUE_FULL', 'fallback', 'ru-RU'))
       .toContain('очередь')
+    expect(localizeLocalEngineSubmissionMessage('RESUME_JOB_NOT_FOUND', 'fallback', 'zh-CN'))
+      .toContain('可恢复任务')
+    expect(localizeLocalEngineSubmissionMessage('NO_PAUSABLE_JOB', 'fallback', 'en-US'))
+      .toContain('can be paused')
   })
 
   it('keeps backend detail for unknown and validation codes', () => {
@@ -99,3 +104,88 @@ describe('Local Engine visible queue normalization', () => {
     expect(jobs.at(-1)?.position).toBe(25)
   })
 })
+
+describe('Local Engine recoverable job normalization', () => {
+  it('keeps only privacy-safe resumable summaries and fails unknown modes closed to restart', () => {
+    const jobs = normalizeLocalEngineResumeJobs([
+      {
+        id: 'a'.repeat(32),
+        state: 'paused',
+        sourceHost: 'media.example.com',
+        label: '  Demo   download ',
+        videoQuality: '1080p',
+        progress: 42.75,
+        downloaded: '512 MiB',
+        resumeMode: 'continue',
+        sourceUrl: 'https://media.example.com/watch?token=secret',
+        payload: { cookie: 'must-not-surface' },
+      },
+      {
+        id: 'b'.repeat(32),
+        state: 'interrupted',
+        sourceHost: 'channels.weixin.qq.com',
+        label: 'WeChat video',
+        progress: 130,
+        resumeMode: 'future-mode',
+      },
+      {
+        id: '../../bad',
+        state: 'paused',
+        sourceHost: 'bad.example',
+      },
+      {
+        id: 'c'.repeat(32),
+        state: 'running',
+        sourceHost: 'hidden.example',
+      },
+    ])
+
+    expect(jobs).toEqual([
+      {
+        id: 'a'.repeat(32),
+        state: 'paused',
+        createdAt: '',
+        updatedAt: '',
+        sourceHost: 'media.example.com',
+        label: 'Demo download',
+        videoQuality: '1080p',
+        progress: 42.75,
+        downloaded: '512 MiB',
+        resumeMode: 'continue',
+      },
+      {
+        id: 'b'.repeat(32),
+        state: 'interrupted',
+        createdAt: '',
+        updatedAt: '',
+        sourceHost: 'channels.weixin.qq.com',
+        label: 'WeChat video',
+        videoQuality: 'best',
+        progress: 100,
+        downloaded: '—',
+        resumeMode: 'restart',
+      },
+    ])
+    const rendered = JSON.stringify(jobs)
+    expect(rendered).not.toContain('secret')
+    expect(rendered).not.toContain('cookie')
+    expect(rendered).not.toContain('sourceUrl')
+    expect(rendered).not.toContain('payload')
+  })
+
+  it('deduplicates ids and caps the visible recovery list', () => {
+    const raw = Array.from({ length: 40 }, (_, index) => ({
+      id: index.toString(16).padStart(32, '0'),
+      state: index % 2 === 0 ? 'paused' : 'interrupted',
+      sourceHost: 'example.com',
+      label: `Job ${index}`,
+      progress: index,
+      resumeMode: 'continue',
+    }))
+    raw.splice(1, 0, { ...raw[0], label: 'duplicate' })
+    const jobs = normalizeLocalEngineResumeJobs(raw)
+    expect(jobs).toHaveLength(24)
+    expect(new Set(jobs.map((job) => job.id)).size).toBe(jobs.length)
+  })
+})
+

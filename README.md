@@ -16,7 +16,7 @@
 - 🎧 浏览器端 FFmpeg.wasm 音频提取、音视频合并作为兼容/辅助能力
 - 📦 图文内容批量下载 / ZIP 打包
 - 📺 HLS / M3U8 浏览器端分片下载
-- 🧰 **Galaxy Local Engine 0.8.0**：Windows 本机 yt-dlp + FFmpeg、登录状态解析、原图下载、动态文档渲染、任务队列
+- 🧰 **Galaxy Local Engine 0.15.0**：Windows 本机 yt-dlp + FFmpeg、统一任务中心、活动下载暂停/恢复、重启恢复、登录状态解析、原图下载与动态文档渲染
 - 🗂️ **最近解析记录**：解析成功的链接只保存在当前浏览器本地；它不代表文件已下载完成
 - ♻️ **可选跳过已下载内容**：Local Engine 可用独立 download archive 跳过已完成媒体，默认关闭
 - 🌍 多语言界面（简中、繁中、英文、日文、西班牙文、俄文）
@@ -24,9 +24,11 @@
 
 > 清晰度、字幕、音轨和容器格式最终取决于目标平台本身以及所连接解析后端实际返回的能力。项目不会绕过 DRM、付费墙、登录权限或其他访问控制。
 
-## Galaxy Local Engine 0.8.0
+## Galaxy Local Engine 0.15.0
 
-当前网页要求 **Galaxy Local Engine 0.8.0+**。网站主下载和 GitHub 备用线路都固定到准确的 `local-engine-v0.8.0` Release，不再跟随 `releases/latest`，避免网页升级后用户意外下载到不匹配的旧引擎。
+当前网页要求 **Galaxy Local Engine 0.15.0+**。网站主下载和 GitHub 备用线路都固定到准确的 `local-engine-v0.15.0` Release，不跟随 `releases/latest`，避免网页与桌面引擎版本错配。
+
+0.15.0 在 0.14 统一任务中心和智能重试基础上加入活动下载暂停/继续、退出后重启恢复、可恢复任务持久化和 Bridge protocol v5 控制接口。普通 yt-dlp 下载会保留 `.part` / 分片并从可用检查点继续；不具备可靠字节级续传能力的来源会明确标记为“重新开始”，不会伪装成精确断点续传。
 
 ### 安装
 
@@ -213,7 +215,7 @@ PR / 主分支还会额外执行：
 - `GET /api/download?url=source_url&type=audio&quality=...`：按源链接请求音频
 - `GET /api/play?url=source_url&type=video|audio`：Range-aware 播放代理
 - `GET /api/image-proxy?...`：受控图片中转 / 原图兼容路径
-- `GET /api/local-engine/download?version=0.8.0`：网站固定版本的 Local Engine Windows 包
+- `GET /api/local-engine/download?version=0.15.0`：网站固定版本的 Local Engine Windows 包
 
 如果解析后端返回更丰富的格式或字幕字段，前端会自动归一化并展示；如果后端没有提供某项能力，界面不会伪造不存在的字幕或格式文件。
 

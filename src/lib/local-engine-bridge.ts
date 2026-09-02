@@ -13,7 +13,9 @@ const LOCAL_ENGINE_BRIDGE_BASE_URLS = [
 export const LOCAL_ENGINE_BRIDGE_BASE_URL = LOCAL_ENGINE_BRIDGE_BASE_URLS[0]
 const LOCAL_ENGINE_REQUEST_TIMEOUT_MS = 1800
 const MIN_PARSE_BRIDGE_PROTOCOL = 4
+const MIN_RESUME_BRIDGE_PROTOCOL = 5
 const MAX_VISIBLE_QUEUED_JOBS = 25
+const MAX_VISIBLE_RESUME_JOBS = 25
 const MAX_QUEUE_TEXT_LENGTH = 120
 const QUEUE_JOB_ID_PATTERN = /^[a-zA-Z0-9]{1,128}$/
 
@@ -22,6 +24,22 @@ export interface LocalEngineQueuedJob {
   position: number
   label: string
   sourceHost: string
+}
+
+export type LocalEngineResumeMode = 'continue' | 'restart'
+export type LocalEngineResumeState = 'paused' | 'interrupted'
+
+export interface LocalEngineResumeJob {
+  id: string
+  state: LocalEngineResumeState
+  createdAt: string
+  updatedAt: string
+  sourceHost: string
+  label: string
+  videoQuality: string
+  progress: number
+  downloaded: string
+  resumeMode: LocalEngineResumeMode
 }
 
 export interface LocalEngineBridgeStatus {
@@ -41,6 +59,9 @@ export interface LocalEngineBridgeStatus {
   queueLength: number
   queueCapacity: number
   queuedJobs: LocalEngineQueuedJob[]
+  activeJobId: string | null
+  canPause: boolean
+  resumeJobs: LocalEngineResumeJob[]
 }
 
 export interface LocalEngineBridgeJob {
@@ -69,6 +90,12 @@ export type LocalEngineSubmissionCode =
   | 'ENGINE_BUSY'
   | 'ENGINE_SHUTTING_DOWN'
   | 'ENGINE_HANDOFF_TIMEOUT'
+  | 'NO_PAUSABLE_JOB'
+  | 'RESUME_JOB_NOT_FOUND'
+  | 'RESUME_JOB_ACTIVE'
+  | 'RESUME_CONTROL_UNAVAILABLE'
+  | 'CONTROL_REJECTED'
+  | 'CONTROL_FAILED'
   | 'INTERNAL_ERROR'
   | string
 
@@ -84,7 +111,8 @@ export class LocalEngineBridgeSubmissionError extends Error {
   }
 }
 
-type SubmissionMessages = Record<'QUEUE_FULL' | 'ENGINE_BUSY' | 'ENGINE_SHUTTING_DOWN' | 'ENGINE_HANDOFF_TIMEOUT', string>
+type SubmissionMessageCode = 'QUEUE_FULL' | 'ENGINE_BUSY' | 'ENGINE_SHUTTING_DOWN' | 'ENGINE_HANDOFF_TIMEOUT' | 'NO_PAUSABLE_JOB' | 'RESUME_JOB_NOT_FOUND' | 'RESUME_JOB_ACTIVE' | 'RESUME_CONTROL_UNAVAILABLE'
+type SubmissionMessages = Partial<Record<SubmissionMessageCode, string>>
 
 const SUBMISSION_MESSAGES: Record<string, SubmissionMessages> = {
   zh: {
@@ -92,6 +120,10 @@ const SUBMISSION_MESSAGES: Record<string, SubmissionMessages> = {
     ENGINE_BUSY: '本地引擎正在处理另一个任务，请稍后重试或升级到支持下载队列的版本。',
     ENGINE_SHUTTING_DOWN: 'Galaxy Local Engine 正在退出，请重新启动本地引擎后再提交任务。',
     ENGINE_HANDOFF_TIMEOUT: '本地引擎桌面窗口响应超时，请确认程序没有卡住，然后重试。',
+    NO_PAUSABLE_JOB: '当前没有可以暂停的下载任务。',
+    RESUME_JOB_NOT_FOUND: '这个可恢复任务已不存在，状态可能已被清理或在其他窗口中处理。',
+    RESUME_JOB_ACTIVE: '该任务正在运行，不能在运行期间放弃恢复状态。',
+    RESUME_CONTROL_UNAVAILABLE: '当前本地引擎不支持暂停/恢复控制，请升级到支持该功能的版本。',
   },
   'zh-tw': {
     QUEUE_FULL: '本機下載佇列已滿，請等待前面的工作完成後再試。',
@@ -122,6 +154,10 @@ const SUBMISSION_MESSAGES: Record<string, SubmissionMessages> = {
     ENGINE_BUSY: 'The local engine is processing another job. Retry later or upgrade to a queue-capable version.',
     ENGINE_SHUTTING_DOWN: 'Galaxy Local Engine is shutting down. Restart it before submitting another job.',
     ENGINE_HANDOFF_TIMEOUT: 'The Local Engine desktop window did not respond in time. Check that the app is responsive and retry.',
+    NO_PAUSABLE_JOB: 'There is no active download that can be paused.',
+    RESUME_JOB_NOT_FOUND: 'This recoverable download no longer exists.',
+    RESUME_JOB_ACTIVE: 'The active download cannot discard its recovery state while it is running.',
+    RESUME_CONTROL_UNAVAILABLE: 'This Local Engine does not support pause/resume controls. Please upgrade it.',
   },
 }
 
@@ -267,6 +303,44 @@ export function normalizeLocalEngineQueuedJobs(value: unknown): LocalEngineQueue
   return normalized.sort((left, right) => left.position - right.position)
 }
 
+export function normalizeLocalEngineResumeJobs(value: unknown): LocalEngineResumeJob[] {
+  if (!Array.isArray(value)) return []
+  const normalized: LocalEngineResumeJob[] = []
+  const seen = new Set<string>()
+
+  for (const raw of value.slice(0, MAX_VISIBLE_RESUME_JOBS)) {
+    if (!raw || typeof raw !== 'object') continue
+    const item = raw as Record<string, unknown>
+    const id = String(item.id || '').trim()
+    if (!QUEUE_JOB_ID_PATTERN.test(id) || seen.has(id)) continue
+    const state = String(item.state || '').toLowerCase()
+    if (state !== 'paused' && state !== 'interrupted') continue
+    const sourceHost = compactQueueText(item.sourceHost)
+    const label = compactQueueText(item.label)
+    if (!sourceHost && !label) continue
+    const rawProgress = Number(item.progress || 0)
+    const progress = Number.isFinite(rawProgress) ? Math.max(0, Math.min(100, rawProgress)) : 0
+    const rawResumeMode = String(item.resumeMode || '').toLowerCase()
+    const resumeMode: LocalEngineResumeMode = rawResumeMode === 'continue' ? 'continue' : 'restart'
+    seen.add(id)
+    normalized.push({
+      id,
+      state,
+      createdAt: compactQueueText(item.createdAt),
+      updatedAt: compactQueueText(item.updatedAt),
+      sourceHost,
+      label: label || sourceHost,
+      videoQuality: compactQueueText(item.videoQuality) || 'best',
+      progress,
+      downloaded: compactQueueText(item.downloaded) || '—',
+      resumeMode,
+    })
+  }
+
+  return normalized
+}
+
+
 export function getLastLocalEngineBridgeDiagnostic(): string | null {
   return lastBridgeDiagnostic
 }
@@ -297,6 +371,9 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
       queuedJobs.length,
       Math.min(queueCapacity || Number.MAX_SAFE_INTEGER, reportedQueueLength),
     )
+    const resumeJobs = normalizeLocalEngineResumeJobs(payload.resumeJobs)
+    const rawActiveJobId = String(payload.activeJobId || '').trim()
+    const activeJobId = QUEUE_JOB_ID_PATTERN.test(rawActiveJobId) ? rawActiveJobId : null
 
     lastBridgeDiagnostic = null
     return {
@@ -316,6 +393,9 @@ export async function getLocalEngineBridgeStatus(): Promise<LocalEngineBridgeSta
       queueLength,
       queueCapacity,
       queuedJobs,
+      activeJobId,
+      canPause: Number(payload.bridgeProtocol || 1) >= MIN_RESUME_BRIDGE_PROTOCOL && Boolean(payload.canPause),
+      resumeJobs,
     }
   } catch (error) {
     lastBridgeDiagnostic = localNetworkHelp(errorText(error))
@@ -489,6 +569,102 @@ export async function cancelLocalEngineQueuedJob(jobId: string): Promise<void> {
     response.status,
   )
 }
+
+async function requireResumeBridge(): Promise<LocalEngineBridgeStatus> {
+  const status = await getLocalEngineBridgeStatus()
+  if (!status) {
+    throw new Error(lastBridgeDiagnostic || `Galaxy Local Engine ${LOCAL_ENGINE_REQUIRED_VERSION}+ is required`)
+  }
+  if (status.bridgeProtocol < MIN_RESUME_BRIDGE_PROTOCOL) {
+    throw new LocalEngineBridgeSubmissionError(
+      'This Local Engine version does not support pause/resume controls',
+      'RESUME_CONTROL_UNAVAILABLE',
+      501,
+    )
+  }
+  return status
+}
+
+async function runResumeControl(
+  path: string,
+  body: unknown | undefined,
+  successFallback: string,
+  successCode: LocalEngineSubmissionCode,
+  failureFallback: string,
+  failureCode: LocalEngineSubmissionCode,
+): Promise<string> {
+  const response = await postBridgeAction(path, body)
+  const { message, code } = await parseStructuredActionResponse(
+    response,
+    response.ok ? successFallback : failureFallback,
+    response.ok ? successCode : failureCode,
+  )
+  if (response.ok) return message
+  throw new LocalEngineBridgeSubmissionError(
+    localizeLocalEngineSubmissionMessage(code, message),
+    code,
+    response.status,
+  )
+}
+
+export async function pauseLocalEngineBridgeJob(): Promise<string> {
+  const status = await requireResumeBridge()
+  if (!status.busy || !status.canPause) {
+    throw new LocalEngineBridgeSubmissionError(
+      localizeLocalEngineSubmissionMessage('NO_PAUSABLE_JOB', 'There is no active download that can be paused'),
+      'NO_PAUSABLE_JOB',
+      409,
+    )
+  }
+  return runResumeControl(
+    '/pause',
+    undefined,
+    'Active download is stopping at a resumable checkpoint',
+    'PAUSE_REQUESTED',
+    'Could not pause the active download',
+    'NO_PAUSABLE_JOB',
+  )
+}
+
+export async function resumeLocalEngineBridgeJob(jobId: string): Promise<string> {
+  const normalizedJobId = jobId.trim()
+  if (!QUEUE_JOB_ID_PATTERN.test(normalizedJobId)) {
+    throw new LocalEngineBridgeSubmissionError('Invalid recoverable job id', 'BAD_REQUEST', 400)
+  }
+  const status = await requireResumeBridge()
+  if (status.busy) {
+    throw new LocalEngineBridgeSubmissionError(
+      localizeLocalEngineSubmissionMessage('ENGINE_BUSY', 'Another download is already active'),
+      'ENGINE_BUSY',
+      409,
+    )
+  }
+  return runResumeControl(
+    '/resume',
+    { jobId: normalizedJobId },
+    'Recoverable download has been started',
+    'RESUME_STARTED',
+    'Could not resume the download',
+    'RESUME_JOB_NOT_FOUND',
+  )
+}
+
+export async function discardLocalEngineResumeJob(jobId: string): Promise<string> {
+  const normalizedJobId = jobId.trim()
+  if (!QUEUE_JOB_ID_PATTERN.test(normalizedJobId)) {
+    throw new LocalEngineBridgeSubmissionError('Invalid recoverable job id', 'BAD_REQUEST', 400)
+  }
+  await requireResumeBridge()
+  return runResumeControl(
+    '/resume/discard',
+    { jobId: normalizedJobId },
+    'Recoverable download state was discarded',
+    'RESUME_JOB_DISCARDED',
+    'Could not discard the recoverable download',
+    'RESUME_JOB_NOT_FOUND',
+  )
+}
+
 
 export async function cancelLocalEngineBridgeJob(): Promise<void> {
   const response = await postBridgeAction('/cancel')

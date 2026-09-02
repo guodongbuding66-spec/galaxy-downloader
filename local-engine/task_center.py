@@ -18,6 +18,8 @@ FILTERS = {
     "全部": "",
     "当前": "active",
     "等待": "queued",
+    "暂停": "paused",
+    "中断": "interrupted",
     "完成": "completed",
     "失败": "failed",
     "取消": "cancelled",
@@ -25,6 +27,8 @@ FILTERS = {
 STATE_LABELS = {
     "active": "进行中",
     "queued": "等待",
+    "paused": "暂停",
+    "interrupted": "中断",
     "completed": "完成",
     "failed": "失败",
     "cancelled": "取消",
@@ -121,6 +125,52 @@ def _queued_rows(window) -> list[dict[str, Any]]:
     return rows
 
 
+def _resume_rows(window) -> list[dict[str, Any]]:
+    getter = getattr(window, "get_resume_jobs", None)
+    if not callable(getter):
+        return []
+    try:
+        records = list(getter())
+    except Exception:
+        return []
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        state = str(record.get("state") or "").lower()
+        if state not in {"paused", "interrupted"}:
+            continue
+        try:
+            progress = max(0.0, min(100.0, float(record.get("progress") or 0.0)))
+        except (TypeError, ValueError):
+            progress = 0.0
+        resume_mode = str(record.get("resumeMode") or "continue").lower()
+        continue_mode = resume_mode == "continue"
+        downloaded = str(record.get("downloaded") or "").strip()
+        rows.append(
+            {
+                "key": f"r:{record.get('id')}",
+                "kind": "resume",
+                "state": state,
+                "jobId": str(record.get("id") or ""),
+                "sourceHost": str(record.get("sourceHost") or ""),
+                "sourceUrl": "",
+                "videoQuality": str(record.get("videoQuality") or "—"),
+                "when": f"{progress:.1f}%",
+                "label": str(record.get("label") or record.get("sourceHost") or "未完成任务")[:220],
+                "detail": f"已保留本机进度 {progress:.1f}%" + (f" · {downloaded}" if downloaded else ""),
+                "advice": (
+                    "继续时会复用 yt-dlp 的 .part/fragment，从源站允许的最近检查点续传。"
+                    if continue_mode
+                    else "该来源不能可靠字节续传；继续操作会重新开始该任务，不会伪装成精确断点。"
+                ),
+                "failureLabel": "断点续传" if continue_mode else "重新开始",
+                "resume": record,
+            }
+        )
+    return rows
+
+
 def _history_rows(engine_module) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for item in load_history(engine_module):
@@ -150,6 +200,7 @@ def _task_rows(window, engine_module) -> list[dict[str, Any]]:
     if active is not None:
         rows.append(active)
     rows.extend(_queued_rows(window))
+    rows.extend(_resume_rows(window))
     rows.extend(_history_rows(engine_module))
     return rows
 
@@ -262,12 +313,12 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
     ui._label(heading_left, "任务中心", size=17, weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
         heading_left,
-        "当前下载、等待队列和本机历史放在一个工作区；失败任务会给出原因分类和安全恢复建议。",
+        "当前下载、等待队列、可恢复任务和本机历史放在一个工作区；暂停/异常退出后不会自动偷偷重新下载。",
         size=8,
         color=ui.MUTED,
         bg=ui.BG,
     ).pack(anchor="w", pady=(4, 0))
-    summary_var = tk.StringVar(value="当前 0 · 等待 0 · 完成 0 · 失败 0")
+    summary_var = tk.StringVar(value="当前 0 · 等待 0 · 可恢复 0 · 完成 0 · 失败 0")
     ui._label(heading, variable=summary_var, size=9, weight="bold", color=ui.CYAN, bg=ui.BG).pack(side="right", anchor="n", pady=(4, 0))
 
     filters = tk.Frame(shell, bg=ui.BG)
@@ -364,6 +415,9 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
     footer = tk.Frame(shell, bg=ui.BG)
     footer.pack(fill="x", pady=(10, 0))
 
+    active_pause_button: ui.ActionButton | None = None
+    resume_button: ui.ActionButton | None = None
+    discard_resume_button: ui.ActionButton | None = None
     pause_button: ui.ActionButton | None = None
     top_button: ui.ActionButton | None = None
     up_button: ui.ActionButton | None = None
@@ -385,6 +439,12 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
             return None
         return rows[0].get("item")
 
+    def selected_resume() -> dict[str, Any] | None:
+        rows = selected_rows()
+        if len(rows) != 1 or rows[0].get("kind") != "resume":
+            return None
+        return rows[0]
+
     def selected_queue_ids() -> list[str]:
         rows = selected_rows()
         if not rows or any(row.get("kind") != "queued" for row in rows):
@@ -395,6 +455,7 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
         rows = selected_rows()
         one = rows[0] if len(rows) == 1 else None
         item = selected_history()
+        resume = selected_resume()
         queue_ids = selected_queue_ids()
 
         for button in (top_button, remove_button):
@@ -403,6 +464,16 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
         for button in (up_button, down_button):
             if button is not None:
                 button.state(["!disabled"] if len(queue_ids) == 1 else ["disabled"])
+        if active_pause_button is not None:
+            pause_event = getattr(window, "pause_event", None)
+            can_pause = bool(one and one.get("kind") == "active" and getattr(window, "running", False))
+            if pause_event is not None and pause_event.is_set():
+                can_pause = False
+            active_pause_button.state(["!disabled"] if can_pause else ["disabled"])
+        if resume_button is not None:
+            resume_button.state(["!disabled"] if resume and not bool(getattr(window, "running", False)) else ["disabled"])
+        if discard_resume_button is not None:
+            discard_resume_button.state(["!disabled"] if resume and not bool(getattr(window, "running", False)) else ["disabled"])
         if details_button is not None:
             details_button.state(["!disabled"] if one and one.get("kind") == "active" else ["disabled"])
         if copy_button is not None:
@@ -436,9 +507,10 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
         history = [row for row in rows if row.get("kind") == "history"]
         active_count = sum(1 for row in rows if row.get("state") == "active")
         queued_count = sum(1 for row in rows if row.get("state") == "queued")
+        recoverable_count = sum(1 for row in rows if row.get("kind") == "resume")
         completed_count = sum(1 for row in history if row.get("state") == "completed")
         failed_count = sum(1 for row in history if row.get("state") == "failed")
-        summary_var.set(f"当前 {active_count} · 等待 {queued_count} · 完成 {completed_count} · 失败 {failed_count}")
+        summary_var.set(f"当前 {active_count} · 等待 {queued_count} · 可恢复 {recoverable_count} · 完成 {completed_count} · 失败 {failed_count}")
         if pause_button is not None:
             pause_button.configure(text="继续队列" if bool(getattr(window, "queue_paused", False)) else "完成后暂停")
 
@@ -488,6 +560,41 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
         toggle = getattr(window, "toggle_queue_paused", None)
         if callable(toggle):
             toggle()
+            refresh(force=True)
+
+    def pause_active_selected() -> None:
+        rows = selected_rows()
+        pause = getattr(window, "pause_active_job", None)
+        if len(rows) == 1 and rows[0].get("kind") == "active" and callable(pause):
+            if pause():
+                window.set_status("Pausing", "正在保存可恢复状态并停止到安全检查点…")
+            refresh(force=True)
+
+    def resume_selected() -> None:
+        row = selected_resume()
+        resume = getattr(window, "resume_job", None)
+        if row and callable(resume):
+            job_id = str(row.get("jobId") or "")
+            if job_id and resume(job_id):
+                refresh(force=True)
+            elif job_id:
+                messagebox.showwarning(engine_module.APP_NAME, "当前无法继续这个任务；请确认没有其他下载正在运行。", parent=dialog)
+
+    def discard_resume_selected() -> None:
+        row = selected_resume()
+        discard = getattr(window, "discard_resume_job", None)
+        if not row or not callable(discard):
+            return
+        job_id = str(row.get("jobId") or "")
+        if not job_id:
+            return
+        if not messagebox.askyesno(
+            engine_module.APP_NAME,
+            "放弃这个可恢复任务？\n\n下载临时文件不会在这里主动删除，但任务中心将不再提供继续入口。",
+            parent=dialog,
+        ):
+            return
+        if discard(job_id):
             refresh(force=True)
 
     def move_queue(edge: str) -> None:
@@ -548,8 +655,10 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
         else:
             _standard_retry(window, engine_module, item, dialog)
 
+    active_pause_button = ui.ActionButton(footer, text="暂停当前", command=pause_active_selected, kind="secondary", compact=True)
+    active_pause_button.pack(side="left")
     pause_button = ui.ActionButton(footer, text="完成后暂停", command=toggle_pause, kind="ghost", compact=True)
-    pause_button.pack(side="left")
+    pause_button.pack(side="left", padx=(6, 0))
     top_button = ui.ActionButton(footer, text="移到顶部", command=lambda: move_queue("top"), kind="ghost", compact=True)
     top_button.pack(side="left", padx=(6, 0))
     up_button = ui.ActionButton(footer, text="上移", command=lambda: nudge_queue(-1), kind="ghost", compact=True)
@@ -559,6 +668,10 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
     remove_button = ui.ActionButton(footer, text="移除等待", command=remove_queue, kind="danger", compact=True)
     remove_button.pack(side="left", padx=(6, 0))
 
+    resume_button = ui.ActionButton(footer, text="继续任务", command=resume_selected, kind="primary", compact=True)
+    resume_button.pack(side="right")
+    discard_resume_button = ui.ActionButton(footer, text="放弃恢复", command=discard_resume_selected, kind="danger", compact=True)
+    discard_resume_button.pack(side="right", padx=(0, 6))
     smart_button = ui.ActionButton(footer, text="智能重试", command=lambda: retry_selected(True), kind="primary", compact=True)
     smart_button.pack(side="right")
     retry_button = ui.ActionButton(footer, text="原参数重试", command=lambda: retry_selected(False), kind="secondary", compact=True)
@@ -572,11 +685,22 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
     details_button = ui.ActionButton(footer, text="任务详情", command=show_details, kind="ghost", compact=True)
     details_button.pack(side="right", padx=(0, 6))
 
-    for button in (top_button, up_button, down_button, remove_button, details_button, copy_button, open_button, reveal_button, retry_button, smart_button):
+    for button in (active_pause_button, resume_button, discard_resume_button, top_button, up_button, down_button, remove_button, details_button, copy_button, open_button, reveal_button, retry_button, smart_button):
         button.state(["disabled"])
 
     tree.bind("<<TreeviewSelect>>", update_actions)
-    tree.bind("<Double-1>", lambda _event: open_file(False))
+    def activate_selected(_event=None) -> None:
+        rows = selected_rows()
+        if len(rows) != 1:
+            return
+        if rows[0].get("kind") == "resume":
+            resume_selected()
+        elif rows[0].get("kind") == "history":
+            open_file(False)
+        elif rows[0].get("kind") == "active":
+            show_details()
+
+    tree.bind("<Double-1>", activate_selected)
     query_var.trace_add("write", lambda *_args: refresh(force=True))
     filter_var.trace_add("write", lambda *_args: refresh(force=True))
 
@@ -615,7 +739,7 @@ def install_task_center(engine_module):
         if button is None:
             return
         try:
-            total = len(load_history(module)) + len(_pending_snapshot(window)) + (1 if bool(getattr(window, "running", False)) else 0)
+            total = len(load_history(module)) + len(_pending_snapshot(window)) + len(_resume_rows(window)) + (1 if bool(getattr(window, "running", False)) else 0)
         except Exception:
             total = 0
         button.configure(text=f"任务 {total}")
@@ -653,3 +777,6 @@ def run_task_center_self_test() -> None:
     assert _matches_filter(row, "failed", "network") is False
     assert _matches_filter(row, "failed", "503") is True
     assert "example.com" in _row_search_text(row)
+    resume = {"state": "paused", "sourceHost": "video.example", "failureLabel": "断点续传"}
+    assert _matches_filter(resume, "paused", "") is True
+    assert "断点续传" in _row_search_text(resume)
