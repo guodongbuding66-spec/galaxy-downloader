@@ -64,15 +64,15 @@ def patch_ci() -> None:
     text = path.read_text(encoding="utf-8")
     compile_line = "            local-engine/runtime_storage.py \\\n"
     if compile_line not in text:
-        anchor = "            local-engine/runtime_paths_policy.py \\\n"
+        anchor = "            local-engine/runtime_health.py \\\n"
         if anchor not in text:
-            raise RuntimeError("CI runtime_paths_policy compile anchor missing")
+            raise RuntimeError("CI runtime_health compile anchor missing")
         text = text.replace(anchor, anchor + compile_line, 1)
     test_line = "          python3 scripts/test-local-runtime-storage.py\n"
     if test_line not in text:
-        anchor = "          python3 scripts/test-local-runtime-paths-policy.py\n"
+        anchor = "          python3 scripts/test-local-runtime-policy.py\n"
         if anchor not in text:
-            raise RuntimeError("CI runtime path test anchor missing")
+            raise RuntimeError("CI runtime policy test anchor missing")
         text = text.replace(anchor, anchor + test_line, 1)
     path.write_text(text, encoding="utf-8")
 
