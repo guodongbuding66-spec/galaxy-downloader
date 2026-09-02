@@ -98,6 +98,17 @@ def validate_artifact(
     return artifact
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as input_file:
+        while True:
+            chunk = input_file.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _response_final_url(response, fallback: str) -> str:
     getter = getattr(response, "geturl", None)
     if callable(getter):
@@ -275,13 +286,22 @@ def install_verified_artifact(
     required_files: Iterable[str],
     validator: Callable[[Path], bool] | None = None,
 ) -> Path:
+    validate_artifact(artifact)
+    source = Path(archive_path)
+    actual_digest = _sha256_file(source)
+    expected_digest = artifact.sha256.lower()
+    if actual_digest != expected_digest:
+        raise ToolArtifactError(
+            f"tool artifact SHA-256 mismatch at install boundary: expected {expected_digest}, got {actual_digest}"
+        )
+
     target = Path(target_directory)
     parent = target.parent
     parent.mkdir(parents=True, exist_ok=True)
     staging = parent / f".{target.name}.staging-{uuid.uuid4().hex}"
     backup = parent / f".{target.name}.backup-{uuid.uuid4().hex}"
     try:
-        extract_verified_artifact(artifact, archive_path, staging)
+        extract_verified_artifact(artifact, source, staging)
         _required_files_present(staging, required_files)
         if validator is not None and not validator(staging):
             raise ToolArtifactError("tool artifact validation command failed")
