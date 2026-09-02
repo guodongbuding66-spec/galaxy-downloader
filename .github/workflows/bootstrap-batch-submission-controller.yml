@@ -1,0 +1,47 @@
+name: Bootstrap Batch Submission Controller
+
+on:
+  push:
+    branches:
+      - feature/local-engine-batch-submission-controller
+    paths:
+      - '.github/workflows/bootstrap-batch-submission-controller.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: feature/local-engine-batch-submission-controller
+
+      - name: Apply batch submission integration
+        run: python scripts/integrate-batch-submission-controller.py
+
+      - name: Compile controller and queue
+        run: |
+          python -m py_compile \
+            local-engine/batch_input.py \
+            local-engine/batch_submission.py \
+            local-engine/job_queue.py \
+            local-engine/entrypoint.py
+
+      - name: Run batch submission contracts
+        run: |
+          python scripts/test-local-batch-submission.py
+          python scripts/test-local-job-queue.py
+          python scripts/test-local-pause-resume.py
+          python scripts/test-local-desktop-hooks.py
+
+      - name: Commit permanent integration
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add local-engine/entrypoint.py scripts/test-local-job-queue.py
+          git commit -m 'test(local-engine): wire batch submission into permanent self-tests'
+          git push origin HEAD:feature/local-engine-batch-submission-controller
