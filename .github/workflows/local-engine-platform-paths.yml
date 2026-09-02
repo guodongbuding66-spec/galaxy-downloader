@@ -4,14 +4,18 @@ on:
   pull_request:
     paths:
       - 'local-engine/platform_paths.py'
+      - 'local-engine/runtime_paths_policy.py'
       - 'scripts/test-local-platform-paths.py'
+      - 'scripts/test-local-runtime-paths-policy.py'
       - '.github/workflows/local-engine-platform-paths.yml'
   push:
     branches:
       - main
     paths:
       - 'local-engine/platform_paths.py'
+      - 'local-engine/runtime_paths_policy.py'
       - 'scripts/test-local-platform-paths.py'
+      - 'scripts/test-local-runtime-paths-policy.py'
       - '.github/workflows/local-engine-platform-paths.yml'
   workflow_dispatch:
 
@@ -37,8 +41,15 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Compile platform path core
-        run: python -m py_compile local-engine/platform_paths.py scripts/test-local-platform-paths.py
+      - name: Compile platform runtime path core
+        run: >-
+          python -m py_compile
+          local-engine/platform_paths.py
+          local-engine/runtime_paths_policy.py
+          scripts/test-local-platform-paths.py
+          scripts/test-local-runtime-paths-policy.py
 
       - name: Validate portable and installed layouts
-        run: python scripts/test-local-platform-paths.py
+        run: |
+          python scripts/test-local-platform-paths.py
+          python scripts/test-local-runtime-paths-policy.py
