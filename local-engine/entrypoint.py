@@ -35,6 +35,7 @@ from image_download import (
 from job_history import install_history_policy, run_history_self_test
 from job_queue import install_job_queue_policy
 from job_scheduler import run_job_scheduler_self_test
+from media_cleanup import run_media_cleanup_self_test
 from media_policy import install_media_policy
 from pause_resume_policy import install_pause_resume_policy, run_pause_resume_self_test
 from resume_bridge import PauseResumeLocalBridge, install_resume_bridge, run_resume_bridge_self_test
@@ -273,6 +274,7 @@ def _run_image_self_test() -> None:
     assert issubclass(PauseResumeLocalBridge, StructuredLocalBridge)
     assert engine.LocalBridge is PauseResumeLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
+    run_media_cleanup_self_test()
     run_batch_input_self_test()
     run_batch_identity_self_test(engine)
     run_batch_submission_self_test()
