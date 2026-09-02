@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -11,6 +12,11 @@ from ffmpeg_manager import (
     bundled_ffmpeg_directory,
     existing_managed_ffmpeg,
     ffmpeg_version,
+)
+from managed_tool_metadata import (
+    MANAGED_TOOL_METADATA_SCHEMA,
+    ManagedToolMetadata,
+    write_managed_tool_metadata,
 )
 from tool_artifacts import ToolArtifactError, download_verified_artifact
 from tool_install_layout import archive_root_from_asset_name, install_rooted_verified_artifact
@@ -63,6 +69,10 @@ def _active_fallback(engine_module) -> tuple[str, str | None]:
     return "unavailable", None
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def install_managed_ffmpeg_online(
     engine_module,
     *,
@@ -71,14 +81,15 @@ def install_managed_ffmpeg_online(
     rooted_installer: Callable[..., Path] = install_rooted_verified_artifact,
     payload_validator: Callable[..., bool] = validate_ffmpeg_payload,
     version_reader: Callable[[Path | None], str | None] = ffmpeg_version,
+    installed_at_factory: Callable[[], str] = _utc_now_iso,
     workspace_root: Path | None = None,
 ) -> FfmpegActionResult:
     """Install/update Managed FFmpeg from the pinned trusted provider.
 
     Network access occurs only when this function is explicitly invoked. Provider
     metadata resolution, artifact SHA-256 verification, safe extraction, content
-    root normalization, binary execution validation and version capture all have
-    to succeed before runtime/tools/ffmpeg changes.
+    root normalization, binary execution validation, version capture and local
+    provenance metadata all have to succeed before runtime/tools/ffmpeg changes.
     """
     current_source, current_version = _active_fallback(engine_module)
     tools_root = Path(engine_module.tools_dir())
@@ -107,7 +118,27 @@ def install_managed_ffmpeg_online(
             if not payload_validator(payload, platform_name=artifact.platform):
                 return False
             validated_version = version_reader(Path(payload) / "bin")
-            return bool(validated_version)
+            if not validated_version:
+                return False
+            metadata = ManagedToolMetadata(
+                schemaVersion=MANAGED_TOOL_METADATA_SCHEMA,
+                tool="ffmpeg",
+                source="online",
+                platform=artifact.platform,
+                arch=artifact.arch,
+                binaryVersion=validated_version,
+                installedAt=installed_at_factory(),
+                providerId=resolved.provider_id,
+                artifactVersion=artifact.version,
+                releaseTag=resolved.release_tag,
+                publishedAt=resolved.published_at,
+                sha256=artifact.sha256,
+                assetName=resolved.asset_name,
+                releaseUrl=resolved.release_url,
+                provenanceUrl=resolved.provenance_url,
+            )
+            write_managed_tool_metadata(payload, metadata)
+            return True
 
         rooted_installer(
             artifact,
@@ -130,7 +161,7 @@ def install_managed_ffmpeg_online(
             "managed",
             (
                 f"Managed FFmpeg was installed from {resolved.provider_id} "
-                f"({resolved.release_tag}, {artifact.version}) after SHA-256 and executable validation."
+                f"({resolved.release_tag}, {artifact.version}) after SHA-256, executable and provenance validation."
             ),
         )
     except Exception as exc:
@@ -152,6 +183,7 @@ def run_ffmpeg_online_installer_self_test() -> None:
     import hashlib
     import zipfile
 
+    from managed_tool_metadata import read_managed_tool_metadata
     from tool_artifacts import ToolArtifact, runtime_arch, runtime_platform
     from tool_sources import ResolvedToolSource
 
@@ -203,9 +235,14 @@ def run_ffmpeg_online_installer_self_test() -> None:
             downloader=fake_download,
             payload_validator=lambda payload_root, **_kwargs: (payload_root / "bin" / f"ffmpeg{binary_suffix}").is_file(),
             version_reader=lambda _directory: "ffmpeg version test-online",
+            installed_at_factory=lambda: "2026-09-02T00:00:00Z",
             workspace_root=root / "workspace",
         )
         assert result.ok is True
         assert result.source == "managed"
         assert (tools / "ffmpeg" / "bin" / f"ffmpeg{binary_suffix}").is_file()
+        metadata = read_managed_tool_metadata(tools / "ffmpeg", expected_tool="ffmpeg")
+        assert metadata is not None
+        assert metadata.releaseTag == "autobuild-test"
+        assert metadata.sha256 == artifact.sha256
         assert not any((root / "workspace").glob(".ffmpeg-online-*"))

@@ -23,7 +23,9 @@ on:
       - 'scripts/test-local-runtime-policy.py'
       - 'scripts/test-local-recovery-policy.py'
       - 'scripts/test-local-desktop-hooks.py'
+      - 'scripts/test-local-managed-tool-metadata.py'
       - 'scripts/test-local-ffmpeg-online-installer.py'
+      - 'scripts/test-local-ffmpeg-update-status.py'
       - '.github/workflows/local-engine-windows.yml'
   push:
     branches:
@@ -48,7 +50,9 @@ on:
       - 'scripts/test-local-runtime-policy.py'
       - 'scripts/test-local-recovery-policy.py'
       - 'scripts/test-local-desktop-hooks.py'
+      - 'scripts/test-local-managed-tool-metadata.py'
       - 'scripts/test-local-ffmpeg-online-installer.py'
+      - 'scripts/test-local-ffmpeg-update-status.py'
       - '.github/workflows/local-engine-windows.yml'
 
 permissions:
@@ -94,6 +98,8 @@ jobs:
           local-engine/tool_manager.py
           local-engine/ffmpeg_manager.py
           local-engine/ffmpeg_online_installer.py
+          local-engine/ffmpeg_update_status.py
+          local-engine/managed_tool_metadata.py
           local-engine/tool_artifacts.py
           local-engine/tool_sources.py
           local-engine/tool_install_layout.py
@@ -146,7 +152,9 @@ jobs:
           python scripts/test-local-image-archive-policy.py
           python scripts/test-local-manager-policy.py
           python scripts/test-local-runtime-policy.py
+          python scripts/test-local-managed-tool-metadata.py
           python scripts/test-local-ffmpeg-online-installer.py
+          python scripts/test-local-ffmpeg-update-status.py
           python scripts/test-local-recovery-policy.py
           python scripts/test-local-desktop-hooks.py
 

@@ -18,12 +18,24 @@ from ffmpeg_online_installer import (  # noqa: E402
     run_ffmpeg_online_installer_self_test,
     validate_ffmpeg_payload,
 )
+from managed_tool_metadata import (  # noqa: E402
+    MANAGED_TOOL_METADATA_SCHEMA,
+    ManagedToolMetadata,
+    read_managed_tool_metadata,
+    write_managed_tool_metadata,
+)
 from tool_artifacts import ToolArtifact, runtime_arch, runtime_platform  # noqa: E402
 from tool_sources import ResolvedToolSource  # noqa: E402
 
 
 class FfmpegOnlineInstallerTests(unittest.TestCase):
-    def fixture(self, root: Path, *, tool: str = "ffmpeg") -> tuple[ResolvedToolSource, bytes, str, str]:
+    def fixture(
+        self,
+        root: Path,
+        *,
+        tool: str = "ffmpeg",
+        include_forged_metadata: bool = False,
+    ) -> tuple[ResolvedToolSource, bytes, str, str]:
         platform_name = runtime_platform()
         suffix = ".exe" if platform_name == "windows" else ""
         asset_name = "ffmpeg-N-126313-g1ae4048218-test-gpl.zip"
@@ -32,6 +44,8 @@ class FfmpegOnlineInstallerTests(unittest.TestCase):
         with zipfile.ZipFile(archive_path, "w") as archive:
             archive.writestr(f"{build_root}/bin/ffmpeg{suffix}", b"new-ffmpeg")
             archive.writestr(f"{build_root}/bin/ffprobe{suffix}", b"new-ffprobe")
+            if include_forged_metadata:
+                archive.writestr(f"{build_root}/.galaxy-tool.json", b"{}")
         payload = archive_path.read_bytes()
         artifact = ToolArtifact(
             tool=tool,
@@ -84,7 +98,26 @@ class FfmpegOnlineInstallerTests(unittest.TestCase):
 
         return download
 
-    def test_success_installs_flat_managed_layout_and_cleans_workspace(self) -> None:
+    def old_metadata(self, *, suffix: str) -> ManagedToolMetadata:
+        return ManagedToolMetadata(
+            schemaVersion=MANAGED_TOOL_METADATA_SCHEMA,
+            tool="ffmpeg",
+            source="online",
+            platform=runtime_platform(),
+            arch=runtime_arch(),
+            binaryVersion="ffmpeg version old",
+            installedAt="2026-08-31T00:00:00Z",
+            providerId="btbn-ffmpeg-builds",
+            artifactVersion="N-126000-gold",
+            releaseTag="autobuild-old",
+            publishedAt="2026-08-31T00:00:00Z",
+            sha256="a" * 64,
+            assetName=f"ffmpeg-N-126000-gold-test-gpl.zip",
+            releaseUrl="https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-old",
+            provenanceUrl="https://ffmpeg.org/download.html",
+        )
+
+    def test_success_installs_flat_layout_provenance_and_cleans_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             tools = root / "tools"
@@ -101,6 +134,7 @@ class FfmpegOnlineInstallerTests(unittest.TestCase):
                     and (payload_root / "bin" / f"ffprobe{suffix}").read_bytes() == b"new-ffprobe"
                 ),
                 version_reader=lambda _directory: "ffmpeg version online-test",
+                installed_at_factory=lambda: "2026-09-02T00:00:00Z",
                 workspace_root=workspace,
             )
 
@@ -111,19 +145,28 @@ class FfmpegOnlineInstallerTests(unittest.TestCase):
             self.assertIn("btbn-ffmpeg-builds", result.message)
             self.assertEqual((tools / "ffmpeg" / "bin" / f"ffmpeg{suffix}").read_bytes(), b"new-ffmpeg")
             self.assertEqual((tools / "ffmpeg" / "bin" / f"ffprobe{suffix}").read_bytes(), b"new-ffprobe")
+            metadata = read_managed_tool_metadata(tools / "ffmpeg", expected_tool="ffmpeg")
+            self.assertIsNotNone(metadata)
+            self.assertEqual(metadata.releaseTag, resolved.release_tag)
+            self.assertEqual(metadata.artifactVersion, resolved.artifact.version)
+            self.assertEqual(metadata.sha256, resolved.artifact.sha256)
+            self.assertEqual(metadata.binaryVersion, "ffmpeg version online-test")
             self.assertFalse((tools / "ffmpeg" / build_root).exists())
             self.assertFalse(any(workspace.glob(".ffmpeg-online-*")))
             self.assertEqual(engine.invalidations, 1)
 
-    def test_validation_failure_preserves_previous_managed_ffmpeg(self) -> None:
+    def test_validation_failure_preserves_previous_managed_ffmpeg_and_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             tools = root / "tools"
             resolved, payload, suffix, _build_root = self.fixture(root)
-            old_bin = tools / "ffmpeg" / "bin"
+            old_root = tools / "ffmpeg"
+            old_bin = old_root / "bin"
             old_bin.mkdir(parents=True)
             (old_bin / f"ffmpeg{suffix}").write_bytes(b"old-ffmpeg")
             (old_bin / f"ffprobe{suffix}").write_bytes(b"old-ffprobe")
+            previous_metadata = self.old_metadata(suffix=suffix)
+            write_managed_tool_metadata(old_root, previous_metadata)
             engine = self.engine(tools)
 
             result = install_managed_ffmpeg_online(
@@ -140,9 +183,10 @@ class FfmpegOnlineInstallerTests(unittest.TestCase):
             self.assertEqual(result.source, "managed")
             self.assertEqual((old_bin / f"ffmpeg{suffix}").read_bytes(), b"old-ffmpeg")
             self.assertEqual((old_bin / f"ffprobe{suffix}").read_bytes(), b"old-ffprobe")
+            self.assertEqual(read_managed_tool_metadata(old_root, expected_tool="ffmpeg"), previous_metadata)
             self.assertEqual(engine.invalidations, 0)
 
-    def test_version_capture_failure_happens_before_atomic_promotion(self) -> None:
+    def test_version_or_metadata_failure_happens_before_atomic_promotion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             tools = root / "tools"
@@ -161,10 +205,20 @@ class FfmpegOnlineInstallerTests(unittest.TestCase):
                 version_reader=lambda _directory: None,
                 workspace_root=root / "workspace",
             )
-
             self.assertFalse(result.ok)
             self.assertEqual((old_bin / f"ffmpeg{suffix}").read_bytes(), b"old-ffmpeg")
-            self.assertEqual((old_bin / f"ffprobe{suffix}").read_bytes(), b"old-ffprobe")
+
+            forged, forged_payload, _suffix, _root = self.fixture(root, include_forged_metadata=True)
+            result = install_managed_ffmpeg_online(
+                engine,
+                resolver=lambda: forged,
+                downloader=self.downloader(forged_payload),
+                payload_validator=lambda *_args, **_kwargs: True,
+                version_reader=lambda _directory: "ffmpeg version new",
+                workspace_root=root / "workspace-2",
+            )
+            self.assertFalse(result.ok)
+            self.assertEqual((old_bin / f"ffmpeg{suffix}").read_bytes(), b"old-ffmpeg")
 
     def test_download_or_source_failure_never_changes_existing_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
