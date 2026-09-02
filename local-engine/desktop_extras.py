@@ -10,6 +10,7 @@ from tkinter import messagebox, ttk
 from typing import Any, Callable
 
 import desktop_ui as ui
+from desktop_hooks import register_after_build_ui_hook, register_queue_tick_hook
 from job_history import clear_history, load_history
 
 
@@ -401,12 +402,9 @@ def install_desktop_extras(engine_module):
     if getattr(window_cls, "_galaxy_desktop_extras_installed", False):
         return window_cls
 
-    original_build = window_cls._build_ui
-    original_queue_tick = window_cls._galaxy_queue_tick
     ui._render_queue = _augment_queue_rows(ui._render_queue)
 
-    def build_ui(window) -> None:
-        original_build(window)
+    def after_build_ui(window) -> None:
         queue_head = window._queue_clear_button.master
         window._history_button = ui.ActionButton(
             queue_head,
@@ -446,12 +444,11 @@ def install_desktop_extras(engine_module):
         _sync_pause_state(window)
         _sync_history_button(window, engine_module, force=True)
 
-    def queue_tick(window) -> None:
-        original_queue_tick(window)
+    def queue_tick_hook(window) -> None:
         _sync_pause_state(window)
         _sync_history_button(window, engine_module)
 
-    window_cls._build_ui = build_ui
-    window_cls._galaxy_queue_tick = queue_tick
+    register_after_build_ui_hook(window_cls, "desktop-extras", after_build_ui, order=110)
+    register_queue_tick_hook(window_cls, "desktop-extras", queue_tick_hook, order=110)
     window_cls._galaxy_desktop_extras_installed = True
     return window_cls
