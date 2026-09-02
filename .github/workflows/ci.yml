@@ -130,6 +130,7 @@ jobs:
           python3 scripts/test-local-recovery-policy.py
           python3 scripts/test-local-pause-resume.py
           python3 scripts/test-local-desktop-hooks.py
+          python3 scripts/test-local-desktop-managed-tool-actions.py
           python3 scripts/test-local-release-notes.py
 
       - name: Run tests
