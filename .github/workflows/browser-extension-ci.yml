@@ -1,0 +1,39 @@
+name: Browser Extension CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/browser-extension-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/browser-extension-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-mv3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Parse manifest and JavaScript
+        run: |
+          node --check browser-extension/background.js
+          node --check browser-extension/content.js
+          node --check browser-extension/media-core.js
+          node --check browser-extension/page-probe.js
+          node -e "JSON.parse(require('node:fs').readFileSync('browser-extension/manifest.json','utf8'))"
+
+      - name: Validate media candidate policy
+        run: node browser-extension/test-media-core.mjs
