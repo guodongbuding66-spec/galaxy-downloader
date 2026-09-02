@@ -294,6 +294,12 @@ class PauseResumeBatchBridgeHttpTests(unittest.TestCase):
     def test_batch_controller_is_discovered_from_bound_owner(self):
         self.assertIsNotNone(self.bridge._submit_batch_jobs)
 
+    def test_status_advertises_batch_capability_from_bound_owner(self):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/status", timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        self.assertEqual(payload["bridgeProtocol"], 5)
+        self.assertTrue(payload["batchDownloadReady"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
