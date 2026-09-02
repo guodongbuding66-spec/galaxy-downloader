@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+LOCAL_ENGINE = ROOT / "local-engine"
+sys.path.insert(0, str(LOCAL_ENGINE))
 
 
 def load_module(name: str, path: Path):

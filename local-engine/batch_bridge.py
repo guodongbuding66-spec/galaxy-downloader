@@ -29,6 +29,7 @@ def _issue_payload(issue: BatchInputIssue) -> dict[str, Any]:
 
 def _submission_payload(result: BatchSubmissionResult) -> dict[str, Any]:
     return {
+        "batchId": result.batch_id or None,
         "format": result.source_format,
         "inputCount": result.input_count,
         "inputIssueCount": result.input_issue_count,
@@ -239,6 +240,7 @@ def run_batch_bridge_self_test() -> None:
     assert response.payload["ok"] is True
     assert response.payload["code"] == "BATCH_PARTIAL"
     assert response.payload["acceptedCount"] == 2
+    assert response.payload["batchId"] == seen[0]["batchId"]
     assert response.payload["inputIssueCount"] == 1
     assert [item["code"] for item in response.payload["outcomes"]] == ["ACCEPTED", "QUEUED"]
     assert seen[0]["videoQuality"] == "1080p"

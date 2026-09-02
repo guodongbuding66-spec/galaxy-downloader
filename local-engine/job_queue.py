@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from batch_identity import batch_identity_from_job
 from batch_input import BatchInputResult
 from batch_submission import BatchSubmissionResult, submit_batch_input_result
 from bridge_submission_policy import (
@@ -37,6 +38,17 @@ def _job_source_url(job: Any) -> str:
     if source is None and isinstance(job, dict):
         source = job.get("sourceUrl") or job.get("source_url")
     return str(source or "").strip()
+
+
+def _batch_queue_status_fields(job: Any) -> dict[str, Any]:
+    batch_id, batch_index, batch_size = batch_identity_from_job(job)
+    if batch_id is None:
+        return {}
+    return {
+        "batchId": batch_id,
+        "batchIndex": batch_index,
+        "batchSize": batch_size,
+    }
 
 
 def _queued_media_job(payload: dict[str, Any], job: Any) -> QueuedMediaJob:
@@ -101,6 +113,7 @@ def install_job_queue_policy(engine_module):
                         "position": position,
                         "label": queued.label,
                         "sourceHost": queued.source_host,
+                        **_batch_queue_status_fields(queued.job),
                     }
                     for position, queued in enumerate(self.pending_jobs, start=1)
                 ]

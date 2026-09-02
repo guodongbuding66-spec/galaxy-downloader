@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from batch_identity import batch_identity_from_payload
+
 RESUME_STATE_FILENAME = "resume-jobs.json"
 RESUME_SCHEMA_VERSION = 1
 MAX_RESUME_JOBS = 25
@@ -70,6 +72,7 @@ class ResumeStateStore:
             return None
 
         source_url = str(payload.get("sourceUrl") or "")
+        batch_id, batch_index, batch_size = batch_identity_from_payload(payload)
         created_at = _bounded_text(value.get("createdAt"), 40) or _utc_now()
         updated_at = _bounded_text(value.get("updatedAt"), 40) or created_at
         resume_mode = str(value.get("resumeMode") or "continue").strip().lower()
@@ -84,6 +87,9 @@ class ResumeStateStore:
             "sourceHost": _safe_host(source_url),
             "label": _bounded_text(value.get("label"), 180) or _safe_host(source_url) or "Download",
             "videoQuality": _bounded_text(value.get("videoQuality"), 40),
+            "batchId": batch_id,
+            "batchIndex": batch_index,
+            "batchSize": batch_size,
             "progress": _bounded_progress(value.get("progress")),
             "downloaded": _bounded_text(value.get("downloaded"), 80),
             "resumeMode": resume_mode,
@@ -181,6 +187,9 @@ class ResumeStateStore:
                     "sourceHost": record["sourceHost"],
                     "label": record["label"],
                     "videoQuality": record["videoQuality"],
+                    "batchId": record.get("batchId"),
+                    "batchIndex": int(record.get("batchIndex") or 0),
+                    "batchSize": int(record.get("batchSize") or 0),
                     "progress": record["progress"],
                     "downloaded": record["downloaded"],
                     "resumeMode": record["resumeMode"],

@@ -101,6 +101,10 @@ class LocalJobQueueTests(unittest.TestCase):
         self.assertEqual(result.started_count, 1)
         self.assertEqual(result.queued_count, 2)
         self.assertEqual(result.remaining_count, 0)
+        self.assertTrue(result.batch_id)
+        self.assertEqual(window.started[-1]["batchId"], result.batch_id)
+        self.assertEqual(window.started[-1]["batchIndex"], 1)
+        self.assertEqual(window.started[-1]["batchSize"], 3)
         self.assertEqual(window.started[-1]["sourceUrl"], "https://example.com/1")
         self.assertEqual(window.started[-1]["videoQuality"], "720p")
         self.assertEqual(
@@ -108,6 +112,11 @@ class LocalJobQueueTests(unittest.TestCase):
             ["https://example.com/2", "https://example.com/3"],
         )
         self.assertTrue(all(queued.job["videoQuality"] == "720p" for queued in window.pending_jobs))
+        self.assertEqual([queued.job["batchIndex"] for queued in window.pending_jobs], [2, 3])
+        self.assertTrue(all(queued.job["batchId"] == result.batch_id for queued in window.pending_jobs))
+        queued_status = window.bridge_status()["queuedJobs"]
+        self.assertEqual([item["batchIndex"] for item in queued_status], [2, 3])
+        self.assertTrue(all(item["batchId"] == result.batch_id for item in queued_status))
 
     def test_batch_submission_bad_request_isolated_to_one_row(self):
         fake_engine, window = self.make_window()
