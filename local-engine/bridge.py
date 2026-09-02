@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from media_format_catalog import build_media_format_catalog, public_media_format_catalog
+
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = int(os.getenv("GALAXY_LOCAL_BRIDGE_PORT", "17836"))
 BRIDGE_BASE_URL = f"http://{BRIDGE_HOST}:{BRIDGE_PORT}"
@@ -346,6 +348,8 @@ def _collection_pages(raw_info: dict[str, Any]) -> list[dict[str, Any]]:
     parent_title = str(raw_info.get("title") or "").strip()
     pages: list[dict[str, Any]] = []
     for index, entry in enumerate(valid_entries[:MAX_COLLECTION_PREVIEW_ITEMS], start=1):
+        entry_formats = _formats(entry)
+        format_catalog = public_media_format_catalog(build_media_format_catalog(entry_formats))
         video_url, audio_url, _has_v, _has_a, mode = _best_media_urls(entry)
         entry_title = str(
             entry.get("title")
@@ -365,7 +369,8 @@ def _collection_pages(raw_info: dict[str, Any]) -> list[dict[str, Any]]:
                 "downloadAudioUrl": audio_url,
                 "downloadVideoUrl": video_url,
                 "videoAudioMode": mode,
-                "qualityOptions": _quality_options(_formats(entry)),
+                "qualityOptions": _quality_options(entry_formats),
+                "formatCatalog": format_catalog,
                 "subtitles": _subtitle_tracks(entry),
             }
         )
@@ -443,6 +448,7 @@ def _success_payload(completed: subprocess.CompletedProcess[str], source_url: st
     pages = _collection_pages(raw_info)
     info = _normalize_info(raw_info)
     formats = _formats(info)
+    format_catalog = public_media_format_catalog(build_media_format_catalog(formats))
     selected_video_url, selected_audio_url, has_video, has_audio, mode = _best_media_urls(info)
     muxed = any(
         _has_video(item) and _has_audio(item) and _stream_url(item)
@@ -482,6 +488,7 @@ def _success_payload(completed: subprocess.CompletedProcess[str], source_url: st
             else "hide",
         },
         "qualityOptions": _quality_options(formats),
+        "formatCatalog": format_catalog,
         "subtitles": _subtitle_tracks(info),
         "url": source_url,
         "duration": info.get("duration"),
