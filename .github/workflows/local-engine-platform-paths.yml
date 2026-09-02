@@ -9,6 +9,7 @@ on:
       - 'local-engine/tool_manager.py'
       - 'local-engine/ffmpeg_manager.py'
       - 'local-engine/tool_artifacts.py'
+      - 'local-engine/tool_sources.py'
       - 'local-engine/desktop_tools.py'
       - 'scripts/test-local-platform-paths.py'
       - 'scripts/test-local-runtime-paths-policy.py'
@@ -16,6 +17,7 @@ on:
       - 'scripts/test-local-tool-manager.py'
       - 'scripts/test-local-ffmpeg-manager.py'
       - 'scripts/test-local-tool-artifacts.py'
+      - 'scripts/test-local-tool-sources.py'
       - '.github/workflows/local-engine-platform-paths.yml'
   push:
     branches:
@@ -27,6 +29,7 @@ on:
       - 'local-engine/tool_manager.py'
       - 'local-engine/ffmpeg_manager.py'
       - 'local-engine/tool_artifacts.py'
+      - 'local-engine/tool_sources.py'
       - 'local-engine/desktop_tools.py'
       - 'scripts/test-local-platform-paths.py'
       - 'scripts/test-local-runtime-paths-policy.py'
@@ -34,6 +37,7 @@ on:
       - 'scripts/test-local-tool-manager.py'
       - 'scripts/test-local-ffmpeg-manager.py'
       - 'scripts/test-local-tool-artifacts.py'
+      - 'scripts/test-local-tool-sources.py'
       - '.github/workflows/local-engine-platform-paths.yml'
   workflow_dispatch:
 
@@ -68,6 +72,7 @@ jobs:
           local-engine/tool_manager.py
           local-engine/ffmpeg_manager.py
           local-engine/tool_artifacts.py
+          local-engine/tool_sources.py
           local-engine/desktop_tools.py
           scripts/test-local-platform-paths.py
           scripts/test-local-runtime-paths-policy.py
@@ -75,6 +80,7 @@ jobs:
           scripts/test-local-tool-manager.py
           scripts/test-local-ffmpeg-manager.py
           scripts/test-local-tool-artifacts.py
+          scripts/test-local-tool-sources.py
 
       - name: Validate portable and installed layouts
         run: |
@@ -84,3 +90,4 @@ jobs:
           python scripts/test-local-tool-manager.py
           python scripts/test-local-ffmpeg-manager.py
           python scripts/test-local-tool-artifacts.py
+          python scripts/test-local-tool-sources.py
