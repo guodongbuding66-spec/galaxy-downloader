@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Galaxy Media Capture",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Discover page-visible image, video, audio and streaming sources and hand them to Galaxy Local Engine.",
   "permissions": [
     "downloads",
@@ -23,7 +23,7 @@
     },
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js", "dynamic-scan.js"],
+      "js": ["content.js", "dynamic-scan.js", "element-actions.js"],
       "run_at": "document_idle",
       "world": "ISOLATED"
     }
