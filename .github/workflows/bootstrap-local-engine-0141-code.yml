@@ -1,0 +1,77 @@
+name: Bootstrap Local Engine 0.14.1 Code
+
+on:
+  push:
+    branches:
+      - fix/local-engine-0.14.1-desktop-startup
+    paths:
+      - '.github/workflows/bootstrap-local-engine-0141-code.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: fix/local-engine-0.14.1-desktop-startup
+
+      - name: Apply code-only hotfix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              if old not in text or text.count(old) != 1:
+                  raise SystemExit(f'expected one target in {path}: {old[:80]!r}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'local-engine/desktop_ui.py',
+              '        window.option_add("*Font", "Segoe UI 9")\n',
+              '        # Tcl parses string font descriptors as lists; quote multi-word families.\n'
+              '        window.option_add("*Font", "{Segoe UI} 9")\n',
+          )
+
+          replace_once(
+              'local-engine/entrypoint.py',
+              '\n\ndef _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:\n',
+              '\n\ndef _run_ui_smoke_test() -> int:\n'
+              '    """Construct the fully wrapped Tk desktop UI and close cleanly."""\n'
+              '    app = engine.EngineWindow(None)\n'
+              '    app.withdraw()\n'
+              '    app.update_idletasks()\n'
+              '    app.after(100, app.close_app)\n'
+              '    app.mainloop()\n'
+              '    return 0\n'
+              '\n\ndef _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:\n',
+          )
+          replace_once(
+              'local-engine/entrypoint.py',
+              '    if "--version" in sys.argv:\n        return engine.main()\n\n',
+              '    if "--version" in sys.argv:\n        return engine.main()\n'
+              '    if "--ui-smoke-test" in sys.argv:\n'
+              '        return _run_ui_smoke_test()\n\n',
+          )
+
+          Path('local-engine/VERSION').write_text('0.14.1\n', encoding='utf-8')
+          replace_once(
+              'src/lib/local-engine.ts',
+              "export const LOCAL_ENGINE_REQUIRED_VERSION = '0.14.0'",
+              "export const LOCAL_ENGINE_REQUIRED_VERSION = '0.14.1'",
+          )
+
+      - name: Commit code-only hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add local-engine/desktop_ui.py local-engine/entrypoint.py local-engine/VERSION src/lib/local-engine.ts
+          git commit -m 'fix(local-engine): prevent packaged desktop startup crash'
+          git push origin HEAD:fix/local-engine-0.14.1-desktop-startup
