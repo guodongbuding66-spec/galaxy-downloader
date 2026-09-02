@@ -20,6 +20,10 @@ const DAILYMOTION_MEDIA_HOSTS = [
     'dailymotion.com',
     'dailymotioncdn.com',
 ];
+const DAILYMOTION_HLS_ATTEMPTS = 3;
+const DAILYMOTION_BLOCKBUSTER_ALPHABET = 'bcdfghjklmnpqrstvwxyz';
+const VIMEO_CONTROL_TIMEOUT_MS = 5_500;
+const VIMEO_CONTROL_ATTEMPTS = 2;
 
 type VimeoProgressive = {
     url?: string;
@@ -124,6 +128,61 @@ async function fetchJson<T>(url: string, headers: HeadersInit = JSON_HEADERS): P
     return response.json() as Promise<T>;
 }
 
+function isRetryableControlStatus(status: number): boolean {
+    return status === 408 || status === 429 || status >= 500;
+}
+
+async function runVimeoControlRequest<T>(label: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= VIMEO_CONTROL_ATTEMPTS; attempt += 1) {
+        try {
+            return await operation(AbortSignal.timeout(VIMEO_CONTROL_TIMEOUT_MS));
+        } catch (error) {
+            lastError = error;
+            if (attempt >= VIMEO_CONTROL_ATTEMPTS) break;
+            await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+        }
+    }
+    const detail = lastError instanceof Error ? lastError.message : String(lastError || 'unknown error');
+    throw new Error(`${label} failed after ${VIMEO_CONTROL_ATTEMPTS} attempts: ${detail}`);
+}
+
+async function fetchVimeoJson<T>(url: string, headers: HeadersInit): Promise<T> {
+    return runVimeoControlRequest('Vimeo JSON request', async (signal) => {
+        const response = await fetch(url, {
+            headers,
+            redirect: 'follow',
+            cache: 'no-store',
+            signal,
+        });
+        if (!response.ok) {
+            if (isRetryableControlStatus(response.status)) {
+                void response.body?.cancel();
+                throw new Error(`retryable HTTP ${response.status}`);
+            }
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json() as Promise<T>;
+    });
+}
+
+async function fetchVimeoPage(url: string, headers: HeadersInit): Promise<{ ok: boolean; status: number; text: string }> {
+    return runVimeoControlRequest('Vimeo player request', async (signal) => {
+        const response = await fetch(url, {
+            headers,
+            redirect: 'follow',
+            cache: 'no-store',
+            signal,
+        });
+        if (!response.ok && isRetryableControlStatus(response.status)) {
+            void response.body?.cancel();
+            throw new Error(`retryable HTTP ${response.status}`);
+        }
+        const text = response.ok ? await response.text() : '';
+        return { ok: response.ok, status: response.status, text };
+    });
+}
+
 function requestedQuality(request: NextRequest): string {
     return request.nextUrl.searchParams.get('quality')?.trim() || 'best';
 }
@@ -137,7 +196,7 @@ function iframeSrc(html: string | undefined): string | null {
 async function getVimeoEmbedUrl(id: string): Promise<string> {
     const endpoint = new URL('https://vimeo.com/api/oembed.json');
     endpoint.searchParams.set('url', `https://vimeo.com/${id}`);
-    const payload = await fetchJson<VimeoOEmbed>(endpoint.toString(), {
+    const payload = await fetchVimeoJson<VimeoOEmbed>(endpoint.toString(), {
         ...JSON_HEADERS,
         Referer: 'https://vimeo.com/',
     });
@@ -152,14 +211,13 @@ async function getVimeoEmbedUrl(id: string): Promise<string> {
 
 async function fetchVimeoConfig(id: string): Promise<{ config: VimeoConfig; embedUrl: string }> {
     const embedUrl = await getVimeoEmbedUrl(id);
-    const page = await fetch(embedUrl, {
-        headers: { ...HTML_HEADERS, Referer: `https://vimeo.com/${id}` },
-        redirect: 'follow',
-        cache: 'no-store',
+    const page = await fetchVimeoPage(embedUrl, {
+        ...HTML_HEADERS,
+        Referer: `https://vimeo.com/${id}`,
     });
 
     if (page.ok) {
-        const html = await page.text();
+        const html = page.text;
         for (const marker of [/\bplayerConfig\s*=\s*/i, /\bvimeo\.config\s*=\s*/i, /\bconfig\s*=\s*/i]) {
             const value = extractBalancedJson(html, marker);
             if (value && typeof value === 'object') return { config: value as VimeoConfig, embedUrl };
@@ -167,7 +225,7 @@ async function fetchVimeoConfig(id: string): Promise<{ config: VimeoConfig; embe
         const configValue = html.match(/\bdata-config-url=["']([^"']+)["']/i)?.[1]
             || html.match(/["']config_url["']\s*:\s*["']([^"']+)["']/i)?.[1];
         if (configValue) {
-            const config = await fetchJson<VimeoConfig>(decodeHtml(configValue), {
+            const config = await fetchVimeoJson<VimeoConfig>(decodeHtml(configValue), {
                 ...JSON_HEADERS,
                 Referer: embedUrl,
                 Origin: 'https://player.vimeo.com',
@@ -178,7 +236,7 @@ async function fetchVimeoConfig(id: string): Promise<{ config: VimeoConfig; embe
 
     const configUrl = new URL(embedUrl);
     configUrl.pathname = `${configUrl.pathname.replace(/\/$/, '')}/config`;
-    const config = await fetchJson<VimeoConfig>(configUrl.toString(), {
+    const config = await fetchVimeoJson<VimeoConfig>(configUrl.toString(), {
         ...JSON_HEADERS,
         Referer: embedUrl,
         Origin: 'https://player.vimeo.com',
@@ -329,6 +387,83 @@ function copyHeader(from: Headers, to: Headers, name: string) {
     if (value) to.set(name, value);
 }
 
+function randomDailymotionLetters(minimum: number, maximum: number): string {
+    const length = minimum + Math.floor(Math.random() * (maximum - minimum + 1));
+    let value = '';
+    for (let index = 0; index < length; index += 1) {
+        value += DAILYMOTION_BLOCKBUSTER_ALPHABET[
+            Math.floor(Math.random() * DAILYMOTION_BLOCKBUSTER_ALPHABET.length)
+        ];
+    }
+    return value;
+}
+
+function dailymotionBlockbusterHeaders(id: string, target: URL, range: string | null, attempt: number): Headers {
+    const headers = new Headers({
+        Accept: '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': USER_AGENT,
+    });
+
+    // Dailymotion has used HTTP-header fingerprint blocking on HLS manifests.
+    // yt-dlp works around this by randomizing otherwise meaningless header names.
+    // Keep the same concept here while never forwarding user-controlled headers.
+    const randomHeaderCount = 2 + Math.floor(Math.random() * 7);
+    for (let index = 0; index < randomHeaderCount; index += 1) {
+        headers.set(randomDailymotionLetters(8, 16), randomDailymotionLetters(8, 24));
+    }
+
+    if (attempt === 1) {
+        headers.set('Referer', `https://www.dailymotion.com/video/${id}`);
+        headers.set('Origin', 'https://www.dailymotion.com');
+    } else if (attempt >= 2) {
+        headers.set('Referer', 'https://www.dailymotion.com/');
+        headers.set('Origin', 'https://www.dailymotion.com');
+    }
+
+    if (range && !target.pathname.toLowerCase().endsWith('.m3u8')) {
+        headers.set('Range', range);
+    }
+    return headers;
+}
+
+function retryableDailymotionStatus(status: number): boolean {
+    return status === 403 || status === 408 || status === 429 || status >= 500;
+}
+
+async function fetchDailymotionHlsResource(
+    target: URL,
+    id: string,
+    range: string | null,
+): Promise<Response> {
+    let lastResponse: Response | null = null;
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt < DAILYMOTION_HLS_ATTEMPTS; attempt += 1) {
+        try {
+            const upstream = await fetch(target.toString(), {
+                method: 'GET',
+                headers: dailymotionBlockbusterHeaders(id, target, range, attempt),
+                redirect: 'follow',
+                cache: 'no-store',
+            });
+            lastResponse = upstream;
+            if (!retryableDailymotionStatus(upstream.status) || attempt === DAILYMOTION_HLS_ATTEMPTS - 1) {
+                return upstream;
+            }
+            void upstream.body?.cancel();
+        } catch (error) {
+            lastError = error;
+            if (attempt === DAILYMOTION_HLS_ATTEMPTS - 1) break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+
+    if (lastResponse) return lastResponse;
+    const detail = lastError instanceof Error ? lastError.message : String(lastError || 'unknown error');
+    throw new Error(`Dailymotion HLS fetch failed after ${DAILYMOTION_HLS_ATTEMPTS} attempts: ${detail}`);
+}
+
 async function handleDailymotionHls(request: NextRequest, headOnly: boolean) {
     const id = request.nextUrl.searchParams.get('id')?.trim() || '';
     if (!/^[a-zA-Z0-9]+$/.test(id)) return failure('Invalid Dailymotion id', 400);
@@ -347,25 +482,13 @@ async function handleDailymotionHls(request: NextRequest, headOnly: boolean) {
         if (!target) return failure('Dailymotion HLS stream not available', 502);
     }
 
-    const upstreamHeaders = new Headers({
-        Accept: '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'User-Agent': USER_AGENT,
-        Referer: 'https://www.dailymotion.com/',
-    });
     const range = request.headers.get('range');
-    if (range && !target.pathname.toLowerCase().endsWith('.m3u8')) upstreamHeaders.set('Range', range);
-
     let upstream: Response;
     try {
-        upstream = await fetch(target.toString(), {
-            method: 'GET',
-            headers: upstreamHeaders,
-            redirect: 'follow',
-            cache: 'no-store',
-        });
-    } catch {
-        return failure('Unable to fetch Dailymotion HLS resource', 502);
+        upstream = await fetchDailymotionHlsResource(target, id, range);
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Unable to fetch Dailymotion HLS resource';
+        return failure(detail, 502);
     }
 
     if (!upstream.ok || !upstream.body) {
