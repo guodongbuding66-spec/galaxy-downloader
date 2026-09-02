@@ -32,6 +32,7 @@ jobs:
           node --check browser-extension/background.js
           node --check browser-extension/content.js
           node --check browser-extension/dynamic-scan.js
+          node --check browser-extension/element-actions.js
           node --check browser-extension/media-core.js
           node --check browser-extension/page-probe.js
           node -e "JSON.parse(require('node:fs').readFileSync('browser-extension/manifest.json','utf8'))"
