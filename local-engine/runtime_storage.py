@@ -6,6 +6,7 @@ from pathlib import Path
 
 KNOWN_STATE_FILES = (
     "workspace-options.json",
+    "desktop-features.json",
     "download-history.json",
     "download-archive.txt",
     "resume-jobs.json",
@@ -106,6 +107,7 @@ def run_runtime_storage_self_test() -> None:
         installed = root / "installed" / "state"
         legacy.mkdir(parents=True)
         (legacy / "workspace-options.json").write_text('{"historyEnabled": false}', encoding="utf-8")
+        (legacy / "desktop-features.json").write_text('{"clipboardMonitorEnabled": true}', encoding="utf-8")
         (legacy / "download-history.json").write_text('[{"id":"legacy"}]', encoding="utf-8")
         (legacy / "unknown-secret.txt").write_text("do-not-copy", encoding="utf-8")
         installed.mkdir(parents=True)
@@ -124,6 +126,7 @@ def run_runtime_storage_self_test() -> None:
         target = state_dir(InstalledEngine)
         assert target == installed
         assert (installed / "workspace-options.json").read_text(encoding="utf-8") == '{"historyEnabled": true}'
+        assert (installed / "desktop-features.json").read_text(encoding="utf-8") == '{"clipboardMonitorEnabled": true}'
         assert (installed / "download-history.json").read_text(encoding="utf-8") == '[{"id":"legacy"}]'
         assert not (installed / "unknown-secret.txt").exists()
         assert (installed / STATE_IMPORT_MARKER).is_file()

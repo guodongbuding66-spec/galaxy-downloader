@@ -276,11 +276,9 @@ def install_desktop_download_workbench(engine_module):
 
         install_desktop_preview_handoff(engine_module)
 
-    # Clipboard monitoring is a presentation-layer capability. It is explicitly
-    # opt-in and never parses/network-fetches clipboard content automatically.
-    from desktop_clipboard import install_desktop_clipboard_monitor
+    from desktop_platform_features import install_desktop_platform_features
 
-    install_desktop_clipboard_monitor(engine_module)
+    install_desktop_platform_features(engine_module)
     return window_cls
 
 
@@ -293,11 +291,15 @@ def run_desktop_download_workbench_self_test() -> None:
     assert audio_control_mode({"streamType": "video-only"}, 5) == "separate"
     assert audio_control_mode({"streamType": "video-only"}, 0) == "none"
 
-    from desktop_clipboard import run_desktop_clipboard_monitor_self_test
+    from desktop_platform_features import (
+        run_desktop_platform_features_self_test,
+        verify_windows_tray_dependencies,
+    )
     from desktop_preview_handoff import run_desktop_preview_handoff_self_test
 
     run_desktop_preview_handoff_self_test()
-    run_desktop_clipboard_monitor_self_test()
+    run_desktop_platform_features_self_test()
+    assert verify_windows_tray_dependencies() is True
 
     class Window:
         @staticmethod
@@ -309,3 +311,4 @@ def run_desktop_download_workbench_self_test() -> None:
     assert "desktop-download-workbench" in registered_after_build_ui_hooks(Window)
     assert Window._galaxy_desktop_download_workbench_installed is True
     assert Window._galaxy_desktop_clipboard_monitor_installed is True
+    assert Window._galaxy_desktop_tray_installed is True
