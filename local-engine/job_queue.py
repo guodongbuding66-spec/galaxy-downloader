@@ -11,6 +11,7 @@ from bridge_submission_policy import (
     QueueCancellationResult,
     StructuredLocalBridge,
 )
+from job_scheduler import JobScheduler
 
 MAX_QUEUED_MEDIA_JOBS = 25
 MAX_QUEUE_LABEL_CHARS = 120
@@ -77,7 +78,14 @@ def install_job_queue_policy(engine_module):
         _galaxy_queue_enabled = True
 
         def __init__(self, job):
-            self.pending_jobs: list[QueuedMediaJob] = []
+            self.scheduler = JobScheduler[QueuedMediaJob](
+                max_waiting=MAX_QUEUED_MEDIA_JOBS,
+                concurrency_limit=1,
+            )
+            # Compatibility alias: queue controls and desktop presenters still
+            # operate on this exact list while lifecycle operations migrate to
+            # JobScheduler. Keep the list identity stable.
+            self.pending_jobs = self.scheduler.waiting
             self._queue_lock = threading.Lock()
             super().__init__(job)
 
@@ -121,13 +129,9 @@ def install_job_queue_policy(engine_module):
                         code="ENGINE_SHUTTING_DOWN",
                     )
                 elif self.running:
+                    queued = _queued_media_job(payload, job)
                     with self._queue_lock:
-                        if len(self.pending_jobs) >= MAX_QUEUED_MEDIA_JOBS:
-                            queue_position = None
-                        else:
-                            queued = _queued_media_job(payload, job)
-                            self.pending_jobs.append(queued)
-                            queue_position = len(self.pending_jobs)
+                        queue_position = self.scheduler.enqueue(queued)
                     if queue_position is None:
                         result.update(
                             accepted=False,
@@ -181,7 +185,7 @@ def install_job_queue_policy(engine_module):
             if self.running:
                 return
             with self._queue_lock:
-                queued = self.pending_jobs.pop(0) if self.pending_jobs else None
+                queued = self.scheduler.pop_next()
             if queued is None:
                 return
             self.job = queued.job
@@ -215,12 +219,8 @@ def install_job_queue_policy(engine_module):
                     completed.set()
                     return
 
-                removed: QueuedMediaJob | None = None
                 with self._queue_lock:
-                    for index, queued in enumerate(self.pending_jobs):
-                        if queued.job_id == job_id:
-                            removed = self.pending_jobs.pop(index)
-                            break
+                    removed = self.scheduler.remove_first(lambda queued: queued.job_id == job_id)
                 if removed is not None:
                     result.update(
                         cancelled=True,
@@ -247,9 +247,7 @@ def install_job_queue_policy(engine_module):
 
         def clear_queued_jobs(self) -> int:
             with self._queue_lock:
-                count = len(self.pending_jobs)
-                self.pending_jobs.clear()
-            return count
+                return self.scheduler.clear()
 
     QueuedEngineWindow.__name__ = "QueuedEngineWindow"
     QueuedEngineWindow.__qualname__ = "QueuedEngineWindow"

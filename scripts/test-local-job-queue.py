@@ -77,6 +77,9 @@ class LocalJobQueueTests(unittest.TestCase):
         self.assertTrue(window.running)
         self.assertEqual(window.started[-1]["sourceUrl"], "https://example.com/1")
         self.assertEqual(window.pending_jobs, [])
+        self.assertIs(window.pending_jobs, window.scheduler.waiting)
+        self.assertEqual(window.scheduler.max_waiting, job_queue.MAX_QUEUED_MEDIA_JOBS)
+        self.assertEqual(window.scheduler.concurrency_limit, 1)
 
     def test_busy_job_is_queued_with_safe_visible_summary(self):
         _engine, window = self.make_window()
@@ -134,6 +137,7 @@ class LocalJobQueueTests(unittest.TestCase):
         self.assertEqual(result.status, 409)
         self.assertEqual(result.code, "QUEUE_FULL")
         self.assertEqual(len(window.pending_jobs), job_queue.MAX_QUEUED_MEDIA_JOBS)
+        self.assertEqual(window.scheduler.waiting_count, job_queue.MAX_QUEUED_MEDIA_JOBS)
 
     def test_cancel_one_waiting_job_preserves_fifo_order(self):
         _engine, window = self.make_window()
