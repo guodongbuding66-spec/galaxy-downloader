@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
 import bridge as base_bridge
+from batch_bridge import MAX_BATCH_BRIDGE_REQUEST_BYTES, handle_batch_download_request, run_batch_bridge_self_test
 from bridge_submission_policy import StructuredLocalBridge, normalize_submission_result
 
 RESUME_BRIDGE_PROTOCOL_VERSION = 5
@@ -41,6 +42,7 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
         self._pause_active_job = getattr(owner, "pause_active_job", None)
         self._resume_job = getattr(owner, "resume_job", None)
         self._discard_resume_job = getattr(owner, "discard_resume_job", None)
+        self._submit_batch_jobs = getattr(owner, "submit_batch_jobs_from_bridge", None)
 
     def _invoke_owner(self, callback, *args: object) -> tuple[bool, int, str, str]:
         if not callable(callback) or self._control_owner is None:
@@ -187,13 +189,23 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
                 payload = local_bridge._status_provider()
                 self._json(200, {"ok": True, "bridgeProtocol": RESUME_BRIDGE_PROTOCOL_VERSION, **payload})
 
-            def _read_json(self) -> dict[str, Any] | None:
+            def _read_json(
+                self,
+                *,
+                max_bytes: int = base_bridge.MAX_REQUEST_BYTES,
+                oversize_status: int = 400,
+                oversize_code: str = "BAD_REQUEST",
+                oversize_error: str = "Invalid request body",
+            ) -> dict[str, Any] | None:
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                 except ValueError:
                     length = 0
-                if length <= 0 or length > base_bridge.MAX_REQUEST_BYTES:
+                if length <= 0:
                     self._json(400, {"ok": False, "code": "BAD_REQUEST", "error": "Invalid request body"})
+                    return None
+                if length > max_bytes:
+                    self._json(oversize_status, {"ok": False, "code": oversize_code, "error": oversize_error})
                     return None
                 try:
                     payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -204,6 +216,18 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
                     self._json(400, {"ok": False, "code": "BAD_REQUEST", "error": "JSON object required"})
                     return None
                 return payload
+
+            def _batch_download(self) -> None:
+                payload = self._read_json(
+                    max_bytes=MAX_BATCH_BRIDGE_REQUEST_BYTES,
+                    oversize_status=413,
+                    oversize_code="BATCH_REQUEST_TOO_LARGE",
+                    oversize_error="Batch request body is too large",
+                )
+                if payload is None:
+                    return
+                result = handle_batch_download_request(payload, local_bridge._submit_batch_jobs)
+                self._json(result.status, result.payload)
 
             def _job_id_payload(self) -> str | None:
                 payload = self._read_json()
@@ -256,6 +280,9 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
                     browser = base_bridge._validated_browser(payload.get("browser"))
                     result = base_bridge.parse_with_bundled_ytdlp(source_url, browser)
                     self._json(int(result.get("status") or (200 if result.get("success") else 502)), result)
+                    return
+                if self.path == "/batch/download":
+                    self._batch_download()
                     return
                 if self.path == "/download":
                     payload = self._read_json()
@@ -314,6 +341,7 @@ def run_resume_bridge_self_test() -> None:
             self.paused = 0
             self.resumed = ""
             self.discarded = ""
+            self.batch_calls = 0
 
         def after(self, _delay: int, callback) -> None:
             callback()
@@ -345,6 +373,10 @@ def run_resume_bridge_self_test() -> None:
             self.discarded = job_id
             return True
 
+        def submit_batch_jobs_from_bridge(self, _batch, _options):
+            self.batch_calls += 1
+            raise AssertionError("route callback is not exercised by this embedded discovery test")
+
     assert RESUME_BRIDGE_PROTOCOL_VERSION > base_bridge.BRIDGE_PROTOCOL_VERSION
     owner = Owner()
     bridge = PauseResumeLocalBridge(
@@ -361,3 +393,5 @@ def run_resume_bridge_self_test() -> None:
     discarded = bridge._discard_result("abc123")
     assert discarded[:3] == (True, 200, "RESUME_JOB_DISCARDED")
     assert bridge._resume_result("missing")[1:3] == (404, "RESUME_JOB_NOT_FOUND")
+    assert bridge._submit_batch_jobs is not None
+    run_batch_bridge_self_test()
