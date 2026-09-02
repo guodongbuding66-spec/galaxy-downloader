@@ -33,6 +33,7 @@ from job_history import install_history_policy, run_history_self_test
 from job_queue import install_job_queue_policy
 from media_policy import install_media_policy
 from pause_resume_policy import install_pause_resume_policy, run_pause_resume_self_test
+from resume_bridge import PauseResumeLocalBridge, install_resume_bridge, run_resume_bridge_self_test
 from queue_controls import install_queue_controls, run_queue_controls_self_test
 from recovery_display import install_recovery_display, run_recovery_display_self_test
 from recovery_policy import install_recovery_policy, run_recovery_self_test
@@ -131,6 +132,7 @@ install_workspace_policy(engine)
 install_recovery_policy(engine)
 install_pause_resume_policy(engine)
 install_job_queue_policy(engine)
+install_resume_bridge(engine)
 install_queue_controls(engine)
 install_history_policy(engine)
 install_runtime_health(engine)
@@ -257,16 +259,19 @@ def _run_image_self_test() -> None:
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True
     assert getattr(engine, "_galaxy_pause_resume_installed", False) is True
+    assert getattr(engine, "_galaxy_resume_bridge_installed", False) is True
     assert getattr(engine, "_galaxy_runtime_health_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine, "_galaxy_task_center_installed", False) is True
     assert getattr(image_download, "_galaxy_image_archive_policy_installed", False) is True
-    assert engine.LocalBridge is StructuredLocalBridge
+    assert issubclass(PauseResumeLocalBridge, StructuredLocalBridge)
+    assert engine.LocalBridge is PauseResumeLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
     run_queue_controls_self_test()
     run_failure_policy_self_test()
     run_recovery_self_test()
     run_pause_resume_self_test()
+    run_resume_bridge_self_test()
     run_recovery_display_self_test()
     run_history_self_test()
     run_workspace_self_test()
