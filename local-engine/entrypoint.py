@@ -14,6 +14,7 @@ from batch_submission import run_batch_submission_self_test
 from bridge_submission_policy import StructuredLocalBridge
 from desktop_extras import install_desktop_extras
 from desktop_manager import install_desktop_manager
+from desktop_quick_download import install_desktop_quick_download, run_desktop_quick_download_self_test
 from desktop_runtime import install_desktop_runtime
 from desktop_tools import install_desktop_tools
 from desktop_ui import install_desktop_ui
@@ -24,6 +25,7 @@ from document_policy import (
     should_try_web_document,
 )
 from dynamic_document import parse_dynamic_web_document
+from exact_format_policy import install_exact_format_policy, run_exact_format_policy_self_test
 from failure_policy import run_failure_policy_self_test
 from image_archive_policy import install_image_archive_policy
 from image_bridge import ImageBridge
@@ -139,7 +141,9 @@ bridge.parse_with_bundled_ytdlp = _hybrid_parse
 import engine  # noqa: E402  import after bridge/document policy installation
 
 engine._validated_source_url = validated_public_http_url
-# Policy order matters: archive/media fields extend Job first; workspace owns
+# Policy order matters: archive/media fields extend Job first. Exact format
+# selection is installed after generic media preferences so an explicit user
+# format_id wins over height/bitrate/language fallbacks. Workspace owns
 # persistent output/transport defaults; recovery then adds optional per-job
 # transport overrides without mutating those defaults. The queue captures that
 # final Job type; queue/history/runtime policies wrap execution; presentation is
@@ -149,6 +153,7 @@ install_runtime_paths_policy(engine)
 install_tool_manager(engine)
 install_archive_policy(engine)
 install_media_policy(engine)
+install_exact_format_policy(engine)
 install_workspace_policy(engine)
 install_recovery_policy(engine)
 install_batch_identity_policy(engine)
@@ -160,6 +165,7 @@ install_history_policy(engine)
 install_runtime_health(engine)
 install_image_archive_policy(image_download)
 install_desktop_ui(engine)
+install_desktop_quick_download(engine)
 install_desktop_extras(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
@@ -276,6 +282,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_history_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_runtime_health_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_ui_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_quick_download_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
@@ -289,6 +296,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_runtime_paths_policy_installed", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
     assert getattr(engine, "_galaxy_media_policy_installed", False) is True
+    assert getattr(engine, "_galaxy_exact_format_policy_installed", False) is True
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True
     assert getattr(engine, "_galaxy_batch_identity_installed", False) is True
@@ -319,6 +327,8 @@ def _run_image_self_test() -> None:
     run_runtime_paths_policy_self_test()
     run_runtime_storage_self_test()
     run_tool_manager_self_test()
+    run_exact_format_policy_self_test()
+    run_desktop_quick_download_self_test()
     run_task_center_self_test()
 
 

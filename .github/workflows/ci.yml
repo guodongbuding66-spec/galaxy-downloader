@@ -34,6 +34,8 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
           pnpm install --frozen-lockfile
           python3 -m pip install -r local-engine/requirements.txt
 
@@ -54,6 +56,7 @@ jobs:
             local-engine/media_cleanup_workbench.py \
             local-engine/media_policy.py \
             local-engine/media_format_catalog.py \
+            local-engine/exact_format_policy.py \
             local-engine/workspace_policy.py \
             local-engine/recovery_policy.py \
             local-engine/pause_resume_policy.py \
@@ -77,6 +80,7 @@ jobs:
             local-engine/job_history.py \
             local-engine/desktop_hooks.py \
             local-engine/desktop_ui.py \
+            local-engine/desktop_quick_download.py \
             local-engine/desktop_extras.py \
             local-engine/desktop_manager.py \
             local-engine/desktop_runtime.py \
@@ -116,6 +120,8 @@ jobs:
           python3 scripts/test-local-media-cleanup-workbench.py
           python3 scripts/test-local-media-policy.py
           python3 scripts/test-local-media-format-catalog.py
+          python3 scripts/test-local-exact-format-policy.py
+          python3 scripts/test-local-desktop-quick-download.py
           python3 scripts/test-local-image-archive-policy.py
           python3 scripts/test-local-manager-policy.py
           python3 scripts/test-local-runtime-policy.py
