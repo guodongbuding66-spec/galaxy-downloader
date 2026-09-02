@@ -1,0 +1,47 @@
+name: Runtime Path Adoption Bootstrap
+
+on:
+  push:
+    branches:
+      - feat/runtime-path-adoption
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: feat/runtime-path-adoption
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Integrate runtime path policy
+        run: python scripts/integrate-runtime-paths-policy.py
+
+      - name: Validate integration
+        run: |
+          python -m py_compile local-engine/platform_paths.py local-engine/runtime_paths_policy.py local-engine/entrypoint.py
+          python scripts/test-local-platform-paths.py
+          python scripts/test-local-runtime-paths-policy.py
+          python local-engine/entrypoint.py --self-test
+
+      - name: Commit integrated entrypoint
+        shell: bash
+        run: |
+          if git diff --quiet -- local-engine/entrypoint.py; then
+            echo "No integration changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add local-engine/entrypoint.py
+          git commit -m "feat(local-engine): install runtime path policy before storage policies"
+          git push origin HEAD:feat/runtime-path-adoption
