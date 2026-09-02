@@ -10,6 +10,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 import external_ytdlp
+from managed_tool_registry import (
+    DEFAULT_MANAGED_TOOL_SPECS,
+    ManagedToolObservation,
+    evaluate_tool_health,
+    registry_summary,
+)
 
 TOOL_STATUS_TTL_SECONDS = 30.0
 YTDLP_UPDATE_CHANNELS = {"stable", "nightly"}
@@ -128,6 +134,42 @@ def invalidate_tool_inventory(engine_module) -> None:
         _TOOL_CACHE.pop(id(engine_module), None)
 
 
+def _managed_registry_payload(
+    *,
+    executable: Path | None,
+    ytdlp_source: str,
+    ytdlp_version: str | None,
+    managed_ytdlp: Path | None,
+    ffmpeg_directory: Path | None,
+    ffmpeg_source: str,
+    ffmpeg_version: str | None,
+) -> dict[str, object]:
+    specs = {item.tool: item for item in DEFAULT_MANAGED_TOOL_SPECS}
+    ytdlp_root = managed_ytdlp.parent if managed_ytdlp is not None else None
+    ffmpeg_root = ffmpeg_directory.parent if ffmpeg_source == "managed" and ffmpeg_directory is not None else None
+    statuses = (
+        evaluate_tool_health(
+            specs["yt-dlp"],
+            ManagedToolObservation(
+                ready=executable is not None,
+                source=ytdlp_source,
+                version=ytdlp_version,
+                managed_root=ytdlp_root,
+            ),
+        ),
+        evaluate_tool_health(
+            specs["ffmpeg"],
+            ManagedToolObservation(
+                ready=ffmpeg_directory is not None,
+                source=ffmpeg_source,
+                version=ffmpeg_version,
+                managed_root=ffmpeg_root,
+            ),
+        ),
+    )
+    return registry_summary(statuses)
+
+
 def tool_inventory(engine_module, *, refresh: bool = False) -> dict[str, Any]:
     key = id(engine_module)
     now = time.monotonic()
@@ -139,15 +181,28 @@ def tool_inventory(engine_module, *, refresh: bool = False) -> dict[str, Any]:
     executable, ytdlp_source = resolve_ytdlp(engine_module)
     ffmpeg_directory, ffmpeg_source = _ffmpeg_info(engine_module)
     managed = existing_managed_ytdlp(engine_module)
+    ytdlp_version = external_ytdlp.external_version(executable) if executable is not None else None
+    ffmpeg_version = _ffmpeg_version(ffmpeg_directory)
     payload = {
         "ytDlpReady": executable is not None,
         "ytDlpSource": ytdlp_source,
-        "ytDlpVersion": external_ytdlp.external_version(executable) if executable is not None else None,
+        "ytDlpVersion": ytdlp_version,
         "managedYtDlpReady": managed is not None,
         "ffmpegReady": ffmpeg_directory is not None,
         "ffmpegSource": ffmpeg_source,
-        "ffmpegVersion": _ffmpeg_version(ffmpeg_directory),
+        "ffmpegVersion": ffmpeg_version,
     }
+    payload.update(
+        _managed_registry_payload(
+            executable=executable,
+            ytdlp_source=ytdlp_source,
+            ytdlp_version=ytdlp_version,
+            managed_ytdlp=managed,
+            ffmpeg_directory=ffmpeg_directory,
+            ffmpeg_source=ffmpeg_source,
+            ffmpeg_version=ffmpeg_version,
+        )
+    )
     with _TOOL_CACHE_LOCK:
         _TOOL_CACHE[key] = (now, dict(payload))
     return payload
@@ -340,6 +395,17 @@ def run_tool_manager_self_test() -> None:
             assert status["ytDlpSource"] == "managed"
             assert status["ytDlpVersion"] == "2026.08.19"
             assert status["ffmpegSource"] == "unavailable"
+            assert status["dependenciesReady"] is False
+            assert status["dependencyWarningCount"] >= 1
+            assert status["dependencyErrorCount"] == 1
+            assert len(status["managedToolRegistry"]) == 2
+            ytdlp_status = next(item for item in status["managedToolRegistry"] if item["tool"] == "yt-dlp")
+            ffmpeg_status = next(item for item in status["managedToolRegistry"] if item["tool"] == "ffmpeg")
+            assert ytdlp_status["state"] == "managed-untracked"
+            assert ytdlp_status["ready"] is True
+            assert ffmpeg_status["state"] == "missing"
+            assert ffmpeg_status["ready"] is False
+            assert all("path" not in " ".join(item.keys()).lower() for item in status["managedToolRegistry"])
             assert "path" not in " ".join(status.keys()).lower()
 
             reset = reset_managed_ytdlp(FakeEngine)
