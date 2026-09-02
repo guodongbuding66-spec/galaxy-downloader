@@ -80,6 +80,9 @@ jobs:
             local-engine/media_policy.py `
             local-engine/workspace_policy.py `
             local-engine/recovery_policy.py `
+            local-engine/pause_resume_policy.py `
+            local-engine/resume_bridge.py `
+            local-engine/recovery_display.py `
             local-engine/failure_policy.py `
             local-engine/runtime_health.py `
             local-engine/job_queue.py `
@@ -124,6 +127,8 @@ jobs:
           python scripts/test-local-manager-policy.py
           python scripts/test-local-runtime-policy.py
           python scripts/test-local-recovery-policy.py
+          python scripts/test-local-pause-resume.py
+          python scripts/test-local-release-notes.py
           python scripts/test-dynamic-document.py
 
           $versionOutput = python local-engine/entrypoint.py --version
@@ -273,50 +278,7 @@ jobs:
             git push origin $env:RELEASE_TAG
           }
 
-          $notes = @"
-          ## Galaxy Local Engine $env:RELEASE_TAG
+          python scripts/test-local-release-notes.py
+          if ($LASTEXITCODE -ne 0) { throw "Release notes contract failed" }
 
-          Windows 便携式本地 yt-dlp + FFmpeg 下载引擎。
-
-          ### 安装方式
-          1. 下载 `GalaxyLocalEngine-Windows.zip`。
-          2. 完整解压 ZIP，不要直接在压缩包内运行。
-          3. 双击 `install.cmd`。
-          4. 程序直接安装在当前解压文件夹，不再复制到 AppData。
-          5. FFmpeg 与 `yt-dlp.exe` 已内置，首次安装无需访问 GitHub，也无需另外下载依赖。
-          6. 下载的视频和图片保存在解压目录下的 `downloads` 文件夹。
-          7. 返回 SparkDownloader，等待显示 **“本地引擎已连接”** 后即可使用。
-
-          ### 0.14.1
-          - 修复 Windows 桌面端启动时 `expected integer but got "UI"` 的 Tk 字体解析崩溃。
-          - 新增源码与 PyInstaller `--windowed` 成品 EXE 的真实 UI 构建 Smoke；异常弹窗、启动死锁或 UI 构建异常会阻止发布。
-          - 正式 Release workflow 在上传 ZIP 前再次执行成品 EXE UI Smoke，不再只依赖 `--self-test`。
-          - 网站、下载路由和 GitHub 备份地址精确绑定 `local-engine-v0.14.1`。
-          - 将 Browserslist 锁定到已修复 High advisories 的 4.28.8，保持 Security Audit 高危阈值不变。
-
-          ### 0.14.0
-          - 新增统一“任务中心”：当前下载、等待队列、成功历史、失败历史与取消任务放在同一个桌面工作区。
-          - 任务中心支持搜索与状态筛选，并保留队列暂停、上移/下移、批量移到顶部和批量移除等能力。
-          - 失败历史新增原因分类：源站限流、浏览器 Cookie、登录验证、磁盘、区域限制、内容不可用、FFmpeg 后处理、解析器、网络、403 访问拒绝和未知错误。
-          - 新增“智能重试”：仅对网络、429 限流和未知瞬态失败自动创建一次更保守的单任务恢复配置。
-          - 智能重试参数只绑定到该任务，不会修改用户的工作台全局网络设置，也不会影响队列中的其他任务。
-          - 429 恢复使用弱网增强 + 1 分片 + 5 Mbps；普通网络失败使用弱网增强 + 2 分片；需要登录、Cookie、磁盘、区域或解析器更新的错误不会盲目自动重试。
-          - 下载历史的错误详情进一步隐私脱敏：URL 凭据、query、fragment、token、authorization、cookie、session、password 与 secret 不写入历史。
-          - 历史重试会保留实际使用的单任务恢复参数，Download Archive 仍会在用户主动重试时关闭以避免把重试任务跳过。
-          - 解析顺序、腾讯元宝登录复用、FFmpeg、图片/文档下载、队列执行语义、网站 Bridge 与默认 0.13 网络参数保持不变。
-
-          0.13.0 新增网络重试/分片/限速设置、磁盘健康、完成提醒和隐私安全诊断日志。
-          0.12.0 新增历史搜索/重试、完整队列管理器、文件命名与来源目录设置。
-          0.11.0 新增持久化下载历史、任务详情、等待任务上移/下移，以及完成后暂停/继续队列。
-          0.10.0 新增深色桌面工作台、高级媒体预设、片段/章节、字幕/音轨、SponsorBlock、aria2c 与稳定版更新检查。
-          0.9.0 稳定媒体优先解析、腾讯元宝浏览器登录复用，并继续保留本地 yt-dlp + FFmpeg 主下载路径。
-          0.8.0 新增有界 FIFO 媒体下载队列、可选下载 Archive、稳定 Bridge 错误码以及精确版本下载资产。
-          0.7.0 新增本地原图下载、超大图片本机直连、WebP/AVIF 本机转换以及多图本地 ZIP 打包。
-          0.6.0 新增网页文档解析与 Edge/Chrome CDP 动态渲染兜底。
-
-          安装包内包含 `使用说明.txt` 和 `README.md`。如果以后移动整个解压文件夹，只需在新位置再运行一次 `install.cmd` 以刷新 Windows 协议路径。
-
-          发布流程会在打包阶段校验 FFmpeg 与官方 `yt-dlp.exe` 的 SHA-256，然后把已验证的可执行文件直接放入 ZIP。用户端安装过程不依赖 GitHub。
-          "@
-
-          gh release create $env:RELEASE_TAG dist/GalaxyLocalEngine-Windows.zip dist/SHA256SUMS.txt --title "Galaxy Local Engine $env:RELEASE_TAG" --notes $notes --verify-tag
+          gh release create $env:RELEASE_TAG dist/GalaxyLocalEngine-Windows.zip dist/SHA256SUMS.txt --title "Galaxy Local Engine $env:RELEASE_TAG" --notes-file local-engine/RELEASE_NOTES.md --verify-tag
