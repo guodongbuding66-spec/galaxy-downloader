@@ -53,6 +53,7 @@ jobs:
             local-engine/media_cleanup_suggestions.py \
             local-engine/media_cleanup_workbench.py \
             local-engine/media_policy.py \
+            local-engine/media_format_catalog.py \
             local-engine/workspace_policy.py \
             local-engine/recovery_policy.py \
             local-engine/pause_resume_policy.py \
@@ -113,6 +114,7 @@ jobs:
           python3 scripts/test-local-media-cleanup-suggestions.py
           python3 scripts/test-local-media-cleanup-workbench.py
           python3 scripts/test-local-media-policy.py
+          python3 scripts/test-local-media-format-catalog.py
           python3 scripts/test-local-image-archive-policy.py
           python3 scripts/test-local-manager-policy.py
           python3 scripts/test-local-runtime-policy.py
