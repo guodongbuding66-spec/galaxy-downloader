@@ -8,48 +8,22 @@ on:
       - '.github/workflows/bootstrap-pause-resume-core.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch:
+  behavior:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: feat/local-engine-0.15-pause-resume
 
-      - name: Apply web UI transforms
-        run: python scripts/bootstrap_pause_resume_web_ui.py
+      - name: Compile pause resume modules
+        run: python -m py_compile local-engine/pause_resume_policy.py local-engine/resume_bridge.py scripts/test-local-pause-resume.py
 
-      - name: Validate explicit yt-dlp continuation contract
+      - name: Run pause resume lifecycle tests
+        run: python scripts/test-local-pause-resume.py
+
+      - name: Validate external continuation contract
         run: python scripts/test-local-engine-policy.py
-
-      - name: Set up pnpm and Node.js
-        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
-        with:
-          version: 11.8.0
-          runtime: node@22
-          cache: true
-          install: false
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run Local Engine bridge tests
-        run: pnpm exec vitest run tests/local-engine-bridge-error.test.ts
-
-      - name: Lint pause resume UI
-        run: pnpm exec eslint src/components/downloader/LocalEngineDownloadCard.tsx src/lib/local-engine-bridge.ts tests/local-engine-bridge-error.test.ts
-
-      - name: Build production bundle
-        run: pnpm build
-
-      - name: Commit integration
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/components/downloader/LocalEngineDownloadCard.tsx scripts/test-local-engine-policy.py
-          git commit -m 'feat(local-engine): add pause resume controls to web download card'
-          git push origin HEAD:feat/local-engine-0.15-pause-resume
