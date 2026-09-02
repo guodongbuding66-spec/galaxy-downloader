@@ -69,12 +69,12 @@
   function openGalaxy(targetUrl) {
     const target = String(targetUrl || location.href);
     const anchor = document.createElement("a");
-    anchor.href = `galaxy-downloader://download?url=${encodeURIComponent(target)}&include_audio=1`;
+    anchor.href = `galaxy-downloader://download?url=${encodeURIComponent(target)}&include_audio=1&preview=1`;
     anchor.style.display = "none";
     document.documentElement.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    setStatus("已请求 Galaxy Local Engine 处理。", "success");
+    setStatus("已发送到 Galaxy 桌面工作台预览；浏览器可能会询问是否打开桌面应用。", "success");
   }
 
   async function handoffCandidate(candidate) {
@@ -237,7 +237,7 @@
       const galaxy = document.createElement("button");
       galaxy.type = "button";
       galaxy.className = "primary";
-      galaxy.textContent = candidate.mediaKind === "hls" || candidate.mediaKind === "dash" ? "Galaxy 解析" : "Galaxy";
+      galaxy.textContent = candidate.mediaKind === "hls" || candidate.mediaKind === "dash" ? "桌面解析" : "桌面预览";
       galaxy.addEventListener("click", () => void handoffCandidate(candidate));
       actions.appendChild(galaxy);
 
@@ -312,7 +312,7 @@
     const heading = document.createElement("strong");
     heading.textContent = "Galaxy 媒体候选浏览器";
     const subtitle = document.createElement("span");
-    subtitle.textContent = "筛选、比较并批量下载当前页面公开媒体源";
+    subtitle.textContent = "筛选、比较、直接下载，或送到桌面工作台预览";
     const close = document.createElement("button");
     close.type = "button";
     close.textContent = "×";
