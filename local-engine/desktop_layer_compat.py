@@ -4,6 +4,7 @@ import tkinter as tk
 from typing import Any
 
 import desktop_ui as ui
+import external_ytdlp
 import media_policy
 
 
@@ -74,13 +75,24 @@ def _install_media_preference_bridge(engine_module) -> None:
     ui.aria2c_available = lambda: media_policy.aria2c_available(engine_module)
 
 
+def _install_dependency_probe_bridge(engine_module) -> None:
+    """Expose the dependency probes expected by the v0.10 visual shell."""
+    if not hasattr(engine_module, "external_ytdlp_available"):
+        engine_module.external_ytdlp_available = lambda: (
+            external_ytdlp.external_ytdlp_path(engine_module.app_dir()) is not None
+        )
+    if not hasattr(engine_module, "ffmpeg_available"):
+        engine_module.ffmpeg_available = lambda: engine_module.ffmpeg_dir() is not None
+
+
 def install_desktop_layer_compat(engine_module):
     """Keep the v0.10-v0.13 desktop wrappers compatible with the v0.14 shell.
 
     The v0.14 base UI moved queue/history presentation into the unified Task
-    Center and media preferences into a dict-based policy schema. Older desktop
-    layers still expect the previous private queue anchors and attribute-based
-    media preference object.
+    Center, media preferences into a dict-based policy schema, and dependency
+    discovery into dedicated modules. Older desktop layers still expect the
+    previous private queue anchors, attribute-based media preference object and
+    dependency probe methods on the engine module.
 
     This adapter provides only those compatibility seams. It does *not* restore
     the old inline queue UI or duplicate queue state. The real queue remains
@@ -92,6 +104,7 @@ def install_desktop_layer_compat(engine_module):
         return window_cls
 
     _install_media_preference_bridge(engine_module)
+    _install_dependency_probe_bridge(engine_module)
     original_build = window_cls._build_ui
 
     # desktop_extras decorates this old renderer during installation. Task
