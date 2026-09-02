@@ -29,8 +29,8 @@ def migrate_state_consumers() -> list[str]:
         updated = insert_runtime_storage_import(text).replace(LEGACY_EXPR, RUNTIME_EXPR)
         path.write_text(updated, encoding="utf-8")
         changed.append(path.name)
-    if len(changed) < 5:
-        raise RuntimeError(f"expected at least five state consumers, changed={changed}")
+    if changed and len(changed) < 5:
+        raise RuntimeError(f"expected the established state consumers, changed={changed}")
     leftovers = [
         path.name
         for path in sorted(ENGINE_DIR.glob("*.py"))
@@ -59,26 +59,7 @@ def patch_entrypoint() -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def patch_ci() -> None:
-    path = ROOT / ".github" / "workflows" / "ci.yml"
-    text = path.read_text(encoding="utf-8")
-    compile_line = "            local-engine/runtime_storage.py \\\n"
-    if compile_line not in text:
-        anchor = "            local-engine/runtime_health.py \\\n"
-        if anchor not in text:
-            raise RuntimeError("CI runtime_health compile anchor missing")
-        text = text.replace(anchor, anchor + compile_line, 1)
-    test_line = "          python3 scripts/test-local-runtime-storage.py\n"
-    if test_line not in text:
-        anchor = "          python3 scripts/test-local-runtime-policy.py\n"
-        if anchor not in text:
-            raise RuntimeError("CI runtime policy test anchor missing")
-        text = text.replace(anchor, anchor + test_line, 1)
-    path.write_text(text, encoding="utf-8")
-
-
 if __name__ == "__main__":
     changed = migrate_state_consumers()
     patch_entrypoint()
-    patch_ci()
-    print("migrated runtime state consumers:", ", ".join(changed))
+    print("migrated runtime state consumers:", ", ".join(changed) if changed else "already migrated")
