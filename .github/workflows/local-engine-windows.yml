@@ -99,10 +99,11 @@ jobs:
           local-engine/external_ytdlp.py
           local-engine/wechat_channels.py
 
-      - name: Validate source self-test and version
+      - name: Validate source self-test, UI construction, and version
         shell: pwsh
         run: |
           python local-engine/entrypoint.py --self-test
+          python local-engine/entrypoint.py --ui-smoke-test
           $expected = (Get-Content 'local-engine/VERSION' -Raw).Trim()
           $actual = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
           if ($actual -ne $expected) {
@@ -149,24 +150,19 @@ jobs:
             throw "GalaxyLocalEngine.exe self-test exited with $($process.ExitCode)"
           }
 
-      - name: Launch packaged desktop UI
+      - name: Validate packaged desktop UI construction
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -PassThru
-          try {
-            Start-Sleep -Seconds 5
-            $process.Refresh()
-            if ($process.HasExited) {
-              throw "GalaxyLocalEngine.exe exited during desktop startup with code $($process.ExitCode). A packaged UI that cannot remain alive for 5 seconds must not be released."
-            }
-            Write-Host "Packaged desktop UI remained alive through startup smoke."
+          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -ArgumentList '--ui-smoke-test' -PassThru
+          $finished = $process.WaitForExit(20000)
+          if (-not $finished) {
+            Get-Process -Name 'GalaxyLocalEngine' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            throw 'GalaxyLocalEngine.exe UI smoke did not exit within 20 seconds. This usually means Tk startup crashed and a PyInstaller error dialog is blocking the process.'
           }
-          finally {
-            if (-not $process.HasExited) {
-              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-              $process.WaitForExit()
-            }
+          if ($process.ExitCode -ne 0) {
+            throw "GalaxyLocalEngine.exe UI smoke exited with $($process.ExitCode)"
           }
+          Write-Host 'Packaged desktop UI constructed and closed cleanly.'
 
       - name: Assemble release package
         shell: pwsh
