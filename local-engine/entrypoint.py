@@ -49,6 +49,10 @@ from queue_controls import install_queue_controls, run_queue_controls_self_test
 from recovery_display import install_recovery_display, run_recovery_display_self_test
 from recovery_policy import install_recovery_policy, run_recovery_self_test
 from runtime_health import install_runtime_health, run_runtime_health_self_test
+from runtime_paths_policy import (
+    install_runtime_paths_policy,
+    run_runtime_paths_policy_self_test,
+)
 from task_center import install_task_center, run_task_center_self_test
 from url_policy import is_public_http_url, validated_public_http_url
 from workspace_policy import install_workspace_policy, run_workspace_self_test
@@ -136,7 +140,9 @@ engine._validated_source_url = validated_public_http_url
 # persistent output/transport defaults; recovery then adds optional per-job
 # transport overrides without mutating those defaults. The queue captures that
 # final Job type; queue/history/runtime policies wrap execution; presentation is
-# installed last before the first Tk instance exists.
+# installed last before the first Tk instance exists. Runtime paths are installed
+# first so every later policy can resolve mutable storage without assuming Windows.
+install_runtime_paths_policy(engine)
 install_archive_policy(engine)
 install_media_policy(engine)
 install_workspace_policy(engine)
@@ -271,6 +277,8 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_media_cleanup_workbench_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_task_center_installed", False) is True
+    assert getattr(engine, "_galaxy_runtime_paths_policy_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_runtime_paths_policy_installed", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
     assert getattr(engine, "_galaxy_media_policy_installed", False) is True
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
@@ -300,6 +308,7 @@ def _run_image_self_test() -> None:
     run_history_self_test()
     run_workspace_self_test()
     run_runtime_health_self_test()
+    run_runtime_paths_policy_self_test()
     run_task_center_self_test()
 
 
