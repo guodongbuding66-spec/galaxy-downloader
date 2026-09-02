@@ -1,0 +1,100 @@
+name: Local Engine UI Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/**'
+      - 'src/lib/local-engine.ts'
+      - '.github/workflows/local-engine-ui-smoke.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/**'
+      - 'src/lib/local-engine.ts'
+      - '.github/workflows/local-engine-ui-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-engine-ui-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-ui-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          python -m pip install -r local-engine/requirements.txt
+          python -m pip install "pillow>=11,<12"
+
+      - name: Generate icon
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          python local-engine/generate_icon.py --output local-engine/GalaxyLocalEngine.ico
+
+      - name: Validate source desktop UI construction
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          python local-engine/entrypoint.py --ui-smoke-test
+          if ($LASTEXITCODE -ne 0) {
+            throw "Source UI smoke exited with $LASTEXITCODE"
+          }
+
+          $expected = (Get-Content 'local-engine/VERSION' -Raw).Trim()
+          $versionOutput = python local-engine/entrypoint.py --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Source --version exited with $LASTEXITCODE"
+          }
+          $actual = ($versionOutput | Select-Object -Last 1).Trim()
+          if ($actual -ne $expected) {
+            throw "Engine version '$actual' does not match VERSION '$expected'"
+          }
+
+      - name: Build windowed portable executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --windowed `
+            --name GalaxyLocalEngine `
+            --icon "local-engine/GalaxyLocalEngine.ico" `
+            --collect-all yt_dlp `
+            --add-data "local-engine/VERSION;." `
+            local-engine/entrypoint.py
+
+      - name: Validate packaged desktop UI construction
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -ArgumentList '--ui-smoke-test' -PassThru
+          $finished = $process.WaitForExit(20000)
+          if (-not $finished) {
+            Get-Process -Name 'GalaxyLocalEngine' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            throw 'Packaged GalaxyLocalEngine.exe UI smoke did not exit within 20 seconds. This usually means an exception dialog or startup deadlock is blocking the windowed executable.'
+          }
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged GalaxyLocalEngine.exe UI smoke exited with $($process.ExitCode)"
+          }
+          Write-Host 'Packaged desktop UI constructed and closed cleanly.'
