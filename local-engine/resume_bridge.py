@@ -8,6 +8,8 @@ from typing import Any, Callable
 import bridge as base_bridge
 from bridge_submission_policy import StructuredLocalBridge, normalize_submission_result
 
+RESUME_BRIDGE_PROTOCOL_VERSION = 5
+
 
 class PauseResumeLocalBridge(StructuredLocalBridge):
     """Structured bridge with thread-safe active pause/restart recovery controls.
@@ -183,7 +185,7 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
                     self._json(404, {"ok": False, "code": "NOT_FOUND", "error": "Not found"})
                     return
                 payload = local_bridge._status_provider()
-                self._json(200, {"ok": True, "bridgeProtocol": base_bridge.BRIDGE_PROTOCOL_VERSION, **payload})
+                self._json(200, {"ok": True, "bridgeProtocol": RESUME_BRIDGE_PROTOCOL_VERSION, **payload})
 
             def _read_json(self) -> dict[str, Any] | None:
                 try:
@@ -343,6 +345,7 @@ def run_resume_bridge_self_test() -> None:
             self.discarded = job_id
             return True
 
+    assert RESUME_BRIDGE_PROTOCOL_VERSION > base_bridge.BRIDGE_PROTOCOL_VERSION
     owner = Owner()
     bridge = PauseResumeLocalBridge(
         status_provider=owner.status,
