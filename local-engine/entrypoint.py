@@ -10,6 +10,7 @@ import web_document
 from archive_policy import install_archive_policy
 from bridge_submission_policy import StructuredLocalBridge
 from desktop_extras import install_desktop_extras
+from desktop_layer_compat import install_desktop_layer_compat
 from desktop_manager import install_desktop_manager
 from desktop_runtime import install_desktop_runtime
 from desktop_ui import install_desktop_ui
@@ -134,6 +135,10 @@ install_history_policy(engine)
 install_runtime_health(engine)
 install_image_archive_policy(image_download)
 install_desktop_ui(engine)
+# The 0.14 shell moved queue/history presentation into Task Center, while the
+# 0.11-0.13 wrappers still own several useful controls. Keep their private
+# integration points explicit until those wrappers are flattened completely.
+install_desktop_layer_compat(engine)
 install_desktop_extras(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
@@ -237,6 +242,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_history_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_runtime_health_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_ui_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_layer_compat_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
@@ -247,6 +253,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True
     assert getattr(engine, "_galaxy_runtime_health_installed", False) is True
+    assert getattr(engine, "_galaxy_desktop_layer_compat_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine, "_galaxy_task_center_installed", False) is True
     assert getattr(image_download, "_galaxy_image_archive_policy_installed", False) is True
@@ -260,6 +267,23 @@ def _run_image_self_test() -> None:
     run_workspace_self_test()
     run_runtime_health_self_test()
     run_task_center_self_test()
+
+
+def _run_ui_smoke_test() -> int:
+    """Construct the fully wrapped Tk UI and exit deterministically.
+
+    This mode exists for Windows CI and packaged-EXE validation. It catches
+    failures that `--self-test` cannot see because self-test does not instantiate
+    Tk widgets. A PyInstaller `--windowed` exception may keep an error dialog
+    alive, so CI runs this mode with a hard timeout rather than treating process
+    liveness as success.
+    """
+    app = engine.EngineWindow(None)
+    app.withdraw()
+    app.update_idletasks()
+    app.after(100, app.close_app)
+    app.mainloop()
+    return 0
 
 
 def _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:
@@ -279,6 +303,8 @@ def main() -> int:
         return engine.main()
     if "--version" in sys.argv:
         return engine.main()
+    if "--ui-smoke-test" in sys.argv:
+        return _run_ui_smoke_test()
 
     # A second loopback bridge handles direct image/original-asset downloads.
     # It never routes image bytes through Galaxy's public Cloudflare/Container

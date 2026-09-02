@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { fetchVimeoControlJson, fetchVimeoControlPage } from '@/lib/vimeo-control'
+
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
 
@@ -103,12 +105,6 @@ function extractBalancedJson(text: string, marker: RegExp): unknown | null {
   return null
 }
 
-async function fetchJson<T>(url: string, headers: HeadersInit = JSON_HEADERS): Promise<T> {
-  const response = await fetch(url, { headers, redirect: 'follow', cache: 'no-store' })
-  if (!response.ok) throw new Error(`Vimeo metadata request failed (${response.status})`)
-  return response.json() as Promise<T>
-}
-
 function iframeSrc(html: string | undefined): string | null {
   if (!html) return null
   const value = html.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1]
@@ -118,10 +114,10 @@ function iframeSrc(html: string | undefined): string | null {
 async function getEmbedUrl(id: string): Promise<string> {
   const endpoint = new URL('https://vimeo.com/api/oembed.json')
   endpoint.searchParams.set('url', `https://vimeo.com/${id}`)
-  const payload = await fetchJson<VimeoOEmbed>(endpoint.toString(), {
+  const payload = await fetchVimeoControlJson<VimeoOEmbed>(endpoint.toString(), {
     ...JSON_HEADERS,
     Referer: 'https://vimeo.com/',
-  })
+  }, 'Vimeo oEmbed request')
   const src = iframeSrc(payload.html)
   if (src) {
     try {
@@ -138,14 +134,13 @@ async function getEmbedUrl(id: string): Promise<string> {
 
 async function fetchConfig(id: string): Promise<{ config: VimeoConfig; embedUrl: string }> {
   const embedUrl = await getEmbedUrl(id)
-  const page = await fetch(embedUrl, {
-    headers: { ...HTML_HEADERS, Referer: `https://vimeo.com/${id}` },
-    redirect: 'follow',
-    cache: 'no-store',
-  })
+  const page = await fetchVimeoControlPage(embedUrl, {
+    ...HTML_HEADERS,
+    Referer: `https://vimeo.com/${id}`,
+  }, 'Vimeo player request')
 
   if (page.ok) {
-    const html = await page.text()
+    const html = page.text
     for (const marker of [/\bplayerConfig\s*=\s*/i, /\bvimeo\.config\s*=\s*/i, /\bconfig\s*=\s*/i]) {
       const value = extractBalancedJson(html, marker)
       if (value && typeof value === 'object') return { config: value as VimeoConfig, embedUrl }
@@ -153,22 +148,22 @@ async function fetchConfig(id: string): Promise<{ config: VimeoConfig; embedUrl:
     const configValue = html.match(/\bdata-config-url=["']([^"']+)["']/i)?.[1]
       || html.match(/["']config_url["']\s*:\s*["']([^"']+)["']/i)?.[1]
     if (configValue) {
-      const config = await fetchJson<VimeoConfig>(decodeHtml(configValue), {
+      const config = await fetchVimeoControlJson<VimeoConfig>(decodeHtml(configValue), {
         ...JSON_HEADERS,
         Referer: embedUrl,
         Origin: 'https://player.vimeo.com',
-      })
+      }, 'Vimeo player config request')
       return { config, embedUrl }
     }
   }
 
   const configUrl = new URL(embedUrl)
   configUrl.pathname = `${configUrl.pathname.replace(/\/$/, '')}/config`
-  const config = await fetchJson<VimeoConfig>(configUrl.toString(), {
+  const config = await fetchVimeoControlJson<VimeoConfig>(configUrl.toString(), {
     ...JSON_HEADERS,
     Referer: embedUrl,
     Origin: 'https://player.vimeo.com',
-  })
+  }, 'Vimeo canonical config request')
   return { config, embedUrl }
 }
 
@@ -266,6 +261,8 @@ async function proxyTarget(request: NextRequest, id: string, target: URL, embedU
 
   let upstream: Response
   try {
+    // Do not use the short control-plane timeout for media bodies. Large media
+    // and HLS resources must remain streamable for as long as the client needs.
     upstream = await fetch(target.toString(), {
       method: 'GET',
       headers,

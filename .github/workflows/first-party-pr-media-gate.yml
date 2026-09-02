@@ -1,0 +1,106 @@
+name: First-party PR Media Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/app/api/local-parse/**'
+      - 'src/app/api/local-media/**'
+      - 'src/app/api/vimeo-native/**'
+      - 'src/app/api/vimeo-media/**'
+      - 'src/components/downloader/SinglePartButtons.tsx'
+      - 'src/lib/config.ts'
+      - 'src/lib/unified-parse.ts'
+      - 'src/lib/vimeo-control.ts'
+      - 'worker/index.ts'
+      - 'wrangler.jsonc'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/deploy-with-retry.mjs'
+      - 'scripts/local-parser-production-smoke.py'
+      - '.github/workflows/first-party-pr-media-gate.yml'
+      - '.github/workflows/local-parser-production-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The app uses Durable Objects, so Cloudflare version Preview URLs are not
+# available. Serialize candidate deployments through one isolated staging
+# Worker instead of allowing different PRs to overwrite it concurrently.
+concurrency:
+  group: first-party-staging-media-gate
+  cancel-in-progress: true
+
+jobs:
+  staging-media-smoke:
+    name: Staging real-media smoke
+    # Never expose Cloudflare credentials to code from an external fork.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      STAGING_WORKER_NAME: galaxy-downloader-staging
+      STAGING_BASE_URL: https://galaxy-downloader-staging.guodongbuding66.workers.dev
+    steps:
+      - name: Checkout PR revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          version: 11.8.0
+          runtime: node@22
+          install: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Require Cloudflare staging credentials
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -z "${CLOUDFLARE_API_TOKEN}" || -z "${CLOUDFLARE_ACCOUNT_ID}" ]]; then
+            echo '::error title=Missing Cloudflare staging credentials::Add repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID so the current PR revision can be deployed to the isolated galaxy-downloader-staging Worker.'
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build candidate revision
+        run: pnpm build
+
+      - name: Deploy exact candidate to isolated staging Worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_DEPLOY_MAX_ATTEMPTS: '4'
+          CF_DEPLOY_RETRY_DELAY_MS: '15000'
+        run: |
+          set -euo pipefail
+          if [[ "${STAGING_WORKER_NAME}" == 'galaxy-downloader' ]]; then
+            echo '::error title=Production Worker name is forbidden::The PR gate must deploy only to an isolated staging Worker.'
+            exit 1
+          fi
+          node scripts/deploy-with-retry.mjs --skip-build --name "${STAGING_WORKER_NAME}"
+
+      - name: Compile real-media smoke
+        run: python -m py_compile scripts/local-parser-production-smoke.py
+
+      - name: Probe staging parser and real media bytes
+        run: >-
+          python scripts/local-parser-production-smoke.py
+          --base-url "${STAGING_BASE_URL}"
+          --attempts 6
+          --retry-delay 8
+          --timeout 20

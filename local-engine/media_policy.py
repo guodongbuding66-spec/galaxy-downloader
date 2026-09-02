@@ -30,6 +30,7 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "segmentStart": "",
     "segmentEnd": "",
     "splitChapters": False,
+    "includeSubtitle": False,
     "subtitleMode": "both",
     "subtitleLanguages": [],
     "audioLanguages": [],
@@ -53,6 +54,7 @@ def _clean_preferences(value: object) -> dict[str, Any]:
         "segmentStart": str(raw.get("segmentStart") or "").strip()[:16],
         "segmentEnd": str(raw.get("segmentEnd") or "").strip()[:16],
         "splitChapters": bool(raw.get("splitChapters", False)),
+        "includeSubtitle": bool(raw.get("includeSubtitle", False)),
         "subtitleMode": subtitle_mode,
         "subtitleLanguages": list(_validated_languages(raw.get("subtitleLanguages"))),
         "audioLanguages": list(_validated_languages(raw.get("audioLanguages"))),
@@ -297,6 +299,9 @@ def install_media_policy(engine_module):
             subtitle_mode = "both"
         return replace(
             job,
+            include_subtitle=engine_module._bool(
+                query.get("subtitle", ["1" if preferences["includeSubtitle"] else "0"])[0]
+            ),
             segment_start=start,
             segment_end=end,
             split_chapters=engine_module._bool(
