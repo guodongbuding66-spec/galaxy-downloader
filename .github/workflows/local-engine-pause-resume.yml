@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'local-engine/batch_identity.py'
       - 'local-engine/pause_resume_policy.py'
       - 'local-engine/resume_bridge.py'
       - 'local-engine/entrypoint.py'
@@ -22,6 +23,7 @@ on:
     branches:
       - main
     paths:
+      - 'local-engine/batch_identity.py'
       - 'local-engine/pause_resume_policy.py'
       - 'local-engine/resume_bridge.py'
       - 'local-engine/entrypoint.py'
@@ -58,6 +60,7 @@ jobs:
       - name: Compile pause resume modules
         run: |
           python -m py_compile \
+            local-engine/batch_identity.py \
             local-engine/pause_resume_policy.py \
             local-engine/resume_bridge.py \
             local-engine/task_center.py \
@@ -72,7 +75,9 @@ jobs:
           import importlib.util
           import sys
           from pathlib import Path
-          path = Path('local-engine/pause_resume_policy.py')
+          local_engine = Path('local-engine').resolve()
+          sys.path.insert(0, str(local_engine))
+          path = local_engine / 'pause_resume_policy.py'
           spec = importlib.util.spec_from_file_location('pause_resume_gate', path)
           module = importlib.util.module_from_spec(spec)
           sys.modules['pause_resume_gate'] = module
