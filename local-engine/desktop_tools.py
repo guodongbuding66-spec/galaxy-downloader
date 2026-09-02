@@ -6,7 +6,8 @@ from tkinter import messagebox
 
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook, register_desktop_presenter, show_desktop_presenter
-from tool_manager import reset_managed_ytdlp, tool_inventory, update_managed_ytdlp
+from ffmpeg_manager import existing_managed_ffmpeg, reset_managed_ffmpeg, seed_managed_ffmpeg
+from tool_manager import invalidate_tool_inventory, reset_managed_ytdlp, tool_inventory, update_managed_ytdlp
 
 
 def _window_exists(window: tk.Misc | None) -> bool:
@@ -42,8 +43,8 @@ def _show_tools(window, engine_module) -> None:
     dialog = tk.Toplevel(window)
     window._tools_window = dialog
     dialog.title("工具管理 · Galaxy Local Engine")
-    dialog.geometry("680x470")
-    dialog.minsize(620, 430)
+    dialog.geometry("720x540")
+    dialog.minsize(650, 500)
     dialog.configure(bg=ui.BG)
     dialog.transient(window)
 
@@ -52,11 +53,11 @@ def _show_tools(window, engine_module) -> None:
     ui._label(shell, "工具管理", size=16, weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
         shell,
-        "Galaxy 默认继续使用发行包内已经验证的工具。只有你主动点击更新时，才会创建并更新用户目录里的 yt-dlp 托管副本；启动和普通下载不会联网检查工具更新。",
+        "Galaxy 默认继续使用发行包内已经验证的工具。只有你主动操作时，才会在 runtime/tools 中创建托管副本；启动和普通下载不会联网检查工具更新。",
         size=8,
         color=ui.MUTED,
         bg=ui.BG,
-        wraplength=620,
+        wraplength=660,
         justify="left",
     ).pack(anchor="w", pady=(4, 12))
 
@@ -75,7 +76,7 @@ def _show_tools(window, engine_module) -> None:
         left = tk.Frame(row, bg=ui.PANEL)
         left.pack(side="left", fill="x", expand=True)
         ui._label(left, title, size=10, weight="bold").pack(anchor="w")
-        ui._label(left, variable=version_var, size=8, color=ui.SUBTLE, wraplength=430, justify="left").pack(anchor="w", pady=(3, 0))
+        ui._label(left, variable=version_var, size=8, color=ui.SUBTLE, wraplength=455, justify="left").pack(anchor="w", pady=(3, 0))
         badge = tk.Label(
             row,
             textvariable=source_var,
@@ -92,21 +93,34 @@ def _show_tools(window, engine_module) -> None:
     ui._divider(card).pack(fill="x", pady=(2, 10))
     tool_row("FFmpeg", ffmpeg_source_var, ffmpeg_version_var)
 
+    ffmpeg_actions = tk.Frame(card, bg=ui.PANEL)
+    ffmpeg_actions.pack(fill="x", pady=(0, 10))
+    ffmpeg_enable_button = ui.ActionButton(ffmpeg_actions, text="启用托管 FFmpeg", kind="secondary", compact=True)
+    ffmpeg_reset_button = ui.ActionButton(ffmpeg_actions, text="恢复随包 FFmpeg", kind="ghost", compact=True)
+    ffmpeg_enable_button.pack(side="left")
+    ffmpeg_reset_button.pack(side="left", padx=(7, 0))
+    ui._label(
+        ffmpeg_actions,
+        "当前阶段只复制并验证发行包内的 FFmpeg，不从第三方源下载未知二进制。",
+        size=7,
+        color=ui.SUBTLE,
+    ).pack(side="left", padx=(12, 0))
+
     ui._divider(card).pack(fill="x", pady=(2, 10))
     ui._label(
         card,
-        "更新 yt-dlp 会先把随包版本复制到 runtime tools，再调用 yt-dlp 官方自更新机制。随包文件本身始终不修改，因此失败或回退时仍有可用基线。FFmpeg 当前只做来源/版本检测，自动托管将在后续阶段接入。",
+        "yt-dlp 更新会先创建用户目录托管副本，再调用 yt-dlp 官方自更新机制。FFmpeg 托管采用 staging + 校验 + 原子切换；随包文件始终不修改，因此两种工具都可以独立恢复到发行包基线。",
         size=7,
         color=ui.SUBTLE,
-        wraplength=610,
+        wraplength=650,
         justify="left",
     ).pack(anchor="w")
-    ui._label(card, variable=operation_var, size=8, weight="bold", color=ui.CYAN, wraplength=610, justify="left").pack(anchor="w", pady=(10, 0))
+    ui._label(card, variable=operation_var, size=8, weight="bold", color=ui.CYAN, wraplength=650, justify="left").pack(anchor="w", pady=(10, 0))
 
     footer = tk.Frame(shell, bg=ui.BG)
     footer.pack(fill="x", pady=(12, 0))
     update_button = ui.ActionButton(footer, text="更新 yt-dlp", kind="primary", compact=True)
-    reset_button = ui.ActionButton(footer, text="恢复随包版本", kind="ghost", compact=True)
+    reset_button = ui.ActionButton(footer, text="恢复随包 yt-dlp", kind="ghost", compact=True)
     refresh_button = ui.ActionButton(footer, text="刷新", kind="secondary", compact=True)
     reset_button.pack(side="left")
     refresh_button.pack(side="right")
@@ -122,12 +136,18 @@ def _show_tools(window, engine_module) -> None:
             reset_button.state(["!disabled"])
         else:
             reset_button.state(["disabled"])
+        if existing_managed_ffmpeg(engine_module) is not None:
+            ffmpeg_enable_button.state(["disabled"])
+            ffmpeg_reset_button.state(["!disabled"])
+        else:
+            ffmpeg_enable_button.state(["!disabled"])
+            ffmpeg_reset_button.state(["disabled"])
 
     def set_busy(busy: bool) -> None:
+        buttons = (update_button, reset_button, refresh_button, ffmpeg_enable_button, ffmpeg_reset_button)
         if busy:
-            update_button.state(["disabled"])
-            reset_button.state(["disabled"])
-            refresh_button.state(["disabled"])
+            for button in buttons:
+                button.state(["disabled"])
         else:
             update_button.state(["!disabled"])
             refresh_button.state(["!disabled"])
@@ -136,6 +156,7 @@ def _show_tools(window, engine_module) -> None:
     def finish_result(result, action: str) -> None:
         if not _window_exists(dialog):
             return
+        invalidate_tool_inventory(engine_module)
         set_busy(False)
         operation_var.set(result.message)
         if result.ok:
@@ -147,18 +168,25 @@ def _show_tools(window, engine_module) -> None:
         else:
             messagebox.showwarning(engine_module.APP_NAME, f"{action}未完成。\n\n{result.message}", parent=dialog)
 
-    def update_ytdlp() -> None:
-        operation_var.set("正在创建/更新托管 yt-dlp…")
+    def run_action(action_name: str, status_text: str, callback) -> None:
+        operation_var.set(status_text)
         set_busy(True)
 
         def worker() -> None:
-            result = update_managed_ytdlp(engine_module, channel="stable")
+            result = callback()
             try:
-                dialog.after(0, finish_result, result, "yt-dlp 更新")
+                dialog.after(0, finish_result, result, action_name)
             except tk.TclError:
                 pass
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def update_ytdlp() -> None:
+        run_action(
+            "yt-dlp 更新",
+            "正在创建/更新托管 yt-dlp…",
+            lambda: update_managed_ytdlp(engine_module, channel="stable"),
+        )
 
     def reset_ytdlp() -> None:
         if not messagebox.askyesno(
@@ -167,20 +195,28 @@ def _show_tools(window, engine_module) -> None:
             parent=dialog,
         ):
             return
-        operation_var.set("正在恢复随包 yt-dlp…")
-        set_busy(True)
+        run_action("恢复随包 yt-dlp", "正在恢复随包 yt-dlp…", lambda: reset_managed_ytdlp(engine_module))
 
-        def worker() -> None:
-            result = reset_managed_ytdlp(engine_module)
-            try:
-                dialog.after(0, finish_result, result, "恢复随包版本")
-            except tk.TclError:
-                pass
+    def enable_ffmpeg() -> None:
+        run_action(
+            "启用托管 FFmpeg",
+            "正在从已验证的随包 FFmpeg 创建托管副本并校验…",
+            lambda: seed_managed_ffmpeg(engine_module),
+        )
 
-        threading.Thread(target=worker, daemon=True).start()
+    def reset_ffmpeg() -> None:
+        if not messagebox.askyesno(
+            engine_module.APP_NAME,
+            "删除 runtime/tools 中的托管 FFmpeg，并恢复使用发行包随附版本？\n\n不会删除媒体文件或设置。",
+            parent=dialog,
+        ):
+            return
+        run_action("恢复随包 FFmpeg", "正在恢复随包 FFmpeg…", lambda: reset_managed_ffmpeg(engine_module))
 
     update_button.configure(command=update_ytdlp)
     reset_button.configure(command=reset_ytdlp)
+    ffmpeg_enable_button.configure(command=enable_ffmpeg)
+    ffmpeg_reset_button.configure(command=reset_ffmpeg)
     refresh_button.configure(command=lambda: refresh(force=True))
 
     def close() -> None:
