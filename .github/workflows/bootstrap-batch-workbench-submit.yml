@@ -1,0 +1,63 @@
+name: Bootstrap Batch Workbench Submit
+
+on:
+  push:
+    branches:
+      - feature/web-batch-workbench-submit
+    paths:
+      - '.github/workflows/bootstrap-batch-workbench-submit.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: feature/web-batch-workbench-submit
+
+      - name: Apply Batch Workbench submission wiring
+        run: python scripts/integrate-batch-workbench-submit.py
+
+      - name: Verify submission anchors
+        run: |
+          grep -F 'submitLocalEngineBatchInput' src/components/downloader/BatchWorkbench.tsx
+          grep -F '<BatchWorkbenchResultPanel result={submissionResult} />' src/components/downloader/BatchWorkbench.tsx
+          grep -F 'queueFull || submitting' src/components/downloader/BatchWorkbench.tsx
+
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          version: 11.8.0
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Batch Workbench and bridge tests
+        run: >-
+          pnpm exec vitest run
+          tests/batch-workbench-model.test.ts
+          tests/batch-workbench-feedback.test.ts
+          tests/local-engine-batch-bridge-client.test.ts
+          tests/local-engine-bridge-error.test.ts
+
+      - name: Run lint
+        run: pnpm lint
+
+      - name: Build production bundle
+        run: pnpm build
+
+      - name: Commit permanent wiring
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/downloader/BatchWorkbench.tsx
+          git commit -m 'feat(web): submit Batch Workbench input to Local Engine'
+          git push origin HEAD:feature/web-batch-workbench-submit
