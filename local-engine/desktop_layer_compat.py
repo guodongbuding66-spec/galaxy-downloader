@@ -4,6 +4,51 @@ import tkinter as tk
 from typing import Any
 
 import desktop_ui as ui
+import media_policy
+
+
+class _LegacyMediaPreferences:
+    """Attribute view expected by the v0.10 desktop UI.
+
+    media_policy.py intentionally moved to a stable JSON/dict schema in later
+    releases. Keeping this conversion in the compatibility layer prevents the
+    visual shell from owning persistence details again.
+    """
+
+    def __init__(self, values: dict[str, Any]) -> None:
+        subtitle_languages = list(values.get("subtitleLanguages") or [])
+        audio_languages = list(values.get("audioLanguages") or [])
+        subtitle_mode = str(values.get("subtitleMode") or "both")
+
+        self.clip_start = str(values.get("segmentStart") or "") or None
+        self.clip_end = str(values.get("segmentEnd") or "") or None
+        self.split_chapters = bool(values.get("splitChapters", False))
+        self.include_subtitle = bool(values.get("includeSubtitle", False))
+        self.include_auto_subtitles = subtitle_mode in {"auto", "both"}
+        self.subtitle_language = str(subtitle_languages[0]) if subtitle_languages else "auto"
+        self.audio_language = str(audio_languages[0]) if audio_languages else "auto"
+        self.sponsorblock_categories = tuple(values.get("sponsorBlockCategories") or ())
+        self.prefer_aria2c = bool(values.get("useAria2c", False))
+
+    def to_policy(self) -> dict[str, Any]:
+        subtitle_language = str(self.subtitle_language or "").strip()
+        audio_language = str(self.audio_language or "").strip()
+        return {
+            "segmentStart": str(self.clip_start or "").strip(),
+            "segmentEnd": str(self.clip_end or "").strip(),
+            "splitChapters": bool(self.split_chapters),
+            "includeSubtitle": bool(self.include_subtitle),
+            # The legacy checkbox means “allow automatic subtitles while still
+            # preferring manual subtitles”, which maps to the modern `both`
+            # mode. Disabled maps to manual-only.
+            "subtitleMode": "both" if bool(self.include_auto_subtitles) else "manual",
+            "subtitleLanguages": [] if subtitle_language in {"", "auto"} else [subtitle_language],
+            # “auto” and “original” both mean no explicit audio-language filter
+            # in the current policy layer.
+            "audioLanguages": [] if audio_language in {"", "auto", "original"} else [audio_language],
+            "sponsorBlockCategories": list(self.sponsorblock_categories or ()),
+            "useAria2c": bool(self.prefer_aria2c),
+        }
 
 
 def _window_exists(window: tk.Misc) -> bool:
@@ -13,22 +58,40 @@ def _window_exists(window: tk.Misc) -> bool:
         return False
 
 
+def _install_media_preference_bridge(engine_module) -> None:
+    """Adapt old zero-argument desktop helpers to current media_policy APIs."""
+
+    def load_legacy_preferences() -> _LegacyMediaPreferences:
+        return _LegacyMediaPreferences(media_policy.load_preferences(engine_module))
+
+    def save_legacy_preferences(preferences: _LegacyMediaPreferences) -> dict[str, Any]:
+        return media_policy.save_preferences(engine_module, preferences.to_policy())
+
+    # desktop_ui imported these symbols directly at module import time. Replace
+    # the module globals before EngineWindow constructs any widgets.
+    ui.load_preferences = load_legacy_preferences
+    ui.save_preferences = save_legacy_preferences
+    ui.aria2c_available = lambda: media_policy.aria2c_available(engine_module)
+
+
 def install_desktop_layer_compat(engine_module):
-    """Keep the v0.11-v0.13 desktop wrappers compatible with the v0.14 shell.
+    """Keep the v0.10-v0.13 desktop wrappers compatible with the v0.14 shell.
 
     The v0.14 base UI moved queue/history presentation into the unified Task
-    Center and removed the old inline queue panel. The older enhancement layers
-    still intentionally own history counts, pause state, settings and storage
-    health, and therefore expect a few private anchors from the old shell.
+    Center and media preferences into a dict-based policy schema. Older desktop
+    layers still expect the previous private queue anchors and attribute-based
+    media preference object.
 
-    This adapter provides only those anchors. It does *not* restore the old
-    inline queue UI or duplicate queue state. The real queue remains owned by
-    job_queue.py / queue_controls.py and the visible queue remains Task Center.
+    This adapter provides only those compatibility seams. It does *not* restore
+    the old inline queue UI or duplicate queue state. The real queue remains
+    owned by job_queue.py / queue_controls.py and the visible queue remains Task
+    Center.
     """
     window_cls = engine_module.EngineWindow
     if getattr(window_cls, "_galaxy_desktop_layer_compat_installed", False):
         return window_cls
 
+    _install_media_preference_bridge(engine_module)
     original_build = window_cls._build_ui
 
     # desktop_extras decorates this old renderer during installation. Task
