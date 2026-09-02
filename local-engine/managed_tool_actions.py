@@ -48,6 +48,7 @@ class ManagedToolActionResult:
     state: str
     source: str
     version: str | None
+    current_release_tag: str | None
     available_version: str | None
     available_release_tag: str | None
     update_available: bool | None
@@ -91,6 +92,7 @@ def _result(
     state: str,
     source: str = "unknown",
     version: str | None = None,
+    current_release_tag: str | None = None,
     available_version: str | None = None,
     available_release_tag: str | None = None,
     update_available: bool | None = None,
@@ -105,6 +107,7 @@ def _result(
         state=state,
         source=source,
         version=version,
+        current_release_tag=current_release_tag,
         available_version=available_version,
         available_release_tag=available_release_tag,
         update_available=update_available,
@@ -121,6 +124,7 @@ def _normalize_update_status(request: ManagedToolActionRequest, native: object, 
         state=str(getattr(native, "state", "error") or "error"),
         source=str(getattr(native, "current_source", "unknown") or "unknown"),
         version=getattr(native, "current_version", None),
+        current_release_tag=getattr(native, "current_release_tag", None),
         available_version=getattr(native, "available_version", None),
         available_release_tag=getattr(native, "available_release_tag", None),
         update_available=getattr(native, "update_available", None),
@@ -225,6 +229,7 @@ def public_managed_tool_action_result(result: ManagedToolActionResult) -> dict[s
         "state": payload["state"],
         "source": payload["source"],
         "version": payload["version"],
+        "currentReleaseTag": payload["current_release_tag"],
         "availableVersion": payload["available_version"],
         "availableReleaseTag": payload["available_release_tag"],
         "updateAvailable": payload["update_available"],

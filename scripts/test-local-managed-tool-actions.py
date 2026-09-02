@@ -76,6 +76,7 @@ class ManagedToolActionTests(unittest.TestCase):
             state="update_available",
             current_source="managed",
             current_version="ffmpeg version old",
+            current_release_tag="autobuild-2026-09-01-13-13",
             available_version="N-200000-gabc",
             available_release_tag="autobuild-2026-09-02-20-00",
             update_available=True,
@@ -89,9 +90,12 @@ class ManagedToolActionTests(unittest.TestCase):
         self.assertFalse(result.changed)
         self.assertEqual(result.state, "update_available")
         self.assertEqual(result.source, "managed")
+        self.assertEqual(result.current_release_tag, "autobuild-2026-09-01-13-13")
         self.assertEqual(result.available_version, "N-200000-gabc")
         self.assertTrue(result.update_available)
         self.assertTrue(result.network_action)
+        payload = public_managed_tool_action_result(result)
+        self.assertEqual(payload["currentReleaseTag"], "autobuild-2026-09-01-13-13")
 
     def test_ffmpeg_install_and_update_share_verified_online_adapter(self) -> None:
         calls = []
