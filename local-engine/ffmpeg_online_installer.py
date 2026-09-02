@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import tempfile
@@ -78,8 +77,8 @@ def install_managed_ffmpeg_online(
 
     Network access occurs only when this function is explicitly invoked. Provider
     metadata resolution, artifact SHA-256 verification, safe extraction, content
-    root normalization, binary execution validation and atomic replacement all
-    have to succeed before runtime/tools/ffmpeg changes.
+    root normalization, binary execution validation and version capture all have
+    to succeed before runtime/tools/ffmpeg changes.
     """
     current_source, current_version = _active_fallback(engine_module)
     tools_root = Path(engine_module.tools_dir())
@@ -101,18 +100,25 @@ def install_managed_ffmpeg_online(
         ffmpeg_name = _binary_name("ffmpeg", artifact.platform)
         ffprobe_name = _binary_name("ffprobe", artifact.platform)
         target = tools_root / "ffmpeg"
-        installed = rooted_installer(
+        validated_version: str | None = None
+
+        def validate_before_promotion(payload: Path) -> bool:
+            nonlocal validated_version
+            if not payload_validator(payload, platform_name=artifact.platform):
+                return False
+            validated_version = version_reader(Path(payload) / "bin")
+            return bool(validated_version)
+
+        rooted_installer(
             artifact,
             archive_path,
             target,
             content_root=content_root,
             required_files=(f"bin/{ffmpeg_name}", f"bin/{ffprobe_name}"),
-            validator=lambda payload: payload_validator(payload, platform_name=artifact.platform),
+            validator=validate_before_promotion,
         )
-        installed_bin = installed / "bin"
-        version = version_reader(installed_bin)
-        if not version:
-            raise ToolArtifactError("installed Managed FFmpeg could not report a version")
+        if not validated_version:
+            raise AssertionError("validated FFmpeg version was not captured before promotion")
 
         invalidate = getattr(engine_module, "invalidate_tool_inventory", None)
         if callable(invalidate):
@@ -120,7 +126,7 @@ def install_managed_ffmpeg_online(
         return FfmpegActionResult(
             True,
             True,
-            version,
+            validated_version,
             "managed",
             (
                 f"Managed FFmpeg was installed from {resolved.provider_id} "
@@ -155,7 +161,7 @@ def run_ffmpeg_online_installer_self_test() -> None:
         platform_name = runtime_platform()
         arch = runtime_arch()
         binary_suffix = ".exe" if platform_name == "windows" else ""
-        asset_name = f"ffmpeg-N-126313-g1ae4048218-win64-gpl.zip"
+        asset_name = "ffmpeg-N-126313-g1ae4048218-test-gpl.zip"
         build_root = asset_name.removesuffix(".zip")
         archive_path = root / asset_name
         with zipfile.ZipFile(archive_path, "w") as archive:
@@ -186,10 +192,15 @@ def run_ffmpeg_online_installer_self_test() -> None:
             def tools_dir() -> Path:
                 return tools
 
+        def fake_download(_artifact, destination: Path) -> Path:
+            target = Path(destination)
+            target.write_bytes(payload)
+            return target
+
         result = install_managed_ffmpeg_online(
             Engine,
             resolver=lambda: resolved,
-            downloader=lambda _artifact, destination: Path(destination).write_bytes(payload) or Path(destination),
+            downloader=fake_download,
             payload_validator=lambda payload_root, **_kwargs: (payload_root / "bin" / f"ffmpeg{binary_suffix}").is_file(),
             version_reader=lambda _directory: "ffmpeg version test-online",
             workspace_root=root / "workspace",
