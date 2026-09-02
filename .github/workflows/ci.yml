@@ -50,6 +50,7 @@ jobs:
             local-engine/batch_bridge.py \
             local-engine/archive_policy.py \
             local-engine/media_cleanup.py \
+            local-engine/media_cleanup_suggestions.py \
             local-engine/media_cleanup_workbench.py \
             local-engine/media_policy.py \
             local-engine/workspace_policy.py \
@@ -97,6 +98,7 @@ jobs:
           python3 scripts/test-local-bridge-submission.py
           python3 scripts/test-local-archive-policy.py
           python3 scripts/test-local-media-cleanup.py
+          python3 scripts/test-local-media-cleanup-suggestions.py
           python3 scripts/test-local-media-cleanup-workbench.py
           python3 scripts/test-local-media-policy.py
           python3 scripts/test-local-image-archive-policy.py
