@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import uuid
 from typing import Any, Callable
 
 from batch_input import BatchInputItem, BatchInputResult
@@ -31,6 +32,7 @@ class BatchSubmissionResult:
     outcomes: tuple[BatchSubmissionItemResult, ...]
     remaining_count: int
     stopped_code: str | None = None
+    batch_id: str = ""
 
     @property
     def attempted_count(self) -> int:
@@ -57,7 +59,14 @@ class BatchSubmissionResult:
         return self.stopped_code is not None
 
 
-def _payload_for_item(base_payload: dict[str, Any], item: BatchInputItem) -> dict[str, Any]:
+def _payload_for_item(
+    base_payload: dict[str, Any],
+    item: BatchInputItem,
+    *,
+    batch_id: str,
+    batch_index: int,
+    batch_size: int,
+) -> dict[str, Any]:
     payload = dict(base_payload)
     # Never let a stale single-download URL/title from the template override the
     # exact row the user reviewed in the batch preview.
@@ -66,6 +75,11 @@ def _payload_for_item(base_payload: dict[str, Any], item: BatchInputItem) -> dic
         payload["displayTitle"] = item.display_title
     else:
         payload.pop("displayTitle", None)
+    # Batch identity is generated inside the Local Engine and always overwrites
+    # stale/template values supplied by the caller.
+    payload["batchId"] = batch_id
+    payload["batchIndex"] = batch_index
+    payload["batchSize"] = batch_size
     return payload
 
 
@@ -116,11 +130,19 @@ def submit_batch_input_result(
     if not callable(submit_one):
         raise TypeError("submit_one must be callable")
 
+    batch_id = uuid.uuid4().hex
+    batch_size = len(batch.items)
     outcomes: list[BatchSubmissionItemResult] = []
     stopped_code: str | None = None
 
-    for item in batch.items:
-        payload = _payload_for_item(base_payload, item)
+    for batch_index, item in enumerate(batch.items, start=1):
+        payload = _payload_for_item(
+            base_payload,
+            item,
+            batch_id=batch_id,
+            batch_index=batch_index,
+            batch_size=batch_size,
+        )
         submission = _safe_submit(submit_one, payload)
         outcomes.append(
             BatchSubmissionItemResult(
@@ -142,6 +164,7 @@ def submit_batch_input_result(
         outcomes=tuple(outcomes),
         remaining_count=max(0, len(batch.items) - attempted),
         stopped_code=stopped_code,
+        batch_id=batch_id,
     )
 
 

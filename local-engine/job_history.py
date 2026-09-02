@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from batch_identity import batch_identity_from_payload
 from failure_policy import classify_failure, sanitize_failure_detail
 from workspace_policy import load_workspace_preferences
 
@@ -42,6 +43,9 @@ _RETRY_PAYLOAD_KEYS = {
     "networkRetryProfile",
     "rateLimitMbps",
     "concurrentFragments",
+    "batchId",
+    "batchIndex",
+    "batchSize",
 }
 
 
@@ -166,6 +170,14 @@ def _safe_retry_payload(value: object) -> dict[str, Any]:
                 continue
             continue
         result[key] = None if raw is None else _safe_text(raw, 120)
+    batch_id, batch_index, batch_size = batch_identity_from_payload(result)
+    result.pop("batchId", None)
+    result.pop("batchIndex", None)
+    result.pop("batchSize", None)
+    if batch_id is not None:
+        result["batchId"] = batch_id
+        result["batchIndex"] = batch_index
+        result["batchSize"] = batch_size
     if not result.get("sourceUrl"):
         return {}
     return result
@@ -209,6 +221,7 @@ def _clean_item(engine_module, value: object) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         duration = 0.0
     retry_payload = _safe_retry_payload(value.get("retryPayload"))
+    batch_id, batch_index, batch_size = batch_identity_from_payload(retry_payload)
     detail = sanitize_failure_detail(value.get("detail"), 360)
     result = {
         "id": _safe_text(value.get("id"), 64) or uuid.uuid4().hex,
@@ -223,6 +236,9 @@ def _clean_item(engine_module, value: object) -> dict[str, Any] | None:
         "videoQuality": _safe_text(value.get("videoQuality"), 40),
         "audioQuality": _safe_text(value.get("audioQuality"), 40),
         "collectionMode": _safe_text(value.get("collectionMode"), 24),
+        "batchId": batch_id,
+        "batchIndex": batch_index,
+        "batchSize": batch_size,
         "durationSeconds": round(duration, 1),
         "retryPayload": retry_payload,
         "retryable": bool(retry_payload.get("sourceUrl")),

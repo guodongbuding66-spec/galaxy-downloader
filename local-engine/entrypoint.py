@@ -8,6 +8,7 @@ import bridge
 import image_download
 import web_document
 from archive_policy import install_archive_policy
+from batch_identity import install_batch_identity_policy, run_batch_identity_self_test
 from batch_input import run_batch_input_self_test
 from batch_submission import run_batch_submission_self_test
 from bridge_submission_policy import StructuredLocalBridge
@@ -133,6 +134,7 @@ install_archive_policy(engine)
 install_media_policy(engine)
 install_workspace_policy(engine)
 install_recovery_policy(engine)
+install_batch_identity_policy(engine)
 install_pause_resume_policy(engine)
 install_job_queue_policy(engine)
 install_resume_bridge(engine)
@@ -261,6 +263,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine, "_galaxy_media_policy_installed", False) is True
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True
+    assert getattr(engine, "_galaxy_batch_identity_installed", False) is True
     assert getattr(engine, "_galaxy_pause_resume_installed", False) is True
     assert getattr(engine, "_galaxy_resume_bridge_installed", False) is True
     assert getattr(engine, "_galaxy_runtime_health_installed", False) is True
@@ -271,6 +274,7 @@ def _run_image_self_test() -> None:
     assert engine.LocalBridge is PauseResumeLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
     run_batch_input_self_test()
+    run_batch_identity_self_test(engine)
     run_batch_submission_self_test()
     run_job_scheduler_self_test()
     run_queue_controls_self_test()
