@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from runtime_storage import state_dir as runtime_state_dir
+
 import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -11,7 +13,7 @@ _ARCHIVE_CONTEXT = threading.local()
 
 
 def download_archive_path(engine_module) -> Path:
-    state_dir = engine_module.app_dir() / "state"
+    state_dir = runtime_state_dir(engine_module)
     state_dir.mkdir(parents=True, exist_ok=True)
     return state_dir / ARCHIVE_FILENAME
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from runtime_storage import state_dir as runtime_state_dir
+
 import json
 import threading
 import time
@@ -52,7 +54,7 @@ class ResumeStateStore:
 
     def __init__(self, engine_module) -> None:
         self.engine_module = engine_module
-        state_dir = engine_module.app_dir() / "state"
+        state_dir = runtime_state_dir(engine_module)
         state_dir.mkdir(parents=True, exist_ok=True)
         self.path = state_dir / RESUME_STATE_FILENAME
 

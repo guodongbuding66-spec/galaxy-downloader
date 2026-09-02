@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from runtime_storage import state_dir as runtime_state_dir
+
 import json
 import threading
 from pathlib import Path
@@ -57,7 +59,7 @@ RETRY_PROFILE_SETTINGS: dict[str, dict[str, int]] = {
 
 
 def _state_path(engine_module) -> Path:
-    target = engine_module.app_dir() / "state"
+    target = runtime_state_dir(engine_module)
     target.mkdir(parents=True, exist_ok=True)
     return target / PREFERENCES_FILENAME
 
