@@ -48,9 +48,6 @@ jobs:
           git add \
             local-engine/job_queue.py \
             local-engine/entrypoint.py \
-            scripts/test-local-job-queue.py \
-            .github/workflows/ci.yml \
-            .github/workflows/local-engine-windows.yml \
-            .github/workflows/local-engine-release.yml
+            scripts/test-local-job-queue.py
           git commit -m 'feat(local-engine): route queue lifecycle through scheduler core'
           git push origin HEAD:feature/local-engine-scheduler-core
