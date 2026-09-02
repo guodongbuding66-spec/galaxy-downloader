@@ -54,6 +54,7 @@ class ExternalDownloadPolicyTests(unittest.TestCase):
     def test_default_is_one_final_media_item_without_sidecars(self):
         command = self.command()
         self.assertIn("--ignore-config", command)
+        self.assertIn("--continue", command)
         self.assertIn("--no-playlist", command)
         playlist_index = command.index("--playlist-items")
         self.assertEqual(command[playlist_index + 1], "1")
