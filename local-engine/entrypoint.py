@@ -262,6 +262,23 @@ def _run_image_self_test() -> None:
     run_task_center_self_test()
 
 
+def _run_ui_smoke_test() -> int:
+    """Construct the fully wrapped Tk UI and exit deterministically.
+
+    This mode exists for Windows CI and packaged-EXE validation. It catches
+    failures that `--self-test` cannot see because self-test does not instantiate
+    Tk widgets. A PyInstaller `--windowed` exception may keep an error dialog
+    alive, so CI runs this mode with a hard timeout rather than treating process
+    liveness as success.
+    """
+    app = engine.EngineWindow(None)
+    app.withdraw()
+    app.update_idletasks()
+    app.after(100, app.close_app)
+    app.mainloop()
+    return 0
+
+
 def _cancel_image_worker_before_exit(timeout_seconds: float = 40.0) -> None:
     """Best-effort cleanup for non-GUI exits and unexpected main-loop returns."""
     if not _IMAGE_JOB_LOCK.locked():
@@ -279,6 +296,8 @@ def main() -> int:
         return engine.main()
     if "--version" in sys.argv:
         return engine.main()
+    if "--ui-smoke-test" in sys.argv:
+        return _run_ui_smoke_test()
 
     # A second loopback bridge handles direct image/original-asset downloads.
     # It never routes image bytes through Galaxy's public Cloudflare/Container
