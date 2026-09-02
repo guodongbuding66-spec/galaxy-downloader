@@ -79,7 +79,7 @@ class RuntimePathsPolicyTests(unittest.TestCase):
                 self.assertEqual(engine.state_dir(), root / "program" / "state")
                 self.assertEqual(engine.tools_dir(), root / "program")
 
-    def test_bundled_ffmpeg_keeps_priority_over_managed_tools(self) -> None:
+    def test_explicit_managed_ffmpeg_takes_priority_over_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             bundled = root / "program" / "ffmpeg" / "bin"
@@ -92,10 +92,14 @@ class RuntimePathsPolicyTests(unittest.TestCase):
             ):
                 install_runtime_paths_policy(engine)
                 engine.runtime_paths(refresh=True)
+                self.assertEqual(engine.ffmpeg_dir(), bundled)
+                self.assertEqual(engine.bundled_ffmpeg_dir(), bundled)
                 managed = root / "runtime" / "tools" / "ffmpeg" / "bin"
                 managed.mkdir(parents=True)
-                (managed / "ffmpeg").write_bytes(b"tool")
-                self.assertEqual(engine.ffmpeg_dir(), bundled)
+                binary = managed / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+                binary.write_bytes(b"tool")
+                self.assertEqual(engine.ffmpeg_dir(), managed)
+                self.assertEqual(engine.bundled_ffmpeg_dir(), bundled)
 
     def test_managed_ffmpeg_is_discovered_when_bundle_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
