@@ -17,6 +17,7 @@ class ManagedToolSpec:
     supports_managed_copy: bool
     supports_online_install: bool
     supports_update_check: bool
+    tracks_provenance: bool
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class ManagedToolHealth:
     supports_managed_copy: bool
     supports_online_install: bool
     supports_update_check: bool
+    tracks_provenance: bool
     capabilities: tuple[str, ...]
     message: str
 
@@ -59,6 +61,7 @@ DEFAULT_MANAGED_TOOL_SPECS: tuple[ManagedToolSpec, ...] = (
         supports_managed_copy=True,
         supports_online_install=False,
         supports_update_check=False,
+        tracks_provenance=False,
     ),
     ManagedToolSpec(
         tool="ffmpeg",
@@ -68,6 +71,7 @@ DEFAULT_MANAGED_TOOL_SPECS: tuple[ManagedToolSpec, ...] = (
         supports_managed_copy=True,
         supports_online_install=True,
         supports_update_check=True,
+        tracks_provenance=True,
     ),
 )
 
@@ -107,6 +111,7 @@ def _health(
         supports_managed_copy=spec.supports_managed_copy,
         supports_online_install=spec.supports_online_install,
         supports_update_check=spec.supports_update_check,
+        tracks_provenance=spec.tracks_provenance,
         capabilities=spec.capabilities,
         message=message,
     )
@@ -117,6 +122,9 @@ def evaluate_tool_health(spec: ManagedToolSpec, observation: ManagedToolObservat
 
     This function never resolves provider metadata, downloads artifacts or mutates
     the managed-tool directory. It is safe to call from startup/status refreshes.
+    Dependency health and provenance participation are intentionally separate:
+    a managed tool that does not yet use Galaxy artifact provenance is not a
+    warning merely because `.galaxy-tool.json` is absent.
     """
     source = str(observation.source or "unavailable")
     if not observation.ready:
@@ -157,6 +165,16 @@ def evaluate_tool_health(spec: ManagedToolSpec, observation: ManagedToolObservat
             health="warning",
             metadata_state="unavailable",
             message=f"{spec.display_name} is marked managed but its managed root cannot be inspected safely.",
+        )
+
+    if not spec.tracks_provenance:
+        return _health(
+            spec,
+            observation,
+            state="managed",
+            health="ok",
+            metadata_state="not-required",
+            message=f"{spec.display_name} managed-tool state is healthy; Galaxy provenance tracking is not enabled for this tool yet.",
         )
 
     try:
@@ -254,6 +272,7 @@ def public_tool_health(status: ManagedToolHealth) -> dict[str, object]:
         "supportsManagedCopy": payload["supports_managed_copy"],
         "supportsOnlineInstall": payload["supports_online_install"],
         "supportsUpdateCheck": payload["supports_update_check"],
+        "tracksProvenance": payload["tracks_provenance"],
         "capabilities": payload["capabilities"],
         "message": payload["message"],
     }
