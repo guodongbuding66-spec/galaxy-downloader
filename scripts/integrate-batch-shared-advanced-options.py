@@ -43,8 +43,8 @@ def main() -> None:
     )
     text = controls.read_text(encoding="utf-8")
     count = text.count("defaultOptions()")
-    if count != 5:
-        raise SystemExit(f"advanced default callsites: expected 5, found {count}")
+    if count != 2:
+        raise SystemExit(f"advanced default callsites: expected 2, found {count}")
     controls.write_text(text.replace("defaultOptions()", "createDefaultLocalEngineAdvancedOptions()"), encoding="utf-8")
 
     bridge = ROOT / "src/lib/local-engine-bridge.ts"
