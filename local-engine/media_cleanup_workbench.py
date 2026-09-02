@@ -22,7 +22,6 @@ from media_cleanup import (
     probe_media,
 )
 from media_cleanup_suggestions import (
-    CleanupRegionSuggestion,
     suggest_visible_overlay_for_media,
 )
 
@@ -312,6 +311,7 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
         suggesting = bool(state.get("suggestion_running"))
         busy = bool(running or suggesting)
         if busy:
+            suggestion_profile.configure(state="disabled")
             choose_button.state(["disabled"])
             run_button.state(["disabled"])
             undo_button.state(["disabled"])
@@ -321,6 +321,7 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
             ignore_suggestion_button.state(["disabled"])
             cancel_button.state(["!disabled"] if running else ["disabled"])
         else:
+            suggestion_profile.configure(state="readonly")
             choose_button.state(["!disabled"])
             run_button.state(["!disabled"] if state["regions"] else ["disabled"])
             undo_button.state(["!disabled"] if state["regions"] else ["disabled"])
@@ -344,8 +345,6 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
                 pass
         state["suggestions"] = []
         suggestion_var.set(message)
-        if "accept_suggestion_button" in locals():
-            set_running(media_cleanup_active(window))
 
     def update_regions_label() -> None:
         regions = [record[1] for record in state["regions"]]
@@ -544,6 +543,7 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
             return
         clear_suggestions(message="已忽略自动建议，可重新分析或手动画框")
         cleanup_status_var.set("自动建议已忽略")
+        set_running(False)
 
     def clamp_canvas(event) -> tuple[float, float]:
         plan = state.get("plan")
@@ -555,7 +555,7 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
         )
 
     def on_press(event) -> None:
-        if media_cleanup_active(window) or state.get("plan") is None:
+        if media_cleanup_active(window) or state.get("suggestion_running") or state.get("plan") is None:
             return
         if len(state["regions"]) >= MAX_CLEANUP_REGIONS:
             cleanup_status_var.set(f"最多支持 {MAX_CLEANUP_REGIONS} 个清理区域")
@@ -609,7 +609,7 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
     canvas.bind("<ButtonRelease-1>", on_release)
 
     def undo_region() -> None:
-        if not state["regions"] or media_cleanup_active(window):
+        if not state["regions"] or media_cleanup_active(window) or state.get("suggestion_running"):
             return
         item, _region = state["regions"].pop()
         canvas.delete(item)
