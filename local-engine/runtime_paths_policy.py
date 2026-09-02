@@ -64,14 +64,16 @@ def install_runtime_paths_policy(engine_module):
     def default_download_dir() -> Path:
         return _ensure(runtime_paths().downloads_dir)
 
+    def bundled_ffmpeg_dir() -> Path | None:
+        return original_ffmpeg_dir()
+
     def ffmpeg_dir() -> Path | None:
-        # Prefer the established bundled executable location first. Installed
-        # mode can later receive auto-managed FFmpeg under tools/ without
-        # changing download code or the release package layout.
-        bundled = original_ffmpeg_dir()
-        if bundled is not None:
-            return bundled
-        return _managed_ffmpeg_directory(runtime_paths())
+        # A managed copy only appears after an explicit Tool Manager action, so
+        # it can safely take precedence without changing historical defaults.
+        managed = _managed_ffmpeg_directory(runtime_paths())
+        if managed is not None:
+            return managed
+        return original_ffmpeg_dir()
 
     engine_module.runtime_paths = runtime_paths
     engine_module.data_dir = data_dir
@@ -79,6 +81,7 @@ def install_runtime_paths_policy(engine_module):
     engine_module.cache_dir = cache_dir
     engine_module.tools_dir = tools_dir
     engine_module.default_download_dir = default_download_dir
+    engine_module.bundled_ffmpeg_dir = bundled_ffmpeg_dir
     engine_module.ffmpeg_dir = ffmpeg_dir
 
     window_cls = engine_module.EngineWindow
@@ -140,6 +143,11 @@ def run_runtime_paths_policy_self_test() -> None:
             assert FakeEngine.default_download_dir() == root / "runtime" / "downloads"
             assert FakeEngine.cache_dir() == root / "runtime" / "cache"
             assert FakeEngine.tools_dir() == root / "runtime" / "tools"
+            assert FakeEngine.bundled_ffmpeg_dir() is None
+            managed_bin = FakeEngine.tools_dir() / "ffmpeg" / "bin"
+            managed_bin.mkdir(parents=True, exist_ok=True)
+            (managed_bin / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")).write_text("test", encoding="utf-8")
+            assert FakeEngine.ffmpeg_dir() == managed_bin
             status = FakeWindow().bridge_status()
             assert status["runtimeMode"] == "installed"
             assert status["runtimePlatform"] in {"windows", "macos", "linux", "other"}
