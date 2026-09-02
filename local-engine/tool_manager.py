@@ -396,14 +396,17 @@ def run_tool_manager_self_test() -> None:
             assert status["ytDlpVersion"] == "2026.08.19"
             assert status["ffmpegSource"] == "unavailable"
             assert status["dependenciesReady"] is False
-            assert status["dependencyWarningCount"] >= 1
+            assert status["dependencyWarningCount"] == 0
             assert status["dependencyErrorCount"] == 1
             assert len(status["managedToolRegistry"]) == 2
             ytdlp_status = next(item for item in status["managedToolRegistry"] if item["tool"] == "yt-dlp")
             ffmpeg_status = next(item for item in status["managedToolRegistry"] if item["tool"] == "ffmpeg")
-            assert ytdlp_status["state"] == "managed-untracked"
+            assert ytdlp_status["state"] == "managed"
+            assert ytdlp_status["metadataState"] == "not-required"
+            assert ytdlp_status["tracksProvenance"] is False
             assert ytdlp_status["ready"] is True
             assert ffmpeg_status["state"] == "missing"
+            assert ffmpeg_status["tracksProvenance"] is True
             assert ffmpeg_status["ready"] is False
             assert all("path" not in " ".join(item.keys()).lower() for item in status["managedToolRegistry"])
             assert "path" not in " ".join(status.keys()).lower()
