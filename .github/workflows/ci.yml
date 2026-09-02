@@ -44,6 +44,10 @@ jobs:
             local-engine/engine.py \
             local-engine/bridge.py \
             local-engine/bridge_submission_policy.py \
+            local-engine/batch_identity.py \
+            local-engine/batch_input.py \
+            local-engine/batch_submission.py \
+            local-engine/batch_bridge.py \
             local-engine/archive_policy.py \
             local-engine/media_policy.py \
             local-engine/workspace_policy.py \
@@ -83,6 +87,10 @@ jobs:
           python3 scripts/test-local-browser-auth.py
           python3 scripts/test-local-image-download.py
           python3 scripts/test-local-image-bridge.py
+          python3 scripts/test-local-batch-input.py
+          python3 scripts/test-local-batch-submission.py
+          python3 scripts/test-local-batch-bridge.py
+          python3 scripts/test-local-batch-identity.py
           python3 scripts/test-local-job-queue.py
           python3 scripts/test-local-bridge-submission.py
           python3 scripts/test-local-archive-policy.py
