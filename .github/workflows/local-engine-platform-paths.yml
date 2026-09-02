@@ -7,10 +7,13 @@ on:
       - 'local-engine/runtime_paths_policy.py'
       - 'local-engine/runtime_storage.py'
       - 'local-engine/tool_manager.py'
+      - 'local-engine/ffmpeg_manager.py'
+      - 'local-engine/desktop_tools.py'
       - 'scripts/test-local-platform-paths.py'
       - 'scripts/test-local-runtime-paths-policy.py'
       - 'scripts/test-local-runtime-storage.py'
       - 'scripts/test-local-tool-manager.py'
+      - 'scripts/test-local-ffmpeg-manager.py'
       - '.github/workflows/local-engine-platform-paths.yml'
   push:
     branches:
@@ -20,10 +23,13 @@ on:
       - 'local-engine/runtime_paths_policy.py'
       - 'local-engine/runtime_storage.py'
       - 'local-engine/tool_manager.py'
+      - 'local-engine/ffmpeg_manager.py'
+      - 'local-engine/desktop_tools.py'
       - 'scripts/test-local-platform-paths.py'
       - 'scripts/test-local-runtime-paths-policy.py'
       - 'scripts/test-local-runtime-storage.py'
       - 'scripts/test-local-tool-manager.py'
+      - 'scripts/test-local-ffmpeg-manager.py'
       - '.github/workflows/local-engine-platform-paths.yml'
   workflow_dispatch:
 
@@ -56,10 +62,13 @@ jobs:
           local-engine/runtime_paths_policy.py
           local-engine/runtime_storage.py
           local-engine/tool_manager.py
+          local-engine/ffmpeg_manager.py
+          local-engine/desktop_tools.py
           scripts/test-local-platform-paths.py
           scripts/test-local-runtime-paths-policy.py
           scripts/test-local-runtime-storage.py
           scripts/test-local-tool-manager.py
+          scripts/test-local-ffmpeg-manager.py
 
       - name: Validate portable and installed layouts
         run: |
@@ -67,3 +76,4 @@ jobs:
           python scripts/test-local-runtime-paths-policy.py
           python scripts/test-local-runtime-storage.py
           python scripts/test-local-tool-manager.py
+          python scripts/test-local-ffmpeg-manager.py
