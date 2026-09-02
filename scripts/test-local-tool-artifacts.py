@@ -125,20 +125,33 @@ class ToolArtifactTests(unittest.TestCase):
             with self.assertRaises(ToolArtifactError):
                 extract_verified_artifact(artifact, symlink, root / "out-symlink")
 
-    def test_atomic_install_preserves_previous_target_on_validation_failure(self) -> None:
+    def test_atomic_install_preserves_previous_target_on_digest_or_validation_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             archive_path = root / "tool.zip"
             with zipfile.ZipFile(archive_path, "w") as archive:
                 archive.writestr("bin/tool", b"new")
+            archive_bytes = archive_path.read_bytes()
             artifact = self.artifact(
-                payload=archive_path.read_bytes(),
+                payload=archive_bytes,
                 archive="zip",
-                sha256=hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+                sha256=hashlib.sha256(archive_bytes).hexdigest(),
             )
             target = root / "installed"
             (target / "bin").mkdir(parents=True)
             (target / "bin" / "tool").write_bytes(b"old")
+
+            tampered = root / "tampered.zip"
+            tampered.write_bytes(archive_bytes + b"tampered")
+            with self.assertRaises(ToolArtifactError):
+                install_verified_artifact(
+                    artifact,
+                    tampered,
+                    target,
+                    required_files=("bin/tool",),
+                    validator=lambda _path: True,
+                )
+            self.assertEqual((target / "bin" / "tool").read_bytes(), b"old")
 
             with self.assertRaises(ToolArtifactError):
                 install_verified_artifact(
