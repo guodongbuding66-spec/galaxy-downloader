@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# One-shot deterministic transform used only to bootstrap the reviewed product diff.
 ROOT = Path(__file__).resolve().parents[1]
 WORKBENCH = ROOT / "local-engine" / "media_cleanup_workbench.py"
 ENTRYPOINT = ROOT / "local-engine" / "entrypoint.py"
