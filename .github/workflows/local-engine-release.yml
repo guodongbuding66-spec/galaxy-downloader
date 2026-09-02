@@ -88,6 +88,7 @@ jobs:
             local-engine/job_queue.py `
             local-engine/queue_controls.py `
             local-engine/job_history.py `
+            local-engine/desktop_hooks.py `
             local-engine/desktop_ui.py `
             local-engine/desktop_extras.py `
             local-engine/desktop_manager.py `
@@ -128,6 +129,7 @@ jobs:
           python scripts/test-local-runtime-policy.py
           python scripts/test-local-recovery-policy.py
           python scripts/test-local-pause-resume.py
+          python scripts/test-local-desktop-hooks.py
           python scripts/test-local-release-notes.py
           python scripts/test-dynamic-document.py
 
