@@ -64,6 +64,7 @@ jobs:
       - name: Commit permanent product changes
         run: |
           set -euo pipefail
+          git restore .github/workflows/ci.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add \
@@ -74,8 +75,7 @@ jobs:
             local-engine/pause_resume_policy.py \
             local-engine/entrypoint.py \
             scripts/test-local-job-queue.py \
-            scripts/test-local-pause-resume.py \
-            .github/workflows/ci.yml
+            scripts/test-local-pause-resume.py
           git diff --cached --check
           git commit -m 'feat(local-engine): propagate Batch identity through task state'
           git push origin HEAD:feature/batch-identity-core
