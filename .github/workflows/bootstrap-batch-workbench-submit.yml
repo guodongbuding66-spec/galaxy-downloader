@@ -20,13 +20,16 @@ jobs:
           ref: feature/web-batch-workbench-submit
 
       - name: Apply Batch Workbench submission wiring
-        run: python scripts/integrate-batch-workbench-submit.py
+        run: |
+          python scripts/integrate-batch-workbench-submit.py
+          python scripts/fix-batch-workbench-submit-state.py
 
       - name: Verify submission anchors
         run: |
           grep -F 'submitLocalEngineBatchInput' src/components/downloader/BatchWorkbench.tsx
           grep -F '<BatchWorkbenchResultPanel result={submissionResult} />' src/components/downloader/BatchWorkbench.tsx
           grep -F 'queueFull || submitting' src/components/downloader/BatchWorkbench.tsx
+          if grep -F 'setSubmissionResult(null)' src/components/downloader/BatchWorkbench.tsx | grep -q 'useEffect'; then exit 1; fi
 
       - name: Set up pnpm and Node.js
         uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
