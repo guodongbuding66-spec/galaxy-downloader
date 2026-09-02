@@ -57,7 +57,7 @@ class ManagedToolActionTests(unittest.TestCase):
         )
         self.assertFalse(result.ok)
         self.assertEqual(result.state, "user-initiation-required")
-        self.assertFalse(result.network_accessed)
+        self.assertFalse(result.network_action)
         self.assertEqual(called, [])
 
     def test_unsupported_tool_or_action_fails_without_adapter(self) -> None:
@@ -91,7 +91,7 @@ class ManagedToolActionTests(unittest.TestCase):
         self.assertEqual(result.source, "managed")
         self.assertEqual(result.available_version, "N-200000-gabc")
         self.assertTrue(result.update_available)
-        self.assertTrue(result.network_accessed)
+        self.assertTrue(result.network_action)
 
     def test_ffmpeg_install_and_update_share_verified_online_adapter(self) -> None:
         calls = []
@@ -115,7 +115,7 @@ class ManagedToolActionTests(unittest.TestCase):
                 self.assertTrue(result.ok)
                 self.assertTrue(result.changed)
                 self.assertEqual(result.state, "completed")
-                self.assertTrue(result.network_accessed)
+                self.assertTrue(result.network_action)
         self.assertEqual(calls, ["install", "install"])
 
     def test_ytdlp_update_forwards_only_valid_channel_field(self) -> None:
@@ -138,7 +138,7 @@ class ManagedToolActionTests(unittest.TestCase):
             adapters=adapters,
         )
         self.assertTrue(result.ok)
-        self.assertTrue(result.network_accessed)
+        self.assertTrue(result.network_action)
         self.assertEqual(channels, ["nightly"])
 
         invalid = perform_managed_tool_action(
@@ -170,7 +170,7 @@ class ManagedToolActionTests(unittest.TestCase):
                         object(), ManagedToolActionRequest(tool, action, True), adapters=adapters
                     )
                     self.assertTrue(result.ok)
-                    self.assertFalse(result.network_accessed)
+                    self.assertFalse(result.network_action)
                     self.assertTrue(managed_tool_action_policy(tool, action)["mutating"])
 
     def test_adapter_exception_is_normalized_and_does_not_escape(self) -> None:
@@ -184,7 +184,7 @@ class ManagedToolActionTests(unittest.TestCase):
         )
         self.assertFalse(result.ok)
         self.assertEqual(result.state, "error")
-        self.assertTrue(result.network_accessed)
+        self.assertTrue(result.network_action)
         self.assertIn("provider failed", result.message)
 
     def test_public_result_is_bridge_safe_and_json_serializable(self) -> None:
@@ -203,7 +203,7 @@ class ManagedToolActionTests(unittest.TestCase):
         payload = public_managed_tool_action_result(result)
         json.dumps(payload)
         self.assertNotIn("path", " ".join(payload.keys()).lower())
-        self.assertEqual(payload["networkAccessed"], False)
+        self.assertEqual(payload["networkAction"], False)
 
     def test_embedded_self_test(self) -> None:
         run_managed_tool_actions_self_test()
