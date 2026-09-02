@@ -13,17 +13,17 @@ permissions:
 jobs:
   patch:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: feat/local-engine-0.15-pause-resume
 
-      - name: Apply web bridge transforms
-        run: python scripts/bootstrap_pause_resume_web_bridge.py
+      - name: Apply web UI transforms
+        run: python scripts/bootstrap_pause_resume_web_ui.py
 
-      - name: Compile Python bridge
-        run: python -m py_compile local-engine/resume_bridge.py
+      - name: Validate explicit yt-dlp continuation contract
+        run: python scripts/test-local-engine-policy.py
 
       - name: Set up pnpm and Node.js
         uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
@@ -39,14 +39,17 @@ jobs:
       - name: Run Local Engine bridge tests
         run: pnpm exec vitest run tests/local-engine-bridge-error.test.ts
 
-      - name: Lint changed TypeScript
-        run: pnpm exec eslint src/lib/local-engine-bridge.ts tests/local-engine-bridge-error.test.ts
+      - name: Lint pause resume UI
+        run: pnpm exec eslint src/components/downloader/LocalEngineDownloadCard.tsx src/lib/local-engine-bridge.ts tests/local-engine-bridge-error.test.ts
+
+      - name: Build production bundle
+        run: pnpm build
 
       - name: Commit integration
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add local-engine/resume_bridge.py src/lib/local-engine-bridge.ts tests/local-engine-bridge-error.test.ts
-          git commit -m 'feat(local-engine): add web pause resume bridge controls'
+          git add src/components/downloader/LocalEngineDownloadCard.tsx scripts/test-local-engine-policy.py
+          git commit -m 'feat(local-engine): add pause resume controls to web download card'
           git push origin HEAD:feat/local-engine-0.15-pause-resume
