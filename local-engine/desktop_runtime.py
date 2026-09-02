@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import messagebox, ttk
-from typing import Any, Callable
+from typing import Any
 
 import desktop_extras as extras
 import desktop_manager as manager
 import desktop_ui as ui
-from desktop_hooks import register_after_build_ui_hook, register_queue_tick_hook
+from desktop_hooks import register_after_build_ui_hook, register_job_lines_hook, register_queue_tick_hook
 from runtime_health import (
     clear_diagnostic_log,
     diagnostic_log_path,
@@ -394,25 +394,20 @@ def install_desktop_runtime(engine_module):
     # module function upgrades the existing button without rebuilding the header.
     manager._show_settings = _show_settings
 
-    original_job_lines: Callable[[Any], list[tuple[str, str]]] = extras._job_lines
-
-    def job_lines(window) -> list[tuple[str, str]]:
-        lines = original_job_lines(window)
+    def job_lines_hook(window, lines: list[tuple[str, str]]) -> list[tuple[str, str]]:
         if getattr(window, "job", None) is None:
             return lines
         preferences = load_workspace_preferences(engine_module)
         retry_key = str(preferences["networkRetryProfile"])
         rate = int(preferences["rateLimitMbps"])
-        lines.extend(
-            [
-                ("网络重试", RETRY_LABELS.get(retry_key, retry_key)),
-                ("并发分片", str(preferences["concurrentFragments"])),
-                ("速度上限", RATE_LABELS.get(rate, f"{rate} Mbps")),
-            ]
-        )
-        return lines
+        return [
+            *lines,
+            ("网络重试", RETRY_LABELS.get(retry_key, retry_key)),
+            ("并发分片", str(preferences["concurrentFragments"])),
+            ("速度上限", RATE_LABELS.get(rate, f"{rate} Mbps")),
+        ]
 
-    extras._job_lines = job_lines
+    register_job_lines_hook(window_cls, "desktop-runtime", job_lines_hook, order=130)
 
     def sync_storage(window, force: bool = False) -> None:
         now = __import__("time").monotonic()

@@ -10,7 +10,7 @@ from tkinter import messagebox, ttk
 from typing import Any, Callable
 
 import desktop_ui as ui
-from desktop_hooks import register_after_build_ui_hook, register_queue_tick_hook
+from desktop_hooks import register_after_build_ui_hook, register_queue_tick_hook, run_job_lines_hooks
 from job_history import clear_history, load_history
 
 
@@ -249,7 +249,7 @@ def _show_history(window, engine_module) -> None:
 def _job_lines(window) -> list[tuple[str, str]]:
     job = getattr(window, "job", None)
     if job is None:
-        return [("状态", "当前没有任务")]
+        return run_job_lines_hooks(window, [("状态", "当前没有任务")])
 
     start = getattr(job, "segment_start", None)
     end = getattr(job, "segment_end", None)
@@ -264,7 +264,7 @@ def _job_lines(window) -> list[tuple[str, str]]:
         source = _redacted_source_url(source)[0] or source
     except Exception:
         pass
-    return [
+    lines = [
         ("来源", source),
         ("视频画质", str(getattr(job, "video_quality", "best") or "best")),
         ("音频质量", str(getattr(job, "audio_quality", "best") or "best")),
@@ -279,6 +279,7 @@ def _job_lines(window) -> list[tuple[str, str]]:
         ("aria2c", "开启" if bool(getattr(job, "use_aria2c", False)) else "关闭"),
         ("集合模式", str(getattr(job, "collection_mode", "single") or "single")),
     ]
+    return run_job_lines_hooks(window, lines)
 
 
 def _show_job_details(window, engine_module) -> None:

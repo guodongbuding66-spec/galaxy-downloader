@@ -5,9 +5,12 @@ from typing import Any
 
 _AFTER_BUILD_ATTR = "_galaxy_after_build_ui_hooks"
 _QUEUE_TICK_ATTR = "_galaxy_queue_tick_hooks"
+_JOB_LINES_ATTR = "_galaxy_job_line_hooks"
 
 DesktopHook = Callable[[Any], None]
-HookRecord = tuple[int, str, DesktopHook]
+JobLines = list[tuple[str, str]]
+JobLinesHook = Callable[[Any, JobLines], JobLines]
+HookRecord = tuple[int, str, Callable[..., Any]]
 
 
 def _registry(window_cls: type, attribute: str) -> list[HookRecord]:
@@ -23,7 +26,7 @@ def _registry(window_cls: type, attribute: str) -> list[HookRecord]:
     return value
 
 
-def _register(window_cls: type, attribute: str, name: str, callback: DesktopHook, order: int) -> None:
+def _register(window_cls: type, attribute: str, name: str, callback: Callable[..., Any], order: int) -> None:
     clean_name = str(name or "").strip()
     if not clean_name:
         raise ValueError("desktop hook name must not be empty")
@@ -49,6 +52,10 @@ def register_queue_tick_hook(window_cls: type, name: str, callback: DesktopHook,
     _register(window_cls, _QUEUE_TICK_ATTR, name, callback, order)
 
 
+def register_job_lines_hook(window_cls: type, name: str, callback: JobLinesHook, *, order: int) -> None:
+    _register(window_cls, _JOB_LINES_ATTR, name, callback, order)
+
+
 def _run(window: Any, attribute: str) -> None:
     records = list(_registry(type(window), attribute))
     for _order, _name, callback in records:
@@ -63,9 +70,23 @@ def run_queue_tick_hooks(window: Any) -> None:
     _run(window, _QUEUE_TICK_ATTR)
 
 
+def run_job_lines_hooks(window: Any, lines: JobLines) -> JobLines:
+    rendered = list(lines)
+    for _order, name, callback in list(_registry(type(window), _JOB_LINES_ATTR)):
+        next_lines = callback(window, list(rendered))
+        if not isinstance(next_lines, list):
+            raise TypeError(f"desktop job-line hook {name!r} must return a list")
+        rendered = next_lines
+    return rendered
+
+
 def registered_after_build_ui_hooks(window_cls: type) -> tuple[str, ...]:
     return tuple(record[1] for record in _registry(window_cls, _AFTER_BUILD_ATTR))
 
 
 def registered_queue_tick_hooks(window_cls: type) -> tuple[str, ...]:
     return tuple(record[1] for record in _registry(window_cls, _QUEUE_TICK_ATTR))
+
+
+def registered_job_lines_hooks(window_cls: type) -> tuple[str, ...]:
+    return tuple(record[1] for record in _registry(window_cls, _JOB_LINES_ATTR))

@@ -5,11 +5,11 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
-from typing import Any, Callable
+from typing import Any
 
 import desktop_extras as extras
 import desktop_ui as ui
-from desktop_hooks import register_after_build_ui_hook
+from desktop_hooks import register_after_build_ui_hook, register_job_lines_hook
 from job_history import clear_history, load_history
 from workspace_policy import (
     DEFAULT_WORKSPACE_PREFERENCES,
@@ -664,26 +664,21 @@ def install_desktop_manager(engine_module):
     # Existing v0.11 buttons resolve these module globals when clicked, so
     # replacing them here upgrades the dialog without touching its stable layout.
     extras._show_history = _show_history_manager
-    original_job_lines: Callable[[Any], list[tuple[str, str]]] = extras._job_lines
-
-    def job_lines(window) -> list[tuple[str, str]]:
-        lines = original_job_lines(window)
+    def job_lines_hook(window, lines: list[tuple[str, str]]) -> list[tuple[str, str]]:
         job = getattr(window, "job", None)
         if job is None:
             return lines
         preferences = load_workspace_preferences(engine_module)
         style_label = STYLE_LABELS.get(str(preferences["outputNameStyle"]), str(preferences["outputNameStyle"]))
-        lines.extend(
-            [
-                ("下载 Archive", "开启" if bool(getattr(job, "skip_previously_downloaded", False)) else "关闭"),
-                ("文件命名", style_label),
-                ("按来源整理", "开启" if bool(preferences["organizeBySource"]) else "关闭"),
-                ("输出模板", output_template(engine_module, job)),
-            ]
-        )
-        return lines
+        return [
+            *lines,
+            ("下载 Archive", "开启" if bool(getattr(job, "skip_previously_downloaded", False)) else "关闭"),
+            ("文件命名", style_label),
+            ("按来源整理", "开启" if bool(preferences["organizeBySource"]) else "关闭"),
+            ("输出模板", output_template(engine_module, job)),
+        ]
 
-    extras._job_lines = job_lines
+    register_job_lines_hook(window_cls, "desktop-manager", job_lines_hook, order=120)
 
     def after_build_ui(window) -> None:
         header_actions = window._copy_diag_button.master
