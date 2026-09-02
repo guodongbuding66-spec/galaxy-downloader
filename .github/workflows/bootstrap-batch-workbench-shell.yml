@@ -1,0 +1,57 @@
+name: Bootstrap Batch Workbench Shell
+
+on:
+  push:
+    branches:
+      - feature/web-batch-workbench-shell
+    paths:
+      - '.github/workflows/bootstrap-batch-workbench-shell.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: feature/web-batch-workbench-shell
+
+      - name: Apply Batch Workbench shell integration
+        run: python scripts/integrate-batch-workbench-shell.py
+
+      - name: Verify integration anchors
+        run: |
+          grep -F "import { BatchWorkbench } from '@/components/downloader/BatchWorkbench';" 'src/app/[locale]/unified-downloader.tsx'
+          grep -F '<BatchWorkbench />' 'src/app/[locale]/unified-downloader.tsx'
+
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          version: 11.8.0
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Batch Workbench model tests
+        run: pnpm exec vitest run tests/batch-workbench-model.test.ts tests/local-engine-batch-bridge-client.test.ts
+
+      - name: Run lint
+        run: pnpm lint
+
+      - name: Build production bundle
+        run: pnpm build
+
+      - name: Commit permanent integration
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'src/app/[locale]/unified-downloader.tsx'
+          git commit -m 'feat(web): mount the Batch Workbench shell'
+          git push origin HEAD:feature/web-batch-workbench-shell
