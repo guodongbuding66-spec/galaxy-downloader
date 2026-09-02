@@ -77,34 +77,8 @@ def patch_ci() -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def patch_platform_workflow() -> None:
-    path = ROOT / ".github" / "workflows" / "local-engine-platform-paths.yml"
-    text = path.read_text(encoding="utf-8")
-    for watched in ("local-engine/runtime_storage.py", "scripts/test-local-runtime-storage.py"):
-        marker = f"      - '{watched}'\n"
-        if marker not in text:
-            anchor = "      - 'local-engine/runtime_paths_policy.py'\n"
-            if anchor not in text:
-                raise RuntimeError("platform workflow path anchor missing")
-            text = text.replace(anchor, anchor + marker, 1)
-    compile_old = "python -m py_compile local-engine/platform_paths.py local-engine/runtime_paths_policy.py scripts/test-local-platform-paths.py scripts/test-local-runtime-paths-policy.py"
-    compile_new = "python -m py_compile local-engine/platform_paths.py local-engine/runtime_paths_policy.py local-engine/runtime_storage.py scripts/test-local-platform-paths.py scripts/test-local-runtime-paths-policy.py scripts/test-local-runtime-storage.py"
-    if compile_old in text:
-        text = text.replace(compile_old, compile_new)
-    elif compile_new not in text:
-        raise RuntimeError("platform workflow compile command anchor missing")
-    test_line = "          python scripts/test-local-runtime-storage.py\n"
-    if test_line not in text:
-        anchor = "          python scripts/test-local-runtime-paths-policy.py\n"
-        if anchor not in text:
-            raise RuntimeError("platform workflow test anchor missing")
-        text = text.replace(anchor, anchor + test_line, 1)
-    path.write_text(text, encoding="utf-8")
-
-
 if __name__ == "__main__":
     changed = migrate_state_consumers()
     patch_entrypoint()
     patch_ci()
-    patch_platform_workflow()
     print("migrated runtime state consumers:", ", ".join(changed))
