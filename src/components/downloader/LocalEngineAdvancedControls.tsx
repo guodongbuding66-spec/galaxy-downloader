@@ -12,22 +12,15 @@ import {
   Zap,
 } from 'lucide-react';
 
-import type {
-  LocalEngineSubtitleMode,
-  SponsorBlockCategory,
+import {
+  createDefaultLocalEngineAdvancedOptions,
+  type LocalEngineAdvancedOptions,
+  type LocalEngineSubtitleMode,
+  type SponsorBlockCategory,
 } from '@/lib/local-engine';
-import type { SubtitleTrack } from '@/lib/types';
 
-export type LocalEngineAdvancedOptions = {
-  segmentStart: string;
-  segmentEnd: string;
-  splitChapters: boolean;
-  subtitleMode: LocalEngineSubtitleMode;
-  subtitleLanguages: string[];
-  audioLanguages: string[];
-  sponsorBlockCategories: SponsorBlockCategory[];
-  useAria2c: boolean;
-};
+export type { LocalEngineAdvancedOptions } from '@/lib/local-engine';
+import type { SubtitleTrack } from '@/lib/types';
 
 type Copy = {
   title: string;
@@ -160,19 +153,6 @@ function toggleCategory(values: SponsorBlockCategory[], category: SponsorBlockCa
     : [...values, category];
 }
 
-function defaultOptions(): LocalEngineAdvancedOptions {
-  return {
-    segmentStart: '',
-    segmentEnd: '',
-    splitChapters: false,
-    subtitleMode: 'both',
-    subtitleLanguages: [],
-    audioLanguages: [],
-    sponsorBlockCategories: [],
-    useAria2c: false,
-  };
-}
-
 export function LocalEngineAdvancedControls({
   value,
   onChange,
@@ -217,7 +197,7 @@ export function LocalEngineAdvancedControls({
   };
 
   const applyPreset = (preset: 'standard' | 'course' | 'clean' | 'fast') => {
-    const base = defaultOptions();
+    const base = createDefaultLocalEngineAdvancedOptions();
     if (preset === 'course') {
       onChange({ ...base, splitChapters: true, subtitleMode: 'both' });
       return;
@@ -290,7 +270,7 @@ export function LocalEngineAdvancedControls({
             <button
               type="button"
               disabled={disabled}
-              onClick={() => onChange(defaultOptions())}
+              onClick={() => onChange(createDefaultLocalEngineAdvancedOptions())}
               className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               <RotateCcw className="h-3 w-3" aria-hidden="true" />
