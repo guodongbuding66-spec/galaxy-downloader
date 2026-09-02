@@ -133,7 +133,7 @@ def _show_tools(window, engine_module) -> None:
             refresh_button.state(["!disabled"])
             refresh(force=True)
 
-    def finish_result(result, *, action: str) -> None:
+    def finish_result(result, action: str) -> None:
         if not _window_exists(dialog):
             return
         set_busy(False)
@@ -154,7 +154,7 @@ def _show_tools(window, engine_module) -> None:
         def worker() -> None:
             result = update_managed_ytdlp(engine_module, channel="stable")
             try:
-                dialog.after(0, finish_result, result, action="yt-dlp 更新")
+                dialog.after(0, finish_result, result, "yt-dlp 更新")
             except tk.TclError:
                 pass
 
@@ -173,7 +173,7 @@ def _show_tools(window, engine_module) -> None:
         def worker() -> None:
             result = reset_managed_ytdlp(engine_module)
             try:
-                dialog.after(0, finish_result, result, action="恢复随包版本")
+                dialog.after(0, finish_result, result, "恢复随包版本")
             except tk.TclError:
                 pass
 
