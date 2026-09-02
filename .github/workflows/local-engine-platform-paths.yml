@@ -8,6 +8,7 @@ on:
       - 'local-engine/runtime_storage.py'
       - 'local-engine/tool_manager.py'
       - 'local-engine/ffmpeg_manager.py'
+      - 'local-engine/ffmpeg_online_installer.py'
       - 'local-engine/tool_artifacts.py'
       - 'local-engine/tool_sources.py'
       - 'local-engine/tool_install_layout.py'
@@ -17,6 +18,7 @@ on:
       - 'scripts/test-local-runtime-storage.py'
       - 'scripts/test-local-tool-manager.py'
       - 'scripts/test-local-ffmpeg-manager.py'
+      - 'scripts/test-local-ffmpeg-online-installer.py'
       - 'scripts/test-local-tool-artifacts.py'
       - 'scripts/test-local-tool-sources.py'
       - 'scripts/test-local-tool-install-layout.py'
@@ -30,6 +32,7 @@ on:
       - 'local-engine/runtime_storage.py'
       - 'local-engine/tool_manager.py'
       - 'local-engine/ffmpeg_manager.py'
+      - 'local-engine/ffmpeg_online_installer.py'
       - 'local-engine/tool_artifacts.py'
       - 'local-engine/tool_sources.py'
       - 'local-engine/tool_install_layout.py'
@@ -39,6 +42,7 @@ on:
       - 'scripts/test-local-runtime-storage.py'
       - 'scripts/test-local-tool-manager.py'
       - 'scripts/test-local-ffmpeg-manager.py'
+      - 'scripts/test-local-ffmpeg-online-installer.py'
       - 'scripts/test-local-tool-artifacts.py'
       - 'scripts/test-local-tool-sources.py'
       - 'scripts/test-local-tool-install-layout.py'
@@ -75,6 +79,7 @@ jobs:
           local-engine/runtime_storage.py
           local-engine/tool_manager.py
           local-engine/ffmpeg_manager.py
+          local-engine/ffmpeg_online_installer.py
           local-engine/tool_artifacts.py
           local-engine/tool_sources.py
           local-engine/tool_install_layout.py
@@ -84,6 +89,7 @@ jobs:
           scripts/test-local-runtime-storage.py
           scripts/test-local-tool-manager.py
           scripts/test-local-ffmpeg-manager.py
+          scripts/test-local-ffmpeg-online-installer.py
           scripts/test-local-tool-artifacts.py
           scripts/test-local-tool-sources.py
           scripts/test-local-tool-install-layout.py
@@ -95,6 +101,7 @@ jobs:
           python scripts/test-local-runtime-storage.py
           python scripts/test-local-tool-manager.py
           python scripts/test-local-ffmpeg-manager.py
+          python scripts/test-local-ffmpeg-online-installer.py
           python scripts/test-local-tool-artifacts.py
           python scripts/test-local-tool-sources.py
           python scripts/test-local-tool-install-layout.py
