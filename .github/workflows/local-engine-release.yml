@@ -55,6 +55,8 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python -m pip install -r local-engine/requirements.txt
           python -m pip install "pillow>=11,<12"
 
@@ -66,6 +68,9 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+
           python -m py_compile `
             local-engine/entrypoint.py `
             local-engine/engine.py `
@@ -97,7 +102,13 @@ jobs:
             local-engine/url_policy.py `
             local-engine/external_ytdlp.py `
             local-engine/wechat_channels.py
+
           python local-engine/entrypoint.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Source self-test exited with $LASTEXITCODE" }
+
+          python local-engine/entrypoint.py --ui-smoke-test
+          if ($LASTEXITCODE -ne 0) { throw "Source UI smoke exited with $LASTEXITCODE" }
+
           python scripts/test-local-engine-policy.py
           python scripts/test-local-url-policy.py
           python scripts/test-local-document-policy.py
@@ -114,7 +125,10 @@ jobs:
           python scripts/test-local-runtime-policy.py
           python scripts/test-local-recovery-policy.py
           python scripts/test-dynamic-document.py
-          $engineVersion = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
+
+          $versionOutput = python local-engine/entrypoint.py --version
+          if ($LASTEXITCODE -ne 0) { throw "Source --version exited with $LASTEXITCODE" }
+          $engineVersion = ($versionOutput | Select-Object -Last 1).Trim()
           $releaseVersion = '${{ steps.release.outputs.version }}'
           if ($engineVersion -ne $releaseVersion) {
             throw "engine VERSION ($engineVersion) does not match local-engine/VERSION ($releaseVersion)"
@@ -134,7 +148,7 @@ jobs:
           --add-data "local-engine/VERSION;."
           local-engine/entrypoint.py
 
-      - name: Validate packaged executable
+      - name: Validate packaged executable self-test
         if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
@@ -142,6 +156,21 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "GalaxyLocalEngine.exe self-test exited with $($process.ExitCode)"
           }
+
+      - name: Validate packaged desktop UI construction
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -ArgumentList '--ui-smoke-test' -PassThru
+          $finished = $process.WaitForExit(20000)
+          if (-not $finished) {
+            Get-Process -Name 'GalaxyLocalEngine' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            throw 'GalaxyLocalEngine.exe UI smoke did not exit within 20 seconds. Release blocked because an exception dialog or startup deadlock may be present.'
+          }
+          if ($process.ExitCode -ne 0) {
+            throw "GalaxyLocalEngine.exe UI smoke exited with $($process.ExitCode)"
+          }
+          Write-Host 'Packaged desktop UI constructed and closed cleanly.'
 
       - name: Assemble release package
         if: steps.release.outputs.exists != 'true'
@@ -258,6 +287,13 @@ jobs:
           6. 下载的视频和图片保存在解压目录下的 `downloads` 文件夹。
           7. 返回 SparkDownloader，等待显示 **“本地引擎已连接”** 后即可使用。
 
+          ### 0.14.1
+          - 修复 Windows 桌面端启动时 `expected integer but got "UI"` 的 Tk 字体解析崩溃。
+          - 新增源码与 PyInstaller `--windowed` 成品 EXE 的真实 UI 构建 Smoke；异常弹窗、启动死锁或 UI 构建异常会阻止发布。
+          - 正式 Release workflow 在上传 ZIP 前再次执行成品 EXE UI Smoke，不再只依赖 `--self-test`。
+          - 网站、下载路由和 GitHub 备份地址精确绑定 `local-engine-v0.14.1`。
+          - 将 Browserslist 锁定到已修复 High advisories 的 4.28.8，保持 Security Audit 高危阈值不变。
+
           ### 0.14.0
           - 新增统一“任务中心”：当前下载、等待队列、成功历史、失败历史与取消任务放在同一个桌面工作区。
           - 任务中心支持搜索与状态筛选，并保留队列暂停、上移/下移、批量移到顶部和批量移除等能力。
@@ -268,7 +304,6 @@ jobs:
           - 下载历史的错误详情进一步隐私脱敏：URL 凭据、query、fragment、token、authorization、cookie、session、password 与 secret 不写入历史。
           - 历史重试会保留实际使用的单任务恢复参数，Download Archive 仍会在用户主动重试时关闭以避免把重试任务跳过。
           - 解析顺序、腾讯元宝登录复用、FFmpeg、图片/文档下载、队列执行语义、网站 Bridge 与默认 0.13 网络参数保持不变。
-          - 网站和 GitHub 备份下载地址精确绑定 `local-engine-v0.14.0`，不使用 `releases/latest`。
 
           0.13.0 新增网络重试/分片/限速设置、磁盘健康、完成提醒和隐私安全诊断日志。
           0.12.0 新增历史搜索/重试、完整队列管理器、文件命名与来源目录设置。
