@@ -59,6 +59,8 @@ jobs:
       - name: Install build dependencies
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python -m pip install -r local-engine/requirements.txt
           python -m pip install "pillow>=11,<12"
 
@@ -82,6 +84,7 @@ jobs:
           local-engine/queue_controls.py
           local-engine/job_history.py
           local-engine/desktop_ui.py
+          local-engine/desktop_layer_compat.py
           local-engine/desktop_extras.py
           local-engine/desktop_manager.py
           local-engine/desktop_runtime.py
@@ -102,16 +105,34 @@ jobs:
       - name: Validate source self-test, UI construction, and version
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+
           python local-engine/entrypoint.py --self-test
+          if ($LASTEXITCODE -ne 0) {
+            throw "Source self-test exited with $LASTEXITCODE"
+          }
+
           python local-engine/entrypoint.py --ui-smoke-test
+          if ($LASTEXITCODE -ne 0) {
+            throw "Source UI smoke exited with $LASTEXITCODE"
+          }
+
           $expected = (Get-Content 'local-engine/VERSION' -Raw).Trim()
-          $actual = (python local-engine/entrypoint.py --version | Select-Object -Last 1).Trim()
+          $versionOutput = python local-engine/entrypoint.py --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Source --version exited with $LASTEXITCODE"
+          }
+          $actual = ($versionOutput | Select-Object -Last 1).Trim()
           if ($actual -ne $expected) {
             throw "Engine version '$actual' does not match VERSION '$expected'"
           }
 
       - name: Validate Local Engine policies
+        shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python scripts/test-local-document-policy.py
           python scripts/test-local-entrypoint-policy.py
           python scripts/test-local-browser-auth.py
