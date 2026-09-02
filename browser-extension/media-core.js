@@ -82,8 +82,6 @@ export function normalizeCandidate(raw, { baseUrl = "" } = {}) {
   if (!url) return null;
   const kind = classifyMediaUrl(url, raw.mimeType);
   if (kind === "unknown" && raw.mediaKind !== "unknown") {
-    // A page-side hint can narrow unknown extensionless CDN URLs, but never
-    // override a known MIME/extension classification.
     if (!["video", "audio", "image", "hls", "dash"].includes(raw.mediaKind)) return null;
   }
   const resolvedKind = kind === "unknown" ? raw.mediaKind || "unknown" : kind;
@@ -131,6 +129,22 @@ export function scoreCandidate(candidate) {
   return score;
 }
 
+export function candidateQualityLabel(candidate) {
+  const width = Number(candidate?.width) || 0;
+  const height = Number(candidate?.height) || 0;
+  if (candidate?.mediaKind === "hls" || candidate?.mediaKind === "dash") return "自适应流";
+  if (!width || !height) return "质量未知";
+  if (candidate?.mediaKind === "image") {
+    const megapixels = (width * height) / 1_000_000;
+    return megapixels >= 1 ? `${megapixels.toFixed(megapixels >= 10 ? 0 : 1)} MP · ${width}×${height}` : `${width}×${height}`;
+  }
+  if (height >= 2160) return `4K · ${width}×${height}`;
+  if (height >= 1440) return `1440p · ${width}×${height}`;
+  if (height >= 1080) return `1080p · ${width}×${height}`;
+  if (height >= 720) return `720p · ${width}×${height}`;
+  return `${width}×${height}`;
+}
+
 export function mergeCandidates(existing, incoming, { limit = 200 } = {}) {
   const map = new Map();
   for (const candidate of [...(existing || []), ...(incoming || [])]) {
@@ -175,6 +189,8 @@ export function publicCandidate(candidate, id) {
     label: candidate.label,
     width: candidate.width,
     height: candidate.height,
+    qualityLabel: candidateQualityLabel(candidate),
+    rankScore: Math.round(scoreCandidate(candidate)),
     directDownload: canDirectDownload(candidate),
     galaxyHandoff: requiresGalaxyHandoff(candidate),
   };

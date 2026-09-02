@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
   canDirectDownload,
+  candidateQualityLabel,
   classifyMediaUrl,
   mergeCandidates,
   normalizeCandidate,
+  publicCandidate,
   requiresGalaxyHandoff,
   scoreCandidate,
   suggestedFilename,
@@ -15,6 +18,13 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const manifest = JSON.parse(fs.readFileSync(path.join(here, 'manifest.json'), 'utf8'))
+const backgroundPath = path.join(here, 'background.js')
+const browserPath = path.join(here, 'candidate-browser.js')
+const backgroundSource = fs.readFileSync(backgroundPath, 'utf8')
+const browserSource = fs.readFileSync(browserPath, 'utf8')
+
+execFileSync(process.execPath, ['--check', browserPath], { stdio: 'pipe' })
+execFileSync(process.execPath, ['--check', backgroundPath], { stdio: 'pipe' })
 
 assert.equal(manifest.manifest_version, 3)
 assert.deepEqual([...manifest.permissions].sort(), ['downloads', 'webRequest'])
@@ -30,7 +40,9 @@ assert.equal(manifest.content_scripts[1].world, 'ISOLATED')
 assert(manifest.content_scripts[1].js.includes('content.js'))
 assert(manifest.content_scripts[1].js.includes('dynamic-scan.js'))
 assert(manifest.content_scripts[1].js.includes('element-actions.js'))
+assert(manifest.content_scripts[1].js.includes('candidate-browser.js'))
 assert(!manifest.content_scripts[0].js.includes('element-actions.js'))
+assert(!manifest.content_scripts[0].js.includes('candidate-browser.js'))
 
 assert.equal(classifyMediaUrl('https://cdn.example/video.mp4'), 'video')
 assert.equal(classifyMediaUrl('https://cdn.example/master.m3u8'), 'hls')
@@ -52,6 +64,7 @@ const source = normalizeCandidate({
 assert(source)
 assert.equal(source.mediaKind, 'video')
 assert.equal(source.pageUrl, 'https://site.example/watch')
+assert.equal(candidateQualityLabel(source), '1080p · 1920×1080')
 
 const preview = normalizeCandidate({
   url: 'https://cdn.example/preview/watermarked-video.mp4',
@@ -72,7 +85,25 @@ const hls = normalizeCandidate({ url: 'https://cdn.example/master.m3u8', source:
 assert(hls)
 assert.equal(canDirectDownload(hls), false)
 assert.equal(requiresGalaxyHandoff(hls), true)
+assert.equal(candidateQualityLabel(hls), '自适应流')
+
+const publicSource = publicCandidate(source, '7')
+assert.equal(publicSource.id, '7')
+assert.equal(publicSource.qualityLabel, '1080p · 1920×1080')
+assert.equal(typeof publicSource.rankScore, 'number')
+assert(!Object.hasOwn(publicSource, 'url'))
+assert(!JSON.stringify(publicSource).includes('token=opaque'))
 
 assert.equal(suggestedFilename(source).endsWith('.mp4'), true)
+
+assert(backgroundSource.includes('MAX_BATCH_DOWNLOADS = 20'))
+assert(backgroundSource.includes('galaxy:download-candidates'))
+assert(backgroundSource.includes('canDirectDownload(candidate)'))
+assert(backgroundSource.includes('galaxy:toggle-candidate-browser'))
+assert(browserSource.includes('["stream", "流媒体"]'))
+assert(browserSource.includes('selectedIds'))
+assert(browserSource.includes('galaxy:download-candidates'))
+assert(browserSource.includes('candidate.qualityLabel'))
+assert(!browserSource.includes('candidate.url'))
 
 console.log('Galaxy MV3 media core tests passed')
