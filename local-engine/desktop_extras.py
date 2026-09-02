@@ -14,6 +14,7 @@ from desktop_hooks import (
     register_after_build_ui_hook,
     register_desktop_presenter,
     register_queue_tick_hook,
+    run_history_button_hooks,
     run_job_lines_hooks,
     show_desktop_presenter,
 )
@@ -369,7 +370,8 @@ def _sync_history_button(window, engine_module, *, force: bool = False) -> None:
         count = len(load_history(engine_module))
     except Exception:
         count = 0
-    button.configure(text=f"历史 {count}")
+    text = run_history_button_hooks(window, engine_module, count, f"历史 {count}")
+    button.configure(text=text)
 
 
 def _augment_queue_rows(original_render: Callable[[Any, list[Any]], None]):

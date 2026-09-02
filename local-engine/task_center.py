@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import desktop_extras as extras
 import desktop_manager as manager
 import desktop_ui as ui
-from desktop_hooks import register_after_build_ui_hook, register_desktop_presenter
+from desktop_hooks import register_after_build_ui_hook, register_desktop_presenter, register_history_button_hook
 from failure_policy import smart_retry_payload
 from job_history import _redacted_source_url, load_history
 
@@ -733,27 +733,20 @@ def install_task_center(engine_module):
         window_cls, "queue", "task-center", lambda window: _show_task_center(window, engine_module, "等待"), order=150
     )
 
-    original_sync_history = extras._sync_history_button
-
-    def sync_history_button(window, module, *, force: bool = False) -> None:
-        original_sync_history(window, module, force=force)
-        button = getattr(window, "_history_button", None)
-        if button is None:
-            return
+    def history_button_hook(window, _module, history_count: int, _text: str) -> str:
         try:
-            total = len(load_history(module)) + len(_pending_snapshot(window)) + len(_resume_rows(window)) + (1 if bool(getattr(window, "running", False)) else 0)
+            total = history_count + len(_pending_snapshot(window)) + len(_resume_rows(window)) + (1 if bool(getattr(window, "running", False)) else 0)
         except Exception:
-            total = 0
-        button.configure(text=f"任务 {total}")
+            total = history_count
+        return f"任务 {total}"
 
-    extras._sync_history_button = sync_history_button
-
+    register_history_button_hook(window_cls, "task-center", history_button_hook, order=150)
 
     def after_build_ui(window) -> None:
         queue_button = getattr(window, "_queue_manager_button", None)
         if queue_button is not None:
             queue_button.configure(text="队列")
-        sync_history_button(window, engine_module, force=True)
+        extras._sync_history_button(window, engine_module, force=True)
 
     register_after_build_ui_hook(window_cls, "task-center", after_build_ui, order=150)
     window_cls._galaxy_task_center_installed = True
