@@ -7,6 +7,7 @@ _AFTER_BUILD_ATTR = "_galaxy_after_build_ui_hooks"
 _QUEUE_TICK_ATTR = "_galaxy_queue_tick_hooks"
 _JOB_LINES_ATTR = "_galaxy_job_line_hooks"
 _PRESENTER_ATTR = "_galaxy_desktop_presenters"
+_HISTORY_BUTTON_ATTR = "_galaxy_history_button_hooks"
 
 DesktopHook = Callable[[Any], None]
 JobLines = list[tuple[str, str]]
@@ -14,6 +15,7 @@ JobLinesHook = Callable[[Any, JobLines], JobLines]
 HookRecord = tuple[int, str, Callable[..., Any]]
 DesktopPresenter = Callable[[Any], None]
 PresenterRecord = tuple[int, str, DesktopPresenter]
+HistoryButtonHook = Callable[[Any, Any, int, str], str]
 
 
 def _registry(window_cls: type, attribute: str) -> list[HookRecord]:
@@ -105,6 +107,24 @@ def show_desktop_presenter(window: Any, slot: str) -> None:
 def registered_desktop_presenter(window_cls: type, slot: str) -> str | None:
     records = list(_presenter_registry(window_cls).get(str(slot or "").strip(), ()))
     return records[-1][1] if records else None
+
+
+def register_history_button_hook(window_cls: type, name: str, callback: HistoryButtonHook, *, order: int) -> None:
+    _register(window_cls, _HISTORY_BUTTON_ATTR, name, callback, order)
+
+
+def run_history_button_hooks(window: Any, engine_module: Any, history_count: int, text: str) -> str:
+    rendered = str(text)
+    for _order, name, callback in list(_registry(type(window), _HISTORY_BUTTON_ATTR)):
+        next_text = callback(window, engine_module, int(history_count), rendered)
+        if not isinstance(next_text, str):
+            raise TypeError(f"desktop history-button hook {name!r} must return a string")
+        rendered = next_text
+    return rendered
+
+
+def registered_history_button_hooks(window_cls: type) -> tuple[str, ...]:
+    return tuple(record[1] for record in _registry(window_cls, _HISTORY_BUTTON_ATTR))
 
 
 def _run(window: Any, attribute: str) -> None:
