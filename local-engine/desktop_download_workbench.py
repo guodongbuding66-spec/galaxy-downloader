@@ -267,6 +267,14 @@ def install_desktop_download_workbench(engine_module):
         order=45,
     )
     window_cls._galaxy_desktop_download_workbench_installed = True
+
+    # Runtime engines already have the complete Job and queue contract here.
+    # Keep the light hook-registry unit fixture compatible by installing the
+    # protocol preview layer only when those capabilities are present.
+    if hasattr(engine_module, "Job") and hasattr(window_cls, "submit_bridge_job"):
+        from desktop_preview_handoff import install_desktop_preview_handoff
+
+        install_desktop_preview_handoff(engine_module)
     return window_cls
 
 
@@ -278,6 +286,10 @@ def run_desktop_download_workbench_self_test() -> None:
     assert audio_control_mode({"streamType": "muxed"}, 5) == "embedded"
     assert audio_control_mode({"streamType": "video-only"}, 5) == "separate"
     assert audio_control_mode({"streamType": "video-only"}, 0) == "none"
+
+    from desktop_preview_handoff import run_desktop_preview_handoff_self_test
+
+    run_desktop_preview_handoff_self_test()
 
     class Window:
         pass

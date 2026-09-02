@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Galaxy Media Capture",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Discover page-visible image, video, audio and streaming sources and hand them to Galaxy Local Engine.",
   "permissions": [
     "downloads",
