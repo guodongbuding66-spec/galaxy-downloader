@@ -1,0 +1,72 @@
+name: First-party PR Media Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/app/api/local-parse/**'
+      - 'src/app/api/local-media/**'
+      - 'src/app/api/vimeo-native/**'
+      - 'src/app/api/vimeo-media/**'
+      - 'src/components/downloader/SinglePartButtons.tsx'
+      - 'src/lib/config.ts'
+      - 'src/lib/unified-parse.ts'
+      - 'worker/index.ts'
+      - 'scripts/local-parser-production-smoke.py'
+      - '.github/workflows/first-party-pr-media-gate.yml'
+      - '.github/workflows/local-parser-production-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-party-pr-media-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  staging-media-smoke:
+    name: Staging real-media smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      STAGING_BASE_URL: ${{ vars.GALAXY_STAGING_BASE_URL }}
+    steps:
+      - name: Checkout PR revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Require isolated staging target
+        shell: bash
+        run: |
+          if [[ -z "${STAGING_BASE_URL}" ]]; then
+            echo '::error title=Missing staging URL::Set repository variable GALAXY_STAGING_BASE_URL to an isolated Preview/Staging deployment before this check can pass.'
+            exit 1
+          fi
+          case "${STAGING_BASE_URL}" in
+            https://galaxy-downloader.guodongbuding66.workers.dev|https://galaxy-downloader.guodongbuding66.workers.dev/)
+              echo '::error title=Production target is not allowed::GALAXY_STAGING_BASE_URL must point to an isolated Preview/Staging deployment, not production.'
+              exit 1
+              ;;
+            https://*) ;;
+            *)
+              echo '::error title=Invalid staging URL::GALAXY_STAGING_BASE_URL must be an https:// URL.'
+              exit 1
+              ;;
+          esac
+
+      - name: Compile real-media smoke
+        run: python -m py_compile scripts/local-parser-production-smoke.py
+
+      - name: Probe staging parser and real media bytes
+        run: >-
+          python scripts/local-parser-production-smoke.py
+          --base-url "${STAGING_BASE_URL%/}"
+          --attempts 4
+          --retry-delay 8
+          --timeout 20
