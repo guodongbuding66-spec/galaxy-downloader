@@ -79,14 +79,15 @@ describe('shared Local Engine advanced media options', () => {
     expect(status?.batchDownloadReady).toBe(true)
   })
 
-  it('permanently wires Batch Workbench controls into batch options', () => {
+  it('permanently wires Batch Workbench controls into the unified batch options builder', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'src/components/downloader/BatchWorkbench.tsx'),
       'utf8',
     )
 
     expect(source).toContain('<LocalEngineAdvancedControls')
-    expect(source).toContain('options: resolveLocalEngineAdvancedJobOptions(')
+    expect(source).toContain('options: buildLocalEngineBatchOptions(')
+    expect(source).toContain('advancedOptions,')
     expect(source).toContain('Boolean(bridge?.aria2Ready)')
     expect(source).toContain('setSubmissionResult(null)')
     expect(source).toContain('setSubmissionError(\'\')')

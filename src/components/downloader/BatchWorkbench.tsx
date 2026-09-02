@@ -24,10 +24,11 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/lib/deferred-toast'
+import { createDefaultLocalEngineAdvancedOptions } from '@/lib/local-engine'
 import {
-  createDefaultLocalEngineAdvancedOptions,
-  resolveLocalEngineAdvancedJobOptions,
-} from '@/lib/local-engine'
+  buildLocalEngineBatchOptions,
+  createDefaultLocalEngineBatchPlanOptions,
+} from '@/lib/local-engine-batch-options'
 import {
   getLocalEngineBridgeStatus,
   submitLocalEngineBatchInput,
@@ -35,6 +36,7 @@ import {
   type LocalEngineBridgeStatus,
 } from '@/lib/local-engine-bridge'
 
+import { BatchDownloadPlanControls } from './BatchDownloadPlanControls'
 import { LocalEngineAdvancedControls } from './LocalEngineAdvancedControls'
 import { BatchWorkbenchResultPanel } from './BatchWorkbenchResultPanel'
 
@@ -179,6 +181,7 @@ export function BatchWorkbench() {
   const [submitting, setSubmitting] = useState(false)
   const [submissionError, setSubmissionError] = useState('')
   const [submissionResult, setSubmissionResult] = useState<LocalEngineBatchSubmissionResult | null>(null)
+  const [planOptions, setPlanOptions] = useState(() => createDefaultLocalEngineBatchPlanOptions())
   const [advancedOptions, setAdvancedOptions] = useState(() => createDefaultLocalEngineAdvancedOptions())
 
   const preview = useMemo(() => buildBatchWorkbenchPreview(input, format), [format, input])
@@ -256,7 +259,8 @@ export function BatchWorkbench() {
       const result = await submitLocalEngineBatchInput({
         input,
         format,
-        options: resolveLocalEngineAdvancedJobOptions(
+        options: buildLocalEngineBatchOptions(
+          planOptions,
           advancedOptions,
           Boolean(bridge?.aria2Ready),
         ),
@@ -438,6 +442,16 @@ export function BatchWorkbench() {
         ) : (
           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{copy.previewNote}</p>
         )}
+
+        <BatchDownloadPlanControls
+          value={planOptions}
+          disabled={submitting}
+          onChange={(next) => {
+            setPlanOptions(next)
+            setSubmissionResult(null)
+            setSubmissionError('')
+          }}
+        />
 
         <LocalEngineAdvancedControls
           value={advancedOptions}
