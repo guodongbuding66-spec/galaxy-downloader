@@ -19,6 +19,7 @@ from media_cleanup_workbench import (  # noqa: E402
     fit_preview_size,
     install_media_cleanup_workbench,
     media_cleanup_active,
+    region_to_canvas_rect,
     run_media_cleanup_workbench_self_test,
 )
 
@@ -54,6 +55,15 @@ class MediaCleanupWorkbenchTests(unittest.TestCase):
         self.assertLessEqual(corner.y + corner.height, 1080)
         with self.assertRaises(MediaCleanupError):
             canvas_rect_to_region(10, 10, 10.2, 10.2, plan)
+
+    def test_source_region_maps_to_preview_and_round_trips(self) -> None:
+        plan = CleanupPreviewPlan("image", 2400, 1600, 750, 500, 0.0)
+        region = CleanupRegion(1800, 1280, 480, 240)
+        rect = region_to_canvas_rect(region, plan)
+        self.assertEqual(rect, (562.5, 400.0, 712.5, 475.0))
+        self.assertEqual(canvas_rect_to_region(*rect, plan), region)
+        with self.assertRaises(MediaCleanupError):
+            region_to_canvas_rect(CleanupRegion(2300, 1500, 200, 200), plan)
 
     def test_preview_command_uses_png_frame_and_seek_only_for_video(self) -> None:
         video = CleanupPreviewPlan("video", 1920, 1080, 900, 506, 1.0)
