@@ -11,6 +11,7 @@ on:
       - 'local-engine/ffmpeg_online_installer.py'
       - 'local-engine/ffmpeg_update_status.py'
       - 'local-engine/managed_tool_metadata.py'
+      - 'local-engine/managed_tool_registry.py'
       - 'local-engine/tool_artifacts.py'
       - 'local-engine/tool_sources.py'
       - 'local-engine/tool_install_layout.py'
@@ -21,6 +22,7 @@ on:
       - 'scripts/test-local-tool-manager.py'
       - 'scripts/test-local-ffmpeg-manager.py'
       - 'scripts/test-local-managed-tool-metadata.py'
+      - 'scripts/test-local-managed-tool-registry.py'
       - 'scripts/test-local-ffmpeg-online-installer.py'
       - 'scripts/test-local-ffmpeg-update-status.py'
       - 'scripts/test-local-tool-artifacts.py'
@@ -39,6 +41,7 @@ on:
       - 'local-engine/ffmpeg_online_installer.py'
       - 'local-engine/ffmpeg_update_status.py'
       - 'local-engine/managed_tool_metadata.py'
+      - 'local-engine/managed_tool_registry.py'
       - 'local-engine/tool_artifacts.py'
       - 'local-engine/tool_sources.py'
       - 'local-engine/tool_install_layout.py'
@@ -49,6 +52,7 @@ on:
       - 'scripts/test-local-tool-manager.py'
       - 'scripts/test-local-ffmpeg-manager.py'
       - 'scripts/test-local-managed-tool-metadata.py'
+      - 'scripts/test-local-managed-tool-registry.py'
       - 'scripts/test-local-ffmpeg-online-installer.py'
       - 'scripts/test-local-ffmpeg-update-status.py'
       - 'scripts/test-local-tool-artifacts.py'
@@ -90,6 +94,7 @@ jobs:
           local-engine/ffmpeg_online_installer.py
           local-engine/ffmpeg_update_status.py
           local-engine/managed_tool_metadata.py
+          local-engine/managed_tool_registry.py
           local-engine/tool_artifacts.py
           local-engine/tool_sources.py
           local-engine/tool_install_layout.py
@@ -100,6 +105,7 @@ jobs:
           scripts/test-local-tool-manager.py
           scripts/test-local-ffmpeg-manager.py
           scripts/test-local-managed-tool-metadata.py
+          scripts/test-local-managed-tool-registry.py
           scripts/test-local-ffmpeg-online-installer.py
           scripts/test-local-ffmpeg-update-status.py
           scripts/test-local-tool-artifacts.py
@@ -114,6 +120,7 @@ jobs:
           python scripts/test-local-tool-manager.py
           python scripts/test-local-ffmpeg-manager.py
           python scripts/test-local-managed-tool-metadata.py
+          python scripts/test-local-managed-tool-registry.py
           python scripts/test-local-ffmpeg-online-installer.py
           python scripts/test-local-ffmpeg-update-status.py
           python scripts/test-local-tool-artifacts.py
