@@ -61,6 +61,7 @@ jobs:
             local-engine/failure_policy.py \
             local-engine/runtime_health.py \
             local-engine/runtime_storage.py \
+            local-engine/tool_manager.py \
             local-engine/job_queue.py \
             local-engine/queue_controls.py \
             local-engine/job_history.py \
@@ -69,6 +70,7 @@ jobs:
             local-engine/desktop_extras.py \
             local-engine/desktop_manager.py \
             local-engine/desktop_runtime.py \
+            local-engine/desktop_tools.py \
             local-engine/task_center.py \
             local-engine/update_check.py \
             local-engine/browser_auth.py \
@@ -106,6 +108,7 @@ jobs:
           python3 scripts/test-local-manager-policy.py
           python3 scripts/test-local-runtime-policy.py
           python3 scripts/test-local-runtime-storage.py
+          python3 scripts/test-local-tool-manager.py
           python3 scripts/test-local-recovery-policy.py
           python3 scripts/test-local-pause-resume.py
           python3 scripts/test-local-desktop-hooks.py
