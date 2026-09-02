@@ -6,6 +6,8 @@ packages:
 overrides:
   '@types/react': 19.2.14
   '@types/react-dom': 19.2.3
+  # browserslist <=4.28.6 has high-severity advisories.
+  browserslist: 4.28.8
 
 allowBuilds:
   '@parcel/watcher': false

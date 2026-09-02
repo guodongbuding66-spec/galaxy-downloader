@@ -187,7 +187,8 @@ def install_desktop_ui(engine_module):
         window.configure(bg=BG)
         window.geometry("1060x780")
         window.minsize(940, 700)
-        window.option_add("*Font", "Segoe UI 9")
+        # Tcl parses string font descriptors as lists; quote multi-word families.
+        window.option_add("*Font", "{Segoe UI} 9")
         try:
             window.tk.call("tk", "scaling", 1.0)
         except tk.TclError:
