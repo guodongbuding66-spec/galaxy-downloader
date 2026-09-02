@@ -32,6 +32,10 @@ class ManagedToolRegistryTests(unittest.TestCase):
     def ffmpeg_spec(self):
         return next(item for item in DEFAULT_MANAGED_TOOL_SPECS if item.tool == "ffmpeg")
 
+    @property
+    def ytdlp_spec(self):
+        return next(item for item in DEFAULT_MANAGED_TOOL_SPECS if item.tool == "yt-dlp")
+
     def metadata(self, *, platform_name: str = "windows", arch: str = "x86-64", binary_version: str = "ffmpeg version test"):
         return ManagedToolMetadata(
             schemaVersion=MANAGED_TOOL_METADATA_SCHEMA,
@@ -69,7 +73,19 @@ class ManagedToolRegistryTests(unittest.TestCase):
         self.assertEqual(status.health, "ok")
         self.assertEqual(status.metadata_state, "not-managed")
 
-    def test_managed_tool_without_metadata_is_usable_but_warned(self) -> None:
+    def test_managed_tool_without_required_provenance_is_not_a_false_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = evaluate_tool_health(
+                self.ytdlp_spec,
+                ManagedToolObservation(True, "managed", "2026.08.19", root),
+            )
+        self.assertEqual(status.state, "managed")
+        self.assertEqual(status.health, "ok")
+        self.assertEqual(status.metadata_state, "not-required")
+        self.assertFalse(status.tracks_provenance)
+
+    def test_managed_provenance_tool_without_metadata_is_usable_but_warned(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             status = evaluate_tool_health(
@@ -79,6 +95,7 @@ class ManagedToolRegistryTests(unittest.TestCase):
         self.assertEqual(status.state, "managed-untracked")
         self.assertEqual(status.health, "warning")
         self.assertTrue(status.ready)
+        self.assertTrue(status.tracks_provenance)
 
     def test_valid_online_metadata_becomes_healthy_structured_status(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -96,6 +113,7 @@ class ManagedToolRegistryTests(unittest.TestCase):
         self.assertEqual(status.provider_id, "btbn-ffmpeg-builds")
         self.assertEqual(status.release_tag, "autobuild-2026-09-01-13-13")
         payload = public_tool_health(status)
+        self.assertTrue(payload["tracksProvenance"])
         self.assertNotIn("managed_root", payload)
         self.assertNotIn("path", " ".join(payload.keys()).lower())
         json.dumps(payload)
