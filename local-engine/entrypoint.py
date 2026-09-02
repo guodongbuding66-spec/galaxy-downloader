@@ -12,6 +12,10 @@ from batch_identity import install_batch_identity_policy, run_batch_identity_sel
 from batch_input import run_batch_input_self_test
 from batch_submission import run_batch_submission_self_test
 from bridge_submission_policy import StructuredLocalBridge
+from desktop_download_workbench import (
+    install_desktop_download_workbench,
+    run_desktop_download_workbench_self_test,
+)
 from desktop_extras import install_desktop_extras
 from desktop_manager import install_desktop_manager
 from desktop_quick_download import install_desktop_quick_download, run_desktop_quick_download_self_test
@@ -166,6 +170,7 @@ install_runtime_health(engine)
 install_image_archive_policy(image_download)
 install_desktop_ui(engine)
 install_desktop_quick_download(engine)
+install_desktop_download_workbench(engine)
 install_desktop_extras(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
@@ -283,6 +288,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_runtime_health_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_ui_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_quick_download_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_download_workbench_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
@@ -329,6 +335,7 @@ def _run_image_self_test() -> None:
     run_tool_manager_self_test()
     run_exact_format_policy_self_test()
     run_desktop_quick_download_self_test()
+    run_desktop_download_workbench_self_test()
     run_task_center_self_test()
 
 
