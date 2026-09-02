@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENGINE = ROOT / "local-engine"
@@ -12,8 +14,10 @@ from media_cleanup import MediaCleanupError, MediaProbe  # noqa: E402
 from media_cleanup_suggestions import (  # noqa: E402
     GrayFrame,
     build_gray_frame_command,
+    extract_gray_frame,
     normalize_suggestion_profile,
     run_media_cleanup_suggestions_self_test,
+    suggest_visible_overlay_for_media,
     suggest_visible_overlay_regions,
 )
 
@@ -65,6 +69,46 @@ class MediaCleanupSuggestionTests(unittest.TestCase):
         self.assertIn("rawvideo", command)
         self.assertEqual(command[-1], "pipe:1")
         self.assertNotIn("-y", command)
+
+    def test_extract_gray_frame_requires_exact_pixel_buffer(self) -> None:
+        probe = MediaProbe(width=16, height=8, duration_seconds=0.0, media_kind="image")
+        good = subprocess.CompletedProcess(
+            args=["ffmpeg"],
+            returncode=0,
+            stdout=bytes(range(128)),
+            stderr=b"",
+        )
+        with patch("media_cleanup_suggestions.subprocess.run", return_value=good):
+            frame = extract_gray_frame(Path("ffmpeg"), Path("input.png"), probe)
+        self.assertEqual(frame.width, 16)
+        self.assertEqual(frame.height, 8)
+        self.assertEqual(len(frame.pixels), 128)
+
+        short = subprocess.CompletedProcess(
+            args=["ffmpeg"],
+            returncode=0,
+            stdout=b"short",
+            stderr=b"",
+        )
+        with patch("media_cleanup_suggestions.subprocess.run", return_value=short):
+            with self.assertRaises(MediaCleanupError):
+                extract_gray_frame(Path("ffmpeg"), Path("input.png"), probe)
+
+    def test_media_suggestion_pipeline_uses_rendered_frame_and_provider_hint(self) -> None:
+        width, height = 320, 180
+        probe = MediaProbe(width=width, height=height, duration_seconds=0.0, media_kind="image")
+        frame = GrayFrame(width, height, bytes([30] * (width * height)))
+        with patch("media_cleanup_suggestions.extract_gray_frame", return_value=frame) as render:
+            suggestions = suggest_visible_overlay_for_media(
+                Path("ffmpeg"),
+                Path("input.png"),
+                probe,
+                provider_hint="Gemini",
+            )
+        render.assert_called_once()
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0].profile, "bottom-right-wide")
+        self.assertEqual(suggestions[0].source, "profile")
 
     def test_embedded_self_test(self) -> None:
         run_media_cleanup_suggestions_self_test()
