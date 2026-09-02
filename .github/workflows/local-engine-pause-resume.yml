@@ -1,0 +1,100 @@
+name: Local Engine Pause Resume
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/pause_resume_policy.py'
+      - 'local-engine/resume_bridge.py'
+      - 'local-engine/entrypoint.py'
+      - 'local-engine/job_queue.py'
+      - 'local-engine/queue_controls.py'
+      - 'local-engine/job_history.py'
+      - 'local-engine/task_center.py'
+      - 'local-engine/external_ytdlp.py'
+      - 'src/lib/local-engine-bridge.ts'
+      - 'src/components/downloader/LocalEngineDownloadCard.tsx'
+      - 'tests/local-engine-bridge-error.test.ts'
+      - 'scripts/test-local-pause-resume.py'
+      - 'scripts/test-local-engine-policy.py'
+      - '.github/workflows/local-engine-pause-resume.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/pause_resume_policy.py'
+      - 'local-engine/resume_bridge.py'
+      - 'local-engine/entrypoint.py'
+      - 'local-engine/job_queue.py'
+      - 'local-engine/queue_controls.py'
+      - 'local-engine/job_history.py'
+      - 'local-engine/task_center.py'
+      - 'local-engine/external_ytdlp.py'
+      - 'src/lib/local-engine-bridge.ts'
+      - 'src/components/downloader/LocalEngineDownloadCard.tsx'
+      - 'tests/local-engine-bridge-error.test.ts'
+      - 'scripts/test-local-pause-resume.py'
+      - 'scripts/test-local-engine-policy.py'
+      - '.github/workflows/local-engine-pause-resume.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-engine-pause-resume-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Compile pause resume modules
+        run: |
+          python -m py_compile \
+            local-engine/pause_resume_policy.py \
+            local-engine/resume_bridge.py \
+            local-engine/task_center.py \
+            scripts/test-local-pause-resume.py
+
+      - name: Run pause resume lifecycle tests
+        run: python scripts/test-local-pause-resume.py
+
+      - name: Run embedded packaged lifecycle self-test
+        shell: python
+        run: |
+          import importlib.util
+          import sys
+          from pathlib import Path
+          path = Path('local-engine/pause_resume_policy.py')
+          spec = importlib.util.spec_from_file_location('pause_resume_gate', path)
+          module = importlib.util.module_from_spec(spec)
+          sys.modules['pause_resume_gate'] = module
+          spec.loader.exec_module(module)
+          module.run_pause_resume_self_test()
+
+      - name: Validate yt-dlp continuation contract
+        run: python scripts/test-local-engine-policy.py
+
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          version: 11.8.0
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run bridge normalization tests
+        run: pnpm exec vitest run tests/local-engine-bridge-error.test.ts
+
+      - name: Lint pause resume surfaces
+        run: pnpm exec eslint src/lib/local-engine-bridge.ts src/components/downloader/LocalEngineDownloadCard.tsx tests/local-engine-bridge-error.test.ts
