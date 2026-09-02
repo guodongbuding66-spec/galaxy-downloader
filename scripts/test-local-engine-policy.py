@@ -8,6 +8,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LOCAL_ENGINE = ROOT / "local-engine"
+if str(LOCAL_ENGINE) not in sys.path:
+    sys.path.insert(0, str(LOCAL_ENGINE))
 
 
 def load_module(name: str, path: Path):
@@ -22,15 +25,15 @@ def load_module(name: str, path: Path):
 
 external_ytdlp = load_module(
     "galaxy_external_ytdlp_test",
-    ROOT / "local-engine" / "external_ytdlp.py",
+    LOCAL_ENGINE / "external_ytdlp.py",
 )
 bridge = load_module(
     "galaxy_bridge_test",
-    ROOT / "local-engine" / "bridge.py",
+    LOCAL_ENGINE / "bridge.py",
 )
 batch_input = load_module(
     "galaxy_batch_input_test",
-    ROOT / "local-engine" / "batch_input.py",
+    LOCAL_ENGINE / "batch_input.py",
 )
 
 

@@ -109,6 +109,7 @@ jobs:
           python3 scripts/test-local-batch-identity.py
           python3 scripts/test-local-job-queue.py
           python3 scripts/test-local-bridge-submission.py
+          python3 scripts/test-local-bridge-format-catalog.py
           python3 scripts/test-local-archive-policy.py
           python3 scripts/test-local-media-cleanup.py
           python3 scripts/test-local-media-cleanup-suggestions.py
