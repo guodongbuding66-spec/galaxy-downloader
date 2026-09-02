@@ -187,7 +187,11 @@ def install_desktop_ui(engine_module):
         window.configure(bg=BG)
         window.geometry("1060x780")
         window.minsize(940, 700)
-        window.option_add("*Font", "Segoe UI 9")
+        # Tk parses a string font descriptor as a Tcl list. A family name that
+        # contains spaces must therefore be one list element. `Segoe UI 9`
+        # becomes `Segoe`, `UI`, `9` and Tcl tries to parse `UI` as the font
+        # size, crashing startup with: expected integer but got "UI".
+        window.option_add("*Font", "{Segoe UI} 9")
         try:
             window.tk.call("tk", "scaling", 1.0)
         except tk.TclError:
@@ -350,470 +354,338 @@ def install_desktop_ui(engine_module):
         window.folder_button = ActionButton(actions, text="打开下载目录", command=window.open_folder, kind="secondary")
         window.folder_button.pack(side="right")
 
-        queue_head = tk.Frame(side, bg=PANEL)
-        queue_head.pack(fill="x")
-        title = _section_title(queue_head, "下载队列", "当前任务结束后自动执行")
-        title.pack(side="left", fill="x", expand=True)
-        window._queue_clear_button = ActionButton(
-            queue_head,
-            text="清空",
-            command=lambda: _clear_queue_from_ui(window),
-            kind="ghost",
-            compact=True,
-        )
-        window._queue_clear_button.pack(side="right", anchor="n")
-        window._queue_clear_button.state(["disabled"])
-
-        window._queue_count_var = tk.StringVar(value="当前 0 · 等待 0")
-        _label(side, variable=window._queue_count_var, size=8, weight="bold", color=CYAN).pack(anchor="w", pady=(10, 9))
-        window._queue_panel = tk.Frame(side, bg=PANEL)
-        window._queue_panel.pack(fill="both", expand=True)
-
-        system = tk.Frame(side, bg=PANEL)
-        system.pack(fill="x", side="bottom", pady=(12, 0))
-        _divider(system).pack(fill="x", pady=(0, 12))
-        _label(system, "运行环境", size=9, weight="bold").pack(anchor="w")
-        runtime = tk.Frame(system, bg=PANEL)
-        runtime.pack(fill="x", pady=(8, 12))
-        ffmpeg_ready = engine_module.ffmpeg_dir() is not None
-        ytdlp_ready = engine_module.external_ytdlp_path(engine_module.app_dir()) is not None
-        aria2_ready = aria2c_available(engine_module)
-        _status_chip(runtime, "FFmpeg", ffmpeg_ready).pack(side="left", padx=(0, 5))
-        _status_chip(runtime, "yt-dlp", ytdlp_ready).pack(side="left", padx=(0, 5))
-        _status_chip(runtime, "aria2", aria2_ready, optional=True).pack(side="left")
-
-        _label(system, "版本与更新", size=9, weight="bold").pack(anchor="w")
-        window._latest_var = tk.StringVar(value=f"当前 v{engine_module.VERSION} · 未检查")
-        _label(system, variable=window._latest_var, size=8, color=MUTED).pack(anchor="w", pady=(4, 8))
-        window._update_button = ActionButton(
-            system,
-            text="检查稳定版更新",
-            command=lambda: _check_update(window, engine_module),
-            kind="ghost",
-            compact=True,
-        )
-        window._update_button.pack(fill="x")
-        _label(
-            system,
-            "更新只在你确认后打开 Release；不会静默替换 EXE。",
-            size=7,
-            color=SUBTLE,
-            wraplength=245,
-            justify="left",
-        ).pack(anchor="w", pady=(7, 0))
-
-        window._galaxy_ui_tick()
-        window._galaxy_queue_tick()
-
-    def ui_tick(window) -> None:
-        try:
-            window._percent_text_var.set(f"{max(0, min(100, round(window.percent_var.get())))}%")
-        except Exception:
-            pass
-        try:
-            window.after(180, window._galaxy_ui_tick)
-        except tk.TclError:
-            pass
-
-    def queue_tick(window) -> None:
-        try:
-            lock = getattr(window, "_queue_lock", None)
-            if lock is not None:
-                with lock:
-                    pending = list(getattr(window, "pending_jobs", []))
-            else:
-                pending = list(getattr(window, "pending_jobs", []))
-            waiting = len(pending)
-            active = 1 if bool(getattr(window, "running", False)) else 0
-            window._queue_summary_var.set(f"等待 {waiting} 项")
-            window._queue_count_var.set(f"当前 {active} · 等待 {waiting}")
-            if waiting:
-                window._queue_clear_button.state(["!disabled"])
-            else:
-                window._queue_clear_button.state(["disabled"])
-            _render_queue(window, pending)
-        except Exception:
-            pass
-        try:
-            window.after(650, window._galaxy_queue_tick)
-        except tk.TclError:
-            pass
+        _build_side_panel(window, side, engine_module)
+        _bind_refresh_hooks(window, engine_module)
 
     window_cls._build_ui = build_ui
-    window_cls._galaxy_ui_tick = ui_tick
-    window_cls._galaxy_queue_tick = queue_tick
     window_cls._galaxy_desktop_ui_installed = True
     return window_cls
 
 
-def _render_queue(window, pending: list[Any]) -> None:
-    panel = window._queue_panel
-    for child in panel.winfo_children():
-        child.destroy()
-    if not pending:
-        empty = tk.Frame(panel, bg=PANEL_2, padx=12, pady=15, highlightthickness=1, highlightbackground=BORDER_SOFT)
-        empty.pack(fill="x")
-        _label(empty, "队列为空", size=9, weight="bold", bg=PANEL_2).pack(anchor="w")
-        _label(
-            empty,
-            "网页忙碌时继续提交即可排队，无需启动第二个 Engine。",
-            size=8,
-            color=MUTED,
-            bg=PANEL_2,
-            wraplength=245,
-            justify="left",
-        ).pack(anchor="w", pady=(4, 0))
-        return
+def _build_side_panel(window, side: tk.Frame, engine_module) -> None:
+    _section_title(side, "本机运行状态", "浏览器只负责下发任务，媒体文件直接保存到本机。")
 
-    for index, queued in enumerate(pending[:8], start=1):
-        row = tk.Frame(panel, bg=PANEL_2, padx=10, pady=8, highlightthickness=1, highlightbackground=BORDER_SOFT)
-        row.pack(fill="x", pady=(0, 6))
-        number = tk.Frame(row, bg=PANEL_3, padx=6, pady=4)
-        number.pack(side="left", padx=(0, 8))
-        _label(number, f"{index:02d}", size=7, weight="bold", color=ACCENT_HOVER, bg=PANEL_3).pack()
-        text = tk.Frame(row, bg=PANEL_2)
-        text.pack(side="left", fill="x", expand=True)
-        label = str(getattr(queued, "label", "Queued download") or "Queued download")
-        host = str(getattr(queued, "source_host", "") or "")
-        _label(text, label[:34], size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
-        if host:
-            _label(text, host[:32], size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(2, 0))
-        job_id = str(getattr(queued, "job_id", "") or "")
-        if job_id:
-            cancel = tk.Button(
-                row,
-                text="×",
-                command=lambda value=job_id: _cancel_queued_from_ui(window, value),
-                font=("Segoe UI", 10, "bold"),
-                bg=PANEL_2,
-                fg=SUBTLE,
-                activebackground=PANEL_3,
-                activeforeground=DANGER,
-                relief="flat",
-                bd=0,
-                highlightthickness=0,
-                cursor="hand2",
-                padx=5,
-                pady=2,
-            )
-            cancel.pack(side="right", padx=(5, 0))
-    if len(pending) > 8:
-        _label(panel, f"另有 {len(pending) - 8} 项等待", size=8, color=MUTED).pack(anchor="w", padx=3, pady=(1, 0))
+    status_box = tk.Frame(side, bg=PANEL_2, padx=12, pady=12, highlightthickness=1, highlightbackground=BORDER_SOFT)
+    status_box.pack(fill="x", pady=(12, 0))
+    chips = tk.Frame(status_box, bg=PANEL_2)
+    chips.pack(fill="x")
+    yt_ready = bool(engine_module.external_ytdlp_available())
+    ff_ready = bool(engine_module.ffmpeg_available())
+    _status_chip(chips, "yt-dlp", yt_ready).pack(side="left", padx=(0, 5))
+    _status_chip(chips, "FFmpeg", ff_ready).pack(side="left", padx=(0, 5))
+    _status_chip(chips, "aria2c", aria2c_available(), optional=True).pack(side="left")
 
+    window._engine_hint_var = tk.StringVar()
+    _label(status_box, variable=window._engine_hint_var, size=8, color=MUTED, bg=PANEL_2, justify="left", wraplength=255).pack(
+        fill="x", pady=(10, 0)
+    )
 
-def _cancel_queued_from_ui(window, job_id: str) -> None:
-    removed = None
-    lock = getattr(window, "_queue_lock", None)
-    if lock is None:
-        return
-    with lock:
-        pending = getattr(window, "pending_jobs", [])
-        for index, queued in enumerate(pending):
-            if str(getattr(queued, "job_id", "")) == job_id:
-                removed = pending.pop(index)
-                break
-    if removed is not None:
-        window.set_status(
-            window.status_var.get(),
-            f"已从等待队列移除：{str(getattr(removed, 'label', 'Queued download'))[:70]}",
-        )
+    folder = tk.Frame(side, bg=PANEL)
+    folder.pack(fill="x", pady=(16, 0))
+    _label(folder, "下载目录", size=7, color=SUBTLE).pack(anchor="w")
+    window._download_dir_var = tk.StringVar(value=str(engine_module.default_download_dir()))
+    _label(folder, variable=window._download_dir_var, size=8, weight="bold", justify="left", anchor="w", wraplength=255).pack(
+        fill="x", pady=(4, 0)
+    )
 
+    _divider(side).pack(fill="x", pady=16)
+    _section_title(side, "任务与诊断", "队列、历史、错误分类和运行日志集中在这里。")
+    side_actions = tk.Frame(side, bg=PANEL)
+    side_actions.pack(fill="x", pady=(11, 0))
+    window._queue_manager_button = ActionButton(side_actions, text="队列", command=lambda: _show_queue_manager(window, engine_module), kind="ghost", compact=True)
+    window._queue_manager_button.pack(side="left", padx=(0, 6))
+    window._history_button = ActionButton(side_actions, text="历史", command=lambda: _show_history(window, engine_module), kind="ghost", compact=True)
+    window._history_button.pack(side="left", padx=(0, 6))
+    ActionButton(side_actions, text="日志", command=lambda: _show_logs(window, engine_module), kind="ghost", compact=True).pack(side="left")
 
-def _clear_queue_from_ui(window) -> None:
-    clear = getattr(window, "clear_queued_jobs", None)
-    if not callable(clear):
-        return
-    count = int(clear())
-    if count:
-        window.set_status(window.status_var.get(), f"已清空 {count} 个等待任务；当前任务不受影响。")
+    window._update_var = tk.StringVar(value="正在检查稳定版…")
+    _label(side, variable=window._update_var, size=7, color=SUBTLE, justify="left", wraplength=255).pack(fill="x", pady=(15, 0))
+    _refresh_side_status(window, engine_module)
+    window.after(700, lambda: _start_update_check(window, engine_module))
 
 
 def _build_advanced_panel(window, engine_module) -> None:
     panel = window._advanced_panel
-    preferences = load_preferences(engine_module)
-    sponsor_values = set(preferences.get("sponsorBlockCategories") or [])
-    window._media_pref_vars = {
-        "segmentStart": tk.StringVar(value=str(preferences.get("segmentStart") or "")),
-        "segmentEnd": tk.StringVar(value=str(preferences.get("segmentEnd") or "")),
-        "splitChapters": tk.BooleanVar(value=bool(preferences.get("splitChapters", False))),
-        "subtitleMode": tk.StringVar(value=str(preferences.get("subtitleMode") or "both")),
-        "subtitleLanguages": tk.StringVar(value=",".join(preferences.get("subtitleLanguages") or [])),
-        "audioLanguages": tk.StringVar(value=",".join(preferences.get("audioLanguages") or [])),
-        "useAria2c": tk.BooleanVar(value=bool(preferences.get("useAria2c", False))),
-    }
-    for category, _label_text in SPONSOR_LABELS:
-        window._media_pref_vars[f"sb:{category}"] = tk.BooleanVar(value=category in sponsor_values)
+    preferences = load_preferences()
 
-    presets = tk.Frame(panel, bg=PANEL_2)
-    presets.pack(fill="x")
-    _label(presets, "快捷方案", size=8, weight="bold", bg=PANEL_2).pack(side="left", padx=(0, 9))
-    for key, label in (("standard", "标准"), ("course", "课程/播客"), ("clean", "去赞助"), ("fast", "高速")):
-        button = ActionButton(
-            presets,
-            text=label,
-            command=lambda value=key: _apply_preset(window, engine_module, value),
-            kind="ghost",
-            compact=True,
-        )
-        if key == "fast" and not aria2c_available(engine_module):
-            button.state(["disabled"])
-        button.pack(side="left", padx=(0, 5))
+    section = tk.Frame(panel, bg=PANEL_2)
+    section.pack(fill="x")
+    _label(section, "片段与章节", size=9, weight="bold", bg=PANEL_2).pack(anchor="w")
 
-    window._preset_status_var = tk.StringVar(value="所有高级项默认关闭；快捷方案只修改下面这些默认值。")
-    _label(panel, variable=window._preset_status_var, size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(6, 10))
-
-    columns = tk.Frame(panel, bg=PANEL_2)
-    columns.pack(fill="x")
-    columns.grid_columnconfigure(0, weight=1, uniform="advanced")
-    columns.grid_columnconfigure(1, weight=1, uniform="advanced")
-
-    left = tk.Frame(columns, bg=PANEL_2)
-    left.grid(row=0, column=0, sticky="new", padx=(0, 10))
-    right = tk.Frame(columns, bg=PANEL_2)
-    right.grid(row=0, column=1, sticky="new", padx=(10, 0))
-
-    _label(left, "片段与章节", size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
-    segment = tk.Frame(left, bg=PANEL_2)
-    segment.pack(fill="x", pady=(6, 0))
-    _label(segment, "开始", size=7, color=MUTED, bg=PANEL_2).grid(row=0, column=0, sticky="w")
-    _entry(segment, window._media_pref_vars["segmentStart"], width=11).grid(row=0, column=1, padx=(6, 12))
-    _label(segment, "结束", size=7, color=MUTED, bg=PANEL_2).grid(row=0, column=2, sticky="w")
-    _entry(segment, window._media_pref_vars["segmentEnd"], width=11).grid(row=0, column=3, padx=(6, 0))
-    _label(left, "例如 01:20 → 03:45；留空表示完整视频。", size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(5, 5))
-    _check(left, "按章节拆分", window._media_pref_vars["splitChapters"]).pack(anchor="w")
-
-    _divider(left, bg=PANEL_2).pack(fill="x", pady=(10, 9))
-    _label(left, "字幕与音轨", size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
-    subtitle = tk.Frame(left, bg=PANEL_2)
-    subtitle.pack(fill="x", pady=(6, 0))
-    _label(subtitle, "字幕来源", size=7, color=MUTED, bg=PANEL_2).pack(side="left")
-    ttk.Combobox(
-        subtitle,
-        textvariable=window._media_pref_vars["subtitleMode"],
-        values=("manual", "auto", "both"),
-        width=9,
-        state="readonly",
-        style="Galaxy.TCombobox",
-    ).pack(side="left", padx=(6, 0))
-    language = tk.Frame(left, bg=PANEL_2)
-    language.pack(fill="x", pady=(7, 0))
-    _label(language, "字幕语言", size=7, color=MUTED, bg=PANEL_2).grid(row=0, column=0, sticky="w")
-    _entry(language, window._media_pref_vars["subtitleLanguages"], width=22).grid(row=0, column=1, padx=(6, 0), sticky="ew")
-    _label(language, "音轨语言", size=7, color=MUTED, bg=PANEL_2).grid(row=1, column=0, sticky="w", pady=(6, 0))
-    _entry(language, window._media_pref_vars["audioLanguages"], width=22).grid(row=1, column=1, padx=(6, 0), pady=(6, 0), sticky="ew")
-
-    _label(right, "SponsorBlock", size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
-    _label(right, "按分类移除区段，默认全部关闭。", size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(2, 6))
-    sponsor_grid = tk.Frame(right, bg=PANEL_2)
-    sponsor_grid.pack(fill="x")
-    for index, (category, label_text) in enumerate(SPONSOR_LABELS):
-        _check(sponsor_grid, label_text, window._media_pref_vars[f"sb:{category}"]).grid(
-            row=index // 2,
-            column=index % 2,
-            sticky="w",
-            padx=(0, 10),
-            pady=1,
-        )
-
-    _divider(right, bg=PANEL_2).pack(fill="x", pady=(10, 9))
-    _label(right, "下载器", size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
-    aria2 = _check(right, "aria2c 多连接加速（yt-dlp 仍负责解析）", window._media_pref_vars["useAria2c"])
-    aria2.pack(anchor="w", pady=(6, 0))
-    if not aria2c_available(engine_module):
-        aria2.configure(state="disabled", disabledforeground=SUBTLE)
-        _label(right, "未检测到 aria2c；安装后重新启动 Engine 即可启用。", size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(3, 0))
-
-    buttons = tk.Frame(panel, bg=PANEL_2)
-    buttons.pack(fill="x", pady=(12, 0))
-    ActionButton(
-        buttons,
-        text="恢复默认",
-        command=lambda: _reset_media_preferences(window, engine_module),
-        kind="ghost",
-        compact=True,
-    ).pack(side="left")
-    ActionButton(
-        buttons,
-        text="保存默认设置",
-        command=lambda: _save_media_preferences(window, engine_module),
-        kind="secondary",
-        compact=True,
-    ).pack(side="right")
-
-
-def _entry(master, variable: tk.Variable, width: int) -> tk.Entry:
-    return tk.Entry(
-        master,
-        textvariable=variable,
-        width=width,
+    clip_row = tk.Frame(section, bg=PANEL_2)
+    clip_row.pack(fill="x", pady=(9, 0))
+    _label(clip_row, "视频片段", size=8, color=MUTED, bg=PANEL_2).grid(row=0, column=0, sticky="w")
+    window._clip_start_var = tk.StringVar(value=preferences.clip_start or "")
+    window._clip_end_var = tk.StringVar(value=preferences.clip_end or "")
+    clip_start = tk.Entry(
+        clip_row,
+        textvariable=window._clip_start_var,
+        width=10,
         font=("Segoe UI", 8),
         bg=BG,
         fg=TEXT,
         insertbackground=TEXT,
         relief="flat",
-        bd=0,
         highlightthickness=1,
         highlightbackground=BORDER,
         highlightcolor=ACCENT,
     )
-
-
-def _check(master, text: str, variable: tk.BooleanVar) -> tk.Checkbutton:
-    return tk.Checkbutton(
-        master,
-        text=text,
-        variable=variable,
+    clip_start.grid(row=0, column=1, padx=(12, 5))
+    _label(clip_row, "—", size=8, color=SUBTLE, bg=PANEL_2).grid(row=0, column=2)
+    clip_end = tk.Entry(
+        clip_row,
+        textvariable=window._clip_end_var,
+        width=10,
         font=("Segoe UI", 8),
+        bg=BG,
+        fg=TEXT,
+        insertbackground=TEXT,
+        relief="flat",
+        highlightthickness=1,
+        highlightbackground=BORDER,
+        highlightcolor=ACCENT,
+    )
+    clip_end.grid(row=0, column=3, padx=(5, 0))
+    _label(clip_row, "例如 01:20 — 03:45；留空代表完整视频。", size=7, color=SUBTLE, bg=PANEL_2).grid(
+        row=1, column=0, columnspan=4, sticky="w", pady=(5, 0)
+    )
+
+    window._split_chapters_var = tk.BooleanVar(value=preferences.split_chapters)
+    tk.Checkbutton(
+        section,
+        text="按章节拆分文件",
+        variable=window._split_chapters_var,
+        bg=PANEL_2,
+        fg=TEXT,
+        activebackground=PANEL_2,
+        activeforeground=TEXT,
+        selectcolor=BG,
+        font=("Segoe UI", 8),
+        highlightthickness=0,
+        command=lambda: _save_advanced_preferences(window),
+    ).pack(anchor="w", pady=(10, 0))
+
+    _divider(panel, bg=PANEL_2).pack(fill="x", pady=13)
+    _label(panel, "字幕与音轨", size=9, weight="bold", bg=PANEL_2).pack(anchor="w")
+
+    language_row = tk.Frame(panel, bg=PANEL_2)
+    language_row.pack(fill="x", pady=(9, 0))
+    window._include_subtitle_var = tk.BooleanVar(value=preferences.include_subtitle)
+    tk.Checkbutton(
+        language_row,
+        text="下载字幕",
+        variable=window._include_subtitle_var,
+        bg=PANEL_2,
+        fg=TEXT,
+        activebackground=PANEL_2,
+        activeforeground=TEXT,
+        selectcolor=BG,
+        font=("Segoe UI", 8),
+        highlightthickness=0,
+        command=lambda: _save_advanced_preferences(window),
+    ).pack(side="left")
+
+    window._subtitle_language_var = tk.StringVar(value=preferences.subtitle_language or "zh-Hans")
+    window._audio_language_var = tk.StringVar(value=preferences.audio_language or "auto")
+    ttk.Combobox(
+        language_row,
+        textvariable=window._subtitle_language_var,
+        values=("zh-Hans", "zh-Hant", "en", "ja", "ko", "auto"),
+        width=10,
+        state="readonly",
+        style="Galaxy.TCombobox",
+    ).pack(side="left", padx=(10, 5))
+    ttk.Combobox(
+        language_row,
+        textvariable=window._audio_language_var,
+        values=("auto", "zh", "en", "ja", "ko", "original"),
+        width=10,
+        state="readonly",
+        style="Galaxy.TCombobox",
+    ).pack(side="left")
+
+    window._include_auto_subtitles_var = tk.BooleanVar(value=preferences.include_auto_subtitles)
+    tk.Checkbutton(
+        panel,
+        text="允许自动字幕（优先使用人工字幕）",
+        variable=window._include_auto_subtitles_var,
         bg=PANEL_2,
         fg=MUTED,
         activebackground=PANEL_2,
         activeforeground=TEXT,
         selectcolor=BG,
+        font=("Segoe UI", 8),
         highlightthickness=0,
-        bd=0,
-        cursor="hand2",
-    )
+        command=lambda: _save_advanced_preferences(window),
+    ).pack(anchor="w", pady=(7, 0))
+
+    _divider(panel, bg=PANEL_2).pack(fill="x", pady=13)
+    _label(panel, "SponsorBlock", size=9, weight="bold", bg=PANEL_2).pack(anchor="w")
+    sponsor_row = tk.Frame(panel, bg=PANEL_2)
+    sponsor_row.pack(fill="x", pady=(8, 0))
+    window._sponsor_vars = {}
+    enabled = set(preferences.sponsorblock_categories)
+    for index, (value, label) in enumerate(SPONSOR_LABELS):
+        variable = tk.BooleanVar(value=value in enabled)
+        window._sponsor_vars[value] = variable
+        tk.Checkbutton(
+            sponsor_row,
+            text=label,
+            variable=variable,
+            bg=PANEL_2,
+            fg=MUTED,
+            activebackground=PANEL_2,
+            activeforeground=TEXT,
+            selectcolor=BG,
+            font=("Segoe UI", 8),
+            highlightthickness=0,
+            command=lambda: _save_advanced_preferences(window),
+        ).grid(row=index // 4, column=index % 4, sticky="w", padx=(0, 10), pady=2)
+
+    _divider(panel, bg=PANEL_2).pack(fill="x", pady=13)
+    performance = tk.Frame(panel, bg=PANEL_2)
+    performance.pack(fill="x")
+    _label(performance, "高速下载", size=9, weight="bold", bg=PANEL_2).pack(anchor="w")
+    window._prefer_aria2c_var = tk.BooleanVar(value=preferences.prefer_aria2c)
+    tk.Checkbutton(
+        performance,
+        text="检测到 aria2c 时优先启用",
+        variable=window._prefer_aria2c_var,
+        bg=PANEL_2,
+        fg=MUTED,
+        activebackground=PANEL_2,
+        activeforeground=TEXT,
+        selectcolor=BG,
+        font=("Segoe UI", 8),
+        highlightthickness=0,
+        command=lambda: _save_advanced_preferences(window),
+    ).pack(anchor="w", pady=(7, 0))
+
+    for variable in (
+        window._clip_start_var,
+        window._clip_end_var,
+        window._subtitle_language_var,
+        window._audio_language_var,
+    ):
+        variable.trace_add("write", lambda *_args: _save_advanced_preferences(window))
 
 
 def _toggle_advanced(window) -> None:
     window._advanced_open = not bool(getattr(window, "_advanced_open", False))
     if window._advanced_open:
-        window._advanced_panel.pack(fill="x", pady=(8, 0))
+        window._advanced_panel.pack(fill="x", pady=(10, 0))
         window._advanced_toggle_var.set("高级下载工作台  ⌄")
     else:
         window._advanced_panel.pack_forget()
         window._advanced_toggle_var.set("高级下载工作台  ›")
 
 
-def _apply_preset(window, engine_module, preset: str) -> None:
-    values = window._media_pref_vars
-    values["segmentStart"].set("")
-    values["segmentEnd"].set("")
-    values["splitChapters"].set(False)
-    values["subtitleMode"].set("both")
-    values["subtitleLanguages"].set("")
-    values["audioLanguages"].set("")
-    values["useAria2c"].set(False)
-    for category, _label_text in SPONSOR_LABELS:
-        values[f"sb:{category}"].set(False)
+def _save_advanced_preferences(window) -> None:
+    preferences = load_preferences()
+    preferences.clip_start = window._clip_start_var.get().strip() or None
+    preferences.clip_end = window._clip_end_var.get().strip() or None
+    preferences.split_chapters = bool(window._split_chapters_var.get())
+    preferences.include_subtitle = bool(window._include_subtitle_var.get())
+    preferences.include_auto_subtitles = bool(window._include_auto_subtitles_var.get())
+    preferences.subtitle_language = window._subtitle_language_var.get().strip() or None
+    preferences.audio_language = window._audio_language_var.get().strip() or None
+    preferences.sponsorblock_categories = tuple(
+        key for key, variable in window._sponsor_vars.items() if bool(variable.get())
+    )
+    preferences.prefer_aria2c = bool(window._prefer_aria2c_var.get())
+    save_preferences(preferences)
 
-    if preset == "course":
-        values["splitChapters"].set(True)
-        window._preset_status_var.set("课程/播客：按章节拆分；字幕来源保留人工 + 自动。")
-    elif preset == "clean":
-        for category in ("sponsor", "selfpromo", "interaction"):
-            values[f"sb:{category}"].set(True)
-        window._preset_status_var.set("去赞助：移除赞助、自我推广和互动提醒；不会移除片头片尾。")
-    elif preset == "fast":
-        values["useAria2c"].set(bool(aria2c_available(engine_module)))
-        window._preset_status_var.set("高速：启用 aria2c；yt-dlp 继续负责格式选择与调度。")
+
+def _refresh_side_status(window, engine_module) -> None:
+    yt_ready = bool(engine_module.external_ytdlp_available())
+    ff_ready = bool(engine_module.ffmpeg_available())
+    aria_ready = aria2c_available()
+    if yt_ready and ff_ready:
+        hint = "本机引擎已就绪。网页可直接提交视频、音频、合集与图文任务。"
     else:
-        window._preset_status_var.set("标准：恢复完整视频与默认 yt-dlp 行为。")
+        missing = []
+        if not yt_ready:
+            missing.append("yt-dlp.exe")
+        if not ff_ready:
+            missing.append("FFmpeg")
+        hint = "缺少 " + "、".join(missing) + "；部分下载能力不可用。"
+    if aria_ready:
+        hint += " aria2c 已可用。"
+    window._engine_hint_var.set(hint)
+    window._download_dir_var.set(str(engine_module.default_download_dir()))
+    if getattr(window, "running", False):
+        percent = float(window.percent_var.get())
+        window._percent_text_var.set(f"{percent:.0f}%")
+    else:
+        window._percent_text_var.set("0%")
 
 
-def _save_media_preferences(window, engine_module) -> None:
-    values = window._media_pref_vars
-    categories = [
-        category
-        for category, _label_text in SPONSOR_LABELS
-        if bool(values[f"sb:{category}"].get())
-    ]
-    cleaned = save_preferences(
-        engine_module,
-        {
-            "segmentStart": values["segmentStart"].get(),
-            "segmentEnd": values["segmentEnd"].get(),
-            "splitChapters": bool(values["splitChapters"].get()),
-            "subtitleMode": values["subtitleMode"].get(),
-            "subtitleLanguages": values["subtitleLanguages"].get(),
-            "audioLanguages": values["audioLanguages"].get(),
-            "sponsorBlockCategories": categories,
-            "useAria2c": bool(values["useAria2c"].get()),
-        },
-    )
-    for key in ("segmentStart", "segmentEnd", "subtitleMode"):
-        values[key].set(str(cleaned.get(key) or ""))
-    values["subtitleLanguages"].set(",".join(cleaned.get("subtitleLanguages") or []))
-    values["audioLanguages"].set(",".join(cleaned.get("audioLanguages") or []))
-    cleaned_categories = set(cleaned.get("sponsorBlockCategories") or [])
-    for category, _label_text in SPONSOR_LABELS:
-        values[f"sb:{category}"].set(category in cleaned_categories)
-    values["useAria2c"].set(bool(cleaned.get("useAria2c", False)))
-    window._preset_status_var.set("已保存。新任务在网页没有单独覆盖时会使用这些默认值。")
-    window.set_status(
-        "Ready" if not window.running else window.status_var.get(),
-        "高级下载默认设置已保存。当前运行任务不会被修改。",
-    )
+def _bind_refresh_hooks(window, engine_module) -> None:
+    original_set_status = window.set_status
 
-
-def _reset_media_preferences(window, engine_module) -> None:
-    _apply_preset(window, engine_module, "standard")
-    _save_media_preferences(window, engine_module)
-    window._preset_status_var.set("已恢复并保存标准默认设置。")
-
-
-def _copy_diagnostics(window, engine_module) -> None:
-    try:
-        queue_length = len(getattr(window, "pending_jobs", []))
-        text = "\n".join(
-            (
-                "Galaxy Local Engine diagnostics",
-                f"version={engine_module.VERSION}",
-                f"status={window.status_var.get()}",
-                f"ffmpeg={'ready' if engine_module.ffmpeg_dir() is not None else 'missing'}",
-                f"yt-dlp={'ready' if engine_module.external_ytdlp_path(engine_module.app_dir()) is not None else 'missing'}",
-                f"aria2c={'ready' if aria2c_available(engine_module) else 'missing'}",
-                f"active={'1' if bool(getattr(window, 'running', False)) else '0'}",
-                f"queued={queue_length}",
-            )
-        )
-        window.clipboard_clear()
-        window.clipboard_append(text)
-        window.update_idletasks()
-        window.set_status(window.status_var.get(), "诊断信息已复制到剪贴板。")
-    except tk.TclError:
-        pass
-
-
-def _check_update(window, engine_module) -> None:
-    button = window._update_button
-    button.state(["disabled"])
-    window._latest_var.set(f"当前 v{engine_module.VERSION} · 正在检查…")
-
-    def worker() -> None:
-        info = check_latest_stable(engine_module.VERSION)
-
-        def finish() -> None:
-            button.state(["!disabled"])
-            if info.error:
-                window._latest_var.set(f"当前 v{engine_module.VERSION} · 检查失败")
-                messagebox.showwarning(
-                    engine_module.APP_NAME,
-                    f"无法检查 GitHub 稳定版更新。\n\n{info.error}",
-                    parent=window,
-                )
-                return
-            latest = info.latest_version or "—"
-            if not info.update_available:
-                window._latest_var.set(f"当前 v{engine_module.VERSION} · 最新 v{latest}")
-                messagebox.showinfo(
-                    engine_module.APP_NAME,
-                    f"当前版本 v{engine_module.VERSION} 已是最新稳定版。",
-                    parent=window,
-                )
-                return
-            window._latest_var.set(f"当前 v{engine_module.VERSION} · 可更新 v{latest}")
-            approved = messagebox.askyesno(
-                engine_module.APP_NAME,
-                f"发现稳定版 v{latest}。\n\n是否打开 GitHub Release 页面？\n程序不会自动替换当前 EXE。",
-                parent=window,
-            )
-            if approved:
-                webbrowser.open(info.release_url)
-
+    def set_status(title: str, detail: str) -> None:
+        original_set_status(title, detail)
         try:
-            window.after(0, finish)
+            _refresh_side_status(window, engine_module)
         except tk.TclError:
             pass
 
-    threading.Thread(target=worker, name="GalaxyUpdateCheck", daemon=True).start()
+    window.set_status = set_status
+    window.after(900, lambda: _periodic_refresh(window, engine_module))
+
+
+def _periodic_refresh(window, engine_module) -> None:
+    if not window.winfo_exists():
+        return
+    try:
+        _refresh_side_status(window, engine_module)
+    except tk.TclError:
+        return
+    window.after(900, lambda: _periodic_refresh(window, engine_module))
+
+
+def _start_update_check(window, engine_module) -> None:
+    def worker() -> None:
+        result = check_latest_stable(engine_module.VERSION)
+        text = result.message
+        try:
+            window.after(0, lambda: window._update_var.set(text))
+        except tk.TclError:
+            pass
+
+    threading.Thread(target=worker, name="galaxy-update-check", daemon=True).start()
+
+
+def _copy_diagnostics(window, engine_module) -> None:
+    payload = engine_module.build_diagnostics_payload(window)
+    import json
+
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    window.clipboard_clear()
+    window.clipboard_append(text)
+    window._copy_diag_button.configure(text="已复制")
+    window.after(1200, lambda: window._copy_diag_button.configure(text="复制诊断信息"))
+
+
+def _show_queue_manager(window, engine_module) -> None:
+    callback = getattr(engine_module, "show_queue_manager", None)
+    if callable(callback):
+        callback(window)
+    else:
+        messagebox.showinfo("任务队列", "队列管理器将在当前窗口中打开。")
+
+
+def _show_history(window, engine_module) -> None:
+    callback = getattr(engine_module, "show_download_history", None)
+    if callable(callback):
+        callback(window)
+    else:
+        messagebox.showinfo("下载历史", "历史记录将在当前窗口中打开。")
+
+
+def _show_logs(window, engine_module) -> None:
+    callback = getattr(engine_module, "show_diagnostics_log", None)
+    if callable(callback):
+        callback(window)
+    else:
+        messagebox.showinfo("诊断日志", "诊断中心将在当前窗口中打开。")
