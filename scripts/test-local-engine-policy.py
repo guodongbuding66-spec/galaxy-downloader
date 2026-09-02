@@ -28,6 +28,15 @@ bridge = load_module(
     "galaxy_bridge_test",
     ROOT / "local-engine" / "bridge.py",
 )
+batch_input = load_module(
+    "galaxy_batch_input_test",
+    ROOT / "local-engine" / "batch_input.py",
+)
+
+
+class BatchInputCorePolicyTests(unittest.TestCase):
+    def test_batch_input_core_contract(self):
+        batch_input.run_batch_input_self_test()
 
 
 class ExternalDownloadPolicyTests(unittest.TestCase):
