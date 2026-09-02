@@ -8,6 +8,7 @@ import {
 } from "./media-core.js";
 
 const MAX_CANDIDATES_PER_TAB = 200;
+const MAX_BATCH_DOWNLOADS = 20;
 const tabs = new Map();
 
 function stateFor(tabId) {
@@ -87,6 +88,29 @@ function downloadCandidate(candidate, { saveAs = false } = {}) {
   });
 }
 
+async function batchDownloadCandidates(tabId, ids) {
+  const state = stateFor(tabId);
+  const uniqueIds = [...new Set((Array.isArray(ids) ? ids : []).map((value) => String(value || "")).filter(Boolean))].slice(0, MAX_BATCH_DOWNLOADS);
+  let started = 0;
+  let failed = 0;
+  const rejected = [];
+
+  for (const id of uniqueIds) {
+    const candidate = state.byId.get(id);
+    if (!candidate || !canDirectDownload(candidate)) {
+      rejected.push(id);
+      continue;
+    }
+    try {
+      await downloadCandidate(candidate);
+      started += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { started, failed, rejected, requested: uniqueIds.length, limit: MAX_BATCH_DOWNLOADS };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab?.id;
   if (!Number.isInteger(tabId)) {
@@ -142,14 +166,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "galaxy:download-candidates") {
+    batchDownloadCandidates(tabId, message.ids)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
+
   if (message?.type === "galaxy:get-handoff-source") {
     const candidate = stateFor(tabId).byId.get(String(message.id || ""));
     if (!candidate) {
       sendResponse({ ok: false, error: "Media source not found." });
       return false;
     }
-    // Returning the real URL is allowed only in direct response to a user action.
-    // It is never persisted to chrome.storage or exposed in passive UI snapshots.
     sendResponse({
       ok: true,
       url: candidate.url,
@@ -161,6 +190,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   sendResponse({ ok: false, error: "Unknown Galaxy extension message." });
   return false;
+});
+
+chrome.action.onClicked.addListener((tab) => {
+  if (!Number.isInteger(tab?.id)) return;
+  chrome.tabs.sendMessage(tab.id, { type: "galaxy:toggle-candidate-browser" }).catch(() => {});
 });
 
 chrome.webRequest.onHeadersReceived.addListener(
