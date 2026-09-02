@@ -1,0 +1,72 @@
+name: Bootstrap Pause Resume Core
+
+on:
+  push:
+    branches:
+      - feat/local-engine-0.15-pause-resume
+    paths:
+      - '.github/workflows/bootstrap-pause-resume-core.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: feat/local-engine-0.15-pause-resume
+
+      - name: Wire pause/resume policy into entrypoint
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('local-engine/entrypoint.py')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one entrypoint target, got {text.count(old)}: {old[:100]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'from media_policy import install_media_policy\n',
+              'from media_policy import install_media_policy\n'
+              'from pause_resume_policy import install_pause_resume_policy, run_pause_resume_self_test\n',
+          )
+          replace_once(
+              'install_recovery_policy(engine)\ninstall_job_queue_policy(engine)\n',
+              'install_recovery_policy(engine)\n'
+              'install_pause_resume_policy(engine)\n'
+              'install_job_queue_policy(engine)\n',
+          )
+          replace_once(
+              '    assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True\n',
+              '    assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True\n'
+              '    assert getattr(engine, "_galaxy_pause_resume_installed", False) is True\n',
+          )
+          replace_once(
+              '    run_recovery_self_test()\n',
+              '    run_recovery_self_test()\n'
+              '    run_pause_resume_self_test()\n',
+          )
+
+          old_close = '''    if media_active:\n        window.cancel_event.set()\n    if image_active:\n        cancel_image_download_job()\n    window.set_status("Cancelling", "Waiting for local downloads to stop safely before exit")\n'''
+          new_close = '''    pausing_for_exit = False\n    if media_active:\n        pause_for_exit = getattr(window, "pause_for_exit", None)\n        if callable(pause_for_exit):\n            pausing_for_exit = bool(pause_for_exit())\n        if not pausing_for_exit:\n            window.cancel_event.set()\n    if image_active:\n        cancel_image_download_job()\n    if pausing_for_exit:\n        window.set_status("Pausing", "Saving resumable download state before exit")\n    else:\n        window.set_status("Cancelling", "Waiting for local downloads to stop safely before exit")\n'''
+          replace_once(old_close, new_close)
+
+          path.write_text(text, encoding='utf-8')
+
+      - name: Commit integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add local-engine/entrypoint.py
+          git commit -m 'feat(local-engine): wire persistent pause resume policy'
+          git push origin HEAD:feat/local-engine-0.15-pause-resume
