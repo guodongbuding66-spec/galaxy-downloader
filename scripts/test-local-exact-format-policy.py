@@ -34,9 +34,12 @@ def fake_engine():
     module.EngineWindow = BaseWindow
     module._bool = lambda value, default=False: default if value is None else str(value).lower() in {"1", "true", "yes", "on"}
 
+    # Real Galaxy policy factories deliberately resolve engine_module.Job at
+    # call time. That is what lets later dataclass policies extend the Job
+    # contract without rewriting every earlier parser.
     def parse_job(raw: str):
         query = parse_qs(urlparse(raw).query)
-        return BaseJob(
+        return module.Job(
             source_url=query.get("url", ["https://example.test/video"])[0],
             video_quality=query.get("video", ["best"])[0],
             audio_quality=query.get("audio", ["best"])[0],
@@ -44,7 +47,7 @@ def fake_engine():
         )
 
     def from_payload(payload):
-        return BaseJob(
+        return module.Job(
             source_url=str(payload.get("sourceUrl") or "https://example.test/video"),
             video_quality=str(payload.get("videoQuality") or "best"),
             audio_quality=str(payload.get("audioQuality") or "best"),
