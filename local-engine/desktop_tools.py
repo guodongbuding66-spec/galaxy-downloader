@@ -6,10 +6,9 @@ from tkinter import messagebox
 
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook, register_desktop_presenter, show_desktop_presenter
-from ffmpeg_manager import existing_managed_ffmpeg, reset_managed_ffmpeg, seed_managed_ffmpeg
-from ffmpeg_online_installer import install_managed_ffmpeg_online
-from ffmpeg_update_status import check_ffmpeg_update
-from tool_manager import invalidate_tool_inventory, reset_managed_ytdlp, tool_inventory, update_managed_ytdlp
+from ffmpeg_manager import existing_managed_ffmpeg
+from managed_tool_actions import ManagedToolActionRequest, perform_managed_tool_action
+from tool_manager import invalidate_tool_inventory, tool_inventory
 from tool_sources import trusted_ffmpeg_source_available
 
 
@@ -34,6 +33,19 @@ def _source_label(value: object) -> str:
 def _version_label(value: object) -> str:
     text = str(value or "").strip()
     return text if text else "—"
+
+
+def _perform_user_action(engine_module, tool: str, action: str, *, channel: str | None = None):
+    """Single desktop boundary for user-triggered managed-tool actions."""
+    return perform_managed_tool_action(
+        engine_module,
+        ManagedToolActionRequest(
+            tool=tool,
+            action=action,
+            user_initiated=True,
+            channel=channel,
+        ),
+    )
 
 
 def _show_tools(window, engine_module) -> None:
@@ -223,8 +235,8 @@ def _show_tools(window, engine_module) -> None:
         operation_var.set(status.message)
         ffmpeg_update_var.set(status.message)
         details = (
-            f"当前来源：{_source_label(status.current_source)}\n"
-            f"当前版本：{_version_label(status.current_version)}\n"
+            f"当前来源：{_source_label(status.source)}\n"
+            f"当前版本：{_version_label(status.version)}\n"
             f"当前发布：{_version_label(status.current_release_tag)}\n\n"
             f"在线构建：{_version_label(status.available_version)}\n"
             f"在线发布：{_version_label(status.available_release_tag)}\n\n"
@@ -254,7 +266,7 @@ def _show_tools(window, engine_module) -> None:
         set_busy(True)
 
         def worker() -> None:
-            status = check_ffmpeg_update(engine_module)
+            status = _perform_user_action(engine_module, "ffmpeg", "check")
             try:
                 dialog.after(0, finish_update_status, status)
             except tk.TclError:
@@ -266,7 +278,7 @@ def _show_tools(window, engine_module) -> None:
         run_action(
             "yt-dlp 更新",
             "正在创建/更新托管 yt-dlp…",
-            lambda: update_managed_ytdlp(engine_module, channel="stable"),
+            lambda: _perform_user_action(engine_module, "yt-dlp", "update", channel="stable"),
         )
 
     def reset_ytdlp() -> None:
@@ -276,7 +288,11 @@ def _show_tools(window, engine_module) -> None:
             parent=dialog,
         ):
             return
-        run_action("恢复随包 yt-dlp", "正在恢复随包 yt-dlp…", lambda: reset_managed_ytdlp(engine_module))
+        run_action(
+            "恢复随包 yt-dlp",
+            "正在恢复随包 yt-dlp…",
+            lambda: _perform_user_action(engine_module, "yt-dlp", "reset"),
+        )
 
     def install_ffmpeg_online() -> None:
         if not messagebox.askyesno(
@@ -287,17 +303,18 @@ def _show_tools(window, engine_module) -> None:
             parent=dialog,
         ):
             return
+        managed_action = "update" if existing_managed_ffmpeg(engine_module) is not None else "install"
         run_action(
             "在线安装 / 更新 FFmpeg",
             "正在解析可信 FFmpeg 构建、下载并验证…",
-            lambda: install_managed_ffmpeg_online(engine_module),
+            lambda: _perform_user_action(engine_module, "ffmpeg", managed_action),
         )
 
     def seed_ffmpeg() -> None:
         run_action(
             "从随包创建托管 FFmpeg",
             "正在从已验证的随包 FFmpeg 创建托管副本并校验…",
-            lambda: seed_managed_ffmpeg(engine_module),
+            lambda: _perform_user_action(engine_module, "ffmpeg", "seed"),
         )
 
     def reset_ffmpeg() -> None:
@@ -307,7 +324,11 @@ def _show_tools(window, engine_module) -> None:
             parent=dialog,
         ):
             return
-        run_action("恢复随包 FFmpeg", "正在恢复随包 FFmpeg…", lambda: reset_managed_ffmpeg(engine_module))
+        run_action(
+            "恢复随包 FFmpeg",
+            "正在恢复随包 FFmpeg…",
+            lambda: _perform_user_action(engine_module, "ffmpeg", "reset"),
+        )
 
     update_button.configure(command=update_ytdlp)
     reset_button.configure(command=reset_ytdlp)
