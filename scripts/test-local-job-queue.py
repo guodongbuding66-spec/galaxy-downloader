@@ -11,6 +11,7 @@ sys.path.insert(0, str(LOCAL_ENGINE))
 
 import job_queue  # noqa: E402
 from bridge_submission_policy import StructuredLocalBridge  # noqa: E402
+from job_scheduler import run_job_scheduler_self_test  # noqa: E402
 
 
 class _FakeWindow:
@@ -64,6 +65,9 @@ class LocalJobQueueTests(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertEqual(result.code, "QUEUED")
         return window.pending_jobs[-1]
+
+    def test_scheduler_core_self_test(self):
+        run_job_scheduler_self_test()
 
     def test_idle_job_starts_immediately(self):
         fake_engine, window = self.make_window()
