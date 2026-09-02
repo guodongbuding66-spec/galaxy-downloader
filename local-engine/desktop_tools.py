@@ -8,6 +8,7 @@ import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook, register_desktop_presenter, show_desktop_presenter
 from ffmpeg_manager import existing_managed_ffmpeg, reset_managed_ffmpeg, seed_managed_ffmpeg
 from ffmpeg_online_installer import install_managed_ffmpeg_online
+from ffmpeg_update_status import check_ffmpeg_update
 from tool_manager import invalidate_tool_inventory, reset_managed_ytdlp, tool_inventory, update_managed_ytdlp
 from tool_sources import trusted_ffmpeg_source_available
 
@@ -45,8 +46,8 @@ def _show_tools(window, engine_module) -> None:
     dialog = tk.Toplevel(window)
     window._tools_window = dialog
     dialog.title("工具管理 · Galaxy Local Engine")
-    dialog.geometry("760x590")
-    dialog.minsize(680, 540)
+    dialog.geometry("800x650")
+    dialog.minsize(720, 590)
     dialog.configure(bg=ui.BG)
     dialog.transient(window)
 
@@ -55,11 +56,11 @@ def _show_tools(window, engine_module) -> None:
     ui._label(shell, "工具管理", size=16, weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
         shell,
-        "普通启动和下载不会联网检查工具。只有你主动点击更新/安装时，Galaxy 才会访问对应的可信工具源；任何托管版本都安装在 runtime/tools，可独立恢复到发行包基线。",
+        "普通启动、刷新和下载不会联网检查工具。只有你主动点击“检查更新”或“在线安装 / 更新”时，Galaxy 才访问经过审核的工具源；托管版本都位于 runtime/tools，可独立恢复到发行包基线。",
         size=8,
         color=ui.MUTED,
         bg=ui.BG,
-        wraplength=700,
+        wraplength=740,
         justify="left",
     ).pack(anchor="w", pady=(4, 12))
 
@@ -70,6 +71,7 @@ def _show_tools(window, engine_module) -> None:
     ytdlp_version_var = tk.StringVar(value="—")
     ffmpeg_source_var = tk.StringVar(value="—")
     ffmpeg_version_var = tk.StringVar(value="—")
+    ffmpeg_update_var = tk.StringVar(value="尚未检查在线 FFmpeg 更新。")
     operation_var = tk.StringVar(value="")
 
     def tool_row(title: str, source_var: tk.StringVar, version_var: tk.StringVar) -> None:
@@ -78,7 +80,7 @@ def _show_tools(window, engine_module) -> None:
         left = tk.Frame(row, bg=ui.PANEL)
         left.pack(side="left", fill="x", expand=True)
         ui._label(left, title, size=10, weight="bold").pack(anchor="w")
-        ui._label(left, variable=version_var, size=8, color=ui.SUBTLE, wraplength=485, justify="left").pack(anchor="w", pady=(3, 0))
+        ui._label(left, variable=version_var, size=8, color=ui.SUBTLE, wraplength=520, justify="left").pack(anchor="w", pady=(3, 0))
         badge = tk.Label(
             row,
             textvariable=source_var,
@@ -97,45 +99,57 @@ def _show_tools(window, engine_module) -> None:
 
     ffmpeg_actions = tk.Frame(card, bg=ui.PANEL)
     ffmpeg_actions.pack(fill="x", pady=(0, 7))
+    ffmpeg_check_button = ui.ActionButton(ffmpeg_actions, text="检查 FFmpeg 更新", kind="secondary", compact=True)
     ffmpeg_online_button = ui.ActionButton(ffmpeg_actions, text="在线安装 / 更新 FFmpeg", kind="primary", compact=True)
     ffmpeg_seed_button = ui.ActionButton(ffmpeg_actions, text="从随包创建托管副本", kind="secondary", compact=True)
     ffmpeg_reset_button = ui.ActionButton(ffmpeg_actions, text="恢复随包 FFmpeg", kind="ghost", compact=True)
-    ffmpeg_online_button.pack(side="left")
+    ffmpeg_check_button.pack(side="left")
+    ffmpeg_online_button.pack(side="left", padx=(7, 0))
     ffmpeg_seed_button.pack(side="left", padx=(7, 0))
     ffmpeg_reset_button.pack(side="left", padx=(7, 0))
+
     ui._label(
         card,
-        "在线安装：仅在你点击后访问 FFmpeg 官方下载页列出的 BtbN 构建源；固定仓库与 immutable autobuild，校验 GitHub SHA-256、归档路径、FFmpeg/ffprobe 可执行性后才原子替换。",
+        variable=ffmpeg_update_var,
+        size=8,
+        weight="bold",
+        color=ui.CYAN,
+        wraplength=730,
+        justify="left",
+    ).pack(anchor="w", pady=(2, 7))
+    ui._label(
+        card,
+        "检查更新只读取可信 provider 的发布元数据，不下载 FFmpeg。在线安装才下载构建，并在 staging 内校验来源、SHA-256、归档布局、资源上限、ffmpeg/ffprobe 可执行性与本地来源元数据，全部通过后才原子替换。",
         size=7,
         color=ui.SUBTLE,
-        wraplength=690,
+        wraplength=730,
         justify="left",
     ).pack(anchor="w", pady=(0, 3))
     ui._label(
         card,
-        "离线兜底：不联网，只把发行包内已验证的 FFmpeg 复制到 runtime/tools。恢复随包版本只删除托管副本，不修改媒体文件、设置或发行包文件。",
+        "离线兜底：不联网，只把发行包内已验证的 FFmpeg 复制到 runtime/tools。随包种子没有在线 release identity，因此检查更新时会明确显示“无法精确比较”，不会猜测版本顺序。",
         size=7,
         color=ui.SUBTLE,
-        wraplength=690,
+        wraplength=730,
         justify="left",
     ).pack(anchor="w", pady=(0, 9))
 
     ui._divider(card).pack(fill="x", pady=(2, 10))
     ui._label(
         card,
-        "yt-dlp 更新会先创建用户目录托管副本，再调用 yt-dlp 官方自更新机制。所有工具动作都由用户显式触发；Galaxy 不在后台自动替换二进制。",
+        "yt-dlp 更新会先创建用户目录托管副本，再调用 yt-dlp 官方自更新机制。所有工具动作都由用户显式触发；Galaxy 不在后台自动检查或替换二进制。",
         size=7,
         color=ui.SUBTLE,
-        wraplength=690,
+        wraplength=730,
         justify="left",
     ).pack(anchor="w")
-    ui._label(card, variable=operation_var, size=8, weight="bold", color=ui.CYAN, wraplength=690, justify="left").pack(anchor="w", pady=(10, 0))
+    ui._label(card, variable=operation_var, size=8, weight="bold", color=ui.CYAN, wraplength=730, justify="left").pack(anchor="w", pady=(10, 0))
 
     footer = tk.Frame(shell, bg=ui.BG)
     footer.pack(fill="x", pady=(12, 0))
     update_button = ui.ActionButton(footer, text="更新 yt-dlp", kind="primary", compact=True)
     reset_button = ui.ActionButton(footer, text="恢复随包 yt-dlp", kind="ghost", compact=True)
-    refresh_button = ui.ActionButton(footer, text="刷新", kind="secondary", compact=True)
+    refresh_button = ui.ActionButton(footer, text="刷新本地状态", kind="secondary", compact=True)
     reset_button.pack(side="left")
     refresh_button.pack(side="right")
     update_button.pack(side="right", padx=(0, 7))
@@ -160,15 +174,19 @@ def _show_tools(window, engine_module) -> None:
             ffmpeg_reset_button.state(["disabled"])
 
         if trusted_ffmpeg_source_available():
+            ffmpeg_check_button.state(["!disabled"])
             ffmpeg_online_button.state(["!disabled"])
         else:
+            ffmpeg_check_button.state(["disabled"])
             ffmpeg_online_button.state(["disabled"])
+            ffmpeg_update_var.set("当前平台尚未配置经过审核的 FFmpeg 在线构建源。")
 
     def set_busy(busy: bool) -> None:
         buttons = (
             update_button,
             reset_button,
             refresh_button,
+            ffmpeg_check_button,
             ffmpeg_online_button,
             ffmpeg_seed_button,
             ffmpeg_reset_button,
@@ -187,6 +205,8 @@ def _show_tools(window, engine_module) -> None:
         invalidate_tool_inventory(engine_module)
         set_busy(False)
         operation_var.set(result.message)
+        if action in {"在线安装 / 更新 FFmpeg", "从随包创建托管 FFmpeg", "恢复随包 FFmpeg"}:
+            ffmpeg_update_var.set("本地 FFmpeg 状态已变化；可再次点击“检查 FFmpeg 更新”确认在线发布身份。")
         if result.ok:
             messagebox.showinfo(
                 engine_module.APP_NAME,
@@ -196,6 +216,25 @@ def _show_tools(window, engine_module) -> None:
         else:
             messagebox.showwarning(engine_module.APP_NAME, f"{action}未完成。\n\n{result.message}", parent=dialog)
 
+    def finish_update_status(status) -> None:
+        if not _window_exists(dialog):
+            return
+        set_busy(False)
+        operation_var.set(status.message)
+        ffmpeg_update_var.set(status.message)
+        details = (
+            f"当前来源：{_source_label(status.current_source)}\n"
+            f"当前版本：{_version_label(status.current_version)}\n"
+            f"当前发布：{_version_label(status.current_release_tag)}\n\n"
+            f"在线构建：{_version_label(status.available_version)}\n"
+            f"在线发布：{_version_label(status.available_release_tag)}\n\n"
+            f"{status.message}"
+        )
+        if status.ok:
+            messagebox.showinfo(engine_module.APP_NAME, details, parent=dialog)
+        else:
+            messagebox.showwarning(engine_module.APP_NAME, details, parent=dialog)
+
     def run_action(action_name: str, status_text: str, callback) -> None:
         operation_var.set(status_text)
         set_busy(True)
@@ -204,6 +243,20 @@ def _show_tools(window, engine_module) -> None:
             result = callback()
             try:
                 dialog.after(0, finish_result, result, action_name)
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def check_ffmpeg() -> None:
+        operation_var.set("正在检查可信 FFmpeg provider 的发布元数据…")
+        ffmpeg_update_var.set("正在检查更新…")
+        set_busy(True)
+
+        def worker() -> None:
+            status = check_ffmpeg_update(engine_module)
+            try:
+                dialog.after(0, finish_update_status, status)
             except tk.TclError:
                 pass
 
@@ -229,8 +282,8 @@ def _show_tools(window, engine_module) -> None:
         if not messagebox.askyesno(
             engine_module.APP_NAME,
             "从可信 BtbN FFmpeg 构建源下载并安装/更新托管 FFmpeg？\n\n"
-            "Galaxy 会先校验来源、SHA-256、归档布局以及 ffmpeg/ffprobe 可执行性，全部通过后才替换 runtime/tools 中的托管版本。\n"
-            "发行包内 FFmpeg 不会被修改。",
+            "Galaxy 会先校验来源、SHA-256、归档布局、解压资源上限以及 ffmpeg/ffprobe 可执行性，并把发布身份写入 staging。"
+            "全部通过后才替换 runtime/tools 中的托管版本。\n发行包内 FFmpeg 不会被修改。",
             parent=dialog,
         ):
             return
@@ -258,6 +311,7 @@ def _show_tools(window, engine_module) -> None:
 
     update_button.configure(command=update_ytdlp)
     reset_button.configure(command=reset_ytdlp)
+    ffmpeg_check_button.configure(command=check_ffmpeg)
     ffmpeg_online_button.configure(command=install_ffmpeg_online)
     ffmpeg_seed_button.configure(command=seed_ffmpeg)
     ffmpeg_reset_button.configure(command=reset_ffmpeg)
