@@ -141,12 +141,31 @@ jobs:
           --add-data "local-engine/VERSION;."
           local-engine/entrypoint.py
 
-      - name: Validate packaged executable
+      - name: Validate packaged executable self-test
         shell: pwsh
         run: |
           $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -ArgumentList '--self-test' -Wait -PassThru
           if ($process.ExitCode -ne 0) {
             throw "GalaxyLocalEngine.exe self-test exited with $($process.ExitCode)"
+          }
+
+      - name: Launch packaged desktop UI
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -PassThru
+          try {
+            Start-Sleep -Seconds 5
+            $process.Refresh()
+            if ($process.HasExited) {
+              throw "GalaxyLocalEngine.exe exited during desktop startup with code $($process.ExitCode). A packaged UI that cannot remain alive for 5 seconds must not be released."
+            }
+            Write-Host "Packaged desktop UI remained alive through startup smoke."
+          }
+          finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              $process.WaitForExit()
+            }
           }
 
       - name: Assemble release package
