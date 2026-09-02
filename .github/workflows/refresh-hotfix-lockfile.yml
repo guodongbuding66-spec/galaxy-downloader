@@ -1,0 +1,48 @@
+name: Refresh Hotfix Lockfile
+
+on:
+  push:
+    branches:
+      - fix/local-engine-0.14.1-desktop-startup
+    paths:
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/refresh-hotfix-lockfile.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-hotfix-lockfile
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: fix/local-engine-0.14.1-desktop-startup
+
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          version: 11.8.0
+          runtime: node@22
+          install: false
+
+      - name: Regenerate lockfile only
+        run: pnpm install --lockfile-only --no-frozen-lockfile --ignore-scripts
+
+      - name: Commit lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo 'pnpm-lock.yaml already matches workspace overrides.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pnpm-lock.yaml
+          git commit -m 'chore(deps): refresh pnpm lockfile'
+          git push origin HEAD:fix/local-engine-0.14.1-desktop-startup
