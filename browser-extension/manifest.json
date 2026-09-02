@@ -5,7 +5,6 @@
   "description": "Discover page-visible image, video, audio and streaming sources and hand them to Galaxy Local Engine.",
   "permissions": [
     "downloads",
-    "storage",
     "webRequest"
   ],
   "host_permissions": [
