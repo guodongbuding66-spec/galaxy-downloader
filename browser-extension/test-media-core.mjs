@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,8 +18,13 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const manifest = JSON.parse(fs.readFileSync(path.join(here, 'manifest.json'), 'utf8'))
-const backgroundSource = fs.readFileSync(path.join(here, 'background.js'), 'utf8')
-const browserSource = fs.readFileSync(path.join(here, 'candidate-browser.js'), 'utf8')
+const backgroundPath = path.join(here, 'background.js')
+const browserPath = path.join(here, 'candidate-browser.js')
+const backgroundSource = fs.readFileSync(backgroundPath, 'utf8')
+const browserSource = fs.readFileSync(browserPath, 'utf8')
+
+execFileSync(process.execPath, ['--check', browserPath], { stdio: 'pipe' })
+execFileSync(process.execPath, ['--check', backgroundPath], { stdio: 'pipe' })
 
 assert.equal(manifest.manifest_version, 3)
 assert.deepEqual([...manifest.permissions].sort(), ['downloads', 'webRequest'])
