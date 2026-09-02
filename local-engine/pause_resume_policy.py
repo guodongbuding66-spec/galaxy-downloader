@@ -264,6 +264,7 @@ def install_pause_resume_policy(engine_module):
         window._active_resume_job_id = ""
         window._active_resume_created_at = ""
         window._resume_queue_was_paused = False
+        window._pause_queue_holder_id = ""
         window._resume_last_persist_at = 0.0
         original_init(window, job)
 
@@ -359,10 +360,25 @@ def install_pause_resume_policy(engine_module):
             if window.pause_event.is_set():
                 window.pause_event.clear()
 
+    def restore_queue_after_pause(window, job_id: str, *, start_if_idle: bool) -> bool:
+        """Release only the temporary queue hold created by this paused job."""
+        holder = str(getattr(window, "_pause_queue_holder_id", "") or "")
+        if not holder or holder != str(job_id or ""):
+            return False
+        window.queue_paused = bool(getattr(window, "_resume_queue_was_paused", False))
+        window._pause_queue_holder_id = ""
+        if start_if_idle and not window.queue_paused and not bool(getattr(window, "running", False)):
+            starter = getattr(window, "_start_next_queued_job", None)
+            if callable(starter):
+                starter()
+        return True
+
+
     def pause_active_job(window) -> bool:
         if not bool(getattr(window, "running", False)) or window.pause_event.is_set():
             return False
         window._resume_queue_was_paused = bool(getattr(window, "queue_paused", False))
+        window._pause_queue_holder_id = str(getattr(window, "_active_resume_job_id", "") or "")
         # Prevent the single-active-job scheduler from immediately starting the
         # next queued item after the paused worker exits.
         window.queue_paused = True
@@ -401,7 +417,10 @@ def install_pause_resume_policy(engine_module):
         window._active_resume_job_id = str(selected["id"])
         window._active_resume_created_at = str(selected.get("createdAt") or _utc_now())
         window._resume_queue_was_paused = bool(selected.get("queueWasPaused", False))
-        window.queue_paused = window._resume_queue_was_paused
+        if not restore_queue_after_pause(window, str(selected["id"]), start_if_idle=False):
+            # After an application restart there is no in-memory queue hold to
+            # release, but preserve the recorded queue preference for the new run.
+            window.queue_paused = window._resume_queue_was_paused
         window.cancel_event.clear()
         window.pause_event.clear()
         selected["state"] = "running"
@@ -418,12 +437,22 @@ def install_pause_resume_policy(engine_module):
         return True
 
     def discard_resume_job(window, job_id: str) -> bool:
-        if str(job_id or "") == str(getattr(window, "_active_resume_job_id", "") or "") and bool(getattr(window, "running", False)):
+        wanted = str(job_id or "")
+        if wanted == str(getattr(window, "_active_resume_job_id", "") or "") and bool(getattr(window, "running", False)):
             return False
-        return window._resume_store.remove(str(job_id or ""))
+        removed = window._resume_store.remove(wanted)
+        if removed:
+            restore_queue_after_pause(window, wanted, start_if_idle=True)
+        return removed
 
     def cancel(window) -> None:
         # Explicit Cancel means "do not offer this job for restart recovery".
+        if window.pause_event.is_set():
+            restore_queue_after_pause(
+                window,
+                str(getattr(window, "_active_resume_job_id", "") or ""),
+                start_if_idle=False,
+            )
         window.pause_event.clear()
         original_cancel(window)
 
@@ -490,6 +519,7 @@ def run_pause_resume_self_test() -> None:
                     "progress": 0.0,
                 }
                 self.deiconified = False
+                self.started_next = 0
 
             def bridge_status(self) -> dict[str, Any]:
                 return dict(self._snapshot)
@@ -548,6 +578,10 @@ def run_pause_resume_self_test() -> None:
 
             def focus_force(self) -> None:
                 return
+
+            def _start_next_queued_job(self) -> None:
+                if not self.running and not self.queue_paused:
+                    self.started_next += 1
 
         class FakeEngine:
             EngineWindow = FakeWindow
@@ -669,4 +703,29 @@ def run_pause_resume_self_test() -> None:
         wechat_records = wechat.get_resume_jobs()
         assert wechat_records[0]["resumeMode"] == "restart"
         assert wechat_records[0]["progress"] == 63.0
+
+
+        # Discarding a paused task must release only the queue hold that task made.
+        discard_window = FakeEngine.EngineWindow(FakeJob("https://media.example.com/video/discard"))
+        discard_window.start_job()
+        discard_id = discard_window.bridge_status()["activeJobId"]
+        assert discard_window.pause_active_job() is True
+        discard_window._run_job()
+        assert discard_window.queue_paused is True
+        assert discard_window.discard_resume_job(discard_id) is True
+        assert discard_window.queue_paused is False
+        assert discard_window.started_next == 1
+
+        # If Cancel is pressed while Pausing, it becomes a true terminal cancel
+        # and the temporary queue hold is released before the worker exits.
+        cancel_window = FakeEngine.EngineWindow(FakeJob("https://media.example.com/video/cancel-during-pause"))
+        cancel_window.start_job()
+        cancel_id = cancel_window.bridge_status()["activeJobId"]
+        assert cancel_window.pause_active_job() is True
+        assert cancel_window.queue_paused is True
+        cancel_window.cancel()
+        assert cancel_window.pause_event.is_set() is False
+        assert cancel_window.queue_paused is False
+        cancel_window._run_job()
+        assert cancel_window._resume_store.get(cancel_id) is None
 

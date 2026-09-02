@@ -70,6 +70,7 @@ class PauseResumeLifecycleTests(unittest.TestCase):
                     "progress": 0.0,
                 }
                 self.deiconified = False
+                self.started_next = 0
 
             def bridge_status(self) -> dict[str, Any]:
                 return dict(self._snapshot)
@@ -128,6 +129,10 @@ class PauseResumeLifecycleTests(unittest.TestCase):
 
             def focus_force(self) -> None:
                 return
+
+            def _start_next_queued_job(self) -> None:
+                if not self.running and not self.queue_paused:
+                    self.started_next += 1
 
         class FakeEngine:
             EngineWindow = FakeWindow
@@ -251,6 +256,30 @@ class PauseResumeLifecycleTests(unittest.TestCase):
         self.assertEqual(records[0]["state"], "interrupted")
         self.assertEqual(records[0]["progress"], 31.0)
         self.assertEqual(window.status_var.get(), "Paused")
+
+
+    def test_discarding_paused_job_releases_temporary_queue_hold(self) -> None:
+        window = self.engine.EngineWindow(FakeJob("https://media.example.com/video/discard"))
+        window.start_job()
+        job_id = window.bridge_status()["activeJobId"]
+        self.assertTrue(window.pause_active_job())
+        window._run_job()
+        self.assertTrue(window.queue_paused)
+        self.assertTrue(window.discard_resume_job(job_id))
+        self.assertFalse(window.queue_paused)
+        self.assertEqual(window.started_next, 1)
+
+    def test_cancel_during_pausing_is_terminal_and_releases_queue_hold(self) -> None:
+        window = self.engine.EngineWindow(FakeJob("https://media.example.com/video/cancel-during-pause"))
+        window.start_job()
+        job_id = window.bridge_status()["activeJobId"]
+        self.assertTrue(window.pause_active_job())
+        self.assertTrue(window.queue_paused)
+        window.cancel()
+        self.assertFalse(window.pause_event.is_set())
+        self.assertFalse(window.queue_paused)
+        window._run_job()
+        self.assertIsNone(window._resume_store.get(job_id))
 
 
 if __name__ == "__main__":
