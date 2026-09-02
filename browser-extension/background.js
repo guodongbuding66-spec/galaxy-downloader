@@ -79,6 +79,14 @@ function responseHeader(headers, name) {
   return String(item?.value || "");
 }
 
+function downloadCandidate(candidate, { saveAs = false } = {}) {
+  return chrome.downloads.download({
+    url: candidate.url,
+    filename: suggestedFilename(candidate),
+    saveAs: Boolean(saveAs),
+  });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab?.id;
   if (!Number.isInteger(tabId)) {
@@ -108,18 +116,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message?.type === "galaxy:download-observed") {
+    const pageUrl = String(message.pageUrl || sender.tab?.url || "");
+    const candidate = normalizeCandidate(message.candidate, { baseUrl: pageUrl });
+    if (!candidate || !canDirectDownload(candidate)) {
+      sendResponse({ ok: false, error: "This observed element is not a safe direct-download source." });
+      return false;
+    }
+    addCandidates(tabId, [candidate], pageUrl);
+    downloadCandidate(candidate, { saveAs: message.saveAs })
+      .then((downloadId) => sendResponse({ ok: true, downloadId }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
+
   if (message?.type === "galaxy:download-candidate") {
     const candidate = stateFor(tabId).byId.get(String(message.id || ""));
     if (!candidate || !canDirectDownload(candidate)) {
       sendResponse({ ok: false, error: "This source must be handled by Galaxy Local Engine." });
       return false;
     }
-    chrome.downloads
-      .download({
-        url: candidate.url,
-        filename: suggestedFilename(candidate),
-        saveAs: Boolean(message.saveAs),
-      })
+    downloadCandidate(candidate, { saveAs: message.saveAs })
       .then((downloadId) => sendResponse({ ok: true, downloadId }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
