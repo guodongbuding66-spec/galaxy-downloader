@@ -80,6 +80,43 @@ export type SponsorBlockCategory =
   | 'music_offtopic'
   | 'filler'
 
+export interface LocalEngineAdvancedOptions {
+  segmentStart: string
+  segmentEnd: string
+  splitChapters: boolean
+  subtitleMode: LocalEngineSubtitleMode
+  subtitleLanguages: string[]
+  audioLanguages: string[]
+  sponsorBlockCategories: SponsorBlockCategory[]
+  useAria2c: boolean
+}
+
+export function createDefaultLocalEngineAdvancedOptions(): LocalEngineAdvancedOptions {
+  return {
+    segmentStart: '',
+    segmentEnd: '',
+    splitChapters: false,
+    subtitleMode: 'both',
+    subtitleLanguages: [],
+    audioLanguages: [],
+    sponsorBlockCategories: [],
+    useAria2c: false,
+  }
+}
+
+export function resolveLocalEngineAdvancedJobOptions(
+  value: LocalEngineAdvancedOptions,
+  aria2Ready: boolean,
+): LocalEngineAdvancedOptions {
+  return {
+    ...value,
+    subtitleLanguages: [...value.subtitleLanguages],
+    audioLanguages: [...value.audioLanguages],
+    sponsorBlockCategories: [...value.sponsorBlockCategories],
+    useAria2c: Boolean(aria2Ready && value.useAria2c),
+  }
+}
+
 export interface LocalDesktopVideoSelection {
   quality?: string | null
   label?: string | null

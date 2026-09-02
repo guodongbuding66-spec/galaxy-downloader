@@ -25,12 +25,17 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/lib/deferred-toast'
 import {
+  createDefaultLocalEngineAdvancedOptions,
+  resolveLocalEngineAdvancedJobOptions,
+} from '@/lib/local-engine'
+import {
   getLocalEngineBridgeStatus,
   submitLocalEngineBatchInput,
   type LocalEngineBatchSubmissionResult,
   type LocalEngineBridgeStatus,
 } from '@/lib/local-engine-bridge'
 
+import { LocalEngineAdvancedControls } from './LocalEngineAdvancedControls'
 import { BatchWorkbenchResultPanel } from './BatchWorkbenchResultPanel'
 
 import {
@@ -174,6 +179,7 @@ export function BatchWorkbench() {
   const [submitting, setSubmitting] = useState(false)
   const [submissionError, setSubmissionError] = useState('')
   const [submissionResult, setSubmissionResult] = useState<LocalEngineBatchSubmissionResult | null>(null)
+  const [advancedOptions, setAdvancedOptions] = useState(() => createDefaultLocalEngineAdvancedOptions())
 
   const preview = useMemo(() => buildBatchWorkbenchPreview(input, format), [format, input])
   const canContinue = batchWorkbenchCanContinue(preview)
@@ -247,7 +253,14 @@ export function BatchWorkbench() {
     setSubmissionError('')
     setSubmissionResult(null)
     try {
-      const result = await submitLocalEngineBatchInput({ input, format })
+      const result = await submitLocalEngineBatchInput({
+        input,
+        format,
+        options: resolveLocalEngineAdvancedJobOptions(
+          advancedOptions,
+          Boolean(bridge?.aria2Ready),
+        ),
+      })
       setSubmissionResult(result)
       if (result.acceptedCount > 0) {
         toast.success(submitCopy.sent, { description: `${result.acceptedCount}/${result.inputCount}` })
@@ -425,6 +438,17 @@ export function BatchWorkbench() {
         ) : (
           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{copy.previewNote}</p>
         )}
+
+        <LocalEngineAdvancedControls
+          value={advancedOptions}
+          aria2Ready={Boolean(bridge?.aria2Ready)}
+          disabled={submitting}
+          onChange={(next) => {
+            setAdvancedOptions(next)
+            setSubmissionResult(null)
+            setSubmissionError('')
+          }}
+        />
 
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="min-w-0 text-[10px] leading-4 text-muted-foreground">{submitCopy.hint}</p>

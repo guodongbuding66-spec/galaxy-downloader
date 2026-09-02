@@ -1,5 +1,6 @@
 import {
   LOCAL_ENGINE_REQUIRED_VERSION,
+  type LocalEngineAdvancedOptions,
   type LocalEngineBrowser,
   type LocalEngineCollectionMode,
 } from '@/lib/local-engine'
@@ -60,6 +61,8 @@ export interface LocalEngineBridgeStatus {
   downloaded: string
   ffmpegReady: boolean
   ytDlpReady: boolean
+  advancedMedia?: boolean
+  aria2Ready?: boolean
   queueLength: number
   queueCapacity: number
   queuedJobs: LocalEngineQueuedJob[]
@@ -69,7 +72,7 @@ export interface LocalEngineBridgeStatus {
   batchDownloadReady: boolean
 }
 
-export interface LocalEngineBridgeJob {
+export interface LocalEngineBridgeJob extends Partial<LocalEngineAdvancedOptions> {
   sourceUrl: string
   displayTitle?: string
   videoQuality?: string
@@ -519,6 +522,8 @@ export function normalizeLocalEngineBridgeStatusPayload(value: unknown): LocalEn
     downloaded: String(payload.downloaded || '—'),
     ffmpegReady: Boolean(payload.ffmpegReady),
     ytDlpReady: Boolean(payload.ytDlpReady),
+    advancedMedia: Boolean(payload.advancedMedia),
+    aria2Ready: Boolean(payload.aria2Ready),
     queueLength,
     queueCapacity,
     queuedJobs,
