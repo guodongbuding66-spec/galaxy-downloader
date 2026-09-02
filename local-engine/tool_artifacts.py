@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 MAX_TOOL_ARTIFACT_BYTES = 1_500_000_000
+MAX_TOOL_ARCHIVE_MEMBERS = 50_000
+MAX_TOOL_EXTRACTED_BYTES = 4_000_000_000
 _ALLOWED_ARCHIVES = {"raw", "zip", "tar.gz", "tar.xz"}
 
 
@@ -32,6 +34,36 @@ class ToolArtifact:
     url: str
     sha256: str
     archive: str
+
+
+@dataclass
+class _ExtractionBudget:
+    max_members: int
+    max_bytes: int
+    members: int = 0
+    declared_bytes: int = 0
+    written_bytes: int = 0
+
+    def register(self, name: str, declared_size: int) -> None:
+        if declared_size < 0:
+            raise ToolArtifactError(f"tool archive member has invalid size: {name}")
+        self.members += 1
+        if self.members > self.max_members:
+            raise ToolArtifactError(
+                f"tool archive contains too many members ({self.members} > {self.max_members})"
+            )
+        self.declared_bytes += declared_size
+        if self.declared_bytes > self.max_bytes:
+            raise ToolArtifactError(
+                f"tool archive expands beyond size limit ({self.declared_bytes} > {self.max_bytes})"
+            )
+
+    def consume(self, size: int) -> None:
+        self.written_bytes += size
+        if self.written_bytes > self.max_bytes:
+            raise ToolArtifactError(
+                f"tool archive wrote beyond size limit ({self.written_bytes} > {self.max_bytes})"
+            )
 
 
 def runtime_platform() -> str:
@@ -205,50 +237,116 @@ def _safe_member_destination(root: Path, member_name: str) -> Path:
     return destination
 
 
+def _validate_extraction_limits(max_members: int, max_extracted_bytes: int) -> tuple[int, int]:
+    members = int(max_members)
+    extracted = int(max_extracted_bytes)
+    if members < 1:
+        raise ToolArtifactError("tool archive member limit must be at least 1")
+    if extracted < 1:
+        raise ToolArtifactError("tool archive extracted-byte limit must be at least 1")
+    return members, extracted
+
+
+def _copy_bounded(input_file: BinaryIO, output_file: BinaryIO, budget: _ExtractionBudget) -> None:
+    while True:
+        chunk = input_file.read(1024 * 1024)
+        if not chunk:
+            break
+        budget.consume(len(chunk))
+        output_file.write(chunk)
+
+
 def _zip_member_is_symlink(info: zipfile.ZipInfo) -> bool:
     mode = (info.external_attr >> 16) & 0o170000
     return mode == 0o120000
 
 
-def _extract_zip(source: Path, destination: Path) -> None:
+def _extract_zip(
+    source: Path,
+    destination: Path,
+    *,
+    max_members: int,
+    max_extracted_bytes: int,
+) -> None:
     with zipfile.ZipFile(source) as archive:
-        for info in archive.infolist():
-            target = _safe_member_destination(destination, info.filename)
+        infos = archive.infolist()
+        budget = _ExtractionBudget(max_members=max_members, max_bytes=max_extracted_bytes)
+        for info in infos:
+            _safe_member_destination(destination, info.filename)
             if _zip_member_is_symlink(info):
                 raise ToolArtifactError(f"symbolic links are not allowed in tool archives: {info.filename}")
+            budget.register(info.filename, 0 if info.is_dir() else int(info.file_size))
+
+        for info in infos:
+            target = _safe_member_destination(destination, info.filename)
             if info.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info, "r") as input_file, target.open("wb") as output_file:
-                shutil.copyfileobj(input_file, output_file)
+            try:
+                with archive.open(info, "r") as input_file, target.open("wb") as output_file:
+                    _copy_bounded(input_file, output_file, budget)
+            except Exception:
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
+                raise
             unix_mode = (info.external_attr >> 16) & 0o777
             if unix_mode and os.name != "nt":
                 target.chmod(unix_mode)
 
 
-def _extract_tar(source: Path, destination: Path, mode: str) -> None:
+def _extract_tar(
+    source: Path,
+    destination: Path,
+    mode: str,
+    *,
+    max_members: int,
+    max_extracted_bytes: int,
+) -> None:
     with tarfile.open(source, mode) as archive:
-        for member in archive.getmembers():
-            target = _safe_member_destination(destination, member.name)
+        members = archive.getmembers()
+        budget = _ExtractionBudget(max_members=max_members, max_bytes=max_extracted_bytes)
+        for member in members:
+            _safe_member_destination(destination, member.name)
             if member.issym() or member.islnk() or member.isdev() or member.isfifo():
                 raise ToolArtifactError(f"links and special files are not allowed in tool archives: {member.name}")
+            if not member.isdir() and not member.isfile():
+                raise ToolArtifactError(f"unsupported tool archive member: {member.name}")
+            budget.register(member.name, int(member.size) if member.isfile() else 0)
+
+        for member in members:
+            target = _safe_member_destination(destination, member.name)
             if member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
-            if not member.isfile():
-                raise ToolArtifactError(f"unsupported tool archive member: {member.name}")
             input_file = archive.extractfile(member)
             if input_file is None:
                 raise ToolArtifactError(f"could not read tool archive member: {member.name}")
             target.parent.mkdir(parents=True, exist_ok=True)
-            with input_file, target.open("wb") as output_file:
-                shutil.copyfileobj(input_file, output_file)
+            try:
+                with input_file, target.open("wb") as output_file:
+                    _copy_bounded(input_file, output_file, budget)
+            except Exception:
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
+                raise
             if os.name != "nt":
                 target.chmod(member.mode & 0o777)
 
 
-def extract_verified_artifact(artifact: ToolArtifact, source: Path, destination: Path) -> Path:
+def extract_verified_artifact(
+    artifact: ToolArtifact,
+    source: Path,
+    destination: Path,
+    *,
+    max_members: int = MAX_TOOL_ARCHIVE_MEMBERS,
+    max_extracted_bytes: int = MAX_TOOL_EXTRACTED_BYTES,
+) -> Path:
+    member_limit, byte_limit = _validate_extraction_limits(max_members, max_extracted_bytes)
     root = Path(destination)
     root.mkdir(parents=True, exist_ok=True)
     archive_type = artifact.archive.lower()
@@ -256,13 +354,42 @@ def extract_verified_artifact(artifact: ToolArtifact, source: Path, destination:
         target = root / Path(urlparse(artifact.url).path).name
         if not target.name:
             raise ToolArtifactError("raw tool artifact URL must contain a file name")
-        shutil.copy2(source, target)
+        size = Path(source).stat().st_size
+        budget = _ExtractionBudget(max_members=member_limit, max_bytes=byte_limit)
+        budget.register(target.name, size)
+        try:
+            with Path(source).open("rb") as input_file, target.open("wb") as output_file:
+                _copy_bounded(input_file, output_file, budget)
+        except Exception:
+            try:
+                target.unlink()
+            except OSError:
+                pass
+            raise
+        shutil.copystat(source, target)
     elif archive_type == "zip":
-        _extract_zip(source, root)
+        _extract_zip(
+            Path(source),
+            root,
+            max_members=member_limit,
+            max_extracted_bytes=byte_limit,
+        )
     elif archive_type == "tar.gz":
-        _extract_tar(source, root, "r:gz")
+        _extract_tar(
+            Path(source),
+            root,
+            "r:gz",
+            max_members=member_limit,
+            max_extracted_bytes=byte_limit,
+        )
     elif archive_type == "tar.xz":
-        _extract_tar(source, root, "r:xz")
+        _extract_tar(
+            Path(source),
+            root,
+            "r:xz",
+            max_members=member_limit,
+            max_extracted_bytes=byte_limit,
+        )
     else:
         raise ToolArtifactError(f"unsupported tool artifact archive: {archive_type}")
     return root
@@ -285,6 +412,8 @@ def install_verified_artifact(
     *,
     required_files: Iterable[str],
     validator: Callable[[Path], bool] | None = None,
+    max_members: int = MAX_TOOL_ARCHIVE_MEMBERS,
+    max_extracted_bytes: int = MAX_TOOL_EXTRACTED_BYTES,
 ) -> Path:
     validate_artifact(artifact)
     source = Path(archive_path)
@@ -301,7 +430,13 @@ def install_verified_artifact(
     staging = parent / f".{target.name}.staging-{uuid.uuid4().hex}"
     backup = parent / f".{target.name}.backup-{uuid.uuid4().hex}"
     try:
-        extract_verified_artifact(artifact, source, staging)
+        extract_verified_artifact(
+            artifact,
+            source,
+            staging,
+            max_members=max_members,
+            max_extracted_bytes=max_extracted_bytes,
+        )
         _required_files_present(staging, required_files)
         if validator is not None and not validator(staging):
             raise ToolArtifactError("tool artifact validation command failed")

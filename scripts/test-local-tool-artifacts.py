@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import sys
+import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -125,7 +126,108 @@ class ToolArtifactTests(unittest.TestCase):
             with self.assertRaises(ToolArtifactError):
                 extract_verified_artifact(artifact, symlink, root / "out-symlink")
 
-    def test_atomic_install_preserves_previous_target_on_digest_or_validation_failure(self) -> None:
+    def test_zip_limits_fail_before_any_member_is_written(self) -> None:
+        artifact = self.artifact(archive="zip")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "limited.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("a", b"aa")
+                archive.writestr("b", b"bb")
+                archive.writestr("c", b"cc")
+
+            member_out = root / "member-out"
+            with self.assertRaises(ToolArtifactError):
+                extract_verified_artifact(
+                    artifact,
+                    archive_path,
+                    member_out,
+                    max_members=2,
+                    max_extracted_bytes=100,
+                )
+            self.assertEqual(list(member_out.iterdir()), [])
+
+            byte_out = root / "byte-out"
+            with self.assertRaises(ToolArtifactError):
+                extract_verified_artifact(
+                    artifact,
+                    archive_path,
+                    byte_out,
+                    max_members=10,
+                    max_extracted_bytes=5,
+                )
+            self.assertEqual(list(byte_out.iterdir()), [])
+
+    def test_tar_limits_fail_before_any_member_is_written(self) -> None:
+        artifact = self.artifact(archive="tar.gz")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "limited.tar.gz"
+            with tarfile.open(archive_path, "w:gz") as archive:
+                for name, payload in (("a", b"aa"), ("b", b"bb"), ("c", b"cc")):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(payload)
+                    archive.addfile(info, io.BytesIO(payload))
+
+            member_out = root / "member-out"
+            with self.assertRaises(ToolArtifactError):
+                extract_verified_artifact(
+                    artifact,
+                    archive_path,
+                    member_out,
+                    max_members=2,
+                    max_extracted_bytes=100,
+                )
+            self.assertEqual(list(member_out.iterdir()), [])
+
+            byte_out = root / "byte-out"
+            with self.assertRaises(ToolArtifactError):
+                extract_verified_artifact(
+                    artifact,
+                    archive_path,
+                    byte_out,
+                    max_members=10,
+                    max_extracted_bytes=5,
+                )
+            self.assertEqual(list(byte_out.iterdir()), [])
+
+    def test_raw_artifact_respects_extracted_byte_limit_and_cleans_partial_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.bin"
+            source.write_bytes(b"123456")
+            artifact = self.artifact(
+                payload=source.read_bytes(),
+                url="https://downloads.example.com/tool.bin",
+                archive="raw",
+            )
+            output = root / "out"
+            with self.assertRaises(ToolArtifactError):
+                extract_verified_artifact(
+                    artifact,
+                    source,
+                    output,
+                    max_members=1,
+                    max_extracted_bytes=5,
+                )
+            self.assertFalse((output / "tool.bin").exists())
+
+    def test_invalid_extraction_limits_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.bin"
+            source.write_bytes(b"x")
+            artifact = self.artifact(
+                payload=b"x",
+                url="https://downloads.example.com/tool.bin",
+                archive="raw",
+            )
+            with self.assertRaises(ToolArtifactError):
+                extract_verified_artifact(artifact, source, root / "out-a", max_members=0)
+            with self.assertRaises(ToolArtifactError):
+                extract_verified_artifact(artifact, source, root / "out-b", max_extracted_bytes=0)
+
+    def test_atomic_install_preserves_previous_target_on_digest_validation_or_limit_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             archive_path = root / "tool.zip"
@@ -160,6 +262,17 @@ class ToolArtifactTests(unittest.TestCase):
                     target,
                     required_files=("bin/tool",),
                     validator=lambda _path: False,
+                )
+            self.assertEqual((target / "bin" / "tool").read_bytes(), b"old")
+
+            with self.assertRaises(ToolArtifactError):
+                install_verified_artifact(
+                    artifact,
+                    archive_path,
+                    target,
+                    required_files=("bin/tool",),
+                    validator=lambda _path: True,
+                    max_extracted_bytes=2,
                 )
             self.assertEqual((target / "bin" / "tool").read_bytes(), b"old")
 
