@@ -13,40 +13,40 @@ permissions:
 jobs:
   patch:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: feat/local-engine-0.15-pause-resume
 
-      - name: Fix bootstrap source escaping
-        shell: python
-        run: |
-          from pathlib import Path
-          path = Path('scripts/bootstrap_pause_resume_task_center.py')
-          text = path.read_text(encoding='utf-8')
-          old = '"放弃这个可恢复任务？\\n\\n下载临时文件不会在这里主动删除，但任务中心将不再提供继续入口。"'
-          new = '"放弃这个可恢复任务？\\\\n\\\\n下载临时文件不会在这里主动删除，但任务中心将不再提供继续入口。"'
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one escape target, got {text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+      - name: Apply web bridge transforms
+        run: python scripts/bootstrap_pause_resume_web_bridge.py
 
-      - name: Apply deterministic code transforms
-        run: python scripts/bootstrap_pause_resume_task_center.py
+      - name: Compile Python bridge
+        run: python -m py_compile local-engine/resume_bridge.py
 
-      - name: Compile changed Python files
-        run: |
-          python -m py_compile \
-            local-engine/entrypoint.py \
-            local-engine/resume_bridge.py \
-            local-engine/task_center.py \
-            local-engine/pause_resume_policy.py
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          version: 11.8.0
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Local Engine bridge tests
+        run: pnpm exec vitest run tests/local-engine-bridge-error.test.ts
+
+      - name: Lint changed TypeScript
+        run: pnpm exec eslint src/lib/local-engine-bridge.ts tests/local-engine-bridge-error.test.ts
 
       - name: Commit integration
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add local-engine/entrypoint.py local-engine/task_center.py
-          git commit -m 'feat(local-engine): expose resumable tasks in task center'
+          git add local-engine/resume_bridge.py src/lib/local-engine-bridge.ts tests/local-engine-bridge-error.test.ts
+          git commit -m 'feat(local-engine): add web pause resume bridge controls'
           git push origin HEAD:feat/local-engine-0.15-pause-resume
