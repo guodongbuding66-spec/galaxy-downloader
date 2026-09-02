@@ -6,7 +6,7 @@ import webbrowser
 from tkinter import messagebox, ttk
 from typing import Any, Callable
 
-from desktop_hooks import run_after_build_ui_hooks, run_queue_tick_hooks
+from desktop_hooks import run_after_build_ui_hooks, run_queue_row_hooks, run_queue_tick_hooks
 from media_policy import aria2c_available, load_preferences, save_preferences
 from update_check import check_latest_stable
 
@@ -501,6 +501,7 @@ def _render_queue(window, pending: list[Any]) -> None:
                 pady=2,
             )
             cancel.pack(side="right", padx=(5, 0))
+        run_queue_row_hooks(window, row, queued, index - 1, pending)
     if len(pending) > 8:
         _label(panel, f"另有 {len(pending) - 8} 项等待", size=8, color=MUTED).pack(anchor="w", padx=3, pady=(1, 0))
 

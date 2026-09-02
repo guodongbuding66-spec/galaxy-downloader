@@ -67,6 +67,26 @@ def test_queue_registry_is_separate(hooks) -> None:
     assert hooks.registered_queue_tick_hooks(FakeWindow) == ("extras", "runtime")
 
 
+def test_queue_row_registry(hooks) -> None:
+    class FakeWindow:
+        pass
+
+    calls: list[tuple[str, int]] = []
+
+    def first(_window, _row, _queued, index, _pending) -> None:
+        calls.append(("first", index))
+
+    def second(_window, _row, _queued, index, _pending) -> None:
+        calls.append(("second", index))
+
+    hooks.register_queue_row_hook(FakeWindow, "second", second, order=120)
+    hooks.register_queue_row_hook(FakeWindow, "first", first, order=110)
+    pending = [object(), object(), object()]
+    hooks.run_queue_row_hooks(FakeWindow(), object(), pending[1], 1, pending)
+    assert calls == [("first", 1), ("second", 1)], calls
+    assert hooks.registered_queue_row_hooks(FakeWindow) == ("first", "second")
+
+
 def test_job_line_registry(hooks) -> None:
     class FakeWindow:
         pass
@@ -152,6 +172,8 @@ def test_single_desktop_method_owner() -> None:
         "manager._show_queue_manager =",
         "original_sync_history",
         "extras._sync_history_button =",
+        "_augment_queue_rows(",
+        "ui._render_queue =",
     )
     for filename, text in texts.items():
         for marker in forbidden:
@@ -159,16 +181,20 @@ def test_single_desktop_method_owner() -> None:
 
     build_owners = sum(text.count("window_cls._build_ui = build_ui") for text in texts.values())
     queue_tick_owners = sum(text.count("window_cls._galaxy_queue_tick = queue_tick") for text in texts.values())
+    queue_render_owners = sum(text.count("def _render_queue(") for text in texts.values())
     assert build_owners == 1, f"expected one canonical _build_ui owner, got {build_owners}"
     assert queue_tick_owners == 1, f"expected one canonical _galaxy_queue_tick owner, got {queue_tick_owners}"
+    assert queue_render_owners == 1, f"expected one canonical _render_queue owner, got {queue_render_owners}"
 
     assert "run_after_build_ui_hooks(window)" in texts["desktop_ui.py"]
+    assert "run_queue_row_hooks(window, row, queued, index - 1, pending)" in texts["desktop_ui.py"]
     assert "run_queue_tick_hooks(window)" in texts["desktop_ui.py"]
     assert "run_job_lines_hooks(window" in texts["desktop_extras.py"]
     assert "register_after_build_ui_hook" in texts["desktop_extras.py"]
     assert "register_desktop_presenter" in texts["desktop_extras.py"]
     assert "show_desktop_presenter" in texts["desktop_extras.py"]
     assert "run_history_button_hooks" in texts["desktop_extras.py"]
+    assert "register_queue_row_hook" in texts["desktop_extras.py"]
     assert "register_queue_tick_hook" in texts["desktop_extras.py"]
     assert "register_after_build_ui_hook" in texts["desktop_manager.py"]
     assert "register_job_lines_hook" in texts["desktop_manager.py"]
@@ -189,6 +215,7 @@ def main() -> None:
     hooks = load_module("galaxy_desktop_hooks_test", LOCAL_ENGINE / "desktop_hooks.py")
     test_registry_order_and_identity(hooks)
     test_queue_registry_is_separate(hooks)
+    test_queue_row_registry(hooks)
     test_job_line_registry(hooks)
     test_presenter_registry(hooks)
     test_history_button_registry(hooks)

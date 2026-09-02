@@ -8,6 +8,7 @@ _QUEUE_TICK_ATTR = "_galaxy_queue_tick_hooks"
 _JOB_LINES_ATTR = "_galaxy_job_line_hooks"
 _PRESENTER_ATTR = "_galaxy_desktop_presenters"
 _HISTORY_BUTTON_ATTR = "_galaxy_history_button_hooks"
+_QUEUE_ROW_ATTR = "_galaxy_queue_row_hooks"
 
 DesktopHook = Callable[[Any], None]
 JobLines = list[tuple[str, str]]
@@ -16,6 +17,7 @@ HookRecord = tuple[int, str, Callable[..., Any]]
 DesktopPresenter = Callable[[Any], None]
 PresenterRecord = tuple[int, str, DesktopPresenter]
 HistoryButtonHook = Callable[[Any, Any, int, str], str]
+QueueRowHook = Callable[[Any, Any, Any, int, list[Any]], None]
 
 
 def _registry(window_cls: type, attribute: str) -> list[HookRecord]:
@@ -125,6 +127,19 @@ def run_history_button_hooks(window: Any, engine_module: Any, history_count: int
 
 def registered_history_button_hooks(window_cls: type) -> tuple[str, ...]:
     return tuple(record[1] for record in _registry(window_cls, _HISTORY_BUTTON_ATTR))
+
+
+def register_queue_row_hook(window_cls: type, name: str, callback: QueueRowHook, *, order: int) -> None:
+    _register(window_cls, _QUEUE_ROW_ATTR, name, callback, order)
+
+
+def run_queue_row_hooks(window: Any, row: Any, queued: Any, index: int, pending: list[Any]) -> None:
+    for _order, _name, callback in list(_registry(type(window), _QUEUE_ROW_ATTR)):
+        callback(window, row, queued, int(index), pending)
+
+
+def registered_queue_row_hooks(window_cls: type) -> tuple[str, ...]:
+    return tuple(record[1] for record in _registry(window_cls, _QUEUE_ROW_ATTR))
 
 
 def _run(window: Any, attribute: str) -> None:
