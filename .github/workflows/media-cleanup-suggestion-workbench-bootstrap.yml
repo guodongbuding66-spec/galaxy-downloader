@@ -24,7 +24,9 @@ jobs:
           python-version: '3.12'
 
       - name: Integrate suggestion review controls
-        run: python scripts/integrate-media-cleanup-suggestion-workbench.py
+        run: |
+          python scripts/integrate-media-cleanup-suggestion-workbench.py
+          python scripts/fix-media-cleanup-suggestion-workbench.py
 
       - name: Validate integration
         run: |
@@ -42,5 +44,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add local-engine/media_cleanup_workbench.py
-          git commit -m "feat(local-engine): review automatic cleanup suggestions in workbench"
+          git commit -m "fix(local-engine): harden cleanup suggestion review state"
           git push origin HEAD:feat/media-cleanup-suggestion-workbench
