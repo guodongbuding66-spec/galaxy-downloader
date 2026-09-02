@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import desktop_download_workbench as workbench
 from bridge_submission_policy import JobSubmissionResult
@@ -126,8 +127,104 @@ def install_desktop_preview_handoff(engine_module):
     return PreviewHandoffJob
 
 
+def _self_test_engine():
+    @dataclass(frozen=True)
+    class BaseJob:
+        source_url: str
+
+    engine = SimpleNamespace(Job=BaseJob)
+
+    def parse_job(raw: str):
+        query = parse_qs(urlparse(raw).query)
+        return engine.Job(unquote(query.get("url", [""])[0]))
+
+    def job_from_payload(payload: dict[str, Any]):
+        source = str(payload.get("sourceUrl") or "").strip()
+        if not source.startswith(("http://", "https://")):
+            raise ValueError("invalid source")
+        return engine.Job(source)
+
+    def job_to_payload(job):
+        return {"sourceUrl": job.source_url}
+
+    engine.parse_job = parse_job
+    engine.job_from_payload = job_from_payload
+    engine.job_to_payload = job_to_payload
+
+    class Var:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, value):
+            self.value = value
+
+    class Window:
+        def __init__(self, job):
+            self.job = job
+            self._galaxy_close_pending = False
+            self._quick_url_var = Var()
+            self._quick_state_var = Var()
+            self.focused = False
+
+        def after(self, _delay, fn):
+            fn()
+
+        def deiconify(self):
+            self.focused = True
+
+        def lift(self):
+            self.focused = True
+
+        def focus_force(self):
+            self.focused = True
+
+        def submit_bridge_job(self, payload):
+            return (False, f"legacy:{payload.get('sourceUrl', '')}")
+
+        def bridge_status(self):
+            return {"ok": True}
+
+    engine.EngineWindow = Window
+    return engine
+
+
 def run_desktop_preview_handoff_self_test() -> None:
     assert _preview_flag("1") is True
     assert _preview_flag("true") is True
     assert _preview_flag("0") is False
     assert _preview_flag("") is False
+
+    engine = _self_test_engine()
+    calls: list[str] = []
+    original_parse = workbench._parse_quick_url_async
+    workbench._parse_quick_url_async = lambda window, _engine: calls.append(window._quick_url_var.value)
+    try:
+        install_desktop_preview_handoff(engine)
+        raw = "galaxy-downloader://download?url=https%3A%2F%2Fexample.test%2Fwatch&preview=1"
+        preview_job = engine.parse_job(raw)
+        assert preview_job.preview_only is True
+        payload = engine.job_to_payload(preview_job)
+        assert payload["previewOnly"] is True
+        rebuilt = engine.job_from_payload(payload)
+        assert rebuilt.preview_only is True
+
+        resident = engine.EngineWindow(None)
+        result = resident.submit_bridge_job(payload)
+        assert result.accepted is True
+        assert result.code == "PREVIEW_ACCEPTED"
+        assert resident.job is None
+        assert calls == ["https://example.test/watch"]
+
+        cold = engine.EngineWindow(preview_job)
+        assert cold.job is None
+        assert calls == ["https://example.test/watch", "https://example.test/watch"]
+        assert cold.bridge_status()["desktopPreviewHandoff"] is True
+
+        normal = engine.parse_job(
+            "galaxy-downloader://download?url=https%3A%2F%2Fexample.test%2Fother"
+        )
+        assert normal.preview_only is False
+        normal_result = resident.submit_bridge_job(engine.job_to_payload(normal))
+        assert normal_result == (False, "legacy:https://example.test/other")
+    finally:
+        workbench._parse_quick_url_async = original_parse
