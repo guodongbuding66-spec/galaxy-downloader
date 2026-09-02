@@ -12,7 +12,12 @@ on:
       - 'src/components/downloader/SinglePartButtons.tsx'
       - 'src/lib/config.ts'
       - 'src/lib/unified-parse.ts'
+      - 'src/lib/vimeo-control.ts'
       - 'worker/index.ts'
+      - 'wrangler.jsonc'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - 'scripts/local-parser-production-smoke.py'
       - '.github/workflows/first-party-pr-media-gate.yml'
       - '.github/workflows/local-parser-production-smoke.yml'
@@ -26,47 +31,85 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  staging-media-smoke:
-    name: Staging real-media smoke
+  preview-media-smoke:
+    name: Preview real-media smoke
+    # Never expose Cloudflare credentials to code from an external fork.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     env:
-      STAGING_BASE_URL: ${{ vars.GALAXY_STAGING_BASE_URL }}
+      PREVIEW_ALIAS: pr-${{ github.event.pull_request.number || github.run_id }}
     steps:
       - name: Checkout PR revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          version: 11.8.0
+          runtime: node@22
+          install: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
 
-      - name: Require isolated staging target
+      - name: Require Cloudflare preview credentials
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [[ -z "${STAGING_BASE_URL}" ]]; then
-            echo '::error title=Missing staging URL::Set repository variable GALAXY_STAGING_BASE_URL to an isolated Preview/Staging deployment before this check can pass.'
+          if [[ -z "${CLOUDFLARE_API_TOKEN}" || -z "${CLOUDFLARE_ACCOUNT_ID}" ]]; then
+            echo '::error title=Missing Cloudflare preview credentials::Add repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID so this PR revision can be uploaded as an isolated Worker Preview Version.'
             exit 1
           fi
-          case "${STAGING_BASE_URL}" in
-            https://galaxy-downloader.guodongbuding66.workers.dev|https://galaxy-downloader.guodongbuding66.workers.dev/)
-              echo '::error title=Production target is not allowed::GALAXY_STAGING_BASE_URL must point to an isolated Preview/Staging deployment, not production.'
-              exit 1
-              ;;
-            https://*) ;;
-            *)
-              echo '::error title=Invalid staging URL::GALAXY_STAGING_BASE_URL must be an https:// URL.'
-              exit 1
-              ;;
-          esac
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build candidate revision
+        run: pnpm build
+
+      - name: Upload immutable Preview Version
+        id: preview
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          output_file="${RUNNER_TEMP}/wrangler-preview-output.txt"
+          pnpm exec wrangler versions upload \
+            --config wrangler.jsonc \
+            --preview-alias "${PREVIEW_ALIAS}" \
+            2>&1 | tee "${output_file}"
+
+          preview_url="$({ grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' "${output_file}" || true; } | tail -n 1)"
+          if [[ -z "${preview_url}" ]]; then
+            echo '::error title=Preview URL not found::Wrangler uploaded the candidate but no workers.dev Preview URL could be parsed from its output.'
+            exit 1
+          fi
+
+          production_url='https://galaxy-downloader.guodongbuding66.workers.dev'
+          if [[ "${preview_url%/}" == "${production_url}" ]]; then
+            echo '::error title=Production target is not allowed::The PR media gate must never smoke-test the production Worker.'
+            exit 1
+          fi
+
+          echo "url=${preview_url%/}" >> "${GITHUB_OUTPUT}"
+          echo "Preview target: ${preview_url%/}"
 
       - name: Compile real-media smoke
         run: python -m py_compile scripts/local-parser-production-smoke.py
 
-      - name: Probe staging parser and real media bytes
+      - name: Probe candidate parser and real media bytes
         run: >-
           python scripts/local-parser-production-smoke.py
-          --base-url "${STAGING_BASE_URL%/}"
+          --base-url "${{ steps.preview.outputs.url }}"
           --attempts 4
           --retry-delay 8
           --timeout 20
