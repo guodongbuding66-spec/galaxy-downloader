@@ -120,61 +120,65 @@ def _persist_enabled(window, engine_module, enabled: bool) -> None:
         pass
 
 
+def _next_poll_generation(window) -> int:
+    generation = int(getattr(window, "_clipboard_poll_generation", 0)) + 1
+    window._clipboard_poll_generation = generation
+    return generation
+
+
 def _toggle_monitor(window, engine_module) -> None:
     enabled = bool(window._clipboard_monitor_var.get())
     _persist_enabled(window, engine_module, enabled)
     window._clipboard_last_text = None
+    generation = _next_poll_generation(window)
     if enabled:
         _set_detection_state(
             window,
             "剪贴板监听已开启：只识别 HTTP(S) 链接，不会自动联网解析。",
         )
-        _poll_clipboard(window, engine_module, immediate=True)
+        _poll_clipboard(window, engine_module, generation)
     else:
         _set_detection_state(window, "剪贴板监听已关闭，不会读取剪贴板。")
 
 
-def _poll_clipboard(window, engine_module, *, immediate: bool = False) -> None:
+def _poll_clipboard(window, engine_module, generation: int) -> None:
+    if generation != int(getattr(window, "_clipboard_poll_generation", 0)):
+        return
     if not bool(getattr(window, "_clipboard_monitor_enabled", False)):
         return
 
-    def run_once() -> None:
-        if not bool(getattr(window, "_clipboard_monitor_enabled", False)):
-            return
-        try:
-            raw = window.clipboard_get()
-        except Exception:
-            raw = ""
-        text = str(raw or "")
-        if text != getattr(window, "_clipboard_last_text", None):
-            window._clipboard_last_text = text
-            candidate = extract_clipboard_http_url(text)
-            current = ""
-            url_var = getattr(window, "_quick_url_var", None)
-            if url_var is not None:
-                try:
-                    current = str(url_var.get() or "").strip()
-                except Exception:
-                    current = ""
-            if candidate and candidate != current:
-                _set_detection_state(
-                    window,
-                    f"检测到 {_host_label(candidate)} 链接。点击“预览剪贴板链接”后才会联网。",
-                    candidate=candidate,
-                )
-            elif candidate and candidate == current:
-                _set_detection_state(window, "剪贴板中的链接已经在下载工作台中。")
-            else:
-                _set_detection_state(window, "正在监听剪贴板，尚未发现 HTTP(S) 媒体链接。")
-        try:
-            window.after(POLL_INTERVAL_MS, lambda: _poll_clipboard(window, engine_module))
-        except Exception:
-            pass
-
-    if immediate:
-        run_once()
-    else:
-        run_once()
+    try:
+        raw = window.clipboard_get()
+    except Exception:
+        raw = ""
+    text = str(raw or "")
+    if text != getattr(window, "_clipboard_last_text", None):
+        window._clipboard_last_text = text
+        candidate = extract_clipboard_http_url(text)
+        current = ""
+        url_var = getattr(window, "_quick_url_var", None)
+        if url_var is not None:
+            try:
+                current = str(url_var.get() or "").strip()
+            except Exception:
+                current = ""
+        if candidate and candidate != current:
+            _set_detection_state(
+                window,
+                f"检测到 {_host_label(candidate)} 链接。点击“预览剪贴板链接”后才会联网。",
+                candidate=candidate,
+            )
+        elif candidate and candidate == current:
+            _set_detection_state(window, "剪贴板中的链接已经在下载工作台中。")
+        else:
+            _set_detection_state(window, "正在监听剪贴板，尚未发现 HTTP(S) 媒体链接。")
+    try:
+        window.after(
+            POLL_INTERVAL_MS,
+            lambda: _poll_clipboard(window, engine_module, generation),
+        )
+    except Exception:
+        pass
 
 
 def _preview_clipboard_candidate(window, engine_module) -> None:
@@ -202,6 +206,7 @@ def _install_clipboard_controls(window, engine_module) -> None:
     window._clipboard_monitor_enabled = enabled
     window._clipboard_last_text = None
     window._clipboard_candidate = None
+    window._clipboard_poll_generation = 0
     window._clipboard_monitor_var = ui.tk.BooleanVar(value=enabled)
     window._clipboard_status_var = ui.tk.StringVar(
         value=(
@@ -239,8 +244,9 @@ def _install_clipboard_controls(window, engine_module) -> None:
     window._clipboard_preview_button.state(["disabled"])
 
     if enabled:
+        generation = _next_poll_generation(window)
         try:
-            window.after(250, lambda: _poll_clipboard(window, engine_module))
+            window.after(250, lambda: _poll_clipboard(window, engine_module, generation))
         except Exception:
             pass
 
