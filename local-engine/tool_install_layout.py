@@ -17,7 +17,10 @@ def _safe_relative_path(value: str, *, label: str) -> PurePosixPath:
 
 def archive_root_from_asset_name(asset_name: str, archive: str) -> str:
     """Return the expected single top-level directory for a packaged tool asset."""
-    name = Path(str(asset_name or "")).name
+    asset_path = _safe_relative_path(str(asset_name or ""), label="provider asset name")
+    if len(asset_path.parts) != 1:
+        raise ToolArtifactError("provider asset name must be a single file name")
+    name = asset_path.name
     archive_type = str(archive or "").lower()
     suffix = {
         "zip": ".zip",
