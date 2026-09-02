@@ -67,6 +67,33 @@ def test_queue_registry_is_separate(hooks) -> None:
     assert hooks.registered_queue_tick_hooks(FakeWindow) == ("extras", "runtime")
 
 
+def test_job_line_registry(hooks) -> None:
+    class FakeWindow:
+        pass
+
+    calls: list[str] = []
+
+    def manager(_window, lines):
+        calls.append("manager")
+        return [*lines, ("manager", "1")]
+
+    def runtime(_window, lines):
+        calls.append("runtime")
+        return [*lines, ("runtime", "2")]
+
+    def recovery(_window, lines):
+        calls.append("recovery")
+        return [(name, "effective" if name == "runtime" else value) for name, value in lines]
+
+    hooks.register_job_lines_hook(FakeWindow, "recovery-display", recovery, order=140)
+    hooks.register_job_lines_hook(FakeWindow, "desktop-runtime", runtime, order=130)
+    hooks.register_job_lines_hook(FakeWindow, "desktop-manager", manager, order=120)
+    rendered = hooks.run_job_lines_hooks(FakeWindow(), [("base", "0")])
+    assert calls == ["manager", "runtime", "recovery"], calls
+    assert rendered == [("base", "0"), ("manager", "1"), ("runtime", "effective")], rendered
+    assert hooks.registered_job_lines_hooks(FakeWindow) == ("desktop-manager", "desktop-runtime", "recovery-display")
+
+
 def test_single_desktop_method_owner() -> None:
     paths = [
         LOCAL_ENGINE / "desktop_ui.py",
@@ -74,12 +101,15 @@ def test_single_desktop_method_owner() -> None:
         LOCAL_ENGINE / "desktop_manager.py",
         LOCAL_ENGINE / "desktop_runtime.py",
         LOCAL_ENGINE / "task_center.py",
+        LOCAL_ENGINE / "recovery_display.py",
     ]
     texts = {path.name: path.read_text(encoding="utf-8") for path in paths}
 
     forbidden = (
         "original_build = window_cls._build_ui",
         "original_queue_tick = window_cls._galaxy_queue_tick",
+        "original_job_lines",
+        "extras._job_lines =",
     )
     for filename, text in texts.items():
         for marker in forbidden:
@@ -104,6 +134,7 @@ def main() -> None:
     hooks = load_module("galaxy_desktop_hooks_test", LOCAL_ENGINE / "desktop_hooks.py")
     test_registry_order_and_identity(hooks)
     test_queue_registry_is_separate(hooks)
+    test_job_line_registry(hooks)
     test_single_desktop_method_owner()
     print("Local Engine desktop hook architecture tests passed")
 

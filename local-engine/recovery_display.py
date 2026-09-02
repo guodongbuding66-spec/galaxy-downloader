@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
-import desktop_extras as extras
+from desktop_hooks import register_job_lines_hook
 from recovery_policy import effective_network_preferences
 
 RETRY_DISPLAY = {
@@ -38,10 +38,7 @@ def install_recovery_display(engine_module):
     if getattr(window_cls, "_galaxy_recovery_display_installed", False):
         return window_cls
 
-    original_job_lines: Callable[[Any], list[tuple[str, str]]] = extras._job_lines
-
-    def job_lines(window) -> list[tuple[str, str]]:
-        lines = original_job_lines(window)
+    def job_lines_hook(window, lines: list[tuple[str, str]]) -> list[tuple[str, str]]:
         job = getattr(window, "job", None)
         if job is None:
             return lines
@@ -69,7 +66,7 @@ def install_recovery_display(engine_module):
             rendered.append(("恢复覆盖", "仅当前任务"))
         return rendered
 
-    extras._job_lines = job_lines
+    register_job_lines_hook(window_cls, "recovery-display", job_lines_hook, order=140)
     window_cls._galaxy_recovery_display_installed = True
     engine_module._galaxy_recovery_display_installed = True
     return window_cls
