@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import statistics
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 from media_cleanup import CleanupRegion, MediaCleanupError, MediaProbe
 
@@ -45,7 +47,7 @@ def normalize_suggestion_profile(value: str | None) -> str:
     return _PROFILE_ALIASES.get(key, "auto")
 
 
-def build_gray_frame_command(ffmpeg_path, source, probe: MediaProbe) -> list[str]:
+def build_gray_frame_command(ffmpeg_path: Path, source: Path, probe: MediaProbe) -> list[str]:
     seek = 0.0
     if probe.media_kind == "video" and probe.duration_seconds > 0:
         seek = min(1.0, probe.duration_seconds / 2.0)
@@ -66,6 +68,58 @@ def build_gray_frame_command(ffmpeg_path, source, probe: MediaProbe) -> list[str
         ]
     )
     return command
+
+
+def extract_gray_frame(
+    ffmpeg_path: Path,
+    source: Path,
+    probe: MediaProbe,
+    *,
+    timeout_seconds: float = 30.0,
+) -> GrayFrame:
+    command = build_gray_frame_command(ffmpeg_path, source, probe)
+    try:
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=max(1.0, float(timeout_seconds)),
+            check=False,
+        )
+    except OSError as exc:
+        raise MediaCleanupError(f"Could not start FFmpeg suggestion renderer: {exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise MediaCleanupError("Timed out while analyzing a cleanup suggestion frame") from exc
+
+    if completed.returncode != 0:
+        detail_bytes = completed.stderr or b""
+        detail = detail_bytes.decode("utf-8", errors="replace").strip()[-600:]
+        raise MediaCleanupError(f"Could not render cleanup suggestion frame: {detail or 'FFmpeg failed'}")
+
+    pixels = bytes(completed.stdout or b"")
+    expected_size = probe.width * probe.height
+    if len(pixels) != expected_size:
+        raise MediaCleanupError(
+            f"Suggestion renderer returned {len(pixels)} bytes; expected {expected_size}"
+        )
+    return GrayFrame(probe.width, probe.height, pixels).validate()
+
+
+def suggest_visible_overlay_for_media(
+    ffmpeg_path: Path,
+    source: Path,
+    probe: MediaProbe,
+    *,
+    provider_hint: str | None = None,
+    timeout_seconds: float = 30.0,
+) -> tuple[CleanupRegionSuggestion, ...]:
+    frame = extract_gray_frame(
+        ffmpeg_path,
+        source,
+        probe,
+        timeout_seconds=timeout_seconds,
+    )
+    return suggest_visible_overlay_regions(frame, provider_hint=provider_hint)
 
 
 def _zone_for_profile(width: int, height: int, profile: str) -> tuple[int, int, int, int]:
@@ -189,6 +243,9 @@ def run_media_cleanup_suggestions_self_test() -> None:
     assert suggestion.source == "edge-analysis"
     assert suggestion.region.x >= width // 2
     assert suggestion.region.y >= height // 2
-    fallback = suggest_visible_overlay_regions(GrayFrame(width, height, bytes([32] * (width * height))), provider_hint="doubao")
+    fallback = suggest_visible_overlay_regions(
+        GrayFrame(width, height, bytes([32] * (width * height))),
+        provider_hint="doubao",
+    )
     assert fallback and fallback[0].source == "profile"
     assert normalize_suggestion_profile("Gemini") == "bottom-right-wide"
