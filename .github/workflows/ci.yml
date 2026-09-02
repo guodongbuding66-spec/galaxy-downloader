@@ -48,6 +48,8 @@ jobs:
             local-engine/media_policy.py \
             local-engine/workspace_policy.py \
             local-engine/recovery_policy.py \
+            local-engine/pause_resume_policy.py \
+            local-engine/resume_bridge.py \
             local-engine/recovery_display.py \
             local-engine/failure_policy.py \
             local-engine/runtime_health.py \
@@ -88,6 +90,8 @@ jobs:
           python3 scripts/test-local-manager-policy.py
           python3 scripts/test-local-runtime-policy.py
           python3 scripts/test-local-recovery-policy.py
+          python3 scripts/test-local-pause-resume.py
+          python3 scripts/test-local-release-notes.py
 
       - name: Run tests
         run: pnpm test
