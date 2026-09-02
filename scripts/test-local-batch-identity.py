@@ -32,11 +32,18 @@ class _FakeWindow:
 
 
 def _fake_engine():
+    engine = types.SimpleNamespace(
+        Job=_FakeJob,
+        EngineWindow=_FakeWindow,
+    )
+
     def job_from_payload(payload):
         source_url = str(payload.get("sourceUrl") or "").strip()
         if not source_url:
             raise ValueError("sourceUrl is required")
-        return _FakeJob(
+        # Match production engine.py semantics: resolve the current module Job
+        # at call time so installed Job policies compose correctly.
+        return engine.Job(
             source_url=source_url,
             video_quality=str(payload.get("videoQuality") or "best"),
         )
@@ -47,12 +54,9 @@ def _fake_engine():
             "videoQuality": job.video_quality,
         }
 
-    return types.SimpleNamespace(
-        Job=_FakeJob,
-        EngineWindow=_FakeWindow,
-        job_from_payload=job_from_payload,
-        job_to_payload=job_to_payload,
-    )
+    engine.job_from_payload = job_from_payload
+    engine.job_to_payload = job_to_payload
+    return engine
 
 
 def main() -> int:
