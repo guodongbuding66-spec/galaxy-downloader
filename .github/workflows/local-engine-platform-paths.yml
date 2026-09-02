@@ -5,8 +5,10 @@ on:
     paths:
       - 'local-engine/platform_paths.py'
       - 'local-engine/runtime_paths_policy.py'
+      - 'local-engine/runtime_storage.py'
       - 'scripts/test-local-platform-paths.py'
       - 'scripts/test-local-runtime-paths-policy.py'
+      - 'scripts/test-local-runtime-storage.py'
       - '.github/workflows/local-engine-platform-paths.yml'
   push:
     branches:
@@ -14,8 +16,10 @@ on:
     paths:
       - 'local-engine/platform_paths.py'
       - 'local-engine/runtime_paths_policy.py'
+      - 'local-engine/runtime_storage.py'
       - 'scripts/test-local-platform-paths.py'
       - 'scripts/test-local-runtime-paths-policy.py'
+      - 'scripts/test-local-runtime-storage.py'
       - '.github/workflows/local-engine-platform-paths.yml'
   workflow_dispatch:
 
@@ -46,10 +50,13 @@ jobs:
           python -m py_compile
           local-engine/platform_paths.py
           local-engine/runtime_paths_policy.py
+          local-engine/runtime_storage.py
           scripts/test-local-platform-paths.py
           scripts/test-local-runtime-paths-policy.py
+          scripts/test-local-runtime-storage.py
 
       - name: Validate portable and installed layouts
         run: |
           python scripts/test-local-platform-paths.py
           python scripts/test-local-runtime-paths-policy.py
+          python scripts/test-local-runtime-storage.py
