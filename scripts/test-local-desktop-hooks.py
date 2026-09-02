@@ -122,12 +122,16 @@ def test_single_desktop_method_owner() -> None:
 
     assert "run_after_build_ui_hooks(window)" in texts["desktop_ui.py"]
     assert "run_queue_tick_hooks(window)" in texts["desktop_ui.py"]
+    assert "run_job_lines_hooks(window" in texts["desktop_extras.py"]
     assert "register_after_build_ui_hook" in texts["desktop_extras.py"]
     assert "register_queue_tick_hook" in texts["desktop_extras.py"]
     assert "register_after_build_ui_hook" in texts["desktop_manager.py"]
+    assert "register_job_lines_hook" in texts["desktop_manager.py"]
     assert "register_after_build_ui_hook" in texts["desktop_runtime.py"]
     assert "register_queue_tick_hook" in texts["desktop_runtime.py"]
+    assert "register_job_lines_hook" in texts["desktop_runtime.py"]
     assert "register_after_build_ui_hook" in texts["task_center.py"]
+    assert "register_job_lines_hook" in texts["recovery_display.py"]
 
 
 def main() -> None:
