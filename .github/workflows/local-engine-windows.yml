@@ -14,6 +14,9 @@ on:
       - 'scripts/test-local-job-queue.py'
       - 'scripts/test-local-bridge-submission.py'
       - 'scripts/test-local-archive-policy.py'
+      - 'scripts/test-local-media-cleanup.py'
+      - 'scripts/test-local-media-cleanup-workbench.py'
+      - 'scripts/test-local-media-cleanup-integration.py'
       - 'scripts/test-local-media-policy.py'
       - 'scripts/test-local-image-archive-policy.py'
       - 'scripts/test-local-manager-policy.py'
@@ -35,6 +38,9 @@ on:
       - 'scripts/test-local-job-queue.py'
       - 'scripts/test-local-bridge-submission.py'
       - 'scripts/test-local-archive-policy.py'
+      - 'scripts/test-local-media-cleanup.py'
+      - 'scripts/test-local-media-cleanup-workbench.py'
+      - 'scripts/test-local-media-cleanup-integration.py'
       - 'scripts/test-local-media-policy.py'
       - 'scripts/test-local-image-archive-policy.py'
       - 'scripts/test-local-manager-policy.py'
@@ -75,6 +81,8 @@ jobs:
           local-engine/bridge.py
           local-engine/bridge_submission_policy.py
           local-engine/archive_policy.py
+          local-engine/media_cleanup.py
+          local-engine/media_cleanup_workbench.py
           local-engine/media_policy.py
           local-engine/workspace_policy.py
           local-engine/recovery_policy.py
@@ -122,6 +130,8 @@ jobs:
           python scripts/test-local-job-queue.py
           python scripts/test-local-bridge-submission.py
           python scripts/test-local-archive-policy.py
+          python scripts/test-local-media-cleanup.py
+          python scripts/test-local-media-cleanup-workbench.py
           python scripts/test-local-media-policy.py
           python scripts/test-local-image-archive-policy.py
           python scripts/test-local-manager-policy.py
@@ -148,7 +158,11 @@ jobs:
       - name: Validate packaged executable
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -ArgumentList '--self-test' -Wait -PassThru
+          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -ArgumentList '--self-test' -PassThru
+          if (-not $process.WaitForExit(120000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw 'GalaxyLocalEngine.exe self-test timed out after 120 seconds'
+          }
           if ($process.ExitCode -ne 0) {
             throw "GalaxyLocalEngine.exe self-test exited with $($process.ExitCode)"
           }
@@ -169,6 +183,9 @@ jobs:
       - name: Add verified offline FFmpeg and yt-dlp
         shell: pwsh
         run: ./local-engine/prepare-bundle.ps1 -PackageDir dist/package
+
+      - name: Run packaged FFmpeg media cleanup regression
+        run: python scripts/test-local-media-cleanup-integration.py --ffmpeg-dir dist/package/ffmpeg/bin
 
       - name: Validate release package contents
         shell: pwsh
