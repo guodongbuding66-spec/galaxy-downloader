@@ -1,0 +1,56 @@
+name: Bootstrap Scheduler Core
+
+on:
+  push:
+    branches:
+      - feature/local-engine-scheduler-core
+    paths:
+      - '.github/workflows/bootstrap-scheduler-core.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: feature/local-engine-scheduler-core
+
+      - name: Apply scheduler integration
+        run: python scripts/refactor-scheduler-core.py
+
+      - name: Compile scheduler and queue
+        run: |
+          python -m py_compile \
+            local-engine/job_scheduler.py \
+            local-engine/job_queue.py \
+            local-engine/queue_controls.py \
+            local-engine/entrypoint.py
+
+      - name: Run scheduler compatibility contracts
+        run: |
+          python scripts/test-local-job-scheduler.py
+          python scripts/test-local-job-queue.py
+          python scripts/test-local-manager-policy.py
+          python scripts/test-local-runtime-policy.py
+          python scripts/test-local-recovery-policy.py
+          python scripts/test-local-pause-resume.py
+          python scripts/test-local-desktop-hooks.py
+
+      - name: Commit scheduler integration
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            local-engine/job_queue.py \
+            local-engine/entrypoint.py \
+            scripts/test-local-job-queue.py \
+            .github/workflows/ci.yml \
+            .github/workflows/local-engine-windows.yml \
+            .github/workflows/local-engine-release.yml
+          git commit -m 'feat(local-engine): route queue lifecycle through scheduler core'
+          git push origin HEAD:feature/local-engine-scheduler-core
