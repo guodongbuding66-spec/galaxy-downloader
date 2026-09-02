@@ -13,6 +13,7 @@ import type { AudioExtractTask } from '@/components/audio-tool/types';
 import type { MediaPreviewRequest } from '@/components/downloader/media-preview';
 import { buildResultPreviewForSelection } from '@/components/downloader/media-preview';
 import { LocalEngineSetupHint } from '@/components/downloader/LocalEngineSetupHint';
+import { BatchWorkbench } from '@/components/downloader/BatchWorkbench';
 import {
     ArrowUp,
     ChevronDown,
@@ -575,6 +576,8 @@ export function UnifiedDownloader({
                                 ) : null}
                             </div>
                         </form>
+
+                        <BatchWorkbench />
                     </section>
 
                     <UnifiedDownloaderLowerSections
