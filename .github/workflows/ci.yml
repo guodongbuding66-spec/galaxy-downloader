@@ -67,6 +67,7 @@ jobs:
             local-engine/ffmpeg_update_status.py \
             local-engine/managed_tool_metadata.py \
             local-engine/managed_tool_registry.py \
+            local-engine/managed_tool_actions.py \
             local-engine/tool_artifacts.py \
             local-engine/tool_sources.py \
             local-engine/tool_install_layout.py \
@@ -120,6 +121,7 @@ jobs:
           python3 scripts/test-local-ffmpeg-manager.py
           python3 scripts/test-local-managed-tool-metadata.py
           python3 scripts/test-local-managed-tool-registry.py
+          python3 scripts/test-local-managed-tool-actions.py
           python3 scripts/test-local-ffmpeg-online-installer.py
           python3 scripts/test-local-ffmpeg-update-status.py
           python3 scripts/test-local-tool-artifacts.py
