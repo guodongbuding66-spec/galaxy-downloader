@@ -65,6 +65,7 @@ jobs:
             local-engine/ffmpeg_manager.py \
             local-engine/tool_artifacts.py \
             local-engine/tool_sources.py \
+            local-engine/tool_install_layout.py \
             local-engine/job_queue.py \
             local-engine/queue_controls.py \
             local-engine/job_history.py \
@@ -115,6 +116,7 @@ jobs:
           python3 scripts/test-local-ffmpeg-manager.py
           python3 scripts/test-local-tool-artifacts.py
           python3 scripts/test-local-tool-sources.py
+          python3 scripts/test-local-tool-install-layout.py
           python3 scripts/test-local-recovery-policy.py
           python3 scripts/test-local-pause-resume.py
           python3 scripts/test-local-desktop-hooks.py
