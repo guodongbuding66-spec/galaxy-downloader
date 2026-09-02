@@ -15,6 +15,7 @@ from bridge_submission_policy import StructuredLocalBridge
 from desktop_extras import install_desktop_extras
 from desktop_manager import install_desktop_manager
 from desktop_runtime import install_desktop_runtime
+from desktop_tools import install_desktop_tools
 from desktop_ui import install_desktop_ui
 from document_policy import (
     install_document_policy,
@@ -55,6 +56,7 @@ from runtime_paths_policy import (
     run_runtime_paths_policy_self_test,
 )
 from task_center import install_task_center, run_task_center_self_test
+from tool_manager import install_tool_manager, run_tool_manager_self_test
 from url_policy import is_public_http_url, validated_public_http_url
 from workspace_policy import install_workspace_policy, run_workspace_self_test
 
@@ -144,6 +146,7 @@ engine._validated_source_url = validated_public_http_url
 # installed last before the first Tk instance exists. Runtime paths are installed
 # first so every later policy can resolve mutable storage without assuming Windows.
 install_runtime_paths_policy(engine)
+install_tool_manager(engine)
 install_archive_policy(engine)
 install_media_policy(engine)
 install_workspace_policy(engine)
@@ -160,6 +163,7 @@ install_desktop_ui(engine)
 install_desktop_extras(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
+install_desktop_tools(engine)
 install_media_cleanup_workbench(engine)
 install_recovery_display(engine)
 install_task_center(engine)
@@ -275,10 +279,13 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_tools_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_media_cleanup_workbench_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_task_center_installed", False) is True
     assert getattr(engine, "_galaxy_runtime_paths_policy_installed", False) is True
+    assert getattr(engine, "_galaxy_tool_manager_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_tool_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_runtime_paths_policy_installed", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
     assert getattr(engine, "_galaxy_media_policy_installed", False) is True
@@ -311,6 +318,7 @@ def _run_image_self_test() -> None:
     run_runtime_health_self_test()
     run_runtime_paths_policy_self_test()
     run_runtime_storage_self_test()
+    run_tool_manager_self_test()
     run_task_center_self_test()
 
 
