@@ -5,10 +5,10 @@ This document defines the release path for changes that can affect first-party p
 ## Target flow
 
 ```text
-PR
+PR candidate revision
   -> CI / security / build
-  -> isolated Preview or Staging deployment
-  -> First-party PR Media Gate / Staging real-media smoke
+  -> upload isolated Cloudflare Worker Preview Version
+  -> First-party PR Media Gate / Preview real-media smoke
   -> required checks green
   -> merge main
   -> production deployment
@@ -16,33 +16,40 @@ PR
   -> alert / rollback policy on failure
 ```
 
-The production Worker must never be used as the pre-merge staging target. A smoke run against production before merge only proves the old production revision, not the PR revision.
+The production Worker must never be used as the pre-merge target. A smoke run against production before merge only proves the old production revision, not the PR revision.
 
-## 1. Staging target
+## 1. PR Preview deployment
 
-Create an isolated Cloudflare Worker / Preview deployment for candidate revisions and expose its HTTPS base URL as the repository variable:
+`.github/workflows/first-party-pr-media-gate.yml` builds the current PR revision and uploads that exact candidate as a Cloudflare Worker Preview Version.
 
-```text
-GALAXY_STAGING_BASE_URL
-```
-
-Example shape only:
+The preview alias is scoped to the PR:
 
 ```text
-https://<isolated-staging-worker>.workers.dev
+pr-<pull-request-number>
 ```
 
-Do not set this variable to:
+The workflow then parses the HTTPS `workers.dev` Preview URL returned by Wrangler and runs the real-media smoke against that URL. It explicitly rejects the production URL.
+
+This removes the stale-staging problem: a fixed staging address can accidentally contain an older revision, while a PR Preview Version is tied to the candidate currently being reviewed.
+
+### Required repository secrets
+
+The Preview deployment requires these GitHub Actions repository secrets:
 
 ```text
-https://galaxy-downloader.guodongbuding66.workers.dev
+CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
 ```
 
-`.github/workflows/first-party-pr-media-gate.yml` deliberately fails if the variable is missing, non-HTTPS, or points at the production Worker.
+The API token should use the minimum Cloudflare permissions required to upload Worker versions for this Worker/account. Do not expose these credentials as global job environment variables.
+
+The workflow exposes them only to the credential-validation and Preview-upload steps. It also refuses to use Cloudflare credentials for pull requests coming from external forks.
+
+If either secret is missing, the Preview gate fails explicitly. It must not silently skip the media test.
 
 ## 2. What the PR media gate verifies
 
-`scripts/local-parser-production-smoke.py` is shared by staging and production checks. A platform passes only when:
+`scripts/local-parser-production-smoke.py` is shared by Preview and production checks. A platform passes only when:
 
 1. the parser returns HTTP 200 and `success=true`;
 2. the normalized platform matches the expected fixture;
@@ -50,7 +57,7 @@ https://galaxy-downloader.guodongbuding66.workers.dev
 4. HLS playlists are followed through child playlists;
 5. a real non-text media segment / media body can be read.
 
-The smoke output also reports parse time, media time, and HLS depth so control-plane timeout and CDN/media failures can be distinguished.
+The smoke output reports parse time, media time, and HLS depth so control-plane timeout and CDN/media failures can be distinguished.
 
 Current permanent first-party fixtures include:
 
@@ -58,9 +65,11 @@ Current permanent first-party fixtures include:
 - Dailymotion
 - Apple Podcasts
 
+A parser-only success is not enough. For example, `Dailymotion metadata -> HLS CDN 403` must remain a failed smoke.
+
 ## 3. Main branch rules
 
-Configure a GitHub repository Ruleset for `main` with at least:
+Configure a GitHub repository Ruleset or Branch Protection for `main` with at least:
 
 - require a pull request before merging;
 - require status checks to pass;
@@ -74,20 +83,26 @@ Minimum required checks for media-sensitive PRs:
 CI / validate
 CI / CodeQL (javascript-typescript)
 CI / CodeQL (python)
-First-party PR Media Gate / Staging real-media smoke
+Security Audit / JavaScript dependency audit
+Security Audit / Python dependency audit (local-engine/requirements.txt)
+Security Audit / Python dependency audit (container-backend/requirements.txt)
+Security Audit / Python dependency audit (container-backend/requirements-dev.txt)
+First-party PR Media Gate / Preview real-media smoke
 ```
 
-Add other existing Windows / container / release checks as required if they are relevant to the changed paths.
+Add existing Windows / container / release checks as required when their changed paths are involved.
+
+Do not mark a media-sensitive PR mergeable while the Preview real-media smoke is missing, skipped, or failed.
 
 ## 4. Production verification
 
-`.github/workflows/local-parser-production-smoke.yml` remains a post-deploy protection layer. It runs against:
+`.github/workflows/local-parser-production-smoke.yml` remains the post-deploy protection layer. It runs against:
 
 ```text
 https://galaxy-downloader.guodongbuding66.workers.dev
 ```
 
-This workflow must not replace the pre-merge staging gate.
+Production Smoke is the second line of defense. It must not replace the pre-merge Preview gate.
 
 ## 5. Rollback contract
 
