@@ -103,12 +103,28 @@ def _normalize_regions(regions: Iterable[CleanupRegion]) -> tuple[CleanupRegion,
     return normalized
 
 
+def _manifest_path(output: Path) -> Path:
+    return output.with_suffix(output.suffix + ".cleanup.json")
+
+
+def _output_slot_available(output: Path) -> bool:
+    return not output.exists() and not _manifest_path(output).exists()
+
+
 def _default_output_path(source: Path, media_kind: str) -> Path:
     suffix = ".mp4" if media_kind == "video" else source.suffix.lower()
-    return source.with_name(f"{source.stem}.cleaned{suffix}")
+    base = source.with_name(f"{source.stem}.cleaned{suffix}")
+    if _output_slot_available(base):
+        return base
+    for index in range(2, 10_000):
+        candidate = source.with_name(f"{source.stem}.cleaned-{index}{suffix}")
+        if _output_slot_available(candidate):
+            return candidate
+    raise MediaCleanupError("Could not allocate a non-destructive cleanup output path")
 
 
 def _validate_output(source: Path, output_path: Path | None, media_kind: str) -> Path:
+    explicit_output = output_path is not None
     output = (output_path or _default_output_path(source, media_kind)).expanduser().resolve()
     if output == source:
         raise MediaCleanupError("Cleanup output must not overwrite the original media file")
@@ -117,6 +133,8 @@ def _validate_output(source: Path, output_path: Path | None, media_kind: str) ->
     if media_kind == "video" and output.suffix.lower() not in {".mp4", ".mov", ".mkv", ".webm"}:
         raise MediaCleanupError("Video cleanup output must be MP4, MOV, MKV or WebM")
     output.parent.mkdir(parents=True, exist_ok=True)
+    if explicit_output and not _output_slot_available(output):
+        raise MediaCleanupError("Cleanup output already exists; choose a new file name")
     return output
 
 
@@ -182,8 +200,10 @@ def build_cleanup_command(
     command = [
         str(ffmpeg_path),
         "-hide_banner",
+        "-loglevel",
+        "error",
         "-nostdin",
-        "-y",
+        "-n",
         "-i",
         str(source),
         "-vf",
@@ -237,7 +257,7 @@ def _write_manifest(
     source_sha256: str,
     output_sha256: str,
 ) -> Path:
-    manifest = output.with_suffix(output.suffix + ".cleanup.json")
+    manifest = _manifest_path(output)
     payload = {
         "schemaVersion": 1,
         "operation": "visible-overlay-cleanup",
@@ -276,6 +296,8 @@ def cleanup_visible_overlay(
     _validate_regions_within_frame(normalized_regions, probe)
 
     source_sha256 = _sha256(source)
+    if cancel_event is not None and cancel_event.is_set():
+        raise MediaCleanupCancelled("Visible overlay cleanup was cancelled")
     if progress_callback:
         progress_callback(0.0, "Preparing visible overlay cleanup")
 
@@ -292,32 +314,50 @@ def cleanup_visible_overlay(
     except OSError as exc:
         raise MediaCleanupError(f"Could not start FFmpeg: {exc}") from exc
 
-    try:
-        if media_kind == "video" and process.stdout is not None:
-            for raw_line in process.stdout:
-                if cancel_event is not None and cancel_event.is_set():
+    cancel_watch_stop = threading.Event()
+    cancel_watch: threading.Thread | None = None
+    if cancel_event is not None:
+        def watch_cancel() -> None:
+            while not cancel_watch_stop.wait(0.1):
+                if not cancel_event.is_set():
+                    continue
+                if process.poll() is None:
                     process.terminate()
                     try:
                         process.wait(timeout=5)
                     except subprocess.TimeoutExpired:
                         process.kill()
-                    raise MediaCleanupCancelled("Visible overlay cleanup was cancelled")
+                return
+
+        cancel_watch = threading.Thread(
+            target=watch_cancel,
+            name="GalaxyMediaCleanupCancel",
+            daemon=True,
+        )
+        cancel_watch.start()
+
+    try:
+        if media_kind == "video" and process.stdout is not None:
+            for raw_line in process.stdout:
                 seconds = _parse_progress_seconds(raw_line.strip())
                 if seconds is not None and probe.duration_seconds > 0:
                     percent = max(0.0, min(99.0, seconds / probe.duration_seconds * 100.0))
                     if progress_callback:
                         progress_callback(percent, "Cleaning video frames")
-        elif cancel_event is not None and cancel_event.is_set():
-            process.terminate()
-            raise MediaCleanupCancelled("Visible overlay cleanup was cancelled")
 
         return_code = process.wait()
         stderr = process.stderr.read() if process.stderr is not None else ""
+        if cancel_event is not None and cancel_event.is_set():
+            raise MediaCleanupCancelled("Visible overlay cleanup was cancelled")
     except BaseException:
         if process.poll() is None:
             process.kill()
         output.unlink(missing_ok=True)
         raise
+    finally:
+        cancel_watch_stop.set()
+        if cancel_watch is not None:
+            cancel_watch.join(timeout=0.5)
 
     if return_code != 0:
         output.unlink(missing_ok=True)
@@ -366,6 +406,8 @@ def run_media_cleanup_self_test() -> None:
     assert "-vf" in command
     assert "libx264" in command
     assert "-progress" in command
+    assert "-n" in command
+    assert "-y" not in command
     assert command[-1] == "output.mp4"
     image_command = build_cleanup_command(
         Path("ffmpeg.exe"),
