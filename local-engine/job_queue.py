@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from batch_input import BatchInputResult
+from batch_submission import BatchSubmissionResult, submit_batch_input_result
 from bridge_submission_policy import (
     JobSubmissionResult,
     QueueCancellationResult,
@@ -76,6 +78,7 @@ def install_job_queue_policy(engine_module):
 
     class QueuedEngineWindow(base_window):
         _galaxy_queue_enabled = True
+        _galaxy_batch_submission_enabled = True
 
         def __init__(self, job):
             self.scheduler = JobScheduler[QueuedMediaJob](
@@ -177,6 +180,21 @@ def install_job_queue_policy(engine_module):
                 int(result["status"]),
                 str(result["code"]),
             )
+
+        def submit_batch_jobs_from_bridge(
+            self,
+            batch: BatchInputResult,
+            base_payload: dict[str, Any],
+        ) -> BatchSubmissionResult:
+            """Submit a reviewed batch from a bridge/background thread.
+
+            The controller intentionally reuses ``submit_bridge_job`` for every
+            row. That keeps final Job normalization, DNS-aware public URL checks,
+            single-active execution and bounded scheduler FIFO semantics in one
+            place. A future desktop workbench must call this from a worker thread,
+            not directly inside the Tk event handler.
+            """
+            return submit_batch_input_result(batch, base_payload, self.submit_bridge_job)
 
         def _start_next_queued_job(self) -> None:
             if getattr(self, "_galaxy_close_pending", False):

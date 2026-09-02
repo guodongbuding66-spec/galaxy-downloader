@@ -9,6 +9,7 @@ import image_download
 import web_document
 from archive_policy import install_archive_policy
 from batch_input import run_batch_input_self_test
+from batch_submission import run_batch_submission_self_test
 from bridge_submission_policy import StructuredLocalBridge
 from desktop_extras import install_desktop_extras
 from desktop_manager import install_desktop_manager
@@ -270,6 +271,7 @@ def _run_image_self_test() -> None:
     assert engine.LocalBridge is PauseResumeLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
     run_batch_input_self_test()
+    run_batch_submission_self_test()
     run_job_scheduler_self_test()
     run_queue_controls_self_test()
     run_failure_policy_self_test()
