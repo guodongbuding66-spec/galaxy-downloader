@@ -49,6 +49,7 @@ from queue_controls import install_queue_controls, run_queue_controls_self_test
 from recovery_display import install_recovery_display, run_recovery_display_self_test
 from recovery_policy import install_recovery_policy, run_recovery_self_test
 from runtime_health import install_runtime_health, run_runtime_health_self_test
+from runtime_storage import run_runtime_storage_self_test
 from runtime_paths_policy import (
     install_runtime_paths_policy,
     run_runtime_paths_policy_self_test,
@@ -309,6 +310,7 @@ def _run_image_self_test() -> None:
     run_workspace_self_test()
     run_runtime_health_self_test()
     run_runtime_paths_policy_self_test()
+    run_runtime_storage_self_test()
     run_task_center_self_test()
 
 

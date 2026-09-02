@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from runtime_storage import state_dir as runtime_state_dir
+
 import re
 import shutil
 import sys
@@ -18,7 +20,7 @@ _URL_RE = re.compile(r"https?://[^\s<>\]\[\)\(\"']+", re.IGNORECASE)
 
 
 def diagnostic_log_path(engine_module) -> Path:
-    state_dir = engine_module.app_dir() / "state"
+    state_dir = runtime_state_dir(engine_module)
     state_dir.mkdir(parents=True, exist_ok=True)
     return state_dir / DIAGNOSTIC_LOG_FILENAME
 
