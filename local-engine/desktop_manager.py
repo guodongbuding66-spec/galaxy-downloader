@@ -9,7 +9,12 @@ from typing import Any
 
 import desktop_extras as extras
 import desktop_ui as ui
-from desktop_hooks import register_after_build_ui_hook, register_job_lines_hook
+from desktop_hooks import (
+    register_after_build_ui_hook,
+    register_desktop_presenter,
+    register_job_lines_hook,
+    show_desktop_presenter,
+)
 from job_history import clear_history, load_history
 from workspace_policy import (
     DEFAULT_WORKSPACE_PREFERENCES,
@@ -661,9 +666,16 @@ def install_desktop_manager(engine_module):
     if getattr(window_cls, "_galaxy_desktop_manager_installed", False):
         return window_cls
 
-    # Existing v0.11 buttons resolve these module globals when clicked, so
-    # replacing them here upgrades the dialog without touching its stable layout.
-    extras._show_history = _show_history_manager
+    register_desktop_presenter(
+        window_cls, "history", "desktop-manager", lambda window: _show_history_manager(window, engine_module), order=120
+    )
+    register_desktop_presenter(
+        window_cls, "queue", "desktop-manager", lambda window: _show_queue_manager(window, engine_module), order=120
+    )
+    register_desktop_presenter(
+        window_cls, "settings", "desktop-manager", lambda window: _show_settings(window, engine_module), order=120
+    )
+
     def job_lines_hook(window, lines: list[tuple[str, str]]) -> list[tuple[str, str]]:
         job = getattr(window, "job", None)
         if job is None:
@@ -685,7 +697,7 @@ def install_desktop_manager(engine_module):
         window._settings_button = ui.ActionButton(
             header_actions,
             text="设置",
-            command=lambda: _show_settings(window, engine_module),
+            command=lambda: show_desktop_presenter(window, "settings"),
             kind="ghost",
             compact=True,
         )
@@ -695,7 +707,7 @@ def install_desktop_manager(engine_module):
         window._queue_manager_button = ui.ActionButton(
             queue_head,
             text="管理",
-            command=lambda: _show_queue_manager(window, engine_module),
+            command=lambda: show_desktop_presenter(window, "queue"),
             kind="ghost",
             compact=True,
         )

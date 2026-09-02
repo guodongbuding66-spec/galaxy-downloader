@@ -94,6 +94,20 @@ def test_job_line_registry(hooks) -> None:
     assert hooks.registered_job_lines_hooks(FakeWindow) == ("desktop-manager", "desktop-runtime", "recovery-display")
 
 
+def test_presenter_registry(hooks) -> None:
+    class FakeWindow:
+        pass
+
+    calls: list[str] = []
+    hooks.register_desktop_presenter(FakeWindow, "history", "extras", lambda _window: calls.append("extras"), order=110)
+    hooks.register_desktop_presenter(FakeWindow, "history", "manager", lambda _window: calls.append("manager"), order=120)
+    hooks.register_desktop_presenter(FakeWindow, "history", "task-center", lambda _window: calls.append("task-center"), order=150)
+    hooks.show_desktop_presenter(FakeWindow(), "history")
+    assert calls == ["task-center"], calls
+    assert hooks.registered_desktop_presenter(FakeWindow, "history") == "task-center"
+    assert hooks.registered_desktop_presenter(FakeWindow, "missing") is None
+
+
 def test_single_desktop_method_owner() -> None:
     paths = [
         LOCAL_ENGINE / "desktop_ui.py",
@@ -110,6 +124,10 @@ def test_single_desktop_method_owner() -> None:
         "original_queue_tick = window_cls._galaxy_queue_tick",
         "original_job_lines",
         "extras._job_lines =",
+        "extras._show_history =",
+        "manager._show_settings =",
+        "manager._show_history_manager =",
+        "manager._show_queue_manager =",
     )
     for filename, text in texts.items():
         for marker in forbidden:
@@ -124,13 +142,20 @@ def test_single_desktop_method_owner() -> None:
     assert "run_queue_tick_hooks(window)" in texts["desktop_ui.py"]
     assert "run_job_lines_hooks(window" in texts["desktop_extras.py"]
     assert "register_after_build_ui_hook" in texts["desktop_extras.py"]
+    assert "register_desktop_presenter" in texts["desktop_extras.py"]
+    assert "show_desktop_presenter" in texts["desktop_extras.py"]
     assert "register_queue_tick_hook" in texts["desktop_extras.py"]
     assert "register_after_build_ui_hook" in texts["desktop_manager.py"]
     assert "register_job_lines_hook" in texts["desktop_manager.py"]
+    assert "register_desktop_presenter" in texts["desktop_manager.py"]
+    assert "show_desktop_presenter" in texts["desktop_manager.py"]
     assert "register_after_build_ui_hook" in texts["desktop_runtime.py"]
     assert "register_queue_tick_hook" in texts["desktop_runtime.py"]
     assert "register_job_lines_hook" in texts["desktop_runtime.py"]
+    assert "register_desktop_presenter" in texts["desktop_runtime.py"]
+    assert "show_desktop_presenter" in texts["desktop_runtime.py"]
     assert "register_after_build_ui_hook" in texts["task_center.py"]
+    assert "register_desktop_presenter" in texts["task_center.py"]
     assert "register_job_lines_hook" in texts["recovery_display.py"]
 
 
@@ -139,6 +164,7 @@ def main() -> None:
     test_registry_order_and_identity(hooks)
     test_queue_registry_is_separate(hooks)
     test_job_line_registry(hooks)
+    test_presenter_registry(hooks)
     test_single_desktop_method_owner()
     print("Local Engine desktop hook architecture tests passed")
 

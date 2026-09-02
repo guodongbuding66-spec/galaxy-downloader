@@ -10,7 +10,13 @@ from tkinter import messagebox, ttk
 from typing import Any, Callable
 
 import desktop_ui as ui
-from desktop_hooks import register_after_build_ui_hook, register_queue_tick_hook, run_job_lines_hooks
+from desktop_hooks import (
+    register_after_build_ui_hook,
+    register_desktop_presenter,
+    register_queue_tick_hook,
+    run_job_lines_hooks,
+    show_desktop_presenter,
+)
 from job_history import clear_history, load_history
 
 
@@ -404,13 +410,20 @@ def install_desktop_extras(engine_module):
         return window_cls
 
     ui._render_queue = _augment_queue_rows(ui._render_queue)
+    register_desktop_presenter(
+        window_cls,
+        "history",
+        "desktop-extras",
+        lambda window: _show_history(window, engine_module),
+        order=110,
+    )
 
     def after_build_ui(window) -> None:
         queue_head = window._queue_clear_button.master
         window._history_button = ui.ActionButton(
             queue_head,
             text="历史 0",
-            command=lambda: _show_history(window, engine_module),
+            command=lambda: show_desktop_presenter(window, "history"),
             kind="ghost",
             compact=True,
         )

@@ -6,11 +6,14 @@ from typing import Any
 _AFTER_BUILD_ATTR = "_galaxy_after_build_ui_hooks"
 _QUEUE_TICK_ATTR = "_galaxy_queue_tick_hooks"
 _JOB_LINES_ATTR = "_galaxy_job_line_hooks"
+_PRESENTER_ATTR = "_galaxy_desktop_presenters"
 
 DesktopHook = Callable[[Any], None]
 JobLines = list[tuple[str, str]]
 JobLinesHook = Callable[[Any, JobLines], JobLines]
 HookRecord = tuple[int, str, Callable[..., Any]]
+DesktopPresenter = Callable[[Any], None]
+PresenterRecord = tuple[int, str, DesktopPresenter]
 
 
 def _registry(window_cls: type, attribute: str) -> list[HookRecord]:
@@ -54,6 +57,54 @@ def register_queue_tick_hook(window_cls: type, name: str, callback: DesktopHook,
 
 def register_job_lines_hook(window_cls: type, name: str, callback: JobLinesHook, *, order: int) -> None:
     _register(window_cls, _JOB_LINES_ATTR, name, callback, order)
+
+
+def _presenter_registry(window_cls: type) -> dict[str, list[PresenterRecord]]:
+    value = window_cls.__dict__.get(_PRESENTER_ATTR)
+    if value is None:
+        value = {}
+        setattr(window_cls, _PRESENTER_ATTR, value)
+    return value
+
+
+def register_desktop_presenter(
+    window_cls: type,
+    slot: str,
+    name: str,
+    callback: DesktopPresenter,
+    *,
+    order: int,
+) -> None:
+    clean_slot = str(slot or "").strip()
+    clean_name = str(name or "").strip()
+    if not clean_slot:
+        raise ValueError("desktop presenter slot must not be empty")
+    if not clean_name:
+        raise ValueError("desktop presenter name must not be empty")
+    if not callable(callback):
+        raise TypeError(f"desktop presenter {clean_name!r} must be callable")
+
+    records = _presenter_registry(window_cls).setdefault(clean_slot, [])
+    existing = next((record for record in records if record[1] == clean_name), None)
+    if existing is not None:
+        if existing[0] == int(order) and existing[2] is callback:
+            return
+        raise RuntimeError(f"desktop presenter {clean_slot}:{clean_name} is already registered")
+    records.append((int(order), clean_name, callback))
+    records.sort(key=lambda record: (record[0], record[1]))
+
+
+def show_desktop_presenter(window: Any, slot: str) -> None:
+    clean_slot = str(slot or "").strip()
+    records = list(_presenter_registry(type(window)).get(clean_slot, ()))
+    if not records:
+        raise RuntimeError(f"desktop presenter slot {clean_slot!r} is not registered")
+    records[-1][2](window)
+
+
+def registered_desktop_presenter(window_cls: type, slot: str) -> str | None:
+    records = list(_presenter_registry(window_cls).get(str(slot or "").strip(), ()))
+    return records[-1][1] if records else None
 
 
 def _run(window: Any, attribute: str) -> None:

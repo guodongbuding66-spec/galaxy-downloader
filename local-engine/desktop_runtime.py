@@ -7,7 +7,13 @@ from typing import Any
 import desktop_extras as extras
 import desktop_manager as manager
 import desktop_ui as ui
-from desktop_hooks import register_after_build_ui_hook, register_job_lines_hook, register_queue_tick_hook
+from desktop_hooks import (
+    register_after_build_ui_hook,
+    register_desktop_presenter,
+    register_job_lines_hook,
+    register_queue_tick_hook,
+    show_desktop_presenter,
+)
 from runtime_health import (
     clear_diagnostic_log,
     diagnostic_log_path,
@@ -390,9 +396,9 @@ def install_desktop_runtime(engine_module):
     if getattr(window_cls, "_galaxy_desktop_runtime_installed", False):
         return window_cls
 
-    # The v0.12 settings button performs a late global lookup, so replacing the
-    # module function upgrades the existing button without rebuilding the header.
-    manager._show_settings = _show_settings
+    register_desktop_presenter(
+        window_cls, "settings", "desktop-runtime", lambda window: _show_settings(window, engine_module), order=130
+    )
 
     def job_lines_hook(window, lines: list[tuple[str, str]]) -> list[tuple[str, str]]:
         if getattr(window, "job", None) is None:
@@ -436,7 +442,7 @@ def install_desktop_runtime(engine_module):
         window._storage_button = ui.ActionButton(
             actions,
             text="磁盘 —",
-            command=lambda: _show_settings(window, engine_module),
+            command=lambda: show_desktop_presenter(window, "settings"),
             kind="ghost",
             compact=True,
         )
