@@ -41,6 +41,8 @@ def batch_identity_from_payload(payload: object) -> tuple[str | None, int, int]:
 def batch_identity_from_job(job: object) -> tuple[str | None, int, int]:
     if job is None:
         return None, 0, 0
+    if isinstance(job, dict):
+        return batch_identity_from_payload(job)
     return normalize_batch_identity(
         getattr(job, "batch_id", None),
         getattr(job, "batch_index", 0),
@@ -147,6 +149,11 @@ def run_batch_identity_self_test(engine_module) -> None:
     assert grouped_payload["batchId"] == batch_id
     assert grouped_payload["batchIndex"] == 2
     assert grouped_payload["batchSize"] == 4
+
+    dict_batch_id, dict_batch_index, dict_batch_size = batch_identity_from_job(grouped_payload)
+    assert dict_batch_id == batch_id
+    assert dict_batch_index == 2
+    assert dict_batch_size == 4
 
     malformed = engine_module.job_from_payload(
         {
