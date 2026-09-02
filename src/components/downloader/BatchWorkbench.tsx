@@ -10,6 +10,7 @@ import {
   ListChecks,
   Loader2,
   RotateCw,
+  Send,
   X,
 } from 'lucide-react'
 
@@ -25,8 +26,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/lib/deferred-toast'
 import {
   getLocalEngineBridgeStatus,
+  submitLocalEngineBatchInput,
+  type LocalEngineBatchSubmissionResult,
   type LocalEngineBridgeStatus,
 } from '@/lib/local-engine-bridge'
+
+import { BatchWorkbenchResultPanel } from './BatchWorkbenchResultPanel'
 
 import {
   BATCH_WORKBENCH_MAX_FILE_BYTES,
@@ -130,9 +135,34 @@ function copyFor(pathname: string | null): BatchCopy {
   return COPY[locale] || COPY.en
 }
 
+type SubmitCopy = {
+  submit: string
+  submitting: string
+  unavailable: string
+  queueFull: string
+  hint: string
+  sent: string
+  noneAccepted: string
+}
+
+const SUBMIT_COPY: Record<string, SubmitCopy> = {
+  zh: { submit: '提交 {count} 项到本地队列', submitting: '正在提交批量任务', unavailable: '请先启动或升级 Local Engine', queueFull: '本地下载队列已满', hint: '提交后会立即启动首个可执行任务，其余任务继续使用当前 FIFO 队列；这不是多并发模式。', sent: '批量任务已发送', noneAccepted: '没有任务被本地引擎接收' },
+  'zh-tw': { submit: '提交 {count} 項到本機佇列', submitting: '正在提交批次工作', unavailable: '請先啟動或升級 Local Engine', queueFull: '本機下載佇列已滿', hint: '提交後會立即啟動第一個可執行工作，其餘工作沿用目前 FIFO 佇列；這不是多重並行模式。', sent: '批次工作已送出', noneAccepted: '沒有工作被本機引擎接收' },
+  en: { submit: 'Submit {count} items to local queue', submitting: 'Submitting batch', unavailable: 'Start or upgrade Local Engine first', queueFull: 'Local download queue is full', hint: 'The first runnable job starts immediately and the rest use the existing FIFO queue. This is not multi-job concurrency.', sent: 'Batch sent to Local Engine', noneAccepted: 'No jobs were accepted by Local Engine' },
+  ja: { submit: '{count} 件をローカル待ちに送信', submitting: '一括ジョブを送信中', unavailable: 'Local Engine を起動または更新してください', queueFull: 'ローカルの待機キューが上限です', hint: '実行可能な先頭ジョブを開始し、残りは既存の FIFO キューに入ります。複数ジョブの同時実行ではありません。', sent: '一括ジョブを送信しました', noneAccepted: '受け付けられたジョブはありません' },
+  es: { submit: 'Enviar {count} elementos a la cola local', submitting: 'Enviando lote', unavailable: 'Inicia o actualiza Local Engine', queueFull: 'La cola local está llena', hint: 'La primera tarea ejecutable comienza de inmediato y las demás usan la cola FIFO existente. No es concurrencia de varias tareas.', sent: 'Lote enviado al motor local', noneAccepted: 'El motor local no aceptó ninguna tarea' },
+  ru: { submit: 'Отправить {count} элементов в локальную очередь', submitting: 'Отправка пакета', unavailable: 'Запустите или обновите Local Engine', queueFull: 'Локальная очередь заполнена', hint: 'Первая доступная задача запускается сразу, остальные остаются в существующей FIFO-очереди. Это не параллельное выполнение нескольких задач.', sent: 'Пакет отправлен в Local Engine', noneAccepted: 'Local Engine не принял ни одной задачи' },
+}
+
+function submitCopyFor(pathname: string | null): SubmitCopy {
+  const locale = pathname?.split('/').filter(Boolean)[0] || 'en'
+  return SUBMIT_COPY[locale] || SUBMIT_COPY.en
+}
+
 export function BatchWorkbench() {
   const pathname = usePathname()
   const copy = copyFor(pathname)
+  const submitCopy = submitCopyFor(pathname)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
@@ -141,9 +171,13 @@ export function BatchWorkbench() {
   const [bridge, setBridge] = useState<LocalEngineBridgeStatus | null>(null)
   const [checkingBridge, setCheckingBridge] = useState(false)
   const [inputError, setInputError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submissionError, setSubmissionError] = useState('')
+  const [submissionResult, setSubmissionResult] = useState<LocalEngineBatchSubmissionResult | null>(null)
 
   const preview = useMemo(() => buildBatchWorkbenchPreview(input, format), [format, input])
   const canContinue = batchWorkbenchCanContinue(preview)
+  const queueFull = Boolean(bridge?.busy && bridge.queueCapacity > 0 && bridge.queueLength >= bridge.queueCapacity)
 
   const refreshBridge = async () => {
     setCheckingBridge(true)
@@ -175,6 +209,8 @@ export function BatchWorkbench() {
       setInput(text)
       setFileName('')
       setInputError('')
+      setSubmissionResult(null)
+      setSubmissionError('')
     } catch (error) {
       toast.error(copy.paste, { description: error instanceof Error ? error.message : String(error) })
     }
@@ -195,11 +231,35 @@ export function BatchWorkbench() {
       setInput(text)
       setFileName(file.name)
       setInputError('')
+      setSubmissionResult(null)
+      setSubmissionError('')
       toast.success(copy.imported.replace('{name}', file.name))
     } catch {
       setInputError(copy.fileReadFailed)
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleSubmitBatch = async () => {
+    if (!canContinue || !bridge?.batchDownloadReady || queueFull || submitting) return
+    setSubmitting(true)
+    setSubmissionError('')
+    setSubmissionResult(null)
+    try {
+      const result = await submitLocalEngineBatchInput({ input, format })
+      setSubmissionResult(result)
+      if (result.acceptedCount > 0) {
+        toast.success(submitCopy.sent, { description: `${result.acceptedCount}/${result.inputCount}` })
+      } else {
+        toast.error(submitCopy.noneAccepted, { description: result.code })
+      }
+      await refreshBridge()
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : String(error))
+      await refreshBridge()
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -265,6 +325,8 @@ export function BatchWorkbench() {
                 setInput(event.target.value)
                 setFileName('')
                 setInputError('')
+                setSubmissionResult(null)
+                setSubmissionError('')
               }}
               placeholder={copy.placeholder}
               className="min-h-[150px] resize-y border-0 bg-transparent px-3 py-2.5 font-mono text-xs leading-5 shadow-none focus-visible:ring-0"
@@ -274,7 +336,14 @@ export function BatchWorkbench() {
           <div className="space-y-2">
             <label className="block space-y-1 text-[11px] font-medium text-muted-foreground">
               <span>{copy.format}</span>
-              <Select value={format} onValueChange={(value) => setFormat(value as BatchWorkbenchFormat)}>
+              <Select
+                value={format}
+                onValueChange={(value) => {
+                  setFormat(value as BatchWorkbenchFormat)
+                  setSubmissionResult(null)
+                  setSubmissionError('')
+                }}
+              >
                 <SelectTrigger className="h-9 bg-background text-xs">
                   <SelectValue />
                 </SelectTrigger>
@@ -313,6 +382,8 @@ export function BatchWorkbench() {
                 setInput('')
                 setFileName('')
                 setInputError('')
+                setSubmissionResult(null)
+                setSubmissionError('')
               }}
             >
               <X className="h-4 w-4" aria-hidden="true" />
@@ -348,12 +419,38 @@ export function BatchWorkbench() {
             <div>
               <div className="font-medium text-foreground">{copy.previewReady}</div>
               <div className="mt-0.5 leading-4">{copy.previewNote}</div>
-              <div className="mt-0.5 leading-4">{copy.nextStage}</div>
+              <div className="mt-0.5 leading-4">{submitCopy.hint}</div>
             </div>
           </div>
         ) : (
           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{copy.previewNote}</p>
         )}
+
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="min-w-0 text-[10px] leading-4 text-muted-foreground">{submitCopy.hint}</p>
+          <Button
+            type="button"
+            size="sm"
+            className="shrink-0 sm:min-w-56"
+            disabled={!canContinue || !bridge?.batchDownloadReady || queueFull || submitting || Boolean(inputError || limitError)}
+            onClick={() => void handleSubmitBatch()}
+          >
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
+            {submitting
+              ? submitCopy.submitting
+              : queueFull
+                ? submitCopy.queueFull
+                : !bridge?.batchDownloadReady
+                  ? submitCopy.unavailable
+                  : submitCopy.submit.replace('{count}', String(preview.estimatedItems))}
+          </Button>
+        </div>
+
+        {submissionError ? (
+          <p role="alert" className="mt-2 text-[11px] font-medium text-destructive">{submissionError}</p>
+        ) : null}
+
+        <BatchWorkbenchResultPanel result={submissionResult} />
 
         <div className="mt-2 text-[9px] tabular-nums text-muted-foreground">
           {input.length.toLocaleString()} / {BATCH_WORKBENCH_MAX_INPUT_CHARS.toLocaleString()} · {preview.totalRows} / {BATCH_WORKBENCH_MAX_ROWS.toLocaleString()} · {preview.estimatedItems} / {BATCH_WORKBENCH_MAX_ITEMS}
