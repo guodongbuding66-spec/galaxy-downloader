@@ -36,6 +36,7 @@ jobs:
             local-engine/workspace_policy.py \
             local-engine/job_history.py \
             local-engine/archive_policy.py \
+            local-engine/media_policy.py \
             local-engine/runtime_health.py \
             local-engine/pause_resume_policy.py \
             local-engine/entrypoint.py \
@@ -52,12 +53,26 @@ jobs:
       - name: Commit integrated migration
         shell: bash
         run: |
-          if git diff --quiet; then
+          if git diff --quiet -- \
+            local-engine/archive_policy.py \
+            local-engine/job_history.py \
+            local-engine/media_policy.py \
+            local-engine/pause_resume_policy.py \
+            local-engine/runtime_health.py \
+            local-engine/workspace_policy.py \
+            local-engine/entrypoint.py; then
             echo "No integration changes to commit"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add local-engine .github/workflows/ci.yml .github/workflows/local-engine-platform-paths.yml
+          git add \
+            local-engine/archive_policy.py \
+            local-engine/job_history.py \
+            local-engine/media_policy.py \
+            local-engine/pause_resume_policy.py \
+            local-engine/runtime_health.py \
+            local-engine/workspace_policy.py \
+            local-engine/entrypoint.py
           git commit -m "feat(local-engine): migrate mutable state to runtime state dir"
           git push origin HEAD:feat/runtime-state-migration
