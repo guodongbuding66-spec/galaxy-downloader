@@ -36,6 +36,12 @@ from job_history import install_history_policy, run_history_self_test
 from job_queue import install_job_queue_policy
 from job_scheduler import run_job_scheduler_self_test
 from media_cleanup import run_media_cleanup_self_test
+from media_cleanup_workbench import (
+    cancel_active_media_cleanup,
+    install_media_cleanup_workbench,
+    media_cleanup_active,
+    run_media_cleanup_workbench_self_test,
+)
 from media_policy import install_media_policy
 from pause_resume_policy import install_pause_resume_policy, run_pause_resume_self_test
 from resume_bridge import PauseResumeLocalBridge, install_resume_bridge, run_resume_bridge_self_test
@@ -147,6 +153,7 @@ install_desktop_ui(engine)
 install_desktop_extras(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
+install_media_cleanup_workbench(engine)
 install_recovery_display(engine)
 install_task_center(engine)
 
@@ -184,7 +191,8 @@ def _graceful_close_app(window: engine.EngineWindow) -> None:
 
     media_active = bool(window.running)
     image_active = _IMAGE_JOB_LOCK.locked()
-    if not media_active and not image_active:
+    cleanup_active = media_cleanup_active(window)
+    if not media_active and not image_active and not cleanup_active:
         _original_close_app(window)
         return
 
@@ -198,6 +206,8 @@ def _graceful_close_app(window: engine.EngineWindow) -> None:
             window.cancel_event.set()
     if image_active:
         cancel_image_download_job()
+    if cleanup_active:
+        cancel_active_media_cleanup(window)
     if pausing_for_exit:
         window.set_status("Pausing", "Saving resumable download state before exit")
     else:
@@ -208,7 +218,7 @@ def _graceful_close_app(window: engine.EngineWindow) -> None:
         pass
 
     def finish_when_idle() -> None:
-        if window.running or _IMAGE_JOB_LOCK.locked():
+        if window.running or _IMAGE_JOB_LOCK.locked() or media_cleanup_active(window):
             window.after(100, finish_when_idle)
             return
         _original_close_app(window)
@@ -258,6 +268,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_media_cleanup_workbench_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_task_center_installed", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
@@ -275,6 +286,7 @@ def _run_image_self_test() -> None:
     assert engine.LocalBridge is PauseResumeLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
     run_media_cleanup_self_test()
+    run_media_cleanup_workbench_self_test()
     run_batch_input_self_test()
     run_batch_identity_self_test(engine)
     run_batch_submission_self_test()

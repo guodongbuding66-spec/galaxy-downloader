@@ -153,9 +153,10 @@ def media_cleanup_active(window: Any) -> bool:
 
 def cancel_active_media_cleanup(window: Any) -> bool:
     event = getattr(window, "_galaxy_media_cleanup_cancel_event", None)
-    if not isinstance(event, threading.Event):
+    setter = getattr(event, "set", None)
+    if not callable(setter):
         return False
-    event.set()
+    setter()
     return True
 
 
