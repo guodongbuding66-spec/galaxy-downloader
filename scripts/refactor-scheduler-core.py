@@ -74,8 +74,8 @@ replace_once(
 queue_test = ROOT / "scripts" / "test-local-job-queue.py"
 replace_once(
     queue_test,
-    '        self.assertEqual(window.pending_jobs, [])\n',
-    '        self.assertEqual(window.pending_jobs, [])\n        self.assertIs(window.pending_jobs, window.scheduler.waiting)\n        self.assertEqual(window.scheduler.max_waiting, job_queue.MAX_QUEUED_MEDIA_JOBS)\n        self.assertEqual(window.scheduler.concurrency_limit, 1)\n',
+    '        self.assertEqual(window.started[-1]["sourceUrl"], "https://example.com/1")\n        self.assertEqual(window.pending_jobs, [])\n',
+    '        self.assertEqual(window.started[-1]["sourceUrl"], "https://example.com/1")\n        self.assertEqual(window.pending_jobs, [])\n        self.assertIs(window.pending_jobs, window.scheduler.waiting)\n        self.assertEqual(window.scheduler.max_waiting, job_queue.MAX_QUEUED_MEDIA_JOBS)\n        self.assertEqual(window.scheduler.concurrency_limit, 1)\n',
 )
 replace_once(
     queue_test,
