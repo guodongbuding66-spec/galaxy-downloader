@@ -68,6 +68,17 @@ class JobScheduler(Generic[T]):
 
 
 def run_job_scheduler_self_test() -> None:
+    for kwargs in (
+        {"max_waiting": 0},
+        {"max_waiting": 1, "concurrency_limit": 0},
+    ):
+        try:
+            JobScheduler[object](**kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid scheduler limits must fail: {kwargs}")
+
     scheduler = JobScheduler[str](max_waiting=2, concurrency_limit=1)
     waiting_identity = scheduler.waiting
     assert scheduler.available_start_slots(0) == 1
