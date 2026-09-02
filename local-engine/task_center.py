@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import desktop_extras as extras
 import desktop_manager as manager
 import desktop_ui as ui
-from desktop_hooks import register_after_build_ui_hook
+from desktop_hooks import register_after_build_ui_hook, register_desktop_presenter
 from failure_policy import smart_retry_payload
 from job_history import _redacted_source_url, load_history
 
@@ -726,11 +726,12 @@ def install_task_center(engine_module):
     if getattr(window_cls, "_galaxy_task_center_installed", False):
         return window_cls
 
-    # Existing buttons use late module-global lookups. Repoint them without
-    # changing the already validated queue/history storage implementations.
-    extras._show_history = _show_task_center
-    manager._show_history_manager = _show_task_center
-    manager._show_queue_manager = _show_task_center
+    register_desktop_presenter(
+        window_cls, "history", "task-center", lambda window: _show_task_center(window, engine_module), order=150
+    )
+    register_desktop_presenter(
+        window_cls, "queue", "task-center", lambda window: _show_task_center(window, engine_module, "等待"), order=150
+    )
 
     original_sync_history = extras._sync_history_button
 
@@ -749,12 +750,9 @@ def install_task_center(engine_module):
 
 
     def after_build_ui(window) -> None:
-        history_button = getattr(window, "_history_button", None)
-        if history_button is not None:
-            history_button.configure(command=lambda: _show_task_center(window, engine_module))
         queue_button = getattr(window, "_queue_manager_button", None)
         if queue_button is not None:
-            queue_button.configure(text="队列", command=lambda: _show_task_center(window, engine_module, "等待"))
+            queue_button.configure(text="队列")
         sync_history_button(window, engine_module, force=True)
 
     register_after_build_ui_hook(window_cls, "task-center", after_build_ui, order=150)
