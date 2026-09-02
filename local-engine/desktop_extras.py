@@ -13,6 +13,7 @@ import desktop_ui as ui
 from desktop_hooks import (
     register_after_build_ui_hook,
     register_desktop_presenter,
+    register_queue_row_hook,
     register_queue_tick_hook,
     run_history_button_hooks,
     run_job_lines_hooks,
@@ -374,44 +375,33 @@ def _sync_history_button(window, engine_module, *, force: bool = False) -> None:
     button.configure(text=text)
 
 
-def _augment_queue_rows(original_render: Callable[[Any, list[Any]], None]):
-    def render(window, pending: list[Any]) -> None:
-        original_render(window, pending)
-        if len(pending) < 2:
-            return
-        panel = window._queue_panel
-        rows = [child for child in panel.winfo_children() if isinstance(child, tk.Frame)]
-        for index, queued in enumerate(pending[:8]):
-            if index >= len(rows):
-                break
-            row = rows[index]
-            job_id = str(getattr(queued, "job_id", "") or "")
-            if not job_id:
-                continue
-            down_disabled = index >= len(pending) - 1
-            _tiny_button(
-                row,
-                "↓",
-                lambda value=job_id: getattr(window, "move_queued_job")(value, 1),
-                disabled=down_disabled,
-            ).pack(side="right", padx=(1, 0))
-            _tiny_button(
-                row,
-                "↑",
-                lambda value=job_id: getattr(window, "move_queued_job")(value, -1),
-                disabled=index == 0,
-            ).pack(side="right", padx=(5, 0))
-
-    return render
-
-
 def install_desktop_extras(engine_module):
     """Layer v0.11 workbench controls on top of the v0.10 desktop UI."""
     window_cls = engine_module.EngineWindow
     if getattr(window_cls, "_galaxy_desktop_extras_installed", False):
         return window_cls
 
-    ui._render_queue = _augment_queue_rows(ui._render_queue)
+    def queue_row_hook(window, row, queued, index: int, pending: list[Any]) -> None:
+        if len(pending) < 2:
+            return
+        job_id = str(getattr(queued, "job_id", "") or "")
+        if not job_id:
+            return
+        down_disabled = index >= len(pending) - 1
+        _tiny_button(
+            row,
+            "↓",
+            lambda value=job_id: getattr(window, "move_queued_job")(value, 1),
+            disabled=down_disabled,
+        ).pack(side="right", padx=(1, 0))
+        _tiny_button(
+            row,
+            "↑",
+            lambda value=job_id: getattr(window, "move_queued_job")(value, -1),
+            disabled=index == 0,
+        ).pack(side="right", padx=(5, 0))
+
+    register_queue_row_hook(window_cls, "desktop-extras", queue_row_hook, order=110)
     register_desktop_presenter(
         window_cls,
         "history",
