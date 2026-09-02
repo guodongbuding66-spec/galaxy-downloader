@@ -187,7 +187,7 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
                     self._json(404, {"ok": False, "code": "NOT_FOUND", "error": "Not found"})
                     return
                 payload = local_bridge._status_provider()
-                self._json(200, {"ok": True, "bridgeProtocol": RESUME_BRIDGE_PROTOCOL_VERSION, **payload})
+                self._json(200, {"ok": True, "bridgeProtocol": RESUME_BRIDGE_PROTOCOL_VERSION, **payload, "batchDownloadReady": callable(local_bridge._submit_batch_jobs)})
 
             def _read_json(
                 self,
