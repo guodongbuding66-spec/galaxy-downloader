@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 import desktop_extras as extras
 import desktop_ui as ui
+from desktop_hooks import register_after_build_ui_hook
 from job_history import clear_history, load_history
 from workspace_policy import (
     DEFAULT_WORKSPACE_PREFERENCES,
@@ -683,10 +684,8 @@ def install_desktop_manager(engine_module):
         return lines
 
     extras._job_lines = job_lines
-    original_build = window_cls._build_ui
 
-    def build_ui(window) -> None:
-        original_build(window)
+    def after_build_ui(window) -> None:
         header_actions = window._copy_diag_button.master
         window._settings_button = ui.ActionButton(
             header_actions,
@@ -707,6 +706,6 @@ def install_desktop_manager(engine_module):
         )
         window._queue_manager_button.pack(side="right", anchor="n", padx=(0, 5))
 
-    window_cls._build_ui = build_ui
+    register_after_build_ui_hook(window_cls, "desktop-manager", after_build_ui, order=120)
     window_cls._galaxy_desktop_manager_installed = True
     return window_cls

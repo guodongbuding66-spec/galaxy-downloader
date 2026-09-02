@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'local-engine/**'
+      - 'scripts/test-local-desktop-hooks.py'
       - 'src/lib/local-engine.ts'
       - '.github/workflows/local-engine-ui-smoke.yml'
   push:
@@ -12,6 +13,7 @@ on:
       - main
     paths:
       - 'local-engine/**'
+      - 'scripts/test-local-desktop-hooks.py'
       - 'src/lib/local-engine.ts'
       - '.github/workflows/local-engine-ui-smoke.yml'
 
@@ -48,6 +50,16 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           python local-engine/generate_icon.py --output local-engine/GalaxyLocalEngine.ico
+
+      - name: Validate canonical desktop hook architecture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          python scripts/test-local-desktop-hooks.py
+          if ($LASTEXITCODE -ne 0) {
+            throw "Desktop hook architecture contract exited with $LASTEXITCODE"
+          }
 
       - name: Validate source desktop UI construction
         shell: pwsh

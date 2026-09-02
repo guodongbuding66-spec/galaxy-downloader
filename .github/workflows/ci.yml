@@ -56,6 +56,7 @@ jobs:
             local-engine/job_queue.py \
             local-engine/queue_controls.py \
             local-engine/job_history.py \
+            local-engine/desktop_hooks.py \
             local-engine/desktop_ui.py \
             local-engine/desktop_extras.py \
             local-engine/desktop_manager.py \
@@ -91,6 +92,7 @@ jobs:
           python3 scripts/test-local-runtime-policy.py
           python3 scripts/test-local-recovery-policy.py
           python3 scripts/test-local-pause-resume.py
+          python3 scripts/test-local-desktop-hooks.py
           python3 scripts/test-local-release-notes.py
 
       - name: Run tests

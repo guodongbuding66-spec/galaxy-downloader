@@ -6,6 +6,7 @@ import webbrowser
 from tkinter import messagebox, ttk
 from typing import Any, Callable
 
+from desktop_hooks import run_after_build_ui_hooks, run_queue_tick_hooks
 from media_policy import aria2c_available, load_preferences, save_preferences
 from update_check import check_latest_stable
 
@@ -403,6 +404,7 @@ def install_desktop_ui(engine_module):
             justify="left",
         ).pack(anchor="w", pady=(7, 0))
 
+        run_after_build_ui_hooks(window)
         window._galaxy_ui_tick()
         window._galaxy_queue_tick()
 
@@ -439,6 +441,7 @@ def install_desktop_ui(engine_module):
             window.after(650, window._galaxy_queue_tick)
         except tk.TclError:
             pass
+        run_queue_tick_hooks(window)
 
     window_cls._build_ui = build_ui
     window_cls._galaxy_ui_tick = ui_tick

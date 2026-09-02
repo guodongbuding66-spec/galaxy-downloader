@@ -7,6 +7,7 @@ from typing import Any, Callable
 import desktop_extras as extras
 import desktop_manager as manager
 import desktop_ui as ui
+from desktop_hooks import register_after_build_ui_hook, register_queue_tick_hook
 from runtime_health import (
     clear_diagnostic_log,
     diagnostic_log_path,
@@ -412,8 +413,6 @@ def install_desktop_runtime(engine_module):
         return lines
 
     extras._job_lines = job_lines
-    original_build = window_cls._build_ui
-    original_queue_tick = window_cls._galaxy_queue_tick
 
     def sync_storage(window, force: bool = False) -> None:
         now = __import__("time").monotonic()
@@ -429,8 +428,7 @@ def install_desktop_runtime(engine_module):
             label = f"磁盘不足 {_human_gb(health['freeBytes'])}"
         button.configure(text=label)
 
-    def build_ui(window) -> None:
-        original_build(window)
+    def after_build_ui(window) -> None:
         actions = window._copy_diag_button.master
         window._diagnostic_log_button = ui.ActionButton(
             actions,
@@ -451,11 +449,10 @@ def install_desktop_runtime(engine_module):
         window._storage_next_refresh = 0.0
         sync_storage(window, force=True)
 
-    def queue_tick(window) -> None:
-        original_queue_tick(window)
+    def queue_tick_hook(window) -> None:
         sync_storage(window)
 
-    window_cls._build_ui = build_ui
-    window_cls._galaxy_queue_tick = queue_tick
+    register_after_build_ui_hook(window_cls, "desktop-runtime", after_build_ui, order=130)
+    register_queue_tick_hook(window_cls, "desktop-runtime", queue_tick_hook, order=130)
     window_cls._galaxy_desktop_runtime_installed = True
     return window_cls
