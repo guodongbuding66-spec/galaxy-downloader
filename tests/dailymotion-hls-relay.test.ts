@@ -11,8 +11,28 @@ describe('Dailymotion HLS relay', () => {
     const source = routeSource()
 
     expect(source).toContain("const range = request.headers.get('range');")
-    expect(source).toContain("if (range && !target.pathname.toLowerCase().endsWith('.m3u8')) upstreamHeaders.set('Range', range);")
-    expect(source).not.toContain("if (range) upstreamHeaders.set('Range', range);")
+    expect(source).toContain("if (range && !target.pathname.toLowerCase().endsWith('.m3u8'))")
+    expect(source).toContain("headers.set('Range', range);")
+  })
+
+  it('randomizes the HLS HTTP header fingerprint and retries blocked upstream responses', () => {
+    const source = routeSource()
+
+    expect(source).toContain('const DAILYMOTION_HLS_ATTEMPTS = 3;')
+    expect(source).toContain('function dailymotionBlockbusterHeaders(')
+    expect(source).toContain('const randomHeaderCount = 2 + Math.floor(Math.random() * 7);')
+    expect(source).toContain('headers.set(randomDailymotionLetters(8, 16), randomDailymotionLetters(8, 24));')
+    expect(source).toContain('return status === 403 || status === 408 || status === 429 || status >= 500;')
+    expect(source).toContain('fetchDailymotionHlsResource(target, id, range)')
+  })
+
+  it('tries neutral headers before Dailymotion referer/origin fallback combinations', () => {
+    const source = routeSource()
+
+    expect(source).toContain("if (attempt === 1) {")
+    expect(source).toContain("headers.set('Referer', `https://www.dailymotion.com/video/${id}`);")
+    expect(source).toContain("headers.set('Origin', 'https://www.dailymotion.com');")
+    expect(source).toContain("headers.set('Referer', 'https://www.dailymotion.com/');")
   })
 
   it('keeps Dailymotion relay targets constrained to approved HTTPS media hosts', () => {
