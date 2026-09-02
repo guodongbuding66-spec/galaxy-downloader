@@ -24,7 +24,7 @@ jobs:
         run: |
           from pathlib import Path
 
-          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+          def replace_once(path, old, new, label):
               text = path.read_text(encoding='utf-8')
               count = text.count(old)
               if count != 1:
@@ -32,94 +32,75 @@ jobs:
               path.write_text(text.replace(old, new, 1), encoding='utf-8')
 
           Path('local-engine/VERSION').write_text('0.15.0\n', encoding='utf-8')
-
-          replace_once(
-              Path('src/lib/local-engine.ts'),
-              "export const LOCAL_ENGINE_REQUIRED_VERSION = '0.14.1'",
-              "export const LOCAL_ENGINE_REQUIRED_VERSION = '0.15.0'",
-              'website version binding',
-          )
+          replace_once(Path('src/lib/local-engine.ts'), "export const LOCAL_ENGINE_REQUIRED_VERSION = '0.14.1'", "export const LOCAL_ENGINE_REQUIRED_VERSION = '0.15.0'", 'website version binding')
 
           root = Path('README.md')
-          root_text = root.read_text(encoding='utf-8')
-          root_text = root_text.replace(
-              '- 🧰 **Galaxy Local Engine 0.8.0**：Windows 本机 yt-dlp + FFmpeg、登录状态解析、原图下载、动态文档渲染、任务队列',
-              '- 🧰 **Galaxy Local Engine 0.15.0**：Windows 本机 yt-dlp + FFmpeg、统一任务中心、活动下载暂停/恢复、重启恢复、登录状态解析、原图下载与动态文档渲染',
-              1,
-          )
-          old_root_section = '''## Galaxy Local Engine 0.8.0
-
-当前网页要求 **Galaxy Local Engine 0.8.0+**。网站主下载和 GitHub 备用线路都固定到准确的 `local-engine-v0.8.0` Release，不再跟随 `releases/latest`，避免网页升级后用户意外下载到不匹配的旧引擎。
-'''
-          new_root_section = '''## Galaxy Local Engine 0.15.0
-
-当前网页要求 **Galaxy Local Engine 0.15.0+**。网站主下载和 GitHub 备用线路都固定到准确的 `local-engine-v0.15.0` Release，不跟随 `releases/latest`，避免网页与桌面引擎版本错配。
-
-0.15.0 在 0.14 统一任务中心和智能重试基础上加入活动下载暂停/继续、退出后重启恢复、可恢复任务持久化和 Bridge protocol v5 控制接口。普通 yt-dlp 下载会保留 `.part` / 分片并从可用检查点继续；不具备可靠字节级续传能力的来源会明确标记为“重新开始”，不会伪装成精确断点续传。
-'''
-          if root_text.count(old_root_section) != 1:
-              raise SystemExit('README.md: stale 0.8 section target mismatch')
-          root_text = root_text.replace(old_root_section, new_root_section, 1)
-          root_text = root_text.replace('/api/local-engine/download?version=0.8.0', '/api/local-engine/download?version=0.15.0')
-          if 'Galaxy Local Engine 0.8.0' in root_text or 'local-engine-v0.8.0' in root_text:
+          text = root.read_text(encoding='utf-8')
+          old = '- 🧰 **Galaxy Local Engine 0.8.0**：Windows 本机 yt-dlp + FFmpeg、登录状态解析、原图下载、动态文档渲染、任务队列'
+          new = '- 🧰 **Galaxy Local Engine 0.15.0**：Windows 本机 yt-dlp + FFmpeg、统一任务中心、活动下载暂停/恢复、重启恢复、登录状态解析、原图下载与动态文档渲染'
+          if text.count(old) != 1:
+              raise SystemExit(f'README.md: expected one feature bullet, got {text.count(old)}')
+          text = text.replace(old, new, 1)
+          old = '## Galaxy Local Engine 0.8.0\n\n当前网页要求 **Galaxy Local Engine 0.8.0+**。网站主下载和 GitHub 备用线路都固定到准确的 `local-engine-v0.8.0` Release，不再跟随 `releases/latest`，避免网页升级后用户意外下载到不匹配的旧引擎。\n'
+          new = '## Galaxy Local Engine 0.15.0\n\n当前网页要求 **Galaxy Local Engine 0.15.0+**。网站主下载和 GitHub 备用线路都固定到准确的 `local-engine-v0.15.0` Release，不跟随 `releases/latest`，避免网页与桌面引擎版本错配。\n\n0.15.0 在 0.14 统一任务中心和智能重试基础上加入活动下载暂停/继续、退出后重启恢复、可恢复任务持久化和 Bridge protocol v5 控制接口。普通 yt-dlp 下载会保留 `.part` / 分片并从可用检查点继续；不具备可靠字节级续传能力的来源会明确标记为“重新开始”，不会伪装成精确断点续传。\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'README.md: expected one 0.8 section, got {text.count(old)}')
+          text = text.replace(old, new, 1)
+          text = text.replace('/api/local-engine/download?version=0.8.0', '/api/local-engine/download?version=0.15.0')
+          if 'Galaxy Local Engine 0.8.0' in text or 'local-engine-v0.8.0' in text:
               raise SystemExit('README.md: stale 0.8.0 documentation remains')
-          root.write_text(root_text, encoding='utf-8')
+          root.write_text(text, encoding='utf-8')
 
-          engine_readme = Path('local-engine/README.md')
-          engine_text = engine_readme.read_text(encoding='utf-8')
+          readme = Path('local-engine/README.md')
+          text = readme.read_text(encoding='utf-8')
           marker = '## 0.14：统一任务中心与智能恢复\n'
-          section = '''## 0.15：活动下载暂停、继续与重启恢复
-
-Local Engine 0.15 在 0.14 任务中心基础上加入真正的可恢复任务状态：
-
-- 当前媒体下载可点击“暂停当前”；引擎通过正常取消边界停止 worker，保留 yt-dlp `.part` / 分片文件，而不是挂起 Windows 进程；
-- 普通 yt-dlp 任务使用明确的 `--continue` / `continuedl=True`，继续时从源站允许的最近检查点恢复；
-- 退出程序、异常中断或断电后，原本处于 `running / pausing` 的记录下次启动会转为 `interrupted`，只提示恢复，不会自动重新下载；
-- 任务中心和网页都能看到脱敏后的可恢复任务，并提供“继续 / 重新开始”和“放弃恢复”；
-- 暂停期间为了保护等待队列而产生的临时 queue hold 会绑定到对应恢复任务；继续、放弃恢复或暂停过程中取消时都会恢复暂停前的队列状态，避免后续任务莫名卡住；
-- Local Bridge protocol v5 新增 `POST /pause`、`POST /resume`、`POST /resume/discard`，控制操作统一回到 Tk 主线程执行；
-- 不具备可靠字节级续传能力的自定义来源（当前包括微信视频号路径）明确标记为 `restart`，界面不会把“重新开始”伪装成精确断点续传。
-
-恢复状态保存在本机 `state/resume-jobs.json`。完整源 URL / Job payload 只存在这个本机状态文件中；Bridge 对网页只暴露恢复 ID、来源主机、标题、画质、进度、已下载量、时间和恢复模式。
-
-'''
-          if engine_text.count(marker) != 1:
-              raise SystemExit('local-engine/README.md: 0.14 section marker mismatch')
-          engine_text = engine_text.replace(marker, section + marker, 1)
-          engine_text = engine_text.replace(
-              '网站可以检测本地引擎是否在线，并同步引擎版本、当前状态、下载进度、下载速度、ETA、已下载大小、等待队列、取消任务和打开下载文件夹。',
-              '网站可以检测本地引擎是否在线，并同步引擎版本、当前状态、下载进度、下载速度、ETA、已下载大小、等待队列、可恢复任务，以及暂停、继续、放弃恢复、取消任务和打开下载文件夹等控制。',
-              1,
-          )
-          engine_readme.write_text(engine_text, encoding='utf-8')
+          section = '\n'.join([
+              '## 0.15：活动下载暂停、继续与重启恢复',
+              '',
+              'Local Engine 0.15 在 0.14 任务中心基础上加入真正的可恢复任务状态：',
+              '',
+              '- 当前媒体下载可点击“暂停当前”；引擎通过正常取消边界停止 worker，保留 yt-dlp `.part` / 分片文件，而不是挂起 Windows 进程；',
+              '- 普通 yt-dlp 任务使用明确的 `--continue` / `continuedl=True`，继续时从源站允许的最近检查点恢复；',
+              '- 退出程序、异常中断或断电后，原本处于 `running / pausing` 的记录下次启动会转为 `interrupted`，只提示恢复，不会自动重新下载；',
+              '- 任务中心和网页都能看到脱敏后的可恢复任务，并提供“继续 / 重新开始”和“放弃恢复”；',
+              '- 暂停期间为了保护等待队列而产生的临时 queue hold 会绑定到对应恢复任务；继续、放弃恢复或暂停过程中取消时都会恢复暂停前的队列状态，避免后续任务莫名卡住；',
+              '- Local Bridge protocol v5 新增 `POST /pause`、`POST /resume`、`POST /resume/discard`，控制操作统一回到 Tk 主线程执行；',
+              '- 不具备可靠字节级续传能力的自定义来源（当前包括微信视频号路径）明确标记为 `restart`，界面不会把“重新开始”伪装成精确断点续传。',
+              '',
+              '恢复状态保存在本机 `state/resume-jobs.json`。完整源 URL / Job payload 只存在这个本机状态文件中；Bridge 对网页只暴露恢复 ID、来源主机、标题、画质、进度、已下载量、时间和恢复模式。',
+              '',
+              '',
+          ])
+          if text.count(marker) != 1:
+              raise SystemExit(f'local-engine/README.md: expected one 0.14 marker, got {text.count(marker)}')
+          text = text.replace(marker, section + marker, 1)
+          old = '网站可以检测本地引擎是否在线，并同步引擎版本、当前状态、下载进度、下载速度、ETA、已下载大小、等待队列、取消任务和打开下载文件夹。'
+          new = '网站可以检测本地引擎是否在线，并同步引擎版本、当前状态、下载进度、下载速度、ETA、已下载大小、等待队列、可恢复任务，以及暂停、继续、放弃恢复、取消任务和打开下载文件夹等控制。'
+          if text.count(old) != 1:
+              raise SystemExit(f'local-engine/README.md: expected one bridge capability sentence, got {text.count(old)}')
+          readme.write_text(text.replace(old, new, 1), encoding='utf-8')
 
           guide = Path('local-engine/使用说明.txt')
-          guide_text = guide.read_text(encoding='utf-8')
-          guide_marker = '0.14.0 主要变化\n---------------\n'
-          guide_section = '''0.15.0 主要变化
----------------
-1. 正在下载的媒体任务新增“暂停当前”。暂停会安全停止下载 worker，并保留可续传的 `.part` / 分片临时文件。
-2. 暂停后的任务会出现在任务中心“暂停 / 中断”范围，可选择继续或放弃恢复。
-3. 退出 Galaxy Local Engine、程序异常中断或电脑重启后，未完成任务会在下次启动时显示为“中断”，不会自动开始下载，必须由你主动继续。
-4. 普通 yt-dlp 任务会从源站允许的最近检查点继续；如果某个平台不支持可靠断点续传，界面会明确显示“重新开始”，不会假装从原百分比继续。
-5. 暂停当前任务时等待队列不会抢先启动下一项；继续、放弃恢复或暂停过程中取消后，会恢复暂停前的队列状态。
-6. 网站和桌面任务中心都可以查看可恢复任务；网站只看到脱敏后的任务摘要，完整链接和任务参数只保存在本机。
-
-'''
-          if guide_text.count(guide_marker) != 1:
-              raise SystemExit('使用说明.txt: 0.14 section marker mismatch')
-          guide_text = guide_text.replace(guide_marker, guide_section + guide_marker, 1)
-          guide_text = guide_text.replace(
-              '- 取消：用户主动取消的历史。',
-              '- 取消：用户主动取消的历史；\n- 暂停 / 中断：可以继续或放弃恢复的未完成媒体任务。',
-              1,
-          )
-          guide_text = guide_text.replace(
-              '- 队列：暂停、继续、上移、下移、移到顶部、批量移除；',
-              '- 当前任务：暂停当前下载；\n- 队列：暂停、继续、上移、下移、移到顶部、批量移除；\n- 可恢复任务：继续 / 重新开始，或放弃恢复；',
-              1,
-          )
-          guide.write_text(guide_text, encoding='utf-8')
+          text = guide.read_text(encoding='utf-8')
+          marker = '0.14.0 主要变化\n---------------\n'
+          section = '\n'.join([
+              '0.15.0 主要变化',
+              '---------------',
+              '1. 正在下载的媒体任务新增“暂停当前”。暂停会安全停止下载 worker，并保留可续传的 `.part` / 分片临时文件。',
+              '2. 暂停后的任务会出现在任务中心“暂停 / 中断”范围，可选择继续或放弃恢复。',
+              '3. 退出 Galaxy Local Engine、程序异常中断或电脑重启后，未完成任务会在下次启动时显示为“中断”，不会自动开始下载，必须由你主动继续。',
+              '4. 普通 yt-dlp 任务会从源站允许的最近检查点继续；如果某个平台不支持可靠断点续传，界面会明确显示“重新开始”，不会假装从原百分比继续。',
+              '5. 暂停当前任务时等待队列不会抢先启动下一项；继续、放弃恢复或暂停过程中取消后，会恢复暂停前的队列状态。',
+              '6. 网站和桌面任务中心都可以查看可恢复任务；网站只看到脱敏后的任务摘要，完整链接和任务参数只保存在本机。',
+              '',
+              '',
+          ])
+          if text.count(marker) != 1:
+              raise SystemExit(f'使用说明.txt: expected one 0.14 marker, got {text.count(marker)}')
+          text = text.replace(marker, section + marker, 1)
+          text = text.replace('- 取消：用户主动取消的历史。', '- 取消：用户主动取消的历史；\n- 暂停 / 中断：可以继续或放弃恢复的未完成媒体任务。', 1)
+          text = text.replace('- 队列：暂停、继续、上移、下移、移到顶部、批量移除；', '- 当前任务：暂停当前下载；\n- 队列：暂停、继续、上移、下移、移到顶部、批量移除；\n- 可恢复任务：继续 / 重新开始，或放弃恢复；', 1)
+          guide.write_text(text, encoding='utf-8')
 
       - name: Validate version and targeted regression gates
         run: |
