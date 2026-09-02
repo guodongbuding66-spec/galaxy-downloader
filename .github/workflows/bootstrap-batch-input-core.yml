@@ -1,0 +1,48 @@
+name: Bootstrap Batch Input Core
+
+on:
+  push:
+    branches:
+      - feature/local-engine-batch-input-core
+    paths:
+      - '.github/workflows/bootstrap-batch-input-core.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: feature/local-engine-batch-input-core
+
+      - name: Apply batch input integration
+        run: python scripts/integrate-batch-input-core.py
+
+      - name: Compile batch core and entrypoint
+        run: |
+          python -m py_compile \
+            local-engine/batch_input.py \
+            local-engine/entrypoint.py
+
+      - name: Run batch input contracts
+        run: |
+          python scripts/test-local-batch-input.py
+          python scripts/test-local-engine-policy.py
+          python scripts/test-local-job-queue.py
+          python scripts/test-local-pause-resume.py
+          python scripts/test-local-desktop-hooks.py
+
+      - name: Commit batch input integration
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            local-engine/entrypoint.py \
+            scripts/test-local-engine-policy.py
+          git commit -m 'feat(local-engine): wire batch input core into self-tests'
+          git push origin HEAD:feature/local-engine-batch-input-core
