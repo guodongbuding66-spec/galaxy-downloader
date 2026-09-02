@@ -51,7 +51,7 @@ class ManagedToolActionResult:
     available_version: str | None
     available_release_tag: str | None
     update_available: bool | None
-    network_accessed: bool
+    network_action: bool
     message: str
 
 
@@ -94,7 +94,7 @@ def _result(
     available_version: str | None = None,
     available_release_tag: str | None = None,
     update_available: bool | None = None,
-    network_accessed: bool = False,
+    network_action: bool = False,
     message: str,
 ) -> ManagedToolActionResult:
     return ManagedToolActionResult(
@@ -108,7 +108,7 @@ def _result(
         available_version=available_version,
         available_release_tag=available_release_tag,
         update_available=update_available,
-        network_accessed=bool(network_accessed),
+        network_action=bool(network_action),
         message=str(message or "")[:1000],
     )
 
@@ -124,7 +124,7 @@ def _normalize_update_status(request: ManagedToolActionRequest, native: object, 
         available_version=getattr(native, "available_version", None),
         available_release_tag=getattr(native, "available_release_tag", None),
         update_available=getattr(native, "update_available", None),
-        network_accessed=network,
+        network_action=network,
         message=str(getattr(native, "message", "") or ""),
     )
 
@@ -138,7 +138,7 @@ def _normalize_action_result(request: ManagedToolActionRequest, native: object, 
         state="completed" if ok else "error",
         source=str(getattr(native, "source", "unknown") or "unknown"),
         version=getattr(native, "version", None),
-        network_accessed=network,
+        network_action=network,
         message=str(getattr(native, "message", "") or ""),
     )
 
@@ -154,7 +154,9 @@ def perform_managed_tool_action(
     This dispatcher is intentionally not an automation scheduler. Every supported
     action either contacts a provider, mutates a managed tool, or both, so the
     caller must explicitly assert `user_initiated=True`. A rejected request never
-    invokes its adapter.
+    invokes its adapter. `network_action` means the invoked action contract permits
+    network access; it does not claim that the underlying adapter completed a
+    network request before returning or failing.
     """
     tool = str(request.tool or "").strip().lower()
     action = str(request.action or "").strip().lower()
@@ -206,7 +208,7 @@ def perform_managed_tool_action(
             normalized,
             ok=False,
             state="error",
-            network_accessed=network,
+            network_action=network,
             message=f"Managed tool action failed before a normalized result was returned: {exc}",
         )
 
@@ -226,7 +228,7 @@ def public_managed_tool_action_result(result: ManagedToolActionResult) -> dict[s
         "availableVersion": payload["available_version"],
         "availableReleaseTag": payload["available_release_tag"],
         "updateAvailable": payload["update_available"],
-        "networkAccessed": payload["network_accessed"],
+        "networkAction": payload["network_action"],
         "message": payload["message"],
     }
 
@@ -253,5 +255,5 @@ def run_managed_tool_actions_self_test() -> None:
         adapters=adapters,
     )
     assert rejected.state == "user-initiation-required"
-    assert rejected.network_accessed is False
+    assert rejected.network_action is False
     assert called["count"] == 0
