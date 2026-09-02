@@ -288,6 +288,7 @@ def install_tool_manager(engine_module):
 
 def run_tool_manager_self_test() -> None:
     import tempfile
+    from unittest.mock import patch
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -323,7 +324,7 @@ def run_tool_manager_self_test() -> None:
         assert executable == bundled
         assert source == "bundled"
 
-        with __import__("unittest").mock.patch.object(external_ytdlp, "external_version", return_value="2026.08.19"):
+        with patch.object(external_ytdlp, "external_version", return_value="2026.08.19"):
             seeded = seed_managed_ytdlp(FakeEngine)
             assert seeded.ok is True
             assert seeded.changed is True
