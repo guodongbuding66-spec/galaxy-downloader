@@ -18,6 +18,7 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
+      - 'scripts/deploy-with-retry.mjs'
       - 'scripts/local-parser-production-smoke.py'
       - '.github/workflows/first-party-pr-media-gate.yml'
       - '.github/workflows/local-parser-production-smoke.yml'
@@ -26,19 +27,23 @@ on:
 permissions:
   contents: read
 
+# The app uses Durable Objects, so Cloudflare version Preview URLs are not
+# available. Serialize candidate deployments through one isolated staging
+# Worker instead of allowing different PRs to overwrite it concurrently.
 concurrency:
-  group: first-party-pr-media-gate-${{ github.event.pull_request.number || github.ref }}
+  group: first-party-staging-media-gate
   cancel-in-progress: true
 
 jobs:
-  preview-media-smoke:
-    name: Preview real-media smoke
+  staging-media-smoke:
+    name: Staging real-media smoke
     # Never expose Cloudflare credentials to code from an external fork.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     env:
-      PREVIEW_ALIAS: pr-${{ github.event.pull_request.number || github.run_id }}
+      STAGING_WORKER_NAME: galaxy-downloader-staging
+      STAGING_BASE_URL: https://galaxy-downloader-staging.guodongbuding66.workers.dev
     steps:
       - name: Checkout PR revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -57,14 +62,14 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Require Cloudflare preview credentials
+      - name: Require Cloudflare staging credentials
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           if [[ -z "${CLOUDFLARE_API_TOKEN}" || -z "${CLOUDFLARE_ACCOUNT_ID}" ]]; then
-            echo '::error title=Missing Cloudflare preview credentials::Add repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID so this PR revision can be uploaded as an isolated Worker Preview Version.'
+            echo '::error title=Missing Cloudflare staging credentials::Add repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID so the current PR revision can be deployed to the isolated galaxy-downloader-staging Worker.'
             exit 1
           fi
 
@@ -74,42 +79,28 @@ jobs:
       - name: Build candidate revision
         run: pnpm build
 
-      - name: Upload immutable Preview Version
-        id: preview
+      - name: Deploy exact candidate to isolated staging Worker
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_DEPLOY_MAX_ATTEMPTS: '4'
+          CF_DEPLOY_RETRY_DELAY_MS: '15000'
         run: |
           set -euo pipefail
-          output_file="${RUNNER_TEMP}/wrangler-preview-output.txt"
-          pnpm exec wrangler versions upload \
-            --config wrangler.jsonc \
-            --preview-alias "${PREVIEW_ALIAS}" \
-            2>&1 | tee "${output_file}"
-
-          preview_url="$({ grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' "${output_file}" || true; } | tail -n 1)"
-          if [[ -z "${preview_url}" ]]; then
-            echo '::error title=Preview URL not found::Wrangler uploaded the candidate but no workers.dev Preview URL could be parsed from its output.'
+          if [[ "${STAGING_WORKER_NAME}" == 'galaxy-downloader' ]]; then
+            echo '::error title=Production Worker name is forbidden::The PR gate must deploy only to an isolated staging Worker.'
             exit 1
           fi
-
-          production_url='https://galaxy-downloader.guodongbuding66.workers.dev'
-          if [[ "${preview_url%/}" == "${production_url}" ]]; then
-            echo '::error title=Production target is not allowed::The PR media gate must never smoke-test the production Worker.'
-            exit 1
-          fi
-
-          echo "url=${preview_url%/}" >> "${GITHUB_OUTPUT}"
-          echo "Preview target: ${preview_url%/}"
+          node scripts/deploy-with-retry.mjs --skip-build --name "${STAGING_WORKER_NAME}"
 
       - name: Compile real-media smoke
         run: python -m py_compile scripts/local-parser-production-smoke.py
 
-      - name: Probe candidate parser and real media bytes
+      - name: Probe staging parser and real media bytes
         run: >-
           python scripts/local-parser-production-smoke.py
-          --base-url "${{ steps.preview.outputs.url }}"
-          --attempts 4
+          --base-url "${STAGING_BASE_URL}"
+          --attempts 6
           --retry-delay 8
           --timeout 20
