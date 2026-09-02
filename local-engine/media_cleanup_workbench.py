@@ -21,6 +21,9 @@ from media_cleanup import (
     cleanup_visible_overlay,
     probe_media,
 )
+from media_cleanup_suggestions import (
+    suggest_visible_overlay_for_media,
+)
 
 MAX_PREVIEW_WIDTH = 900
 MAX_PREVIEW_HEIGHT = 520
@@ -147,6 +150,23 @@ def canvas_rect_to_region(
     return CleanupRegion(sx, sy, ex - sx, ey - sy).validate()
 
 
+def region_to_canvas_rect(
+    region: CleanupRegion,
+    plan: CleanupPreviewPlan,
+) -> tuple[float, float, float, float]:
+    region = region.validate()
+    if (
+        region.x + region.width > plan.source_width
+        or region.y + region.height > plan.source_height
+    ):
+        raise MediaCleanupError("Cleanup suggestion exceeds the source frame")
+    x1 = region.x * plan.preview_width / plan.source_width
+    y1 = region.y * plan.preview_height / plan.source_height
+    x2 = (region.x + region.width) * plan.preview_width / plan.source_width
+    y2 = (region.y + region.height) * plan.preview_height / plan.source_height
+    return x1, y1, x2, y2
+
+
 def media_cleanup_active(window: Any) -> bool:
     return bool(getattr(window, "_galaxy_media_cleanup_running", False))
 
@@ -194,6 +214,8 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
         "drag_start": None,
         "drag_item": None,
         "regions": [],
+        "suggestions": [],
+        "suggestion_running": False,
         "result": None,
     }
 
@@ -225,6 +247,23 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
     ui._label(toolbar, variable=source_var, size=8, color=ui.MUTED, bg=ui.BG).pack(
         side="left", fill="x", expand=True
     )
+
+    suggestion_row = tk.Frame(shell, bg=ui.BG)
+    suggestion_row.pack(fill="x", pady=(8, 0))
+    ui._label(suggestion_row, "自动建议", size=8, color=ui.MUTED, bg=ui.BG).pack(side="left")
+    suggestion_profile_var = tk.StringVar(value="自动")
+    suggestion_profile = ttk.Combobox(
+        suggestion_row,
+        textvariable=suggestion_profile_var,
+        values=("自动", "豆包", "Gemini"),
+        state="readonly",
+        width=11,
+    )
+    suggestion_profile.pack(side="left", padx=(8, 0))
+    suggestion_var = tk.StringVar(value="尚未生成建议")
+    ui._label(
+        suggestion_row, variable=suggestion_var, size=8, color=ui.SUBTLE, bg=ui.BG
+    ).pack(side="left", padx=(12, 0), fill="x", expand=True)
 
     preview_card = tk.Frame(
         shell,
@@ -269,17 +308,27 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
 
     def set_running(running: bool) -> None:
         window._galaxy_media_cleanup_running = bool(running)
-        if running:
+        suggesting = bool(state.get("suggestion_running"))
+        busy = bool(running or suggesting)
+        if busy:
+            suggestion_profile.configure(state="disabled")
             choose_button.state(["disabled"])
             run_button.state(["disabled"])
             undo_button.state(["disabled"])
             clear_button.state(["disabled"])
-            cancel_button.state(["!disabled"])
+            suggestion_button.state(["disabled"])
+            accept_suggestion_button.state(["disabled"])
+            ignore_suggestion_button.state(["disabled"])
+            cancel_button.state(["!disabled"] if running else ["disabled"])
         else:
+            suggestion_profile.configure(state="readonly")
             choose_button.state(["!disabled"])
             run_button.state(["!disabled"] if state["regions"] else ["disabled"])
             undo_button.state(["!disabled"] if state["regions"] else ["disabled"])
             clear_button.state(["!disabled"] if state["regions"] else ["disabled"])
+            suggestion_button.state(["!disabled"] if state.get("source") else ["disabled"])
+            accept_suggestion_button.state(["!disabled"] if state["suggestions"] else ["disabled"])
+            ignore_suggestion_button.state(["!disabled"] if state["suggestions"] else ["disabled"])
             cancel_button.state(["disabled"])
 
     def clear_preview_temp() -> None:
@@ -287,6 +336,15 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
         state["preview_dir"] = None
         if preview_dir:
             shutil.rmtree(str(preview_dir), ignore_errors=True)
+
+    def clear_suggestions(*, message: str = "尚未生成建议") -> None:
+        for item, _suggestion in state["suggestions"]:
+            try:
+                canvas.delete(item)
+            except tk.TclError:
+                pass
+        state["suggestions"] = []
+        suggestion_var.set(message)
 
     def update_regions_label() -> None:
         regions = [record[1] for record in state["regions"]]
@@ -339,6 +397,7 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
 
         state.update(source=source, probe=probe, plan=plan, preview_dir=preview_dir, photo=photo, result=None)
         reset_regions()
+        clear_suggestions()
         canvas.delete("all")
         canvas.configure(width=plan.preview_width, height=plan.preview_height)
         canvas.create_image(0, 0, image=photo, anchor="nw")
@@ -346,9 +405,10 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
         source_var.set(
             f"{source.name} · {probe.width}×{probe.height} · {'视频' if media_kind == 'video' else '图片'}"
         )
-        cleanup_status_var.set("拖动鼠标框选需要清理的可见水印区域")
+        cleanup_status_var.set("拖动鼠标框选需要清理的可见水印区域，或先使用自动建议")
         progress_var.set(0.0)
         output_button.state(["disabled"])
+        set_running(False)
 
     def choose_source() -> None:
         path = filedialog.askopenfilename(
@@ -366,6 +426,125 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror(engine_module.APP_NAME, f"无法生成清理预览：\n{exc}", parent=dialog)
 
+    def request_suggestions() -> None:
+        source = state.get("source")
+        probe = state.get("probe")
+        plan = state.get("plan")
+        if (
+            media_cleanup_active(window)
+            or state.get("suggestion_running")
+            or not isinstance(source, Path)
+            or not isinstance(probe, MediaProbe)
+            or not isinstance(plan, CleanupPreviewPlan)
+        ):
+            return
+        ffmpeg_directory = engine_module.ffmpeg_dir()
+        if ffmpeg_directory is None:
+            messagebox.showerror(engine_module.APP_NAME, "FFmpeg 不可用。", parent=dialog)
+            return
+        try:
+            ffmpeg_path = _tool_path(ffmpeg_directory, "ffmpeg")
+        except MediaCleanupError as exc:
+            messagebox.showerror(engine_module.APP_NAME, str(exc), parent=dialog)
+            return
+
+        profile = {"自动": "auto", "豆包": "doubao", "Gemini": "gemini"}.get(
+            suggestion_profile_var.get(), "auto"
+        )
+        clear_suggestions(message="正在分析可见像素候选区…")
+        state["suggestion_running"] = True
+        cleanup_status_var.set("正在分析可见水印候选区域…")
+        set_running(False)
+
+        def worker() -> None:
+            try:
+                suggestions = suggest_visible_overlay_for_media(
+                    ffmpeg_path,
+                    source,
+                    probe,
+                    provider_hint=profile,
+                )
+            except Exception as exc:  # noqa: BLE001
+                def failed(error=exc) -> None:
+                    state["suggestion_running"] = False
+                    suggestion_var.set("自动建议失败")
+                    cleanup_status_var.set("自动建议失败，可继续手动画框")
+                    set_running(False)
+                    messagebox.showerror(
+                        engine_module.APP_NAME, f"无法生成自动建议：\n{error}", parent=dialog
+                    )
+
+                try:
+                    dialog.after(0, failed)
+                except Exception:
+                    state["suggestion_running"] = False
+                return
+
+            def completed() -> None:
+                state["suggestion_running"] = False
+                if state.get("source") != source or state.get("plan") != plan:
+                    set_running(False)
+                    return
+                if not suggestions:
+                    suggestion_var.set("未发现可靠候选区；请手动画框或选择豆包 / Gemini 位置先验")
+                    cleanup_status_var.set("没有自动采用任何区域")
+                    set_running(False)
+                    return
+
+                for suggestion in suggestions[:MAX_CLEANUP_REGIONS]:
+                    x1, y1, x2, y2 = region_to_canvas_rect(suggestion.region, plan)
+                    item = canvas.create_rectangle(
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        outline=ui.ACCENT,
+                        width=2,
+                        dash=(6, 4),
+                    )
+                    state["suggestions"].append((item, suggestion))
+                primary = suggestions[0]
+                source_label = "画面边缘分析" if primary.source == "edge-analysis" else "位置先验（低置信度）"
+                suggestion_var.set(
+                    f"候选 {len(suggestions)} 个 · 置信度 {round(primary.confidence * 100)}% · {source_label}"
+                )
+                cleanup_status_var.set("虚线框仅为建议；采用后才会进入清理区域")
+                set_running(False)
+
+            try:
+                dialog.after(0, completed)
+            except Exception:
+                state["suggestion_running"] = False
+
+        threading.Thread(target=worker, name="GalaxyMediaCleanupSuggest", daemon=True).start()
+
+    def accept_suggestions() -> None:
+        if media_cleanup_active(window) or state.get("suggestion_running") or not state["suggestions"]:
+            return
+        available = MAX_CLEANUP_REGIONS - len(state["regions"])
+        if available <= 0:
+            cleanup_status_var.set(f"最多支持 {MAX_CLEANUP_REGIONS} 个清理区域")
+            return
+        accepted = state["suggestions"][:available]
+        remaining = state["suggestions"][available:]
+        for item, suggestion in accepted:
+            canvas.itemconfigure(item, dash=(), outline=ui.CYAN, width=2)
+            state["regions"].append((item, suggestion.region))
+        for item, _suggestion in remaining:
+            canvas.delete(item)
+        state["suggestions"] = []
+        suggestion_var.set(f"已采用 {len(accepted)} 个建议区域，可继续拖动补充")
+        cleanup_status_var.set("建议已确认；实线框会参与清理")
+        update_regions_label()
+        set_running(False)
+
+    def ignore_suggestions() -> None:
+        if media_cleanup_active(window) or state.get("suggestion_running"):
+            return
+        clear_suggestions(message="已忽略自动建议，可重新分析或手动画框")
+        cleanup_status_var.set("自动建议已忽略")
+        set_running(False)
+
     def clamp_canvas(event) -> tuple[float, float]:
         plan = state.get("plan")
         if not isinstance(plan, CleanupPreviewPlan):
@@ -376,7 +555,7 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
         )
 
     def on_press(event) -> None:
-        if media_cleanup_active(window) or state.get("plan") is None:
+        if media_cleanup_active(window) or state.get("suggestion_running") or state.get("plan") is None:
             return
         if len(state["regions"]) >= MAX_CLEANUP_REGIONS:
             cleanup_status_var.set(f"最多支持 {MAX_CLEANUP_REGIONS} 个清理区域")
@@ -430,7 +609,7 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
     canvas.bind("<ButtonRelease-1>", on_release)
 
     def undo_region() -> None:
-        if not state["regions"] or media_cleanup_active(window):
+        if not state["regions"] or media_cleanup_active(window) or state.get("suggestion_running"):
             return
         item, _region = state["regions"].pop()
         canvas.delete(item)
@@ -451,6 +630,8 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
             cancel_button.state(["disabled"])
 
     def run_cleanup() -> None:
+        if state.get("suggestion_running"):
+            return
         source = state.get("source")
         regions = tuple(record[1] for record in state["regions"])
         ffmpeg_directory = engine_module.ffmpeg_dir()
@@ -535,6 +716,18 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
 
     choose_button = ui.ActionButton(footer, text="选择文件", command=choose_source, kind="secondary", compact=True)
     choose_button.pack(side="left")
+    suggestion_button = ui.ActionButton(
+        footer, text="自动建议", command=request_suggestions, kind="secondary", compact=True
+    )
+    suggestion_button.pack(side="left", padx=(7, 0))
+    accept_suggestion_button = ui.ActionButton(
+        footer, text="采用建议", command=accept_suggestions, kind="ghost", compact=True
+    )
+    accept_suggestion_button.pack(side="left", padx=(7, 0))
+    ignore_suggestion_button = ui.ActionButton(
+        footer, text="忽略建议", command=ignore_suggestions, kind="ghost", compact=True
+    )
+    ignore_suggestion_button.pack(side="left", padx=(7, 0))
     undo_button = ui.ActionButton(footer, text="撤销区域", command=undo_region, kind="ghost", compact=True)
     undo_button.pack(side="left", padx=(7, 0))
     clear_button = ui.ActionButton(footer, text="清空区域", command=reset_regions, kind="ghost", compact=True)
@@ -547,11 +740,17 @@ def _show_workbench(window: Any, engine_module: Any) -> None:
     run_button.pack(side="right", padx=(0, 7))
     set_running(False)
     run_button.state(["disabled"])
+    suggestion_button.state(["disabled"])
+    accept_suggestion_button.state(["disabled"])
+    ignore_suggestion_button.state(["disabled"])
     undo_button.state(["disabled"])
     clear_button.state(["disabled"])
     output_button.state(["disabled"])
 
     def close_dialog() -> None:
+        if state.get("suggestion_running"):
+            cleanup_status_var.set("自动建议仍在分析中，完成后即可关闭窗口")
+            return
         if media_cleanup_active(window):
             if not messagebox.askyesno(
                 engine_module.APP_NAME,
@@ -613,6 +812,9 @@ def run_media_cleanup_workbench_self_test() -> None:
     region = canvas_rect_to_region(0, 0, 900, 506, self_plan)
     assert region == CleanupRegion(0, 0, 1920, 1080)
     corner = canvas_rect_to_region(810, 455, 900, 506, self_plan)
+    canvas_corner = region_to_canvas_rect(corner, self_plan)
+    round_trip = canvas_rect_to_region(*canvas_corner, self_plan)
+    assert round_trip == corner
     assert corner.x >= 1728
     assert corner.y >= 971
     assert corner.x + corner.width <= 1920
