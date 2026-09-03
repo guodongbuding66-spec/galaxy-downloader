@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import math
 import os
 import re
 import sys
@@ -64,7 +65,7 @@ def _bounded_float(value: object, default: float, low: float, high: float) -> fl
         parsed = float(value)
     except (TypeError, ValueError):
         return default
-    if parsed != parsed or parsed in {float("inf"), float("-inf")}:
+    if not math.isfinite(parsed):
         return default
     return max(low, min(parsed, high))
 
@@ -207,7 +208,7 @@ class GalaxyApiClient:
                 if isinstance(parsed, dict):
                     detail = parsed.get("error") or parsed.get("message") or detail
             except (UnicodeDecodeError, ValueError):
-                pass
+                detail = _safe_detail(detail)
             raise GalaxyApiError(exc.code, detail) from exc
         except (URLError, OSError, TimeoutError) as exc:
             raise GalaxyTransportError(_safe_detail(getattr(exc, "reason", exc))) from exc
