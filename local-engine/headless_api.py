@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from headless_media_api import HeadlessMediaApi, HeadlessMediaApiError
+from headless_reader_api import HeadlessReaderApi, HeadlessReaderApiError
 from headless_service import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -61,6 +62,10 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
     def subscription_api(self) -> HeadlessSubscriptionApi | None:
         return self.server.subscription_api  # type: ignore[attr-defined]
 
+    @property
+    def reader_api(self) -> HeadlessReaderApi | None:
+        return self.server.reader_api  # type: ignore[attr-defined]
+
     def _transcript_unavailable(self) -> bool:
         if self.transcript_api is not None:
             return False
@@ -71,6 +76,12 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
         if self.subscription_api is not None:
             return False
         self._json(503, {"ok": False, "error": "subscription api is unavailable"})
+        return True
+
+    def _reader_unavailable(self) -> bool:
+        if self.reader_api is not None:
+            return False
+        self._json(503, {"ok": False, "error": "reader api is unavailable"})
         return True
 
     def _transcript_error(self, exc: Exception) -> None:
@@ -88,9 +99,72 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
             status = 400
         self._json(status, {"ok": False, "error": detail})
 
+    def _reader_error(self, exc: Exception) -> None:
+        detail = _safe_detail(exc)
+        status = 404 if detail in {"book not found", "bookmark not found", "annotation not found"} else 400
+        self._json(status, {"ok": False, "error": detail})
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         path = parsed.path
+        if path.startswith("/v1/reader"):
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "unauthorized"})
+                return
+            if self._reader_unavailable():
+                return
+            try:
+                parts = _path_parts(path)
+                values = parse_qs(parsed.query, keep_blank_values=False, max_num_fields=20)
+                if parts == ["v1", "reader", "books"]:
+                    result = self.reader_api.books(  # type: ignore[union-attr]
+                        limit=_first_query_value(values, "limit") or 100,
+                        offset=_first_query_value(values, "offset") or 0,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "reader", "search"]:
+                    result = self.reader_api.search(  # type: ignore[union-attr]
+                        _first_query_value(values, "q", "query"),
+                        limit=_first_query_value(values, "limit") or 100,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 4 and parts[:3] == ["v1", "reader", "books"]:
+                    result = self.reader_api.detail(parts[3])  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 5 and parts[:3] == ["v1", "reader", "books"]:
+                    book_id = parts[3]
+                    action = parts[4]
+                    if action == "bookmarks":
+                        result = self.reader_api.bookmarks(  # type: ignore[union-attr]
+                            book_id,
+                            limit=_first_query_value(values, "limit") or 1000,
+                        )
+                        self._json(200, {"ok": True, **result})
+                        return
+                    if action == "annotations":
+                        result = self.reader_api.annotations(  # type: ignore[union-attr]
+                            book_id,
+                            limit=_first_query_value(values, "limit") or 2000,
+                        )
+                        self._json(200, {"ok": True, **result})
+                        return
+                    if action == "pages":
+                        result = self.reader_api.pages(  # type: ignore[union-attr]
+                            book_id,
+                            limit=_first_query_value(values, "limit") or 1000,
+                        )
+                        self._json(200, {"ok": True, **result})
+                        return
+                self._json(404, {"ok": False, "error": "not found"})
+            except (HeadlessReaderApiError, ValueError) as exc:
+                self._reader_error(exc)
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": _safe_detail(exc)})
+            return
+
         if path.startswith("/v1/subscriptions"):
             if not self._authorized():
                 self._json(401, {"ok": False, "error": "unauthorized"})
@@ -197,6 +271,51 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         path = parsed.path
+        if path.startswith("/v1/reader/"):
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "unauthorized"})
+                return
+            if self._reader_unavailable():
+                return
+            try:
+                parts = _path_parts(path)
+                if len(parts) == 5 and parts[:3] == ["v1", "reader", "books"]:
+                    book_id = parts[3]
+                    action = parts[4]
+                    payload = self._read_json()
+                    if action == "progress":
+                        result = self.reader_api.set_progress(book_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    if action == "settings":
+                        result = self.reader_api.set_settings(book_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    if action == "bookmarks":
+                        result = self.reader_api.create_bookmark(book_id, payload)  # type: ignore[union-attr]
+                        self._json(201, {"ok": True, **result})
+                        return
+                    if action == "annotations":
+                        result = self.reader_api.create_annotation(book_id, payload)  # type: ignore[union-attr]
+                        self._json(201, {"ok": True, **result})
+                        return
+                if len(parts) == 5 and parts[:3] == ["v1", "reader", "bookmarks"] and parts[4] == "delete":
+                    result = self.reader_api.remove_bookmark(parts[3])  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 5 and parts[:3] == ["v1", "reader", "annotations"] and parts[4] == "delete":
+                    result = self.reader_api.remove_annotation(parts[3])  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                self._json(404, {"ok": False, "error": "not found"})
+            except (HeadlessReaderApiError, ValueError) as exc:
+                self._reader_error(exc)
+            except HeadlessServiceError as exc:
+                self._json(400, {"ok": False, "error": _safe_detail(exc)})
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": _safe_detail(exc)})
+            return
+
         if path.startswith("/v1/subscriptions"):
             if not self._authorized():
                 self._json(401, {"ok": False, "error": "unauthorized"})
@@ -315,6 +434,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         media_api: HeadlessMediaApi,
         transcript_api: HeadlessTranscriptApi | None = None,
         subscription_api: HeadlessSubscriptionApi | None = None,
+        reader_api: HeadlessReaderApi | None = None,
     ) -> None:
         self.runtime = runtime
         self.auth_token = auth_token
@@ -322,6 +442,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self.media_api = media_api
         self.transcript_api = transcript_api
         self.subscription_api = subscription_api
+        self.reader_api = reader_api
         super().__init__(address, GalaxyApiRequestHandler)
 
 
@@ -334,6 +455,7 @@ def run_server(
     media_api: HeadlessMediaApi | None = None,
     transcript_api: HeadlessTranscriptApi | None = None,
     subscription_api: HeadlessSubscriptionApi | None = None,
+    reader_api: HeadlessReaderApi | None = None,
 ) -> int:
     clean_host = str(host or DEFAULT_HOST).strip()
     clean_port = _bounded_int(port, DEFAULT_PORT, 1, 65535)
@@ -345,7 +467,17 @@ def run_server(
     media = media_api or HeadlessMediaApi(root)
     transcripts = transcript_api or HeadlessTranscriptApi(root)
     subscriptions = subscription_api or HeadlessSubscriptionApi()
-    server = GalaxyApiServer((clean_host, clean_port), runtime, token, clean_host, media, transcripts, subscriptions)
+    reader = reader_api or HeadlessReaderApi()
+    server = GalaxyApiServer(
+        (clean_host, clean_port),
+        runtime,
+        token,
+        clean_host,
+        media,
+        transcripts,
+        subscriptions,
+        reader,
+    )
     stopping = threading.Event()
 
     def stop_handler(_signum, _frame) -> None:
