@@ -1,0 +1,55 @@
+name: AI Task Service
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/ai_task_service.py'
+      - 'local-engine/ai_task_queue.py'
+      - 'local-engine/ai_history.py'
+      - 'local-engine/ai_provider_runtime.py'
+      - 'local-engine/ai_provider_registry.py'
+      - 'local-engine/prompt_library.py'
+      - 'scripts/test-local-ai-task-service.py'
+      - '.github/workflows/ai-task-service.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/ai_task_service.py'
+      - 'local-engine/ai_task_queue.py'
+      - 'local-engine/ai_history.py'
+      - 'local-engine/ai_provider_runtime.py'
+      - 'local-engine/ai_provider_registry.py'
+      - 'local-engine/prompt_library.py'
+      - 'scripts/test-local-ai-task-service.py'
+      - '.github/workflows/ai-task-service.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Compile contract
+        run: python -m py_compile local-engine/ai_task_service.py local-engine/ai_task_queue.py local-engine/ai_history.py local-engine/ai_provider_runtime.py scripts/test-local-ai-task-service.py
+
+      - name: Run integration self-test
+        run: python scripts/test-local-ai-task-service.py
