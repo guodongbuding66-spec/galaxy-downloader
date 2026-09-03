@@ -15,6 +15,7 @@ from ai_models import (
     ollama_executable,
     whisper_executable,
 )
+from asr_model_manager import AsrModelError, require_whisper_model
 from media_library import resolve_media_item_path
 
 MAX_TRANSCRIPT_CHARS = 400_000
@@ -93,6 +94,30 @@ def _atomic_copy_text(source: Path, destination: Path) -> None:
     _atomic_write_text(destination, text)
 
 
+def _whisper_command(
+    executable: Path,
+    source: Path,
+    checkpoint: Path,
+    output_dir: Path,
+    language: str,
+) -> list[str]:
+    command = [
+        str(executable),
+        str(source),
+        "--model",
+        str(checkpoint),
+        "--output_format",
+        "srt",
+        "--output_dir",
+        str(output_dir),
+        "--verbose",
+        "False",
+    ]
+    if language:
+        command.extend(["--language", language])
+    return command
+
+
 def transcribe_media(
     engine_module,
     media_id: object,
@@ -115,24 +140,15 @@ def transcribe_media(
     chosen_language = str(language or "").strip()
     if chosen_language and not LANGUAGE_RE.fullmatch(chosen_language):
         raise AiWorkspaceError("语言代码无效")
+    try:
+        checkpoint = require_whisper_model(engine_module, chosen_model)
+    except AsrModelError as exc:
+        raise AiWorkspaceError(str(exc)) from exc
 
     destination = transcript_path(engine_module, clean_id)
     with tempfile.TemporaryDirectory(prefix="galaxy-whisper-") as directory:
         output_dir = Path(directory)
-        command = [
-            str(executable),
-            str(source),
-            "--model",
-            chosen_model,
-            "--output_format",
-            "srt",
-            "--output_dir",
-            str(output_dir),
-            "--verbose",
-            "False",
-        ]
-        if chosen_language:
-            command.extend(["--language", chosen_language])
+        command = _whisper_command(executable, source, checkpoint, output_dir, chosen_language)
         try:
             result = subprocess.run(
                 command,
@@ -249,6 +265,11 @@ def run_ai_workspace_self_test() -> None:
         _atomic_copy_text(source, transcript)
         assert transcript.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
         assert not transcript.with_suffix(".srt.tmp").exists()
+
+        checkpoint = root / "model.pt"
+        command = _whisper_command(root / "whisper", root / "audio.mp3", checkpoint, root / "out", "zh")
+        assert command[command.index("--model") + 1] == str(checkpoint)
+        assert command[-2:] == ["--language", "zh"]
 
         try:
             transcript_path(Engine, "../bad")
