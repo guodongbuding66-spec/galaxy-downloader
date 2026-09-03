@@ -42,6 +42,10 @@ class HeadlessServiceError(RuntimeError):
     pass
 
 
+class HeadlessConflict(HeadlessServiceError):
+    pass
+
+
 class HeadlessCancelled(RuntimeError):
     pass
 
@@ -95,6 +99,12 @@ def _bounded_float(value: object, default: float, low: float, high: float) -> fl
     return max(low, min(parsed, high))
 
 
+def _set_event() -> threading.Event:
+    event = threading.Event()
+    event.set()
+    return event
+
+
 def _format_selector(payload: dict[str, Any]) -> str:
     include_audio = bool(payload.get("includeAudio", True))
     video_id = payload.get("videoFormatId")
@@ -132,7 +142,7 @@ def _download_options(payload: dict[str, Any], root: Path, progress_hook) -> dic
         options["subtitlesformat"] = "srt/best"
         languages = payload.get("subtitleLanguages")
         if isinstance(languages, list):
-            cleaned = []
+            cleaned: list[str] = []
             for item in languages:
                 language = str(item or "").strip()[:32]
                 if language and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", language) and language not in cleaned:
@@ -186,9 +196,12 @@ class HeadlessJob:
     progress: float = 0.0
     detail: str = ""
     file_name: str = ""
+    attempt: int = 1
+    generation: int = 1
     created_at: str = field(default_factory=_utc_now)
     updated_at: str = field(default_factory=_utc_now)
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    resume_event: threading.Event = field(default_factory=_set_event, repr=False)
 
     def public_payload(self) -> dict[str, Any]:
         return {
@@ -198,16 +211,22 @@ class HeadlessJob:
             "progress": round(max(0.0, min(float(self.progress), 100.0)), 1),
             "detail": self.detail,
             "fileName": self.file_name,
+            "attempt": max(1, int(self.attempt)),
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
         }
 
 
 @dataclass(frozen=True)
-class _QueuedDownload:
-    job_id: str
+class _DownloadSpec:
     source_url: str
     payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _QueuedDownload:
+    job_id: str
+    generation: int
 
 
 class EventBroker:
@@ -245,23 +264,47 @@ class HeadlessRuntime:
     def __init__(self, download_root: Path, *, max_queue_size: int = MAX_QUEUE_SIZE) -> None:
         self.download_root = Path(download_root).resolve(strict=False)
         self.download_root.mkdir(parents=True, exist_ok=True)
-        self._queue: queue.Queue[_QueuedDownload | None] = queue.Queue(
-            maxsize=max(1, min(int(max_queue_size), MAX_QUEUE_SIZE))
-        )
+        self._capacity = max(1, min(int(max_queue_size), MAX_QUEUE_SIZE))
+        self._queue: queue.Queue[_QueuedDownload | None] = queue.Queue(maxsize=self._capacity * 4)
         self._jobs: dict[str, HeadlessJob] = {}
+        self._specs: dict[str, _DownloadSpec] = {}
         self._lock = threading.RLock()
         self._stopping = threading.Event()
+        self._active_job: tuple[str, int] | None = None
         self.events = EventBroker()
         self._worker = threading.Thread(target=self._run, name="GalaxyHeadlessWorker", daemon=True)
         self._worker.start()
 
-    def _prune(self) -> None:
+    def _logical_queued_locked(self) -> int:
+        return sum(1 for item in self._jobs.values() if item.state == "queued")
+
+    def _prune_locked(self) -> None:
         if len(self._jobs) <= MAX_JOBS:
             return
         removable = [item for item in self._jobs.values() if item.state in TERMINAL_STATES]
         removable.sort(key=lambda item: item.updated_at)
         for item in removable[: max(0, len(self._jobs) - MAX_JOBS)]:
             self._jobs.pop(item.job_id, None)
+            self._specs.pop(item.job_id, None)
+
+    def _put_token_locked(self, job: HeadlessJob) -> None:
+        if self._queue.full():
+            raise HeadlessServiceError("download queue is temporarily full")
+        self._queue.put_nowait(_QueuedDownload(job.job_id, job.generation))
+
+    def _touch_locked(
+        self,
+        job: HeadlessJob,
+        *,
+        state: str | None = None,
+        detail: str | None = None,
+    ) -> dict[str, Any]:
+        if state is not None:
+            job.state = state
+        if detail is not None:
+            job.detail = detail
+        job.updated_at = _utc_now()
+        return job.public_payload()
 
     def submit(self, payload: dict[str, Any]) -> HeadlessJob:
         if self._stopping.is_set():
@@ -273,15 +316,19 @@ class HeadlessRuntime:
         job_id = uuid.uuid4().hex
         job = HeadlessJob(job_id=job_id, source_host=_safe_host(source))
         with self._lock:
+            if self._logical_queued_locked() >= self._capacity:
+                raise HeadlessServiceError("download queue is full")
             self._jobs[job_id] = job
-            self._prune()
-        try:
-            self._queue.put_nowait(_QueuedDownload(job_id, source, dict(payload)))
-        except queue.Full as exc:
-            with self._lock:
+            self._specs[job_id] = _DownloadSpec(source, dict(payload))
+            try:
+                self._put_token_locked(job)
+            except Exception:
                 self._jobs.pop(job_id, None)
-            raise HeadlessServiceError("download queue is full") from exc
-        self.events.publish({"event": "job.queued", "job": job.public_payload()})
+                self._specs.pop(job_id, None)
+                raise
+            self._prune_locked()
+            snapshot = job.public_payload()
+        self.events.publish({"event": "job.queued", "job": snapshot})
         return job
 
     def get(self, job_id: object) -> HeadlessJob | None:
@@ -298,6 +345,47 @@ class HeadlessRuntime:
         rows.sort(key=lambda item: item["createdAt"], reverse=True)
         return rows[:safe_limit]
 
+    def pause(self, job_id: object) -> HeadlessJob:
+        job = self.get(job_id)
+        if job is None:
+            raise HeadlessServiceError("job not found")
+        with self._lock:
+            if job.state in {"paused", "pausing"}:
+                snapshot = job.public_payload()
+            elif job.state == "queued":
+                job.generation += 1
+                job.resume_event.clear()
+                snapshot = self._touch_locked(job, state="paused", detail="paused")
+            elif job.state == "running":
+                job.resume_event.clear()
+                snapshot = self._touch_locked(job, state="pausing", detail="pausing")
+            else:
+                raise HeadlessConflict(f"job cannot be paused from state {job.state}")
+        self.events.publish({"event": "job.pause-requested", "job": snapshot})
+        return job
+
+    def resume(self, job_id: object) -> HeadlessJob:
+        job = self.get(job_id)
+        if job is None:
+            raise HeadlessServiceError("job not found")
+        with self._lock:
+            if job.state not in {"paused", "pausing"}:
+                raise HeadlessConflict(f"job cannot be resumed from state {job.state}")
+            active = self._active_job == (job.job_id, job.generation)
+            if active:
+                job.resume_event.set()
+                snapshot = self._touch_locked(job, state="running", detail="downloading")
+            else:
+                if self._logical_queued_locked() >= self._capacity:
+                    raise HeadlessServiceError("download queue is full")
+                if self._queue.full():
+                    raise HeadlessServiceError("download queue is temporarily full")
+                job.resume_event.set()
+                snapshot = self._touch_locked(job, state="queued", detail="queued")
+                self._put_token_locked(job)
+        self.events.publish({"event": "job.resumed", "job": snapshot})
+        return job
+
     def cancel(self, job_id: object) -> HeadlessJob:
         job = self.get(job_id)
         if job is None:
@@ -305,28 +393,54 @@ class HeadlessRuntime:
         with self._lock:
             if job.state in TERMINAL_STATES:
                 return job
+            active = self._active_job == (job.job_id, job.generation)
             job.cancel_event.set()
-            if job.state == "queued":
-                job.state = "cancelled"
-                job.detail = "cancelled"
+            job.resume_event.set()
+            if active:
+                snapshot = self._touch_locked(job, state="cancelling", detail="cancelling")
             else:
-                job.state = "cancelling"
-                job.detail = "cancelling"
-            job.updated_at = _utc_now()
-            snapshot = job.public_payload()
+                job.generation += 1
+                snapshot = self._touch_locked(job, state="cancelled", detail="cancelled")
         self.events.publish({"event": "job.cancel-requested", "job": snapshot})
+        return job
+
+    def retry(self, job_id: object) -> HeadlessJob:
+        job = self.get(job_id)
+        if job is None:
+            raise HeadlessServiceError("job not found")
+        with self._lock:
+            if job.state not in {"failed", "cancelled"}:
+                raise HeadlessConflict(f"job cannot be retried from state {job.state}")
+            if job.job_id not in self._specs:
+                raise HeadlessServiceError("job retry metadata is unavailable")
+            if self._logical_queued_locked() >= self._capacity:
+                raise HeadlessServiceError("download queue is full")
+            if self._queue.full():
+                raise HeadlessServiceError("download queue is temporarily full")
+            job.generation += 1
+            job.attempt = min(job.attempt + 1, 1_000_000)
+            job.progress = 0.0
+            job.file_name = ""
+            job.cancel_event = threading.Event()
+            job.resume_event = _set_event()
+            snapshot = self._touch_locked(job, state="queued", detail="queued")
+            self._put_token_locked(job)
+        self.events.publish({"event": "job.retried", "job": snapshot})
         return job
 
     def status(self) -> dict[str, Any]:
         rows = self.list_jobs(limit=50)
-        active = sum(1 for item in rows if item["state"] in {"running", "cancelling"})
+        with self._lock:
+            active = 1 if self._active_job is not None else 0
         queued = sum(1 for item in rows if item["state"] == "queued")
+        paused = sum(1 for item in rows if item["state"] in {"paused", "pausing"})
         return {
             "service": "Galaxy Headless API",
             "protocol": 2,
             "active": active,
             "queued": queued,
-            "capacity": self._queue.maxsize,
+            "paused": paused,
+            "capacity": self._capacity,
             "jobs": rows,
         }
 
@@ -342,16 +456,42 @@ class HeadlessRuntime:
             snapshot = job.public_payload()
         self.events.publish({"event": "job.updated", "job": snapshot})
 
+    def _wait_if_paused(self, job_id: str, generation: int) -> bool:
+        while not self._stopping.is_set():
+            transition: dict[str, Any] | None = None
+            with self._lock:
+                job = self._jobs.get(job_id)
+                if job is None or job.generation != generation:
+                    return False
+                if job.cancel_event.is_set():
+                    raise HeadlessCancelled("download cancelled")
+                if job.resume_event.is_set():
+                    return True
+                if job.state != "paused":
+                    transition = self._touch_locked(job, state="paused", detail="paused")
+                resume_event = job.resume_event
+            if transition is not None:
+                self.events.publish({"event": "job.paused", "job": transition})
+            resume_event.wait(timeout=0.2)
+        raise HeadlessCancelled("headless service is shutting down")
+
     def _execute(self, task: _QueuedDownload) -> None:
-        job = self.get(task.job_id)
-        if job is None or job.cancel_event.is_set() or job.state == "cancelled":
-            self._update(task.job_id, state="cancelled", detail="cancelled")
+        with self._lock:
+            job = self._jobs.get(task.job_id)
+            spec = self._specs.get(task.job_id)
+            if job is None or spec is None or job.generation != task.generation:
+                return
+            if job.cancel_event.is_set() or job.state == "cancelled":
+                return
+        if not self._wait_if_paused(task.job_id, task.generation):
             return
-        self._update(task.job_id, state="running", detail="downloading", progress=0.0)
+        self._update(task.job_id, state="running", detail="downloading")
         last_name = ""
 
         def progress_hook(event: dict[str, Any]) -> None:
             nonlocal last_name
+            if not self._wait_if_paused(task.job_id, task.generation):
+                raise HeadlessCancelled("download superseded")
             current = self.get(task.job_id)
             if current is None or current.cancel_event.is_set():
                 raise HeadlessCancelled("download cancelled")
@@ -362,16 +502,21 @@ class HeadlessRuntime:
                     path = Path(filename).resolve(strict=False)
                     path.relative_to(self.download_root)
                     last_name = path.name[:240]
-            total = _bounded_float(event.get("total_bytes") or event.get("total_bytes_estimate"), 0.0, 0.0, 10**15)
+            total = _bounded_float(
+                event.get("total_bytes") or event.get("total_bytes_estimate"),
+                0.0,
+                0.0,
+                10**15,
+            )
             downloaded = _bounded_float(event.get("downloaded_bytes"), 0.0, 0.0, 10**15)
             progress = downloaded * 100.0 / total if total > 0 else 0.0
             detail = "merging" if status == "finished" else "downloading"
             self._update(task.job_id, progress=progress, detail=detail, file_name=last_name)
 
         try:
-            options = _download_options(task.payload, self.download_root, progress_hook)
+            options = _download_options(spec.payload, self.download_root, progress_hook)
             with YoutubeDL(options) as ydl:
-                info = ydl.extract_info(task.source_url, download=True)
+                info = ydl.extract_info(spec.source_url, download=True)
                 if isinstance(info, dict):
                     with suppress(OSError, RuntimeError, ValueError):
                         prepared = ydl.prepare_filename(info)
@@ -379,6 +524,8 @@ class HeadlessRuntime:
                             path = Path(prepared).resolve(strict=False)
                             path.relative_to(self.download_root)
                             last_name = path.name[:240]
+            if not self._wait_if_paused(task.job_id, task.generation):
+                return
             current = self.get(task.job_id)
             if current is not None and current.cancel_event.is_set():
                 self._update(task.job_id, state="cancelled", detail="cancelled", file_name="")
@@ -391,13 +538,16 @@ class HeadlessRuntime:
                     file_name=last_name,
                 )
         except HeadlessCancelled:
-            self._update(task.job_id, state="cancelled", detail="cancelled", file_name="")
+            current = self.get(task.job_id)
+            if current is not None and current.generation == task.generation:
+                self._update(task.job_id, state="cancelled", detail="cancelled", file_name="")
         except Exception as exc:
             current = self.get(task.job_id)
-            if current is not None and current.cancel_event.is_set():
-                self._update(task.job_id, state="cancelled", detail="cancelled", file_name="")
-            else:
-                self._update(task.job_id, state="failed", detail=_safe_detail(exc), file_name="")
+            if current is not None and current.generation == task.generation:
+                if current.cancel_event.is_set():
+                    self._update(task.job_id, state="cancelled", detail="cancelled", file_name="")
+                else:
+                    self._update(task.job_id, state="failed", detail=_safe_detail(exc), file_name="")
 
     def _run(self) -> None:
         while not self._stopping.is_set():
@@ -408,19 +558,41 @@ class HeadlessRuntime:
             try:
                 if item is None:
                     return
-                job = self.get(item.job_id)
-                if job is not None and job.state == "cancelled":
-                    continue
-                self._execute(item)
+                with self._lock:
+                    job = self._jobs.get(item.job_id)
+                    if job is None or job.generation != item.generation or job.state != "queued":
+                        continue
+                    self._active_job = (item.job_id, item.generation)
+                try:
+                    self._execute(item)
+                finally:
+                    with self._lock:
+                        if self._active_job == (item.job_id, item.generation):
+                            self._active_job = None
             finally:
                 self._queue.task_done()
 
     def stop(self) -> None:
         self._stopping.set()
+        with self._lock:
+            if self._active_job is not None:
+                job = self._jobs.get(self._active_job[0])
+                if job is not None:
+                    job.cancel_event.set()
+                    job.resume_event.set()
         with suppress(queue.Full):
             self._queue.put_nowait(None)
         if self._worker.is_alive():
             self._worker.join(timeout=3.0)
+
+
+def _job_action_id(path: str, action: str) -> str | None:
+    prefix = "/v1/jobs/"
+    suffix = f"/{action}"
+    if not path.startswith(prefix) or not path.endswith(suffix):
+        return None
+    job_id = path[len(prefix) : -len(suffix)].strip("/")
+    return job_id or None
 
 
 class HeadlessRequestHandler(BaseHTTPRequestHandler):
@@ -511,7 +683,11 @@ class HeadlessRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         deadline = time.monotonic() + 60
         try:
-            initial = json.dumps({"event": "status", "status": self.runtime.status()}, ensure_ascii=False, separators=(",", ":"))
+            initial = json.dumps(
+                {"event": "status", "status": self.runtime.status()},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
             self.wfile.write(f"data:{initial}\n\n".encode("utf-8"))
             self.wfile.flush()
             while time.monotonic() < deadline:
@@ -559,11 +735,25 @@ class HeadlessRequestHandler(BaseHTTPRequestHandler):
             self._json(401, {"ok": False, "error": "unauthorized"})
             return
         try:
-            if path.startswith("/v1/jobs/") and path.endswith("/cancel"):
-                job_id = path[len("/v1/jobs/") : -len("/cancel")].strip("/")
-                job = self.runtime.cancel(job_id)
-                self._json(200, {"ok": True, "job": job.public_payload()})
+            for action in ("cancel", "pause", "resume", "retry"):
+                job_id = _job_action_id(path, action)
+                if job_id is None:
+                    continue
+                if action == "cancel":
+                    job = self.runtime.cancel(job_id)
+                    status = 200
+                elif action == "pause":
+                    job = self.runtime.pause(job_id)
+                    status = 200
+                elif action == "resume":
+                    job = self.runtime.resume(job_id)
+                    status = 200
+                else:
+                    job = self.runtime.retry(job_id)
+                    status = 202
+                self._json(status, {"ok": True, "job": job.public_payload()})
                 return
+
             payload = self._read_json()
             if path == "/v1/parse":
                 result = parse_media(payload.get("sourceUrl"))
@@ -574,9 +764,11 @@ class HeadlessRequestHandler(BaseHTTPRequestHandler):
                 self._json(202, {"ok": True, "job": job.public_payload()})
                 return
             self._json(404, {"ok": False, "error": "not found"})
+        except HeadlessConflict as exc:
+            self._json(409, {"ok": False, "error": _safe_detail(exc)})
         except HeadlessServiceError as exc:
             detail = _safe_detail(exc)
-            status = 404 if detail == "job not found" else 429 if "queue is full" in detail else 400
+            status = 404 if detail == "job not found" else 429 if "queue" in detail and "full" in detail else 400
             self._json(status, {"ok": False, "error": detail})
         except Exception as exc:
             self._json(502, {"ok": False, "error": _safe_detail(exc)})
@@ -647,6 +839,7 @@ def run_headless_service_self_test() -> None:
     except Exception:
         unsafe_rejected = True
     assert unsafe_rejected, "unsafe exact format selector was accepted"
+    assert _job_action_id("/v1/jobs/" + "a" * 32 + "/pause", "pause") == "a" * 32
 
     with patch("headless_service.validated_public_http_url", side_effect=str):
         class FakeYdl:
