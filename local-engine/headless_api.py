@@ -13,7 +13,6 @@ from headless_media_api import HeadlessMediaApi, HeadlessMediaApiError
 from headless_service import (
     DEFAULT_HOST,
     DEFAULT_PORT,
-    GalaxyHeadlessServer,
     HeadlessRequestHandler,
     HeadlessRuntime,
     HeadlessServiceError,
