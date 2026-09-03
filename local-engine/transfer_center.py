@@ -133,12 +133,7 @@ def _bounded_log(path: Path) -> str:
     return raw.decode("utf-8", errors="replace").strip()[-4000:]
 
 
-def download_torrent(
-    engine_module,
-    source: object,
-    *,
-    timeout_seconds: int = 24 * 3600,
-) -> TorrentResult:
+def download_torrent(engine_module, source: object, *, timeout_seconds: int = 24 * 3600) -> TorrentResult:
     executable = find_aria2c(engine_module)
     if executable is None:
         raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c")
@@ -274,6 +269,31 @@ def _is_lan_address(value: str) -> bool:
     return bool(address.is_private or address.is_link_local or address.is_loopback)
 
 
+def _lan_bind_address() -> str:
+    candidates: list[str] = []
+    try:
+        for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM):
+            address = str(item[4][0])
+            if address not in candidates:
+                candidates.append(address)
+    except OSError:
+        pass
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # UDP connect chooses a routing interface but sends no packet.
+        probe.connect(("192.0.2.1", 9))
+        address = str(probe.getsockname()[0])
+        if address not in candidates:
+            candidates.append(address)
+    except OSError:
+        pass
+    finally:
+        probe.close()
+    usable = [address for address in candidates if _is_lan_address(address)]
+    non_loopback = [address for address in usable if not ipaddress.ip_address(address).is_loopback]
+    return non_loopback[0] if non_loopback else usable[0] if usable else "127.0.0.1"
+
+
 class P2PSenderSession:
     """One-file, one-use LAN sender authenticated with a short-code HMAC."""
 
@@ -296,6 +316,7 @@ class P2PSenderSession:
         self._served = threading.Event()
         self._server: socket.socket | None = None
         self.port = 0
+        self.bind_address = ""
         self.sha256 = ""
         self._started_at = 0.0
         self._thread: threading.Thread | None = None
@@ -313,9 +334,10 @@ class P2PSenderSession:
             return self
         self.on_status("正在计算文件 SHA-256…")
         self.sha256 = _sha256_file(self.source, self._stop.is_set)
+        self.bind_address = _lan_bind_address()
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.bind(("0.0.0.0", 0))
+        server.bind((self.bind_address, 0))
         server.listen(4)
         server.settimeout(0.5)
         self._server = server
@@ -327,10 +349,9 @@ class P2PSenderSession:
 
     def stop(self) -> None:
         self._stop.set()
-        server = self._server
-        if server is not None:
+        if self._server is not None:
             with suppress(OSError):
-                server.close()
+                self._server.close()
 
     def _broadcast_loop(self) -> None:
         payload = json.dumps(
@@ -346,6 +367,7 @@ class P2PSenderSession:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            sock.bind((self.bind_address, 0))
             while not self._stop.wait(1.0):
                 with suppress(OSError):
                     sock.sendto(payload, ("255.255.255.255", DISCOVERY_PORT))
@@ -428,10 +450,11 @@ def discover_p2p_sender(code: object, *, timeout_seconds: int = 10) -> tuple[str
         timeout = max(1, min(int(timeout_seconds), 60))
     except (TypeError, ValueError):
         timeout = 10
+    bind_address = _lan_bind_address()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("", DISCOVERY_PORT))
+        sock.bind((bind_address, DISCOVERY_PORT))
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             sock.settimeout(max(0.1, min(1.0, deadline - time.monotonic())))
@@ -552,6 +575,7 @@ def transfer_status(engine_module) -> dict[str, object]:
         "p2pDiscoveryPort": DISCOVERY_PORT,
         "p2pCodeLength": P2P_CODE_LENGTH,
         "p2pMaxFileBytes": P2P_MAX_FILE_BYTES,
+        "p2pBindAddress": _lan_bind_address(),
     }
 
 
@@ -569,6 +593,7 @@ def run_transfer_center_self_test() -> None:
     assert _is_lan_address("192.168.1.10")
     assert _is_lan_address("127.0.0.1")
     assert not _is_lan_address("8.8.8.8")
+    assert _is_lan_address(_lan_bind_address())
     try:
         _clean_code("../bad")
     except TransferError:
