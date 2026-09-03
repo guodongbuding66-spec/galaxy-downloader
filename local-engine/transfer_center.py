@@ -271,22 +271,19 @@ def _is_lan_address(value: str) -> bool:
 
 def _lan_bind_address() -> str:
     candidates: list[str] = []
-    try:
+    with suppress(OSError):
         for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM):
             address = str(item[4][0])
             if address not in candidates:
                 candidates.append(address)
-    except OSError:
-        pass
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        # UDP connect chooses a routing interface but sends no packet.
-        probe.connect(("192.0.2.1", 9))
-        address = str(probe.getsockname()[0])
-        if address not in candidates:
-            candidates.append(address)
-    except OSError:
-        pass
+        with suppress(OSError):
+            # UDP connect chooses a routing interface but sends no packet.
+            probe.connect(("192.0.2.1", 9))
+            address = str(probe.getsockname()[0])
+            if address not in candidates:
+                candidates.append(address)
     finally:
         probe.close()
     usable = [address for address in candidates if _is_lan_address(address)]
