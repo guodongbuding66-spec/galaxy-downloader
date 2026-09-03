@@ -155,7 +155,7 @@ def run_local_media_import_self_test() -> None:
         source.write_bytes(b"ID3" + b"x" * 32)
         first = import_local_media(Engine, source)
         assert first.destination.is_file()
-        assert first.destination.parent == downloads / "imported"
+        assert first.destination.parent.resolve() == (downloads / "imported").resolve()
         assert first.media_id
         assert resolve_media_item_path(Engine, first.media_id) == first.destination.resolve()
 
