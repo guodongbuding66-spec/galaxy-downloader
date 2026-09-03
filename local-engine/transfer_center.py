@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -12,6 +12,7 @@ import socket
 import subprocess
 import threading
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -55,16 +56,26 @@ def find_aria2c(engine_module) -> Path | None:
         try:
             tools = Path(accessor())
             roots.extend((tools / "aria2" / "bin", tools / "aria2", tools / "bin", tools))
-        except Exception:
-            pass
-    roots.extend((Path(engine_module.app_dir()) / "bin", Path(engine_module.app_dir())))
+        except (OSError, RuntimeError, TypeError, ValueError):
+            roots = list(roots)
+    app_accessor = getattr(engine_module, "app_dir", None)
+    if callable(app_accessor):
+        try:
+            app_root = Path(app_accessor())
+            roots.extend((app_root / "bin", app_root))
+        except (OSError, RuntimeError, TypeError, ValueError):
+            roots = list(roots)
     for root in roots:
         for name in names:
             candidate = root / name
             if candidate.is_file() and not candidate.is_symlink():
                 return candidate
     resolved = shutil.which("aria2c")
-    return Path(resolved) if resolved else None
+    if resolved:
+        candidate = Path(resolved)
+        if candidate.is_file() and not candidate.is_symlink():
+            return candidate
+    return None
 
 
 def _torrent_source(value: object) -> str:
@@ -176,12 +187,55 @@ def _safe_received_name(value: object) -> str:
     return name or "received.bin"
 
 
+def _is_lan_ipv4(value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return bool(
+        address.version == 4
+        and not address.is_loopback
+        and not address.is_unspecified
+        and not address.is_multicast
+        and (address.is_private or address.is_link_local)
+    )
+
+
+def _lan_ipv4_candidates() -> tuple[str, ...]:
+    """Find concrete local IPv4 interfaces without binding services globally."""
+    values: list[str] = []
+    with suppress(OSError):
+        for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM):
+            address = str(item[4][0])
+            if _is_lan_ipv4(address) and address not in values:
+                values.append(address)
+    # UDP connect performs route selection without sending application data.
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        with suppress(OSError):
+            probe.connect(("192.0.2.1", 9))
+            address = str(probe.getsockname()[0])
+            if _is_lan_ipv4(address) and address not in values:
+                values.insert(0, address)
+    finally:
+        probe.close()
+    return tuple(values)
+
+
+def _preferred_lan_ipv4() -> str:
+    candidates = _lan_ipv4_candidates()
+    if not candidates:
+        raise TransferError("未检测到可用于 P2P 的私有局域网 IPv4 地址")
+    return candidates[0]
+
+
 class P2PSenderSession:
     """One-file, one-use LAN sender discovered by a hashed short code.
 
     Discovery broadcasts only SHA-256(code), never the code itself. The TCP
     session authenticates with HMAC(code, nonce), then streams a pre-hashed file.
-    The session expires automatically and stops after the first successful send.
+    The service binds only to one concrete private LAN address instead of all
+    network interfaces, and expires after the first successful transfer.
     """
 
     def __init__(
@@ -199,6 +253,7 @@ class P2PSenderSession:
         self._stop = threading.Event()
         self._served = threading.Event()
         self._server: socket.socket | None = None
+        self.host = ""
         self.port = 0
         self.sha256 = ""
         self._started_at = 0.0
@@ -217,9 +272,10 @@ class P2PSenderSession:
             return self
         self.on_status("正在计算文件 SHA-256…")
         self.sha256 = _sha256_file(self.source, self._stop.is_set)
+        self.host = _preferred_lan_ipv4()
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.bind(("0.0.0.0", 0))
+        server.bind((self.host, 0))
         server.listen(4)
         server.settimeout(0.5)
         self._server = server
@@ -233,10 +289,8 @@ class P2PSenderSession:
         self._stop.set()
         server = self._server
         if server is not None:
-            try:
+            with suppress(OSError):
                 server.close()
-            except OSError:
-                pass
 
     def _broadcast_loop(self) -> None:
         payload = json.dumps(
@@ -252,11 +306,10 @@ class P2PSenderSession:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            sock.bind((self.host, 0))
             while not self._stop.wait(1.0):
-                try:
+                with suppress(OSError):
                     sock.sendto(payload, ("255.255.255.255", DISCOVERY_PORT))
-                except OSError:
-                    pass
         finally:
             sock.close()
 
@@ -283,15 +336,13 @@ class P2PSenderSession:
                         if self._serve_client(client):
                             self._served.set()
                             self.on_status("文件已发送完成，短码已失效")
-                    except Exception:
+                    except (OSError, UnicodeError, TransferError, ValueError):
                         continue
         finally:
             self._stop.set()
             if self._server is not None:
-                try:
+                with suppress(OSError):
                     self._server.close()
-                except OSError:
-                    pass
 
     def _serve_client(self, client: socket.socket) -> bool:
         hello = _recv_line(client)
@@ -327,10 +378,11 @@ def discover_p2p_sender(code: object, *, timeout_seconds: int = 10) -> tuple[str
     if not re.fullmatch(rf"[{P2P_CODE_ALPHABET}]{{{P2P_CODE_LENGTH}}}", clean_code):
         raise TransferError("短码格式无效")
     expected_hash = _code_hash(clean_code)
+    local_host = _preferred_lan_ipv4()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("", DISCOVERY_PORT))
+        sock.bind((local_host, DISCOVERY_PORT))
         deadline = time.monotonic() + max(1, min(int(timeout_seconds), 60))
         while time.monotonic() < deadline:
             sock.settimeout(max(0.1, min(1.0, deadline - time.monotonic())))
@@ -350,8 +402,9 @@ def discover_p2p_sender(code: object, *, timeout_seconds: int = 10) -> tuple[str
                 port = int(payload.get("port") or 0)
             except (TypeError, ValueError):
                 continue
-            if 1 <= port <= 65535:
-                return str(address[0]), port, payload
+            sender_host = str(address[0])
+            if 1 <= port <= 65535 and _is_lan_ipv4(sender_host):
+                return sender_host, port, payload
         raise TransferError("未在局域网发现匹配短码的发送端")
     finally:
         sock.close()
@@ -425,18 +478,16 @@ def receive_p2p_file(
                 raise TransferError("P2P 文件 SHA-256 校验失败")
             temporary.replace(destination)
             return P2PReceiveResult(destination, size, actual)
-        except Exception:
-            try:
+        except (OSError, TransferError):
+            with suppress(OSError):
                 temporary.unlink()
-            except OSError:
-                pass
             raise
 
 
 def transfer_status(engine_module) -> dict[str, object]:
     return {
         "torrentReady": find_aria2c(engine_module) is not None,
-        "p2pLan": True,
+        "p2pLan": bool(_lan_ipv4_candidates()),
         "p2pDiscoveryPort": DISCOVERY_PORT,
         "p2pCodeLength": P2P_CODE_LENGTH,
     }
@@ -452,3 +503,5 @@ def run_transfer_center_self_test() -> None:
     proof = hmac.new(code.encode("ascii"), nonce.encode("ascii"), hashlib.sha256).hexdigest()
     assert hmac.compare_digest(proof, proof)
     assert _safe_received_name("../evil.txt") == "evil.txt"
+    assert _is_lan_ipv4("127.0.0.1") is False
+    assert _is_lan_ipv4("192.168.1.5") is True
