@@ -50,9 +50,22 @@ def _show_workbench(window) -> None:
             pass
 
 
+def _dispatch_hotkey(window) -> None:
+    try:
+        from desktop_clipboard import handle_global_hotkey
+
+        if handle_global_hotkey(window):
+            return
+    except Exception:
+        # Clipboard direct-download is optional; the historical focus behavior is
+        # always retained when it is disabled or unavailable.
+        pass
+    _show_workbench(window)
+
+
 def _schedule_workbench(window) -> None:
     try:
-        window.after(0, lambda: _show_workbench(window))
+        window.after(0, lambda: _dispatch_hotkey(window))
     except Exception:
         pass
 
