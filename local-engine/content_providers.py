@@ -22,10 +22,17 @@ MAX_TELEGRAM_HTML_BYTES = 5_000_000
 MAX_TELEGRAM_MEDIA_BYTES = 2_000_000_000
 MAX_TELEGRAM_CANDIDATES = 10
 
-SOCIAL_PROFILE_HOSTS = frozenset({
-    "x.com", "www.x.com", "twitter.com", "www.twitter.com",
-    "reddit.com", "www.reddit.com", "old.reddit.com",
-})
+SOCIAL_PROFILE_HOSTS = frozenset(
+    {
+        "x.com",
+        "www.x.com",
+        "twitter.com",
+        "www.twitter.com",
+        "reddit.com",
+        "www.reddit.com",
+        "old.reddit.com",
+    }
+)
 BILIBILI_HOSTS = frozenset({"bilibili.com", "www.bilibili.com", "m.bilibili.com", "b23.tv"})
 TELEGRAM_HOSTS = frozenset({"t.me", "www.t.me", "telegram.me", "www.telegram.me"})
 BROWSERS = frozenset({"none", "edge", "chrome", "firefox", "brave"})
@@ -250,7 +257,11 @@ def _public_opener():
 
 def _fetch_public(url: str, *, max_bytes: int, timeout: int = 30) -> tuple[str, bytes, str]:
     validated = validated_public_http_url(url)
-    request = urllib.request.Request(validated, headers={"User-Agent": "Mozilla/5.0 GalaxyLocalEngine/1.0"}, method="GET")
+    request = urllib.request.Request(
+        validated,
+        headers={"User-Agent": "Mozilla/5.0 GalaxyLocalEngine/1.0"},
+        method="GET",
+    )
     try:
         with _public_opener().open(request, timeout=max(5, min(int(timeout), 60))) as response:  # noqa: S310
             final_url = validated_public_http_url(response.geturl())
@@ -293,7 +304,14 @@ def _extension(url: str, content_type: str) -> str:
     if path_ext in _SAFE_MEDIA_EXTENSIONS:
         return ".jpg" if path_ext == ".jpeg" else path_ext
     lowered = content_type.lower()
-    for token, ext in (("video/mp4", ".mp4"), ("video/webm", ".webm"), ("image/jpeg", ".jpg"), ("image/png", ".png"), ("image/webp", ".webp"), ("image/gif", ".gif")):
+    for token, ext in (
+        ("video/mp4", ".mp4"),
+        ("video/webm", ".webm"),
+        ("image/jpeg", ".jpg"),
+        ("image/png", ".png"),
+        ("image/webp", ".webp"),
+        ("image/gif", ".gif"),
+    ):
         if token in lowered:
             return ext
     raise ContentProviderError("Telegram 媒体类型不在允许范围内")
@@ -312,7 +330,11 @@ def telegram_public_post_download(
     if not candidates:
         raise ContentProviderError("该公开 Telegram 帖子没有暴露可下载媒体；私有/登录内容不在适配器范围内")
 
-    request = urllib.request.Request(candidates[0], headers={"User-Agent": "Mozilla/5.0 GalaxyLocalEngine/1.0"}, method="GET")
+    request = urllib.request.Request(
+        candidates[0],
+        headers={"User-Agent": "Mozilla/5.0 GalaxyLocalEngine/1.0"},
+        method="GET",
+    )
     target_root = _safe_managed_directory(Path(engine_module.default_download_dir()), "telegram")
     post_id = urlparse(source).path.rstrip("/").split("/")[-1]
     temporary = target_root / f".telegram-{post_id}-{os.urandom(4).hex()}.part"
@@ -373,7 +395,7 @@ def provider_status(engine_module) -> dict[str, Any]:
 def run_content_providers_self_test() -> None:
     from unittest.mock import patch
 
-    with patch("content_providers.validated_public_http_url", side_effect=lambda value: str(value)):
+    with patch("content_providers.validated_public_http_url", side_effect=str):
         payload = bilibili_deep_payload(
             "https://www.bilibili.com/video/BV1xx",
             browser="edge",
