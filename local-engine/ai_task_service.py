@@ -22,7 +22,7 @@ from ai_history import (
 )
 from ai_provider_registry import load_ai_providers
 from ai_provider_runtime import AiProviderRuntimeError, ProviderRunResult, run_provider_prompt
-from ai_task_queue import AiQueueError, AiTaskQueue, AiTaskRequest
+from ai_task_queue import AiTaskQueue, AiTaskRequest
 from ai_workspace import transcript_path
 from prompt_library import get_prompt
 
