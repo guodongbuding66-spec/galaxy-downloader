@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import threading
+from contextlib import suppress
 from pathlib import Path
 
 KNOWN_STATE_FILES = (
@@ -11,11 +12,13 @@ KNOWN_STATE_FILES = (
     "download-archive.txt",
     "resume-jobs.json",
     "media-library.sqlite3",
+    "transcripts.sqlite3",
     "subscriptions.json",
     "ai-models.json",
     "engine.log",
 )
-STATE_IMPORT_MARKER = ".portable-state-imported-v1"
+STATE_IMPORT_VERSION = 2
+STATE_IMPORT_MARKER = f".portable-state-imported-v{STATE_IMPORT_VERSION}"
 _STATE_MIGRATION_LOCK = threading.RLock()
 
 
@@ -68,10 +71,8 @@ def _import_legacy_state_once(engine_module, target: Path) -> None:
             temporary.write_text("1\n", encoding="utf-8")
             temporary.replace(marker)
         except OSError:
-            try:
+            with suppress(OSError):
                 temporary.unlink()
-            except OSError:
-                pass
 
 
 def state_dir(engine_module) -> Path:
@@ -93,11 +94,15 @@ def run_runtime_storage_self_test() -> None:
         (legacy / "desktop-features.json").write_text('{"clipboardMonitorEnabled": true}', encoding="utf-8")
         (legacy / "download-history.json").write_text('[{"id":"legacy"}]', encoding="utf-8")
         (legacy / "media-library.sqlite3").write_bytes(b"library")
+        (legacy / "transcripts.sqlite3").write_bytes(b"transcripts")
         (legacy / "subscriptions.json").write_text('{"version":1,"subscriptions":[]}', encoding="utf-8")
         (legacy / "ai-models.json").write_text('{"whisperModel":"small","summaryModel":"qwen3:4b"}', encoding="utf-8")
         (legacy / "unknown-secret.txt").write_text("do-not-copy", encoding="utf-8")
         installed.mkdir(parents=True)
         (installed / "workspace-options.json").write_text('{"historyEnabled": true}', encoding="utf-8")
+        # Simulate a machine that already completed the older v1 migration. New
+        # state files still need one v2 migration pass without replacing existing data.
+        (installed / ".portable-state-imported-v1").write_text("1\n", encoding="utf-8")
 
         class InstalledEngine:
             @staticmethod
@@ -114,6 +119,7 @@ def run_runtime_storage_self_test() -> None:
         assert (installed / "desktop-features.json").read_text(encoding="utf-8") == '{"clipboardMonitorEnabled": true}'
         assert (installed / "download-history.json").read_text(encoding="utf-8") == '[{"id":"legacy"}]'
         assert (installed / "media-library.sqlite3").read_bytes() == b"library"
+        assert (installed / "transcripts.sqlite3").read_bytes() == b"transcripts"
         assert (installed / "subscriptions.json").read_text(encoding="utf-8") == '{"version":1,"subscriptions":[]}'
         assert (installed / "ai-models.json").read_text(encoding="utf-8") == '{"whisperModel":"small","summaryModel":"qwen3:4b"}'
         assert not (installed / "unknown-secret.txt").exists()
