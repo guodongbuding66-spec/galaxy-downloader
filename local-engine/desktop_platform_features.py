@@ -12,6 +12,7 @@ from desktop_hotkey import (
     run_desktop_global_hotkey_self_test,
     verify_windows_hotkey_api,
 )
+from desktop_learning import install_desktop_learning, run_desktop_learning_self_test
 from desktop_library import install_desktop_library, run_desktop_library_self_test
 from desktop_providers import install_desktop_providers, run_desktop_providers_self_test
 from desktop_subscriptions import install_desktop_subscriptions, run_desktop_subscriptions_self_test
@@ -20,6 +21,7 @@ from desktop_tray import (
     run_desktop_tray_self_test,
     verify_windows_tray_dependencies,
 )
+from learning_workspace import run_learning_workspace_self_test
 from media_library import install_media_library, run_media_library_self_test
 from plugin_host import run_plugin_host_self_test
 from subscription_scheduler import run_subscription_scheduler_self_test
@@ -30,8 +32,8 @@ def install_desktop_platform_features(engine_module):
     """Install desktop integrations after the core download workbench.
 
     OS-specific providers remain behind this boundary so Job/download code never
-    depends directly on Win32/macOS/Linux APIs. Local library/subscription/AI and
-    provider surfaces are wired here after queue/history and hook registries are ready.
+    depends directly on Win32/macOS/Linux APIs. Higher-level local workspaces are
+    wired here after queue/history and the desktop hook registry are ready.
     """
     install_bandwidth_policy(engine_module)
     install_desktop_bandwidth(engine_module)
@@ -46,6 +48,7 @@ def install_desktop_platform_features(engine_module):
         install_desktop_subscriptions(engine_module)
         install_desktop_ai(engine_module)
         install_desktop_providers(engine_module)
+        install_desktop_learning(engine_module)
 
     engine_module._galaxy_desktop_platform_features_installed = True
     return window_cls
@@ -68,5 +71,7 @@ def run_desktop_platform_features_self_test() -> None:
     run_plugin_host_self_test()
     run_content_providers_self_test()
     run_desktop_providers_self_test()
+    run_learning_workspace_self_test()
+    run_desktop_learning_self_test()
     assert verify_windows_tray_dependencies() is True
     assert verify_windows_hotkey_api() is True
