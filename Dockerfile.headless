@@ -22,6 +22,8 @@ USER galaxy
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    HOME=/tmp/galaxy-home \
+    XDG_CACHE_HOME=/tmp/galaxy-cache \
     GALAXY_HEADLESS_HOST=0.0.0.0 \
     GALAXY_HEADLESS_PORT=17837 \
     GALAXY_DOWNLOAD_DIR=/data/downloads
