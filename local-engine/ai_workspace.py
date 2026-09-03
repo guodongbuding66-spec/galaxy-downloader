@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,10 +81,8 @@ def _atomic_write_text(destination: Path, text: str) -> None:
         temporary.write_text(text, encoding="utf-8")
         temporary.replace(destination)
     except Exception:
-        try:
+        with suppress(OSError):
             temporary.unlink()
-        except OSError:
-            pass
         raise
 
 
