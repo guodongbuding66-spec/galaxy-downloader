@@ -1,0 +1,33 @@
+services:
+  galaxy-headless:
+    build:
+      context: .
+      dockerfile: Dockerfile.headless
+    image: galaxy-local-engine:headless
+    restart: unless-stopped
+    environment:
+      GALAXY_HEADLESS_HOST: 0.0.0.0
+      GALAXY_HEADLESS_PORT: 17837
+      GALAXY_DOWNLOAD_DIR: /data/downloads
+      GALAXY_HEADLESS_TOKEN: ${GALAXY_HEADLESS_TOKEN:?Set GALAXY_HEADLESS_TOKEN to at least 24 characters}
+    ports:
+      - "${GALAXY_HEADLESS_BIND:-127.0.0.1}:17837:17837"
+    volumes:
+      - "${GALAXY_DATA_DIR:-./galaxy-data}:/data"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:17837/health', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
