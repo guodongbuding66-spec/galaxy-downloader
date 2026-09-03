@@ -12,6 +12,7 @@ KNOWN_STATE_FILES = (
     "resume-jobs.json",
     "media-library.sqlite3",
     "subscriptions.json",
+    "ai-models.json",
     "engine.log",
 )
 STATE_IMPORT_MARKER = ".portable-state-imported-v1"
@@ -93,6 +94,7 @@ def run_runtime_storage_self_test() -> None:
         (legacy / "download-history.json").write_text('[{"id":"legacy"}]', encoding="utf-8")
         (legacy / "media-library.sqlite3").write_bytes(b"library")
         (legacy / "subscriptions.json").write_text('{"version":1,"subscriptions":[]}', encoding="utf-8")
+        (legacy / "ai-models.json").write_text('{"whisperModel":"small","summaryModel":"qwen3:4b"}', encoding="utf-8")
         (legacy / "unknown-secret.txt").write_text("do-not-copy", encoding="utf-8")
         installed.mkdir(parents=True)
         (installed / "workspace-options.json").write_text('{"historyEnabled": true}', encoding="utf-8")
@@ -113,6 +115,7 @@ def run_runtime_storage_self_test() -> None:
         assert (installed / "download-history.json").read_text(encoding="utf-8") == '[{"id":"legacy"}]'
         assert (installed / "media-library.sqlite3").read_bytes() == b"library"
         assert (installed / "subscriptions.json").read_text(encoding="utf-8") == '{"version":1,"subscriptions":[]}'
+        assert (installed / "ai-models.json").read_text(encoding="utf-8") == '{"whisperModel":"small","summaryModel":"qwen3:4b"}'
         assert not (installed / "unknown-secret.txt").exists()
         assert (installed / STATE_IMPORT_MARKER).is_file()
 
