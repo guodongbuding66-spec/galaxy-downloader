@@ -145,9 +145,10 @@ def run() -> None:
         assert status["protocol"] == 2
         assert FakeApiHandler.records[-1]["authorization"] == f"Bearer {TOKEN}"
 
-        parsed = client.post("/v1/parse", payload={"sourceUrl": "https://example.com/demo"})
+        source_url = "https://example.com/demo"
+        parsed = client.post("/v1/parse", payload={"sourceUrl": source_url})
         assert parsed["result"]["title"] == "Demo"
-        assert FakeApiHandler.records[-1]["body"]["sourceUrl"].startswith("https://example.com")
+        assert FakeApiHandler.records[-1]["body"]["sourceUrl"] == source_url
 
         try:
             client.get("/redirect")
