@@ -13,7 +13,7 @@ from contextlib import closing, suppress
 from dataclasses import asdict, dataclass
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import Any
 from xml.etree import ElementTree
 
 from runtime_storage import state_dir as runtime_state_dir
