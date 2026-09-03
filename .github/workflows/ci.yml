@@ -239,7 +239,7 @@ jobs:
           - python
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1cd1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
