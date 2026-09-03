@@ -1,0 +1,232 @@
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+from ai_models import (
+    load_ai_model_settings,
+    normalize_summary_model,
+    normalize_whisper_model,
+    ollama_executable,
+    whisper_executable,
+)
+from media_library import resolve_media_item_path
+
+MAX_TRANSCRIPT_CHARS = 400_000
+LANGUAGE_RE = re.compile(r"^[A-Za-z0-9_-]{0,32}$")
+
+
+class AiWorkspaceError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class AiArtifactResult:
+    kind: str
+    media_id: str
+    path: Path
+    model: str
+
+
+def _ai_data_dir(engine_module) -> Path:
+    accessor = getattr(engine_module, "data_dir", None)
+    root = Path(accessor()) if callable(accessor) else Path(engine_module.app_dir())
+    target = root / "ai"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def transcript_path(engine_module, media_id: object) -> Path:
+    clean = _clean_media_id(media_id)
+    target = _ai_data_dir(engine_module) / "transcripts"
+    target.mkdir(parents=True, exist_ok=True)
+    return target / f"{clean}.srt"
+
+
+def summary_path(engine_module, media_id: object) -> Path:
+    clean = _clean_media_id(media_id)
+    target = _ai_data_dir(engine_module) / "summaries"
+    target.mkdir(parents=True, exist_ok=True)
+    return target / f"{clean}.md"
+
+
+def _clean_media_id(value: object) -> str:
+    clean = str(value or "").strip().lower()
+    if not re.fullmatch(r"[a-f0-9]{16,64}", clean):
+        raise AiWorkspaceError("媒体条目 ID 无效")
+    return clean
+
+
+def _creation_flags() -> int:
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
+
+def _atomic_copy_text(source: Path, destination: Path) -> None:
+    text = source.read_text(encoding="utf-8", errors="replace")
+    if len(text) > MAX_TRANSCRIPT_CHARS:
+        raise AiWorkspaceError("转写结果过大")
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(destination)
+
+
+def transcribe_media(
+    engine_module,
+    media_id: object,
+    *,
+    language: object = "",
+    model: object | None = None,
+    timeout_seconds: int = 3600,
+) -> AiArtifactResult:
+    clean_id = _clean_media_id(media_id)
+    source = resolve_media_item_path(engine_module, clean_id)
+    if source is None:
+        raise AiWorkspaceError("媒体文件不存在或已移出 Galaxy 下载目录")
+
+    executable = whisper_executable(engine_module)
+    if executable is None:
+        raise AiWorkspaceError("未检测到 Whisper CLI。请先安装 openai-whisper 并确保 whisper 命令可用。")
+
+    settings = load_ai_model_settings(engine_module)
+    chosen_model = normalize_whisper_model(model if model is not None else settings.whisper_model)
+    chosen_language = str(language or "").strip()
+    if chosen_language and not LANGUAGE_RE.fullmatch(chosen_language):
+        raise AiWorkspaceError("语言代码无效")
+
+    destination = transcript_path(engine_module, clean_id)
+    with tempfile.TemporaryDirectory(prefix="galaxy-whisper-") as directory:
+        output_dir = Path(directory)
+        command = [
+            str(executable),
+            str(source),
+            "--model",
+            chosen_model,
+            "--output_format",
+            "srt",
+            "--output_dir",
+            str(output_dir),
+            "--verbose",
+            "False",
+        ]
+        if chosen_language:
+            command.extend(["--language", chosen_language])
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=max(60, min(int(timeout_seconds), 7200)),
+                check=False,
+                creationflags=_creation_flags(),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AiWorkspaceError("Whisper 转写超时") from exc
+        except OSError as exc:
+            raise AiWorkspaceError(str(exc)) from exc
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise AiWorkspaceError(detail[-1500:] or f"Whisper exited with {result.returncode}")
+
+        expected = output_dir / f"{source.stem}.srt"
+        candidates = [expected] if expected.is_file() else sorted(output_dir.glob("*.srt"))
+        if not candidates:
+            raise AiWorkspaceError("Whisper 未生成 SRT 字幕")
+        _atomic_copy_text(candidates[0], destination)
+
+    return AiArtifactResult("transcript", clean_id, destination, chosen_model)
+
+
+def _read_transcript(engine_module, media_id: str) -> str:
+    path = transcript_path(engine_module, media_id)
+    if not path.is_file():
+        raise AiWorkspaceError("尚未生成字幕，请先执行 Whisper 转写")
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        raise AiWorkspaceError("字幕为空")
+    return text[:MAX_TRANSCRIPT_CHARS]
+
+
+def summarize_media(
+    engine_module,
+    media_id: object,
+    *,
+    model: object | None = None,
+    timeout_seconds: int = 900,
+) -> AiArtifactResult:
+    clean_id = _clean_media_id(media_id)
+    # Resolve again even though only the transcript is sent to the model. This
+    # prevents stale library ids for files outside Galaxy's current download root
+    # from becoming an implicit local-file processing surface.
+    if resolve_media_item_path(engine_module, clean_id) is None:
+        raise AiWorkspaceError("媒体文件不存在或已移出 Galaxy 下载目录")
+
+    settings = load_ai_model_settings(engine_module)
+    chosen_model = normalize_summary_model(model if model is not None else settings.summary_model)
+    if not chosen_model:
+        raise AiWorkspaceError("请先在 AI 模型管理中选择 Ollama 摘要模型")
+    executable = ollama_executable(engine_module)
+    if executable is None:
+        raise AiWorkspaceError("未检测到 Ollama")
+
+    transcript = _read_transcript(engine_module, clean_id)
+    prompt = (
+        "你是本地媒体学习助手。请只根据下面字幕内容生成结构化中文摘要，不要编造字幕中没有的信息。\n"
+        "输出 Markdown，包含：核心结论、关键要点、时间线/章节（能从字幕判断时）、术语与待核实事项。\n\n"
+        "字幕：\n" + transcript
+    )
+    try:
+        result = subprocess.run(
+            [str(executable), "run", chosen_model],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=max(60, min(int(timeout_seconds), 1800)),
+            check=False,
+            creationflags=_creation_flags(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AiWorkspaceError("Ollama 摘要生成超时") from exc
+    except OSError as exc:
+        raise AiWorkspaceError(str(exc)) from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise AiWorkspaceError(detail[-1500:] or f"Ollama exited with {result.returncode}")
+
+    output = (result.stdout or "").strip()
+    if not output:
+        raise AiWorkspaceError("Ollama 没有返回摘要")
+    destination = summary_path(engine_module, clean_id)
+    temporary = destination.with_suffix(".tmp")
+    temporary.write_text(output[:500_000] + "\n", encoding="utf-8")
+    temporary.replace(destination)
+    return AiArtifactResult("summary", clean_id, destination, chosen_model)
+
+
+def run_ai_workspace_self_test() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+
+        class Engine:
+            @staticmethod
+            def app_dir() -> Path:
+                return root
+
+            @staticmethod
+            def data_dir() -> Path:
+                return root / "data"
+
+        media_id = "a" * 32
+        assert transcript_path(Engine, media_id) == root / "data" / "ai" / "transcripts" / f"{media_id}.srt"
+        assert summary_path(Engine, media_id) == root / "data" / "ai" / "summaries" / f"{media_id}.md"
+        try:
+            transcript_path(Engine, "../bad")
+        except AiWorkspaceError:
+            pass
+        else:
+            raise AssertionError("unsafe media id was accepted")
