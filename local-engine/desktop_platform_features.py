@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from bandwidth_policy import install_bandwidth_policy, run_bandwidth_policy_self_test
+from desktop_bandwidth import install_desktop_bandwidth, run_desktop_bandwidth_self_test
 from desktop_clipboard import install_desktop_clipboard_monitor, run_desktop_clipboard_monitor_self_test
 from desktop_hotkey import (
     install_desktop_global_hotkey,
@@ -28,6 +29,7 @@ def install_desktop_platform_features(engine_module):
     queue submission and the desktop hook registry are ready.
     """
     install_bandwidth_policy(engine_module)
+    install_desktop_bandwidth(engine_module)
     install_desktop_clipboard_monitor(engine_module)
     install_desktop_tray(engine_module)
     install_desktop_global_hotkey(engine_module)
@@ -44,6 +46,7 @@ def install_desktop_platform_features(engine_module):
 
 def run_desktop_platform_features_self_test() -> None:
     run_bandwidth_policy_self_test()
+    run_desktop_bandwidth_self_test()
     run_desktop_clipboard_monitor_self_test()
     run_desktop_tray_self_test()
     run_desktop_global_hotkey_self_test()
