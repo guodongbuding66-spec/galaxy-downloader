@@ -157,7 +157,8 @@ def _show_ai_workspace(window, engine_module) -> None:
     def refresh_media() -> None:
         try:
             sync_media_library(engine_module)
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # The catalog is derived state; a sync failure must not block reading existing rows.
             pass
         rows.clear()
         listbox.delete(0, "end")
