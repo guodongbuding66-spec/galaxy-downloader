@@ -4,6 +4,7 @@ from ai_models import run_ai_models_self_test
 from ai_workspace import run_ai_workspace_self_test
 from bandwidth_policy import install_bandwidth_policy, run_bandwidth_policy_self_test
 from content_providers import run_content_providers_self_test
+from desktop_advanced import install_desktop_advanced, run_desktop_advanced_self_test
 from desktop_ai import install_desktop_ai, run_desktop_ai_self_test
 from desktop_bandwidth import install_desktop_bandwidth, run_desktop_bandwidth_self_test
 from desktop_clipboard import install_desktop_clipboard_monitor, run_desktop_clipboard_monitor_self_test
@@ -70,6 +71,7 @@ def install_desktop_platform_features(engine_module):
         install_desktop_learning(engine_module)
         install_desktop_transfers(engine_module)
         install_desktop_marketplace(engine_module)
+        install_desktop_advanced(engine_module)
 
     engine_module._galaxy_desktop_platform_features_installed = True
     return window_cls
@@ -98,6 +100,7 @@ def run_desktop_platform_features_self_test() -> None:
     run_desktop_learning_self_test()
     run_transfer_center_self_test()
     run_desktop_transfers_self_test()
+    run_desktop_advanced_self_test()
     assert _has_job_policy_contract(object()) is False
     assert verify_windows_tray_dependencies() is True
     assert verify_windows_hotkey_api() is True
