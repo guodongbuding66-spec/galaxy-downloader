@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from contextlib import closing
 from dataclasses import asdict, dataclass
@@ -52,7 +53,7 @@ def _clean_seconds(value: object, field: str) -> float:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
         raise DiarizationAssignmentError(f"{field} 无效") from exc
-    if parsed < 0 or parsed != parsed or parsed in {float("inf"), float("-inf")}:
+    if parsed < 0 or not math.isfinite(parsed):
         raise DiarizationAssignmentError(f"{field} 无效")
     return round(parsed, 3)
 
@@ -281,3 +282,11 @@ def run_diarization_assignment_self_test() -> None:
             pass
         else:
             raise AssertionError("invalid diarization turn was accepted")
+
+        for invalid_time in (float("nan"), float("inf"), float("-inf")):
+            try:
+                normalize_diarization_turns([{"start": invalid_time, "end": 3, "speaker": "Bad"}])
+            except DiarizationAssignmentError:
+                pass
+            else:
+                raise AssertionError("non-finite diarization time was accepted")
