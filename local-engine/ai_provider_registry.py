@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import stat
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -14,26 +13,25 @@ from runtime_storage import state_dir as runtime_state_dir
 from url_policy import validated_public_http_url
 
 PROVIDERS_FILENAME = "ai-providers.json"
-SECRETS_FILENAME = "ai-provider-secrets.json"
 SCHEMA_VERSION = 1
 MAX_PROVIDERS = 100
-MAX_API_KEY_CHARS = 4096
 PROVIDER_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$")
+ENV_REFERENCE_RE = re.compile(r"^env:([A-Z_][A-Z0-9_]*)$")
 _PROTOCOLS = {"openai", "anthropic", "google", "azure-openai", "ollama"}
 _SECRET_QUERY_RE = re.compile(r"(?:key|token|secret|password|credential|signature|sig)", re.I)
 
 _DEFAULT_ROWS = (
-    ("openai", "OpenAI", "openai", "https://api.openai.com/v1/chat/completions", True),
-    ("anthropic", "Anthropic", "anthropic", "https://api.anthropic.com/v1/messages", True),
-    ("gemini", "Google Gemini", "google", "https://generativelanguage.googleapis.com/v1beta", True),
-    ("deepseek", "DeepSeek", "openai", "https://api.deepseek.com/chat/completions", True),
-    ("openrouter", "OpenRouter", "openai", "https://openrouter.ai/api/v1/chat/completions", True),
-    ("groq", "Groq", "openai", "https://api.groq.com/openai/v1/chat/completions", True),
-    ("xai", "xAI", "openai", "https://api.x.ai/v1/chat/completions", True),
-    ("ollama", "Ollama", "ollama", "http://127.0.0.1:11434/api/chat", True),
-    ("lmstudio", "LM Studio", "openai", "http://127.0.0.1:1234/v1/chat/completions", True),
-    ("azure-openai", "Azure OpenAI", "azure-openai", "", False),
+    ("openai", "OpenAI", "openai", "https://api.openai.com/v1/chat/completions", True, "env:OPENAI_API_KEY"),
+    ("anthropic", "Anthropic", "anthropic", "https://api.anthropic.com/v1/messages", True, "env:ANTHROPIC_API_KEY"),
+    ("gemini", "Google Gemini", "google", "https://generativelanguage.googleapis.com/v1beta", True, "env:GEMINI_API_KEY"),
+    ("deepseek", "DeepSeek", "openai", "https://api.deepseek.com/chat/completions", True, "env:DEEPSEEK_API_KEY"),
+    ("openrouter", "OpenRouter", "openai", "https://openrouter.ai/api/v1/chat/completions", True, "env:OPENROUTER_API_KEY"),
+    ("groq", "Groq", "openai", "https://api.groq.com/openai/v1/chat/completions", True, "env:GROQ_API_KEY"),
+    ("xai", "xAI", "openai", "https://api.x.ai/v1/chat/completions", True, "env:XAI_API_KEY"),
+    ("ollama", "Ollama", "ollama", "http://127.0.0.1:11434/api/chat", True, ""),
+    ("lmstudio", "LM Studio", "openai", "http://127.0.0.1:1234/v1/chat/completions", True, ""),
+    ("azure-openai", "Azure OpenAI", "azure-openai", "", False, "env:AZURE_OPENAI_API_KEY"),
 )
 
 
@@ -52,6 +50,7 @@ class AiProviderConfig:
     custom: bool = False
     allow_local: bool = False
     timeout_seconds: int = 180
+    api_key_reference: str = ""
 
     @property
     def capabilities(self) -> tuple[str, ...]:
@@ -65,15 +64,16 @@ class AiProviderConfig:
         data["baseUrl"] = data.pop("base_url")
         data["allowLocal"] = data.pop("allow_local")
         data["timeoutSeconds"] = data.pop("timeout_seconds")
+        data["apiKeyReference"] = data.pop("api_key_reference")
         data["hasApiKey"] = bool(has_api_key)
         data["capabilities"] = list(self.capabilities)
         return data
 
 
-def _state_path(engine_module, filename: str) -> Path:
+def _state_path(engine_module) -> Path:
     root = runtime_state_dir(engine_module)
     root.mkdir(parents=True, exist_ok=True)
-    return root / filename
+    return root / PROVIDERS_FILENAME
 
 
 def _bounded_timeout(value: object, *, default: int = 180) -> int:
@@ -107,6 +107,16 @@ def _clean_model(value: object) -> str:
     return model
 
 
+def _clean_reference(value: object) -> str:
+    reference = str(value or "").strip()
+    if not reference:
+        return ""
+    match = ENV_REFERENCE_RE.fullmatch(reference)
+    if match is None:
+        raise AiProviderConfigError("API Key Reference 仅支持 env:VARIABLE_NAME")
+    return f"env:{match.group(1)}"
+
+
 def _clean_name(value: object, fallback: str) -> str:
     name = " ".join(str(value or fallback).split()).strip()[:80]
     return name or fallback
@@ -117,8 +127,7 @@ def _is_loopback_endpoint(value: str) -> bool:
         parsed = urlparse(value)
     except ValueError:
         return False
-    host = (parsed.hostname or "").lower()
-    return host in {"127.0.0.1", "localhost", "::1"}
+    return (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}
 
 
 def _reject_secret_query(value: str) -> None:
@@ -150,15 +159,14 @@ def validate_provider_endpoint(value: object, *, allow_local: bool = False, allo
     if parsed.scheme != "https":
         raise AiProviderConfigError("远程 AI Provider 必须使用 HTTPS")
     try:
-        validated = validated_public_http_url(raw)
+        return str(validated_public_http_url(raw)).rstrip("/")
     except Exception as exc:
         raise AiProviderConfigError("AI Provider 必须是公网 HTTPS 地址") from exc
-    return str(validated).rstrip("/")
 
 
 def _defaults() -> dict[str, AiProviderConfig]:
     result: dict[str, AiProviderConfig] = {}
-    for provider_id, name, protocol, url, enabled in _DEFAULT_ROWS:
+    for provider_id, name, protocol, url, enabled, key_ref in _DEFAULT_ROWS:
         local = provider_id in {"ollama", "lmstudio"}
         result[provider_id] = AiProviderConfig(
             id=provider_id,
@@ -166,30 +174,30 @@ def _defaults() -> dict[str, AiProviderConfig]:
             protocol=protocol,
             base_url=url,
             enabled=enabled,
-            custom=False,
             allow_local=local,
+            api_key_reference=key_ref,
         )
     return result
 
 
-def _atomic_json(path: Path, payload: object, *, secret: bool = False) -> None:
+def _atomic_store(engine_module, rows: list[dict[str, Any]]) -> None:
+    path = _state_path(engine_module)
     temporary = path.with_suffix(path.suffix + ".tmp")
     try:
-        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        if secret and os.name != "nt":
-            os.chmod(temporary, stat.S_IRUSR | stat.S_IWUSR)
+        temporary.write_text(
+            json.dumps({"version": SCHEMA_VERSION, "providers": rows[:MAX_PROVIDERS]}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         temporary.replace(path)
-        if secret and os.name != "nt":
-            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
     except OSError:
         with suppress(OSError):
             temporary.unlink()
         raise
 
 
-def _stored_provider_rows(engine_module) -> list[dict[str, Any]]:
+def _stored_rows(engine_module) -> list[dict[str, Any]]:
     try:
-        payload = json.loads(_state_path(engine_module, PROVIDERS_FILENAME).read_text(encoding="utf-8"))
+        payload = json.loads(_state_path(engine_module).read_text(encoding="utf-8"))
     except (OSError, TypeError, ValueError):
         return []
     if not isinstance(payload, dict) or payload.get("version") != SCHEMA_VERSION:
@@ -213,20 +221,20 @@ def _row_to_provider(row: dict[str, Any], defaults: dict[str, AiProviderConfig])
             allow_empty=provider_id == "azure-openai",
         )
         model = _clean_model(row.get("model"))
+        reference = _clean_reference(row.get("apiKeyReference", base.api_key_reference if base else ""))
     except AiProviderConfigError:
         return None
-    name = _clean_name(row.get("name"), base.name if base else provider_id)
-    enabled_default = base.enabled if base else True
     return AiProviderConfig(
         id=provider_id,
-        name=name,
+        name=_clean_name(row.get("name"), base.name if base else provider_id),
         protocol=protocol,
         base_url=base_url,
         model=model,
-        enabled=bool(row.get("enabled", enabled_default)),
+        enabled=bool(row.get("enabled", base.enabled if base else True)),
         custom=provider_id not in defaults,
         allow_local=allow_local,
         timeout_seconds=_bounded_timeout(row.get("timeoutSeconds"), default=base.timeout_seconds if base else 180),
+        api_key_reference=reference,
     )
 
 
@@ -234,16 +242,14 @@ def load_ai_providers(engine_module) -> list[AiProviderConfig]:
     defaults = _defaults()
     result = dict(defaults)
     custom_order: list[str] = []
-    for row in _stored_provider_rows(engine_module):
+    for row in _stored_rows(engine_module):
         provider = _row_to_provider(row, defaults)
         if provider is None:
             continue
         result[provider.id] = provider
         if provider.custom and provider.id not in custom_order:
             custom_order.append(provider.id)
-    builtins = [result[row[0]] for row in _DEFAULT_ROWS]
-    customs = [result[provider_id] for provider_id in custom_order if provider_id in result]
-    return builtins + customs
+    return [result[row[0]] for row in _DEFAULT_ROWS] + [result[item] for item in custom_order if item in result]
 
 
 def _stored_payload(provider: AiProviderConfig) -> dict[str, Any]:
@@ -256,6 +262,7 @@ def _stored_payload(provider: AiProviderConfig) -> dict[str, Any]:
         "enabled": provider.enabled,
         "allowLocal": provider.allow_local,
         "timeoutSeconds": provider.timeout_seconds,
+        "apiKeyReference": provider.api_key_reference,
     }
 
 
@@ -270,41 +277,33 @@ def save_ai_provider(
     enabled: bool = True,
     allow_local: bool = False,
     timeout_seconds: object = 180,
-    api_key: object = "",
+    api_key_reference: object = "",
 ) -> AiProviderConfig:
     clean_id = _clean_id(provider_id)
     defaults = _defaults()
     base = defaults.get(clean_id)
-    clean_protocol = _clean_protocol(protocol or (base.protocol if base else "openai"))
     local = bool(allow_local or (base.allow_local if base else False))
-    clean_url = validate_provider_endpoint(
-        base_url,
-        allow_local=local,
-        allow_empty=clean_id == "azure-openai" and not enabled,
-    )
     provider = AiProviderConfig(
         id=clean_id,
         name=_clean_name(name, base.name if base else clean_id),
-        protocol=clean_protocol,
-        base_url=clean_url,
+        protocol=_clean_protocol(protocol or (base.protocol if base else "openai")),
+        base_url=validate_provider_endpoint(
+            base_url,
+            allow_local=local,
+            allow_empty=clean_id == "azure-openai" and not enabled,
+        ),
         model=_clean_model(model),
         enabled=bool(enabled),
         custom=clean_id not in defaults,
         allow_local=local,
         timeout_seconds=_bounded_timeout(timeout_seconds),
+        api_key_reference=_clean_reference(
+            api_key_reference if str(api_key_reference or "").strip() else (base.api_key_reference if base else "")
+        ),
     )
-    rows = [
-        row
-        for row in _stored_provider_rows(engine_module)
-        if str(row.get("id") or "").strip().lower() != clean_id
-    ]
+    rows = [row for row in _stored_rows(engine_module) if str(row.get("id") or "").strip().lower() != clean_id]
     rows.append(_stored_payload(provider))
-    _atomic_json(
-        _state_path(engine_module, PROVIDERS_FILENAME),
-        {"version": SCHEMA_VERSION, "providers": rows[:MAX_PROVIDERS]},
-    )
-    if str(api_key or "").strip():
-        set_provider_api_key(engine_module, clean_id, api_key)
+    _atomic_store(engine_module, rows)
     return provider
 
 
@@ -312,12 +311,11 @@ def delete_ai_provider(engine_module, provider_id: object) -> bool:
     clean_id = _clean_id(provider_id)
     if clean_id in _defaults():
         raise AiProviderConfigError("内置 Provider 不能删除；请使用 Reset 恢复默认配置")
-    rows = _stored_provider_rows(engine_module)
+    rows = _stored_rows(engine_module)
     kept = [row for row in rows if str(row.get("id") or "").strip().lower() != clean_id]
     if len(kept) == len(rows):
         return False
-    _atomic_json(_state_path(engine_module, PROVIDERS_FILENAME), {"version": SCHEMA_VERSION, "providers": kept})
-    delete_provider_api_key(engine_module, clean_id)
+    _atomic_store(engine_module, kept)
     return True
 
 
@@ -326,78 +324,29 @@ def reset_ai_provider(engine_module, provider_id: object) -> AiProviderConfig:
     default = _defaults().get(clean_id)
     if default is None:
         raise AiProviderConfigError("只有内置 Provider 支持 Reset")
-    rows = _stored_provider_rows(engine_module)
-    kept = [row for row in rows if str(row.get("id") or "").strip().lower() != clean_id]
-    _atomic_json(_state_path(engine_module, PROVIDERS_FILENAME), {"version": SCHEMA_VERSION, "providers": kept})
-    delete_provider_api_key(engine_module, clean_id)
+    rows = [row for row in _stored_rows(engine_module) if str(row.get("id") or "").strip().lower() != clean_id]
+    _atomic_store(engine_module, rows)
     return default
-
-
-def _load_secrets(engine_module) -> dict[str, str]:
-    path = _state_path(engine_module, SECRETS_FILENAME)
-    if path.is_symlink():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, TypeError, ValueError):
-        return {}
-    if not isinstance(payload, dict) or payload.get("version") != SCHEMA_VERSION:
-        return {}
-    values = payload.get("keys")
-    if not isinstance(values, dict):
-        return {}
-    result: dict[str, str] = {}
-    for key, value in values.items():
-        if isinstance(key, str) and PROVIDER_ID_RE.fullmatch(key) and isinstance(value, str) and value:
-            result[key] = value[:MAX_API_KEY_CHARS]
-    return result
-
-
-def set_provider_api_key(engine_module, provider_id: object, api_key: object) -> None:
-    clean_id = _clean_id(provider_id)
-    value = str(api_key or "").strip()
-    if not value:
-        raise AiProviderConfigError("API Key 不能为空")
-    if len(value) > MAX_API_KEY_CHARS:
-        raise AiProviderConfigError("API Key 过长")
-    secrets = _load_secrets(engine_module)
-    secrets[clean_id] = value
-    _atomic_json(
-        _state_path(engine_module, SECRETS_FILENAME),
-        {"version": SCHEMA_VERSION, "keys": secrets},
-        secret=True,
-    )
-
-
-def delete_provider_api_key(engine_module, provider_id: object) -> bool:
-    clean_id = _clean_id(provider_id)
-    secrets = _load_secrets(engine_module)
-    if clean_id not in secrets:
-        return False
-    secrets.pop(clean_id, None)
-    _atomic_json(
-        _state_path(engine_module, SECRETS_FILENAME),
-        {"version": SCHEMA_VERSION, "keys": secrets},
-        secret=True,
-    )
-    return True
-
-
-def provider_has_api_key(engine_module, provider_id: object) -> bool:
-    clean_id = str(provider_id or "").strip().lower()
-    return bool(PROVIDER_ID_RE.fullmatch(clean_id) and _load_secrets(engine_module).get(clean_id))
 
 
 def provider_api_key(engine_module, provider_id: object) -> str:
     clean_id = _clean_id(provider_id)
-    return _load_secrets(engine_module).get(clean_id, "")
+    provider = next((item for item in load_ai_providers(engine_module) if item.id == clean_id), None)
+    if provider is None or not provider.api_key_reference:
+        return ""
+    match = ENV_REFERENCE_RE.fullmatch(provider.api_key_reference)
+    return os.environ.get(match.group(1), "") if match is not None else ""
+
+
+def provider_has_api_key(engine_module, provider_id: object) -> bool:
+    try:
+        return bool(provider_api_key(engine_module, provider_id))
+    except AiProviderConfigError:
+        return False
 
 
 def provider_public_status(engine_module) -> list[dict[str, Any]]:
-    return [
-        item.public_payload(has_api_key=provider_has_api_key(engine_module, item.id))
-        for item in load_ai_providers(engine_module)
-    ]
+    return [item.public_payload(has_api_key=provider_has_api_key(engine_module, item.id)) for item in load_ai_providers(engine_module)]
 
 
 def run_ai_provider_registry_self_test() -> None:
@@ -437,13 +386,15 @@ def run_ai_provider_registry_self_test() -> None:
                 base_url="https://example.com/v1/chat/completions",
                 model="model-1",
                 timeout_seconds=42,
-                api_key="secret-value",
+                api_key_reference="env:CUSTOM_AI_KEY",
             )
             assert saved.custom and saved.timeout_seconds == 42
-            assert provider_has_api_key(Engine, "custom")
-            rendered = json.dumps(provider_public_status(Engine), ensure_ascii=False)
-            assert "secret-value" not in rendered
-            assert next(item for item in provider_public_status(Engine) if item["id"] == "custom")["hasApiKey"] is True
+            with patch.dict(os.environ, {"CUSTOM_AI_KEY": "secret-value"}, clear=False):
+                assert provider_has_api_key(Engine, "custom")
+                assert provider_api_key(Engine, "custom") == "secret-value"
+                rendered = json.dumps(provider_public_status(Engine), ensure_ascii=False)
+                assert "secret-value" not in rendered
+                assert "env:CUSTOM_AI_KEY" in rendered
 
             changed = save_ai_provider(
                 Engine,
@@ -455,28 +406,23 @@ def run_ai_provider_registry_self_test() -> None:
                 enabled=False,
             )
             assert changed.enabled is False
-            reset = reset_ai_provider(Engine, "openai")
-            assert reset.name == "OpenAI" and reset.enabled is True
-
+            assert reset_ai_provider(Engine, "openai").enabled is True
             assert delete_ai_provider(Engine, "custom")
-            assert not provider_has_api_key(Engine, "custom")
-            assert all(item.id != "custom" for item in load_ai_providers(Engine))
+
+            for bad_url in (
+                "https://user:password@example.com/v1",
+                "https://example.com/v1?api_key=secret",
+                "https://example.com/v1#token",
+            ):
+                try:
+                    validate_provider_endpoint(bad_url)
+                except AiProviderConfigError:
+                    pass
+                else:
+                    raise AssertionError("credential-bearing Provider URL was accepted")
 
             try:
-                validate_provider_endpoint("https://example.com/v1?api_key=secret")
-            except AiProviderConfigError:
-                pass
-            else:
-                raise AssertionError("credential-bearing Provider URL was accepted")
-
-            try:
-                save_ai_provider(
-                    Engine,
-                    provider_id="../bad",
-                    name="Bad",
-                    protocol="openai",
-                    base_url="https://example.com",
-                )
+                save_ai_provider(Engine, provider_id="../bad", name="Bad", protocol="openai", base_url="https://example.com")
             except AiProviderConfigError:
                 pass
             else:
