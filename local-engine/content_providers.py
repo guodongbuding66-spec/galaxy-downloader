@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import urllib.request
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -45,16 +46,28 @@ def find_gallery_dl(engine_module) -> Path | None:
         try:
             tools = Path(accessor())
             roots.extend((tools / "gallery-dl" / "bin", tools / "gallery-dl", tools / "bin", tools))
-        except Exception:
-            pass
-    roots.extend((Path(engine_module.app_dir()) / "bin", Path(engine_module.app_dir())))
+        except (OSError, RuntimeError, TypeError, ValueError):
+            # Managed optional-tool storage is absent in some portable/test contexts.
+            roots = list(roots)
+    app_dir_accessor = getattr(engine_module, "app_dir", None)
+    if callable(app_dir_accessor):
+        try:
+            app_root = Path(app_dir_accessor())
+            roots.extend((app_root / "bin", app_root))
+        except (OSError, RuntimeError, TypeError, ValueError):
+            # System PATH discovery below remains a valid fallback.
+            roots = list(roots)
     for root in roots:
         for name in names:
             candidate = root / name
             if candidate.is_file() and not candidate.is_symlink():
                 return candidate
     resolved = shutil.which("gallery-dl")
-    return Path(resolved) if resolved else None
+    if resolved:
+        candidate = Path(resolved)
+        if candidate.is_file() and not candidate.is_symlink():
+            return candidate
+    return None
 
 
 def gallery_download(
@@ -168,14 +181,27 @@ def _limited_read(response, limit: int) -> bytes:
     return b"".join(chunks)
 
 
+class _ValidatedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject a redirect before urllib can contact a non-public destination."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        validated_public_http_url(str(newurl or ""))
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _public_opener():
+    return urllib.request.build_opener(_ValidatedRedirectHandler())
+
+
 def _fetch_public(url: str, *, max_bytes: int, timeout: int = 30) -> tuple[str, bytes, str]:
+    validated = validated_public_http_url(url)
     request = urllib.request.Request(
-        url,
+        validated,
         headers={"User-Agent": "Mozilla/5.0 GalaxyLocalEngine/1.0"},
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - URL validated before/final URL checked below
+        with _public_opener().open(request, timeout=timeout) as response:  # noqa: S310 - initial and redirect URLs are validated
             final_url = validated_public_http_url(response.geturl())
             content_type = str(response.headers.get("Content-Type") or "")
             body = _limited_read(response, max_bytes)
@@ -203,7 +229,7 @@ def _telegram_media_candidates(page_url: str, text: str) -> list[str]:
             absolute = urljoin(page_url, value)
             try:
                 absolute = validated_public_http_url(absolute)
-            except Exception:
+            except (TypeError, ValueError):
                 continue
             if absolute not in candidates:
                 candidates.append(absolute)
@@ -244,7 +270,7 @@ def telegram_public_post_download(
     post_id = urlparse(source).path.rstrip("/").split("/")[-1]
     temporary = target_root / f"telegram-{post_id}.part"
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - public URL validated above/final checked below
+        with _public_opener().open(request, timeout=30) as response:  # noqa: S310 - media and redirects are public-URL validated
             final_url = validated_public_http_url(response.geturl())
             content_type = str(response.headers.get("Content-Type") or "")
             try:
@@ -272,16 +298,12 @@ def telegram_public_post_download(
             temporary.replace(destination)
             return ProviderResult("telegram-public", "Telegram 公开媒体下载完成", destination, 1)
     except ContentProviderError:
-        try:
+        with suppress(OSError):
             temporary.unlink()
-        except OSError:
-            pass
         raise
     except Exception as exc:
-        try:
+        with suppress(OSError):
             temporary.unlink()
-        except OSError:
-            pass
         raise ContentProviderError(str(exc)) from exc
 
 
