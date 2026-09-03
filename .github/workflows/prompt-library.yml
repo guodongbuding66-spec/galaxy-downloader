@@ -1,0 +1,50 @@
+name: Prompt Library Core
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/prompt_library.py'
+      - 'local-engine/runtime_storage.py'
+      - 'scripts/test-local-prompt-library.py'
+      - '.github/workflows/prompt-library.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/prompt_library.py'
+      - 'local-engine/runtime_storage.py'
+      - 'scripts/test-local-prompt-library.py'
+      - '.github/workflows/prompt-library.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Compile contract
+        run: python -m py_compile local-engine/prompt_library.py local-engine/runtime_storage.py scripts/test-local-prompt-library.py
+
+      - name: Run prompt contract self-test
+        run: python scripts/test-local-prompt-library.py
+
+      - name: Run runtime storage migration self-test
+        run: python scripts/test-local-runtime-storage.py
