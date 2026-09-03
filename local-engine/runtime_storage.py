@@ -17,6 +17,8 @@ KNOWN_STATE_FILES = (
     "subscriptions.json",
     "ai-models.json",
     "ai-prompts.json",
+    "ai-providers.json",
+    "ai-provider-secrets.json",
     "engine.log",
 )
 LEGACY_V1_STATE_FILES = frozenset(
@@ -145,6 +147,8 @@ def run_runtime_storage_self_test() -> None:
         (legacy / "subscriptions.json").write_text('{"version":1,"subscriptions":[]}', encoding="utf-8")
         (legacy / "ai-models.json").write_text('{"whisperModel":"small","summaryModel":"qwen3:4b"}', encoding="utf-8")
         (legacy / "ai-prompts.json").write_text('{"version":1,"prompts":[]}', encoding="utf-8")
+        (legacy / "ai-providers.json").write_text('{"version":1,"providers":[]}', encoding="utf-8")
+        (legacy / "ai-provider-secrets.json").write_text('{"version":1,"keys":{"openai":"legacy-key"}}', encoding="utf-8")
         (legacy / "unknown-secret.txt").write_text("do-not-copy", encoding="utf-8")
         installed.mkdir(parents=True)
         (installed / "workspace-options.json").write_text('{"historyEnabled": true}', encoding="utf-8")
@@ -170,6 +174,8 @@ def run_runtime_storage_self_test() -> None:
         assert (installed / "transcripts.sqlite3").read_bytes() == b"transcripts"
         assert (installed / "ai-models.json").read_text(encoding="utf-8") == '{"whisperModel":"small","summaryModel":"qwen3:4b"}'
         assert (installed / "ai-prompts.json").read_text(encoding="utf-8") == '{"version":1,"prompts":[]}'
+        assert (installed / "ai-providers.json").read_text(encoding="utf-8") == '{"version":1,"providers":[]}'
+        assert (installed / "ai-provider-secrets.json").read_text(encoding="utf-8") == '{"version":1,"keys":{"openai":"legacy-key"}}'
         assert not (installed / "unknown-secret.txt").exists()
         ledger = json.loads((installed / STATE_IMPORT_LEDGER).read_text(encoding="utf-8"))
         assert ledger["version"] == STATE_IMPORT_LEDGER_VERSION
