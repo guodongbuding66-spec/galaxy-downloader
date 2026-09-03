@@ -18,7 +18,6 @@ KNOWN_STATE_FILES = (
     "ai-models.json",
     "ai-prompts.json",
     "ai-providers.json",
-    "ai-provider-secrets.json",
     "engine.log",
 )
 LEGACY_V1_STATE_FILES = frozenset(
@@ -111,7 +110,6 @@ def _import_legacy_state_once(engine_module, target: Path) -> None:
             try:
                 shutil.copy2(source, destination)
             except OSError:
-                # Leave this file pending so a later state_dir() call can retry it.
                 continue
             imported.add(name)
             changed = True
@@ -119,8 +117,6 @@ def _import_legacy_state_once(engine_module, target: Path) -> None:
             try:
                 _write_imported_files(target, imported)
             except OSError:
-                # Destination files are already safe; a missing ledger only causes
-                # another non-destructive migration pass on the next startup.
                 return
 
 
@@ -148,11 +144,9 @@ def run_runtime_storage_self_test() -> None:
         (legacy / "ai-models.json").write_text('{"whisperModel":"small","summaryModel":"qwen3:4b"}', encoding="utf-8")
         (legacy / "ai-prompts.json").write_text('{"version":1,"prompts":[]}', encoding="utf-8")
         (legacy / "ai-providers.json").write_text('{"version":1,"providers":[]}', encoding="utf-8")
-        (legacy / "ai-provider-secrets.json").write_text('{"version":1,"keys":{"openai":"legacy-key"}}', encoding="utf-8")
         (legacy / "unknown-secret.txt").write_text("do-not-copy", encoding="utf-8")
         installed.mkdir(parents=True)
         (installed / "workspace-options.json").write_text('{"historyEnabled": true}', encoding="utf-8")
-        # Simulate a machine that already completed the old one-shot migration.
         (installed / LEGACY_STATE_IMPORT_MARKER).write_text("1\n", encoding="utf-8")
 
         class InstalledEngine:
@@ -167,22 +161,19 @@ def run_runtime_storage_self_test() -> None:
         target = state_dir(InstalledEngine)
         assert target == installed
         assert (installed / "workspace-options.json").read_text(encoding="utf-8") == '{"historyEnabled": true}'
-        assert not (installed / "desktop-features.json").exists(), "v1-marked legacy state must not be replayed"
-        assert not (installed / "download-history.json").exists(), "v1-marked deleted legacy state must not be resurrected"
-        assert not (installed / "media-library.sqlite3").exists(), "v1-known files are already considered migrated"
+        assert not (installed / "desktop-features.json").exists()
+        assert not (installed / "download-history.json").exists()
+        assert not (installed / "media-library.sqlite3").exists()
         assert not (installed / "subscriptions.json").exists()
         assert (installed / "transcripts.sqlite3").read_bytes() == b"transcripts"
         assert (installed / "ai-models.json").read_text(encoding="utf-8") == '{"whisperModel":"small","summaryModel":"qwen3:4b"}'
         assert (installed / "ai-prompts.json").read_text(encoding="utf-8") == '{"version":1,"prompts":[]}'
         assert (installed / "ai-providers.json").read_text(encoding="utf-8") == '{"version":1,"providers":[]}'
-        assert (installed / "ai-provider-secrets.json").read_text(encoding="utf-8") == '{"version":1,"keys":{"openai":"legacy-key"}}'
         assert not (installed / "unknown-secret.txt").exists()
         ledger = json.loads((installed / STATE_IMPORT_LEDGER).read_text(encoding="utf-8"))
         assert ledger["version"] == STATE_IMPORT_LEDGER_VERSION
         assert set(ledger["files"]) == set(KNOWN_STATE_FILES)
 
-        # Once a file has been considered, deleting it is respected and does not
-        # cause a later state_dir() call to copy it back from legacy.
         (installed / "ai-models.json").unlink()
         state_dir(InstalledEngine)
         assert not (installed / "ai-models.json").exists()
