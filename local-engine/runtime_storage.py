@@ -17,6 +17,7 @@ KNOWN_STATE_FILES = (
     "learning.sqlite3",
     "reader.sqlite3",
     "music-library.sqlite3",
+    "plugin-settings.json",
     "subscriptions.json",
     "ai-models.json",
     "asr-settings.json",
@@ -148,6 +149,7 @@ def run_runtime_storage_self_test() -> None:
         (legacy / "learning.sqlite3").write_bytes(b"learning")
         (legacy / "reader.sqlite3").write_bytes(b"reader")
         (legacy / "music-library.sqlite3").write_bytes(b"music")
+        (legacy / "plugin-settings.json").write_text('{"version":1,"plugins":{"demo.plugin":{"enabled":false}}}', encoding="utf-8")
         (legacy / "subscriptions.json").write_text('{"version":1,"subscriptions":[]}', encoding="utf-8")
         (legacy / "ai-models.json").write_text('{"whisperModel":"small","summaryModel":"qwen3:4b"}', encoding="utf-8")
         (legacy / "asr-settings.json").write_text('{"version":1,"provider":"faster-whisper","profile":"accurate"}', encoding="utf-8")
@@ -179,6 +181,7 @@ def run_runtime_storage_self_test() -> None:
         assert (installed / "learning.sqlite3").read_bytes() == b"learning"
         assert (installed / "reader.sqlite3").read_bytes() == b"reader"
         assert (installed / "music-library.sqlite3").read_bytes() == b"music"
+        assert (installed / "plugin-settings.json").read_text(encoding="utf-8") == '{"version":1,"plugins":{"demo.plugin":{"enabled":false}}}'
         assert (installed / "ai-models.json").read_text(encoding="utf-8") == '{"whisperModel":"small","summaryModel":"qwen3:4b"}'
         assert (installed / "asr-settings.json").read_text(encoding="utf-8") == '{"version":1,"provider":"faster-whisper","profile":"accurate"}'
         assert (installed / "ai-prompts.json").read_text(encoding="utf-8") == '{"version":1,"prompts":[]}'
