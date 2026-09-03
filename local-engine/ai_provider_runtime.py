@@ -325,7 +325,7 @@ def run_ai_provider_runtime_self_test() -> None:
                 protocol="openai",
                 base_url="https://example.com/v1/chat/completions",
                 model="model-1",
-                api_key_reference="env:CUSTOM_AI_KEY",
+                credential_reference="env:CUSTOM_AI_KEY",
                 timeout_seconds=17,
             )
             save_prompt(Engine, prompt_id="test-prompt", title="Test", instructions="Summarize")
