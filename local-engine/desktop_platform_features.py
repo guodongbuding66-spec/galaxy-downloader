@@ -14,6 +14,7 @@ from desktop_hotkey import (
 )
 from desktop_learning import install_desktop_learning, run_desktop_learning_self_test
 from desktop_library import install_desktop_library, run_desktop_library_self_test
+from desktop_marketplace import install_desktop_marketplace, run_desktop_marketplace_self_test
 from desktop_providers import install_desktop_providers, run_desktop_providers_self_test
 from desktop_subscriptions import install_desktop_subscriptions, run_desktop_subscriptions_self_test
 from desktop_transfers import install_desktop_transfers, run_desktop_transfers_self_test
@@ -25,6 +26,7 @@ from desktop_tray import (
 from learning_workspace import run_learning_workspace_self_test
 from media_library import install_media_library, run_media_library_self_test
 from plugin_host import run_plugin_host_self_test
+from plugin_marketplace import run_plugin_marketplace_self_test
 from subscription_scheduler import run_subscription_scheduler_self_test
 from subscriptions import run_subscriptions_self_test
 from transfer_center import run_transfer_center_self_test
@@ -67,6 +69,7 @@ def install_desktop_platform_features(engine_module):
         install_desktop_providers(engine_module)
         install_desktop_learning(engine_module)
         install_desktop_transfers(engine_module)
+        install_desktop_marketplace(engine_module)
 
     engine_module._galaxy_desktop_platform_features_installed = True
     return window_cls
@@ -87,6 +90,8 @@ def run_desktop_platform_features_self_test() -> None:
     run_ai_workspace_self_test()
     run_desktop_ai_self_test()
     run_plugin_host_self_test()
+    run_plugin_marketplace_self_test()
+    run_desktop_marketplace_self_test()
     run_content_providers_self_test()
     run_desktop_providers_self_test()
     run_learning_workspace_self_test()
