@@ -11,6 +11,7 @@ KNOWN_STATE_FILES = (
     "download-archive.txt",
     "resume-jobs.json",
     "media-library.sqlite3",
+    "subscriptions.json",
     "engine.log",
 )
 STATE_IMPORT_MARKER = ".portable-state-imported-v1"
@@ -41,16 +42,13 @@ def _import_legacy_state_once(engine_module, target: Path) -> None:
     legacy = _legacy_state_dir(engine_module)
     if _same_path(legacy, target):
         return
-
     marker = target / STATE_IMPORT_MARKER
     if marker.exists():
         return
-
     with _STATE_MIGRATION_LOCK:
         if marker.exists():
             return
         target.mkdir(parents=True, exist_ok=True)
-
         success = True
         if legacy.is_dir():
             for name in KNOWN_STATE_FILES:
@@ -62,10 +60,8 @@ def _import_legacy_state_once(engine_module, target: Path) -> None:
                     shutil.copy2(source, destination)
                 except OSError:
                     success = False
-
         if not success:
             return
-
         temporary = marker.with_suffix(".tmp")
         try:
             temporary.write_text("1\n", encoding="utf-8")
@@ -78,17 +74,6 @@ def _import_legacy_state_once(engine_module, target: Path) -> None:
 
 
 def state_dir(engine_module) -> Path:
-    """Return Galaxy's mutable state directory with one-time legacy import.
-
-    Portable mode resolves to the historical ``app_dir()/state`` location and
-    therefore performs no migration. Installed mode resolves to the per-user
-    runtime state directory. On its first use, known state files are copied from
-    the legacy portable directory without overwriting anything already present.
-
-    The legacy files are intentionally retained so users can roll back to a
-    portable build without data loss. A marker prevents a later user deletion
-    (for example clearing history) from being silently undone by another import.
-    """
     target = _configured_state_dir(engine_module)
     target.mkdir(parents=True, exist_ok=True)
     _import_legacy_state_once(engine_module, target)
@@ -97,7 +82,6 @@ def state_dir(engine_module) -> Path:
 
 def run_runtime_storage_self_test() -> None:
     import tempfile
-
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         program = root / "program"
@@ -108,6 +92,7 @@ def run_runtime_storage_self_test() -> None:
         (legacy / "desktop-features.json").write_text('{"clipboardMonitorEnabled": true}', encoding="utf-8")
         (legacy / "download-history.json").write_text('[{"id":"legacy"}]', encoding="utf-8")
         (legacy / "media-library.sqlite3").write_bytes(b"library")
+        (legacy / "subscriptions.json").write_text('{"version":1,"subscriptions":[]}', encoding="utf-8")
         (legacy / "unknown-secret.txt").write_text("do-not-copy", encoding="utf-8")
         installed.mkdir(parents=True)
         (installed / "workspace-options.json").write_text('{"historyEnabled": true}', encoding="utf-8")
@@ -116,7 +101,6 @@ def run_runtime_storage_self_test() -> None:
             @staticmethod
             def app_dir() -> Path:
                 return program
-
             @staticmethod
             def state_dir() -> Path:
                 installed.mkdir(parents=True, exist_ok=True)
@@ -128,6 +112,7 @@ def run_runtime_storage_self_test() -> None:
         assert (installed / "desktop-features.json").read_text(encoding="utf-8") == '{"clipboardMonitorEnabled": true}'
         assert (installed / "download-history.json").read_text(encoding="utf-8") == '[{"id":"legacy"}]'
         assert (installed / "media-library.sqlite3").read_bytes() == b"library"
+        assert (installed / "subscriptions.json").read_text(encoding="utf-8") == '{"version":1,"subscriptions":[]}'
         assert not (installed / "unknown-secret.txt").exists()
         assert (installed / STATE_IMPORT_MARKER).is_file()
 
