@@ -60,6 +60,7 @@ jobs:
           local-engine/ai_provider_manager.py
           local-engine/bilibili_advanced.py
           local-engine/content_providers.py
+          local-engine/desktop_advanced.py
           local-engine/desktop_ai.py
           local-engine/desktop_bandwidth.py
           local-engine/desktop_clipboard.py
