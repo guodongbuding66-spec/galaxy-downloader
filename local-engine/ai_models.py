@@ -97,11 +97,17 @@ def find_optional_tool(engine_module, name: str) -> Path | None:
             tools = Path(tools_accessor())
             roots.extend((tools / clean_name / "bin", tools / clean_name, tools / "bin", tools))
         except (OSError, RuntimeError, TypeError, ValueError):
-            pass
-    try:
-        roots.extend((Path(engine_module.app_dir()) / "bin", Path(engine_module.app_dir())))
-    except Exception:
-        pass
+            # Managed-tool storage is optional in lightweight/test engines.
+            roots = list(roots)
+
+    app_dir_accessor = getattr(engine_module, "app_dir", None)
+    if callable(app_dir_accessor):
+        try:
+            app_root = Path(app_dir_accessor())
+            roots.extend((app_root / "bin", app_root))
+        except (OSError, RuntimeError, TypeError, ValueError):
+            # A missing/unavailable application root should not make AI tools mandatory.
+            roots = list(roots)
 
     for root in roots:
         for executable_name in _executable_names(clean_name):
