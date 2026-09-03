@@ -10,6 +10,7 @@ if str(LOCAL_ENGINE) not in sys.path:
 
 from ai_provider_manager import run_ai_provider_manager_self_test
 from bilibili_advanced import run_bilibili_advanced_self_test
+from desktop_advanced import run_desktop_advanced_self_test
 from galaxy_cli import run_cli_self_test
 from headless_service import run_headless_service_self_test
 from local_media_import import run_local_media_import_self_test
@@ -26,6 +27,7 @@ def main() -> int:
     checks = (
         ("AI provider manager", run_ai_provider_manager_self_test),
         ("Bilibili advanced", run_bilibili_advanced_self_test),
+        ("Advanced desktop wiring", run_desktop_advanced_self_test),
         ("Galaxy CLI", run_cli_self_test),
         ("Headless service", run_headless_service_self_test),
         ("Local media import", run_local_media_import_self_test),
