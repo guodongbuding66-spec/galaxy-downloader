@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -181,10 +180,7 @@ def _clean_terms(value: object, *, limit: int = MAX_RULE_TERMS) -> list[str]:
 
 
 def _clean_directory(value: object) -> str:
-    raw = str(value or "").replace("\x00", "").strip()
-    if len(raw) > MAX_DIRECTORY_CHARS:
-        raw = raw[:MAX_DIRECTORY_CHARS]
-    return raw
+    return str(value or "").replace("\x00", "").strip()[:MAX_DIRECTORY_CHARS]
 
 
 def _clean_filename(value: object) -> str:
@@ -200,11 +196,10 @@ def _clean_rules(values: Mapping[str, Any] | None, *, fallback_auto_download: bo
         latest_n = int(raw.get("latestN") or 0)
     except (TypeError, ValueError):
         latest_n = 0
-    latest_n = max(0, min(latest_n, MAX_ITEMS_PER_SYNC))
     return {
         "includeKeywords": _clean_terms(raw.get("includeKeywords")),
         "excludeKeywords": _clean_terms(raw.get("excludeKeywords")),
-        "latestN": latest_n,
+        "latestN": max(0, min(latest_n, MAX_ITEMS_PER_SYNC)),
         "tags": _clean_terms(raw.get("tags"), limit=MAX_TAGS),
         "manualReview": bool(raw.get("manualReview", False)),
         "autoDownload": bool(raw.get("autoDownload", fallback_auto_download)),
@@ -283,6 +278,8 @@ def get_subscription_rules(engine_module, subscription_id: object) -> dict[str, 
 
 
 def _rule_decision(rules: Mapping[str, Any], entry: SubscriptionEntry, index: int) -> tuple[str, str]:
+    if not entry.url:
+        return "skipped", "rule:no_url"
     latest_n = int(rules.get("latestN") or 0)
     if latest_n and index >= latest_n:
         return "skipped", "rule:latest_n"
@@ -326,8 +323,7 @@ def ingest_subscription_entries(
     *,
     observed_at: str | None = None,
 ) -> list[dict[str, Any]]:
-    subscription = _subscription(engine_module, subscription_id)
-    clean_id = str(subscription["id"])
+    clean_id = str(_subscription(engine_module, subscription_id)["id"])
     rules = get_subscription_rules(engine_module, clean_id)
     timestamp = _safe_text(observed_at, 48) or _now_iso()
     source = list(entries)[:MAX_ITEMS_PER_SYNC]
@@ -343,7 +339,8 @@ def ingest_subscription_entries(
             title = _safe_text(entry.title, MAX_ITEM_TEXT)
             url = _safe_text(entry.url, 1200)
             published = _safe_text(entry.published, 80)
-            state, reason = _rule_decision(rules, entry, index)
+            normalized = SubscriptionEntry(entry_id, title, url, published)
+            state, reason = _rule_decision(rules, normalized, index)
             if url:
                 duplicate = connection.execute(
                     "SELECT entry_id FROM subscription_items WHERE subscription_id=? AND url=? AND entry_id<>? ORDER BY first_seen_at,entry_id LIMIT 1",
@@ -406,15 +403,15 @@ def ingest_subscription_entries(
                 )
             result_ids.append(entry_id)
         connection.commit()
-        rows = []
+        result: list[dict[str, Any]] = []
         for entry_id in result_ids:
             row = connection.execute(
                 "SELECT * FROM subscription_items WHERE subscription_id=? AND entry_id=?",
                 (clean_id, entry_id),
             ).fetchone()
             if row is not None:
-                rows.append(_row_payload(row))
-    return rows
+                result.append(_row_payload(row))
+    return result
 
 
 def list_subscription_items(
@@ -430,20 +427,27 @@ def list_subscription_items(
     if clean_state and clean_state not in ITEM_STATES:
         raise SubscriptionV2Error("invalid subscription item state")
     safe_limit = max(1, min(int(limit), MAX_LIST_ITEMS))
-    clauses = ["subscription_id=?"]
-    values: list[Any] = [clean_id]
-    if clean_state:
-        clauses.append("state=?")
-        values.append(clean_state)
-    if present is not None:
-        clauses.append("present=?")
-        values.append(1 if present else 0)
-    values.append(safe_limit)
     with closing(_connect(engine_module)) as connection:
-        rows = connection.execute(
-            f"SELECT * FROM subscription_items WHERE {' AND '.join(clauses)} ORDER BY first_seen_at DESC,entry_id LIMIT ?",
-            values,
-        ).fetchall()
+        if clean_state and present is not None:
+            rows = connection.execute(
+                "SELECT * FROM subscription_items WHERE subscription_id=? AND state=? AND present=? ORDER BY first_seen_at DESC,entry_id LIMIT ?",
+                (clean_id, clean_state, 1 if present else 0, safe_limit),
+            ).fetchall()
+        elif clean_state:
+            rows = connection.execute(
+                "SELECT * FROM subscription_items WHERE subscription_id=? AND state=? ORDER BY first_seen_at DESC,entry_id LIMIT ?",
+                (clean_id, clean_state, safe_limit),
+            ).fetchall()
+        elif present is not None:
+            rows = connection.execute(
+                "SELECT * FROM subscription_items WHERE subscription_id=? AND present=? ORDER BY first_seen_at DESC,entry_id LIMIT ?",
+                (clean_id, 1 if present else 0, safe_limit),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT * FROM subscription_items WHERE subscription_id=? ORDER BY first_seen_at DESC,entry_id LIMIT ?",
+                (clean_id, safe_limit),
+            ).fetchall()
     return [_row_payload(row) for row in rows]
 
 
@@ -474,13 +478,7 @@ def transition_subscription_item(
             raise SubscriptionV2Error(f"invalid subscription item transition: {current} -> {target}")
         connection.execute(
             "UPDATE subscription_items SET state=?,state_reason=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE subscription_id=? AND entry_id=?",
-            (
-                target,
-                _safe_text(reason, 240),
-                _safe_text(error, 1000),
-                clean_id,
-                clean_entry,
-            ),
+            (target, _safe_text(reason, 240), _safe_text(error, 1000), clean_id, clean_entry),
         )
         connection.commit()
         updated = connection.execute(
@@ -517,12 +515,7 @@ def claim_approved_items(engine_module, subscription_id: object, *, limit: int =
             if updated is None or updated["state"] != "queued":
                 continue
             item = _row_payload(updated)
-            entry = SubscriptionEntry(
-                entry_id=item["entryId"],
-                title=item["title"],
-                url=item["url"],
-                published=item["published"],
-            )
+            entry = SubscriptionEntry(item["entryId"], item["title"], item["url"], item["published"])
             payload = build_subscription_download_payload(subscription, entry)
             if payload is None:
                 continue
@@ -562,11 +555,7 @@ def reconcile_subscription_items(
     with closing(_connect(engine_module)) as connection:
         connection.execute("BEGIN IMMEDIATE")
         duplicate_rows = connection.execute(
-            """
-            SELECT url FROM subscription_items
-            WHERE subscription_id=? AND url<>''
-            GROUP BY url HAVING COUNT(*)>1
-            """,
+            "SELECT url FROM subscription_items WHERE subscription_id=? AND url<>'' GROUP BY url HAVING COUNT(*)>1",
             (clean_id,),
         ).fetchall()
         for duplicate_row in duplicate_rows:
