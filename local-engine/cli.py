@@ -106,18 +106,14 @@ def command_doctor(_args: argparse.Namespace) -> int:
     engine = _engine_module()
     from ai_models import ai_model_status
     from content_providers import provider_status
-    from managed_tool_registry import public_managed_tool_registry
+    from tool_manager import tool_inventory
     from transfer_center import transfer_status
 
-    try:
-        registry = public_managed_tool_registry(engine)
-    except Exception as exc:  # noqa: BLE001
-        registry = {"error": type(exc).__name__}
     payload = {
         "version": getattr(engine, "VERSION", "unknown"),
         "appDir": str(Path(engine.app_dir())),
         "downloadDir": str(Path(engine.default_download_dir())),
-        "tools": registry,
+        "tools": tool_inventory(engine, refresh=True),
         "ai": ai_model_status(engine),
         "providers": provider_status(engine),
         "transfers": transfer_status(engine),
