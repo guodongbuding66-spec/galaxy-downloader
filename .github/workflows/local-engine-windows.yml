@@ -97,6 +97,7 @@ jobs:
           local-engine/failure_policy.py
           local-engine/runtime_health.py
           local-engine/runtime_storage.py
+          local-engine/ai_models.py
           local-engine/tool_manager.py
           local-engine/ffmpeg_manager.py
           local-engine/ffmpeg_online_installer.py
@@ -155,6 +156,7 @@ jobs:
           python scripts/test-local-image-archive-policy.py
           python scripts/test-local-manager-policy.py
           python scripts/test-local-runtime-policy.py
+          python scripts/test-local-ai-models.py
           python scripts/test-local-managed-tool-metadata.py
           python scripts/test-local-managed-tool-registry.py
           python scripts/test-local-ffmpeg-online-installer.py
