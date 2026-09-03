@@ -1,0 +1,36 @@
+FROM python:3.13-slim-bookworm
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system galaxy \
+    && useradd --system --gid galaxy --create-home --home-dir /home/galaxy galaxy
+
+WORKDIR /opt/galaxy
+
+COPY local-engine/requirements-headless.txt /opt/galaxy/requirements-headless.txt
+RUN python -m pip install --no-cache-dir --requirement /opt/galaxy/requirements-headless.txt
+
+COPY local-engine /opt/galaxy/local-engine
+
+RUN mkdir -p /data/downloads \
+    && chown -R galaxy:galaxy /data /opt/galaxy
+
+USER galaxy
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    GALAXY_HEADLESS_HOST=0.0.0.0 \
+    GALAXY_HEADLESS_PORT=17837 \
+    GALAXY_DOWNLOAD_DIR=/data/downloads
+
+VOLUME ["/data"]
+EXPOSE 17837
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:17837/health', timeout=3).read()" || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "/opt/galaxy/local-engine/headless_service.py"]
