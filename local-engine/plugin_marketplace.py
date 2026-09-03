@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import stat
-import tempfile
 import urllib.request
 import uuid
 import zipfile
@@ -341,7 +340,10 @@ def _plugin_root(extracted: Path) -> Path:
     candidates = [
         item
         for item in extracted.iterdir()
-        if item.is_dir() and not item.is_symlink() and (item / PLUGIN_MANIFEST).is_file() and not (item / PLUGIN_MANIFEST).is_symlink()
+        if item.is_dir()
+        and not item.is_symlink()
+        and (item / PLUGIN_MANIFEST).is_file()
+        and not (item / PLUGIN_MANIFEST).is_symlink()
     ]
     if len(candidates) != 1:
         raise PluginMarketplaceError("plugin package must contain exactly one plugin manifest")
