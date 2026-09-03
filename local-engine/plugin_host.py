@@ -10,15 +10,35 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from runtime_storage import state_dir as runtime_state_dir
+
 PLUGIN_MANIFEST = "galaxy-plugin.json"
+PLUGIN_SETTINGS_FILENAME = "plugin-settings.json"
+PLUGIN_SETTINGS_VERSION = 1
 PLUGIN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9._-]+)?$")
-ALLOWED_CAPABILITIES = frozenset({"parse", "download", "batch", "metadata"})
-MAX_PLUGINS = 50
+ALLOWED_CAPABILITIES = frozenset(
+    {
+        "parse",
+        "batch",
+        "download",
+        "extract",
+        "metadata",
+        "subtitle",
+        "postprocess",
+        "ai",
+        "asr",
+        "reader",
+        "export",
+        "automation",
+    }
+)
+MAX_PLUGINS = 200
 MAX_MANIFEST_BYTES = 64 * 1024
 MAX_PLUGIN_REQUEST_BYTES = 256_000
 MAX_PLUGIN_RESPONSE_BYTES = 2_000_000
 MAX_PLUGIN_STDERR_BYTES = 256_000
+_SETTINGS_LOCK = threading.RLock()
 _SAFE_ENV_KEYS = frozenset(
     {
         "PATH",
@@ -50,12 +70,13 @@ class PluginManifest:
     capabilities: tuple[str, ...]
     root: Path
 
-    def public_payload(self) -> dict[str, Any]:
+    def public_payload(self, *, enabled: bool = True) -> dict[str, Any]:
         return {
             "id": self.plugin_id,
             "name": self.name,
             "version": self.version,
             "capabilities": list(self.capabilities),
+            "enabled": bool(enabled),
         }
 
 
@@ -72,6 +93,80 @@ def plugins_dir(engine_module) -> Path:
     except (OSError, RuntimeError, ValueError) as exc:
         raise PluginHostError("plugin root escaped Galaxy data directory") from exc
     return target
+
+
+def _settings_path(engine_module) -> Path:
+    root = runtime_state_dir(engine_module)
+    root.mkdir(parents=True, exist_ok=True)
+    return root / PLUGIN_SETTINGS_FILENAME
+
+
+def _load_settings(engine_module) -> dict[str, bool]:
+    path = _settings_path(engine_module)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict) or payload.get("version") != PLUGIN_SETTINGS_VERSION:
+        return {}
+    source = payload.get("plugins")
+    if not isinstance(source, dict):
+        return {}
+    result: dict[str, bool] = {}
+    for raw_id, raw_value in source.items():
+        plugin_id = str(raw_id or "").strip().lower()
+        if not PLUGIN_ID_RE.fullmatch(plugin_id):
+            continue
+        if isinstance(raw_value, dict):
+            enabled = raw_value.get("enabled")
+        else:
+            enabled = raw_value
+        if isinstance(enabled, bool):
+            result[plugin_id] = enabled
+        if len(result) >= MAX_PLUGINS:
+            break
+    return result
+
+
+def _write_settings(engine_module, settings: dict[str, bool]) -> None:
+    path = _settings_path(engine_module)
+    temporary = path.with_suffix(".tmp")
+    payload = {
+        "version": PLUGIN_SETTINGS_VERSION,
+        "plugins": {
+            plugin_id: {"enabled": bool(enabled)}
+            for plugin_id, enabled in sorted(settings.items())
+            if PLUGIN_ID_RE.fullmatch(plugin_id)
+        },
+    }
+    try:
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(path)
+    except OSError:
+        with suppress(OSError):
+            temporary.unlink()
+        raise
+
+
+def plugin_enabled(engine_module, plugin_id: object) -> bool:
+    clean = str(plugin_id or "").strip().lower()
+    if not PLUGIN_ID_RE.fullmatch(clean):
+        return False
+    with _SETTINGS_LOCK:
+        return _load_settings(engine_module).get(clean, True)
+
+
+def set_plugin_enabled(engine_module, plugin_id: object, enabled: bool) -> bool:
+    clean = str(plugin_id or "").strip().lower()
+    if not PLUGIN_ID_RE.fullmatch(clean):
+        raise PluginHostError("invalid plugin id")
+    if get_plugin(engine_module, clean, include_disabled=True) is None:
+        raise PluginHostError("plugin not found")
+    with _SETTINGS_LOCK:
+        settings = _load_settings(engine_module)
+        settings[clean] = bool(enabled)
+        _write_settings(engine_module, settings)
+    return bool(enabled)
 
 
 def _safe_child(root: Path, name: object) -> Path:
@@ -126,13 +221,14 @@ def _parse_manifest(path: Path) -> PluginManifest:
     return PluginManifest(plugin_id, name, version, executable, tuple(capabilities), path.parent)
 
 
-def discover_plugins(engine_module) -> tuple[PluginManifest, ...]:
+def discover_plugins(engine_module, *, include_disabled: bool = False) -> tuple[PluginManifest, ...]:
     root = plugins_dir(engine_module)
     manifests: list[PluginManifest] = []
     try:
         directories = sorted(root.iterdir(), key=lambda value: value.name.lower())
     except OSError as exc:
         raise PluginHostError(str(exc)) from exc
+    settings = _load_settings(engine_module)
     for directory in directories:
         if not directory.is_dir() or directory.is_symlink():
             continue
@@ -146,17 +242,22 @@ def discover_plugins(engine_module) -> tuple[PluginManifest, ...]:
             continue
         if any(item.plugin_id == manifest.plugin_id for item in manifests):
             continue
+        if not include_disabled and settings.get(manifest.plugin_id, True) is False:
+            continue
         manifests.append(manifest)
         if len(manifests) >= MAX_PLUGINS:
             break
     return tuple(manifests)
 
 
-def get_plugin(engine_module, plugin_id: object) -> PluginManifest | None:
+def get_plugin(engine_module, plugin_id: object, *, include_disabled: bool = False) -> PluginManifest | None:
     clean = str(plugin_id or "").strip().lower()
     if not PLUGIN_ID_RE.fullmatch(clean):
         return None
-    return next((item for item in discover_plugins(engine_module) if item.plugin_id == clean), None)
+    return next(
+        (item for item in discover_plugins(engine_module, include_disabled=include_disabled) if item.plugin_id == clean),
+        None,
+    )
 
 
 def _plugin_environment() -> dict[str, str]:
@@ -165,7 +266,7 @@ def _plugin_environment() -> dict[str, str]:
         for key, value in os.environ.items()
         if key.upper() in _SAFE_ENV_KEYS and isinstance(value, str)
     }
-    environment["GALAXY_PLUGIN_PROTOCOL"] = "1"
+    environment["GALAXY_PLUGIN_PROTOCOL"] = "2"
     return environment
 
 
@@ -268,6 +369,8 @@ def invoke_plugin(
     clean_capability = str(capability or "").strip().lower()
     manifest = get_plugin(engine_module, plugin_id)
     if manifest is None:
+        if get_plugin(engine_module, plugin_id, include_disabled=True) is not None:
+            raise PluginHostError("plugin is disabled")
         raise PluginHostError("plugin not found")
     if clean_capability not in manifest.capabilities:
         raise PluginHostError("plugin did not declare requested capability")
@@ -275,7 +378,7 @@ def invoke_plugin(
         raise PluginHostError("plugin request must be an object")
 
     envelope = json.dumps(
-        {"protocol": 1, "capability": clean_capability, "request": request},
+        {"protocol": 2, "capability": clean_capability, "request": request},
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -307,9 +410,14 @@ def invoke_plugin(
 
 
 def plugin_host_status(engine_module) -> dict[str, Any]:
+    settings = _load_settings(engine_module)
+    plugins = discover_plugins(engine_module, include_disabled=True)
     return {
-        "protocol": 1,
-        "plugins": [item.public_payload() for item in discover_plugins(engine_module)],
+        "protocol": 2,
+        "plugins": [
+            item.public_payload(enabled=settings.get(item.plugin_id, True))
+            for item in plugins
+        ],
         "capabilities": sorted(ALLOWED_CAPABILITIES),
     }
 
@@ -330,6 +438,10 @@ def run_plugin_host_self_test() -> None:
             def data_dir() -> Path:
                 return root / "data"
 
+            @staticmethod
+            def state_dir() -> Path:
+                return root / "state"
+
         plugin = plugins_dir(Engine) / "demo"
         plugin.mkdir()
         executable_name = "demo.exe" if os.name == "nt" else "demo"
@@ -341,7 +453,7 @@ def run_plugin_host_self_test() -> None:
                     "name": "Demo Plugin",
                     "version": "1.0.0",
                     "executable": executable_name,
-                    "capabilities": ["metadata", "download"],
+                    "capabilities": ["metadata", "download", "asr", "reader"],
                 }
             ),
             encoding="utf-8",
@@ -349,13 +461,20 @@ def run_plugin_host_self_test() -> None:
         discovered = discover_plugins(Engine)
         assert len(discovered) == 1
         assert discovered[0].plugin_id == "demo.plugin"
-        assert discovered[0].capabilities == ("metadata", "download")
+        assert "asr" in discovered[0].capabilities and "reader" in discovered[0].capabilities
         try:
             _safe_child(plugin, "../escape")
         except PluginHostError:
             pass
         else:
             raise AssertionError("unsafe plugin executable was accepted")
+
+        assert set_plugin_enabled(Engine, "demo.plugin", False) is False
+        assert discover_plugins(Engine) == ()
+        assert get_plugin(Engine, "demo.plugin", include_disabled=True) is not None
+        assert plugin_host_status(Engine)["plugins"][0]["enabled"] is False
+        assert set_plugin_enabled(Engine, "demo.plugin", True) is True
+        assert len(discover_plugins(Engine)) == 1
 
         with patch.dict(
             os.environ,
@@ -369,7 +488,7 @@ def run_plugin_host_self_test() -> None:
             environment = _plugin_environment()
             assert "OPENAI_API_KEY" not in environment
             assert "GALAXY_TEST_TOKEN" not in environment
-            assert environment["GALAXY_PLUGIN_PROTOCOL"] == "1"
+            assert environment["GALAXY_PLUGIN_PROTOCOL"] == "2"
 
         class RecordingStdin:
             def __init__(self) -> None:
