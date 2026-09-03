@@ -511,18 +511,20 @@ def run_course_workspace_self_test() -> None:
             def default_download_dir() -> Path:
                 return downloads
 
-        with patch("course_workspace.validated_public_http_url", side_effect=lambda value: str(value)), patch(
+        with patch("course_workspace.validated_public_http_url", side_effect=str), patch(
             "course_workspace.resolve_media_item_path", return_value=media_file.resolve()
         ), patch(
             "course_workspace.list_media_items",
-            return_value=[{
-                "id": media_id,
-                "title": "Lesson 1",
-                "fileName": media_file.name,
-                "mediaType": "video",
-                "available": True,
-                "durationSeconds": 100.0,
-            }],
+            return_value=[
+                {
+                    "id": media_id,
+                    "title": "Lesson 1",
+                    "fileName": media_file.name,
+                    "mediaType": "video",
+                    "available": True,
+                    "durationSeconds": 100.0,
+                }
+            ],
         ):
             course = create_course(Engine, "Demo Course", "https://example.com/course")
             item_id = add_media_to_course(Engine, course["id"], media_id)
