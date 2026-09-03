@@ -1,0 +1,52 @@
+name: Headless Docker NAS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/docker/**'
+      - 'local-engine/.dockerignore'
+      - 'docker-compose.headless.yml'
+      - 'scripts/test-local-headless-docker.py'
+      - '.github/workflows/headless-docker-nas.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/docker/**'
+      - 'local-engine/.dockerignore'
+      - 'docker-compose.headless.yml'
+      - 'scripts/test-local-headless-docker.py'
+      - '.github/workflows/headless-docker-nas.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  docker-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Compile and validate packaging contract
+        run: |
+          python -m py_compile scripts/test-local-headless-docker.py
+          python scripts/test-local-headless-docker.py
+
+      - name: Validate Compose configuration
+        env:
+          GALAXY_HEADLESS_TOKEN: ci-headless-token-01234567890123456789
+        run: docker compose -f docker-compose.headless.yml config --quiet
+
+      - name: Build headless image
+        run: docker build --pull --file local-engine/docker/Dockerfile --tag galaxy-local-engine-headless:test local-engine
+
+      - name: Exercise hardened container lifecycle
+        run: python scripts/test-local-headless-docker.py --image galaxy-local-engine-headless:test
