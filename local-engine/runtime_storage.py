@@ -10,6 +10,7 @@ KNOWN_STATE_FILES = (
     "download-history.json",
     "download-archive.txt",
     "resume-jobs.json",
+    "media-library.sqlite3",
     "engine.log",
 )
 STATE_IMPORT_MARKER = ".portable-state-imported-v1"
@@ -60,9 +61,6 @@ def _import_legacy_state_once(engine_module, target: Path) -> None:
                 try:
                     shutil.copy2(source, destination)
                 except OSError:
-                    # Leave the marker absent so a future launch can retry the
-                    # remaining state files. Already copied files are preserved
-                    # and never overwritten on the retry.
                     success = False
 
         if not success:
@@ -109,6 +107,7 @@ def run_runtime_storage_self_test() -> None:
         (legacy / "workspace-options.json").write_text('{"historyEnabled": false}', encoding="utf-8")
         (legacy / "desktop-features.json").write_text('{"clipboardMonitorEnabled": true}', encoding="utf-8")
         (legacy / "download-history.json").write_text('[{"id":"legacy"}]', encoding="utf-8")
+        (legacy / "media-library.sqlite3").write_bytes(b"library")
         (legacy / "unknown-secret.txt").write_text("do-not-copy", encoding="utf-8")
         installed.mkdir(parents=True)
         (installed / "workspace-options.json").write_text('{"historyEnabled": true}', encoding="utf-8")
@@ -128,11 +127,10 @@ def run_runtime_storage_self_test() -> None:
         assert (installed / "workspace-options.json").read_text(encoding="utf-8") == '{"historyEnabled": true}'
         assert (installed / "desktop-features.json").read_text(encoding="utf-8") == '{"clipboardMonitorEnabled": true}'
         assert (installed / "download-history.json").read_text(encoding="utf-8") == '[{"id":"legacy"}]'
+        assert (installed / "media-library.sqlite3").read_bytes() == b"library"
         assert not (installed / "unknown-secret.txt").exists()
         assert (installed / STATE_IMPORT_MARKER).is_file()
 
-        # Clearing an imported file is deliberate user state. The marker must
-        # prevent a future launch from resurrecting it from the portable folder.
         (installed / "download-history.json").unlink()
         state_dir(InstalledEngine)
         assert not (installed / "download-history.json").exists()
