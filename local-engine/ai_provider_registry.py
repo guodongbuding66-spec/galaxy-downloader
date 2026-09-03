@@ -50,7 +50,7 @@ class AiProviderConfig:
     custom: bool = False
     allow_local: bool = False
     timeout_seconds: int = 180
-    api_key_reference: str = ""
+    credential_reference: str = ""
 
     @property
     def capabilities(self) -> tuple[str, ...]:
@@ -59,13 +59,13 @@ class AiProviderConfig:
             values.append("local")
         return tuple(values)
 
-    def public_payload(self, *, has_api_key: bool = False) -> dict[str, Any]:
+    def public_payload(self, *, has_credential: bool = False) -> dict[str, Any]:
         data = asdict(self)
         data["baseUrl"] = data.pop("base_url")
         data["allowLocal"] = data.pop("allow_local")
         data["timeoutSeconds"] = data.pop("timeout_seconds")
-        data["apiKeyReference"] = data.pop("api_key_reference")
-        data["hasApiKey"] = bool(has_api_key)
+        data["credentialReference"] = data.pop("credential_reference")
+        data["hasApiKey"] = bool(has_credential)
         data["capabilities"] = list(self.capabilities)
         return data
 
@@ -107,14 +107,14 @@ def _clean_model(value: object) -> str:
     return model
 
 
-def _clean_reference(value: object) -> str:
+def _clean_credential_reference(value: object) -> str:
     reference = str(value or "").strip()
     if not reference:
         return ""
     match = ENV_REFERENCE_RE.fullmatch(reference)
     if match is None:
         raise AiProviderConfigError("API Key Reference 仅支持 env:VARIABLE_NAME")
-    return f"env:{match.group(1)}"
+    return "env:" + match.group(1)
 
 
 def _clean_name(value: object, fallback: str) -> str:
@@ -124,19 +124,10 @@ def _clean_name(value: object, fallback: str) -> str:
 
 def _is_loopback_endpoint(value: str) -> bool:
     try:
-        parsed = urlparse(value)
+        host = (urlparse(value).hostname or "").lower()
     except ValueError:
         return False
-    return (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}
-
-
-def _reject_secret_query(value: str) -> None:
-    try:
-        pairs = parse_qsl(urlparse(value).query, keep_blank_values=True)
-    except ValueError as exc:
-        raise AiProviderConfigError("AI Provider URL 无效") from exc
-    if any(_SECRET_QUERY_RE.search(key or "") for key, _value in pairs):
-        raise AiProviderConfigError("AI Provider URL 不能包含 API key/token/secret 等凭据参数")
+    return host in {"127.0.0.1", "localhost", "::1"}
 
 
 def validate_provider_endpoint(value: object, *, allow_local: bool = False, allow_empty: bool = False) -> str:
@@ -147,13 +138,15 @@ def validate_provider_endpoint(value: object, *, allow_local: bool = False, allo
         raise AiProviderConfigError("AI Provider URL 不能为空")
     try:
         parsed = urlparse(raw)
+        query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
     except ValueError as exc:
         raise AiProviderConfigError("AI Provider URL 无效") from exc
     if parsed.username is not None or parsed.password is not None:
         raise AiProviderConfigError("AI Provider URL 不能包含用户名或密码")
     if parsed.fragment:
         raise AiProviderConfigError("AI Provider URL 不能包含 fragment")
-    _reject_secret_query(raw)
+    if any(_SECRET_QUERY_RE.search(key or "") for key, _value in query_pairs):
+        raise AiProviderConfigError("AI Provider URL 不能包含凭据参数")
     if allow_local and parsed.scheme == "http" and _is_loopback_endpoint(raw):
         return raw.rstrip("/")
     if parsed.scheme != "https":
@@ -166,26 +159,39 @@ def validate_provider_endpoint(value: object, *, allow_local: bool = False, allo
 
 def _defaults() -> dict[str, AiProviderConfig]:
     result: dict[str, AiProviderConfig] = {}
-    for provider_id, name, protocol, url, enabled, key_ref in _DEFAULT_ROWS:
-        local = provider_id in {"ollama", "lmstudio"}
+    for provider_id, name, protocol, url, enabled, reference in _DEFAULT_ROWS:
         result[provider_id] = AiProviderConfig(
             id=provider_id,
             name=name,
             protocol=protocol,
             base_url=url,
             enabled=enabled,
-            allow_local=local,
-            api_key_reference=key_ref,
+            allow_local=provider_id in {"ollama", "lmstudio"},
+            credential_reference=reference,
         )
     return result
 
 
-def _atomic_store(engine_module, rows: list[dict[str, Any]]) -> None:
+def _atomic_store(engine_module, providers: list[AiProviderConfig]) -> None:
     path = _state_path(engine_module)
     temporary = path.with_suffix(path.suffix + ".tmp")
+    rows = [
+        {
+            "id": item.id,
+            "name": item.name,
+            "protocol": item.protocol,
+            "baseUrl": item.base_url,
+            "model": item.model,
+            "enabled": item.enabled,
+            "allowLocal": item.allow_local,
+            "timeoutSeconds": item.timeout_seconds,
+            "credentialReference": item.credential_reference,
+        }
+        for item in providers[:MAX_PROVIDERS]
+    ]
     try:
         temporary.write_text(
-            json.dumps({"version": SCHEMA_VERSION, "providers": rows[:MAX_PROVIDERS]}, ensure_ascii=False, indent=2),
+            json.dumps({"version": SCHEMA_VERSION, "providers": rows}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         temporary.replace(path)
@@ -206,22 +212,24 @@ def _stored_rows(engine_module) -> list[dict[str, Any]]:
     return [row for row in rows[:MAX_PROVIDERS] if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
-def _row_to_provider(row: dict[str, Any], defaults: dict[str, AiProviderConfig]) -> AiProviderConfig | None:
+def _normalized_row(row: dict[str, Any], defaults: dict[str, AiProviderConfig]) -> AiProviderConfig | None:
     try:
         provider_id = _clean_id(row.get("id"))
         base = defaults.get(provider_id)
         protocol = _clean_protocol(row.get("protocol") or (base.protocol if base else "openai"))
         allow_local = bool(row.get("allowLocal", base.allow_local if base else False))
-        raw_url = row.get("baseUrl")
-        if raw_url in (None, "") and base is not None:
-            raw_url = base.base_url
+        endpoint = row.get("baseUrl")
+        if endpoint in (None, "") and base is not None:
+            endpoint = base.base_url
         base_url = validate_provider_endpoint(
-            raw_url,
+            endpoint,
             allow_local=allow_local,
             allow_empty=provider_id == "azure-openai",
         )
+        reference = _clean_credential_reference(
+            row.get("credentialReference", base.credential_reference if base else "")
+        )
         model = _clean_model(row.get("model"))
-        reference = _clean_reference(row.get("apiKeyReference", base.api_key_reference if base else ""))
     except AiProviderConfigError:
         return None
     return AiProviderConfig(
@@ -234,7 +242,7 @@ def _row_to_provider(row: dict[str, Any], defaults: dict[str, AiProviderConfig])
         custom=provider_id not in defaults,
         allow_local=allow_local,
         timeout_seconds=_bounded_timeout(row.get("timeoutSeconds"), default=base.timeout_seconds if base else 180),
-        api_key_reference=reference,
+        credential_reference=reference,
     )
 
 
@@ -243,7 +251,7 @@ def load_ai_providers(engine_module) -> list[AiProviderConfig]:
     result = dict(defaults)
     custom_order: list[str] = []
     for row in _stored_rows(engine_module):
-        provider = _row_to_provider(row, defaults)
+        provider = _normalized_row(row, defaults)
         if provider is None:
             continue
         result[provider.id] = provider
@@ -252,18 +260,14 @@ def load_ai_providers(engine_module) -> list[AiProviderConfig]:
     return [result[row[0]] for row in _DEFAULT_ROWS] + [result[item] for item in custom_order if item in result]
 
 
-def _stored_payload(provider: AiProviderConfig) -> dict[str, Any]:
-    return {
-        "id": provider.id,
-        "name": provider.name,
-        "protocol": provider.protocol,
-        "baseUrl": provider.base_url,
-        "model": provider.model,
-        "enabled": provider.enabled,
-        "allowLocal": provider.allow_local,
-        "timeoutSeconds": provider.timeout_seconds,
-        "apiKeyReference": provider.api_key_reference,
-    }
+def _configured_overrides(engine_module) -> list[AiProviderConfig]:
+    defaults = _defaults()
+    result: list[AiProviderConfig] = []
+    for row in _stored_rows(engine_module):
+        provider = _normalized_row(row, defaults)
+        if provider is not None:
+            result.append(provider)
+    return result
 
 
 def save_ai_provider(
@@ -277,12 +281,13 @@ def save_ai_provider(
     enabled: bool = True,
     allow_local: bool = False,
     timeout_seconds: object = 180,
-    api_key_reference: object = "",
+    credential_reference: object = "",
 ) -> AiProviderConfig:
     clean_id = _clean_id(provider_id)
     defaults = _defaults()
     base = defaults.get(clean_id)
     local = bool(allow_local or (base.allow_local if base else False))
+    reference_input = credential_reference if str(credential_reference or "").strip() else (base.credential_reference if base else "")
     provider = AiProviderConfig(
         id=clean_id,
         name=_clean_name(name, base.name if base else clean_id),
@@ -297,13 +302,11 @@ def save_ai_provider(
         custom=clean_id not in defaults,
         allow_local=local,
         timeout_seconds=_bounded_timeout(timeout_seconds),
-        api_key_reference=_clean_reference(
-            api_key_reference if str(api_key_reference or "").strip() else (base.api_key_reference if base else "")
-        ),
+        credential_reference=_clean_credential_reference(reference_input),
     )
-    rows = [row for row in _stored_rows(engine_module) if str(row.get("id") or "").strip().lower() != clean_id]
-    rows.append(_stored_payload(provider))
-    _atomic_store(engine_module, rows)
+    overrides = [item for item in _configured_overrides(engine_module) if item.id != clean_id]
+    overrides.append(provider)
+    _atomic_store(engine_module, overrides)
     return provider
 
 
@@ -311,9 +314,9 @@ def delete_ai_provider(engine_module, provider_id: object) -> bool:
     clean_id = _clean_id(provider_id)
     if clean_id in _defaults():
         raise AiProviderConfigError("内置 Provider 不能删除；请使用 Reset 恢复默认配置")
-    rows = _stored_rows(engine_module)
-    kept = [row for row in rows if str(row.get("id") or "").strip().lower() != clean_id]
-    if len(kept) == len(rows):
+    overrides = _configured_overrides(engine_module)
+    kept = [item for item in overrides if item.id != clean_id]
+    if len(kept) == len(overrides):
         return False
     _atomic_store(engine_module, kept)
     return True
@@ -324,17 +327,16 @@ def reset_ai_provider(engine_module, provider_id: object) -> AiProviderConfig:
     default = _defaults().get(clean_id)
     if default is None:
         raise AiProviderConfigError("只有内置 Provider 支持 Reset")
-    rows = [row for row in _stored_rows(engine_module) if str(row.get("id") or "").strip().lower() != clean_id]
-    _atomic_store(engine_module, rows)
+    _atomic_store(engine_module, [item for item in _configured_overrides(engine_module) if item.id != clean_id])
     return default
 
 
 def provider_api_key(engine_module, provider_id: object) -> str:
     clean_id = _clean_id(provider_id)
     provider = next((item for item in load_ai_providers(engine_module) if item.id == clean_id), None)
-    if provider is None or not provider.api_key_reference:
+    if provider is None or not provider.credential_reference:
         return ""
-    match = ENV_REFERENCE_RE.fullmatch(provider.api_key_reference)
+    match = ENV_REFERENCE_RE.fullmatch(provider.credential_reference)
     return os.environ.get(match.group(1), "") if match is not None else ""
 
 
@@ -346,7 +348,7 @@ def provider_has_api_key(engine_module, provider_id: object) -> bool:
 
 
 def provider_public_status(engine_module) -> list[dict[str, Any]]:
-    return [item.public_payload(has_api_key=provider_has_api_key(engine_module, item.id)) for item in load_ai_providers(engine_module)]
+    return [item.public_payload(has_credential=provider_has_api_key(engine_module, item.id)) for item in load_ai_providers(engine_module)]
 
 
 def run_ai_provider_registry_self_test() -> None:
@@ -367,12 +369,7 @@ def run_ai_provider_registry_self_test() -> None:
                 target.mkdir(parents=True, exist_ok=True)
                 return target
 
-        def public_url(value: str) -> str:
-            if value.startswith("https://"):
-                return value
-            raise ValueError("not public")
-
-        with patch("ai_provider_registry.validated_public_http_url", side_effect=public_url):
+        with patch("ai_provider_registry.validated_public_http_url", side_effect=lambda value: value):
             defaults = load_ai_providers(Engine)
             ids = {item.id for item in defaults}
             assert {"openai", "anthropic", "gemini", "deepseek", "openrouter", "groq", "azure-openai", "xai", "ollama", "lmstudio"}.issubset(ids)
@@ -386,9 +383,11 @@ def run_ai_provider_registry_self_test() -> None:
                 base_url="https://example.com/v1/chat/completions",
                 model="model-1",
                 timeout_seconds=42,
-                api_key_reference="env:CUSTOM_AI_KEY",
+                credential_reference="env:CUSTOM_AI_KEY",
             )
-            assert saved.custom and saved.timeout_seconds == 42
+            assert saved.custom and saved.credential_reference == "env:CUSTOM_AI_KEY"
+            stored_text = _state_path(Engine).read_text(encoding="utf-8")
+            assert "secret-value" not in stored_text
             with patch.dict(os.environ, {"CUSTOM_AI_KEY": "secret-value"}, clear=False):
                 assert provider_has_api_key(Engine, "custom")
                 assert provider_api_key(Engine, "custom") == "secret-value"
