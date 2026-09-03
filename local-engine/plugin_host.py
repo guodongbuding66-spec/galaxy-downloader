@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -89,7 +90,8 @@ def _parse_manifest(path: Path) -> PluginManifest:
     try:
         if path.is_symlink() or not path.is_file():
             raise PluginHostError("plugin manifest must be a regular file")
-        if path.stat().st_size <= 0 or path.stat().st_size > MAX_MANIFEST_BYTES:
+        size = path.stat().st_size
+        if size <= 0 or size > MAX_MANIFEST_BYTES:
             raise PluginHostError("plugin manifest size is invalid")
         raw = json.loads(path.read_text(encoding="utf-8"))
     except PluginHostError:
@@ -184,10 +186,8 @@ def _bounded_pipe_reader(
                 buffer.extend(block[:remaining])
             if len(block) > remaining:
                 overflow.set()
-                try:
+                with suppress(OSError):
                     process.kill()
-                except OSError:
-                    pass
                 return
     except (OSError, ValueError):
         return
@@ -211,7 +211,7 @@ def _run_plugin_process(executable: Path, envelope: bytes, *, timeout_seconds: i
     except OSError as exc:
         raise PluginHostError(str(exc)) from exc
     if process.stdin is None or process.stdout is None or process.stderr is None:
-        with suppress_process_errors(process):
+        with suppress(OSError):
             process.kill()
         raise PluginHostError("plugin process pipes are unavailable")
 
@@ -239,17 +239,15 @@ def _run_plugin_process(executable: Path, envelope: bytes, *, timeout_seconds: i
     except (BrokenPipeError, OSError, ValueError):
         pass
     finally:
-        try:
+        with suppress(OSError, ValueError):
             process.stdin.close()
-        except (OSError, ValueError):
-            pass
 
     try:
         return_code = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        with suppress_process_errors(process):
+        with suppress(OSError):
             process.kill()
-        with suppress_process_errors(process):
+        with suppress(OSError, subprocess.TimeoutExpired):
             process.wait(timeout=2)
         for reader in readers:
             reader.join(timeout=1)
@@ -257,17 +255,6 @@ def _run_plugin_process(executable: Path, envelope: bytes, *, timeout_seconds: i
     for reader in readers:
         reader.join(timeout=1)
     return bytes(stdout), bytes(stderr), int(return_code), stdout_overflow.is_set(), stderr_overflow.is_set()
-
-
-class suppress_process_errors:
-    def __init__(self, _process) -> None:
-        self._process = _process
-
-    def __enter__(self):
-        return self._process
-
-    def __exit__(self, *_args: object) -> bool:
-        return True
 
 
 def invoke_plugin(
