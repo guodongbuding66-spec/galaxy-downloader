@@ -4,6 +4,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+from subscription_rules import (
+    apply_rules_to_payload,
+    filter_subscription_entries,
+    get_subscription_rules,
+    record_subscription_entries,
+    set_subscription_item_state,
+)
 from subscriptions import acknowledge_subscription_entries, build_subscription_download_payload, check_subscription, load_subscriptions
 
 MAX_AUTO_SUBMISSIONS_PER_CHECK = 5
@@ -77,24 +84,40 @@ def run_auto_check(engine_module, subscription_id: str, submit: Callable[[dict[s
     if subscription is None:
         return AutoCheckResult(subscription_id, False, len(checked.new_entries), 0, 0, len(checked.new_entries))
 
+    rules = get_subscription_rules(engine_module, subscription_id)
+    record_subscription_entries(engine_module, subscription_id, checked.new_entries, state="waiting")
+    filtered = filter_subscription_entries(rules, checked.new_entries)
+    filtered_ids = {item.entry_id for item in filtered}
+    for entry in checked.new_entries:
+        if entry.entry_id not in filtered_ids:
+            set_subscription_item_state(engine_module, subscription_id, entry.entry_id, "skipped", "filtered by subscription rule")
+            acknowledge_subscription_entries(engine_module, subscription_id, [entry.entry_id])
+
+    if rules.manual_review:
+        return AutoCheckResult(subscription_id, False, len(checked.new_entries), 0, len(checked.new_entries) - len(filtered), 0)
+
     submitted = 0
-    skipped = 0
+    skipped = len(checked.new_entries) - len(filtered)
     failed = 0
-    selected = tuple(reversed(checked.new_entries[:MAX_AUTO_SUBMISSIONS_PER_CHECK]))
+    selected = tuple(reversed(filtered[:MAX_AUTO_SUBMISSIONS_PER_CHECK]))
     for entry in selected:
         payload = build_subscription_download_payload(subscription, entry)
         if payload is None:
             acknowledge_subscription_entries(engine_module, subscription_id, [entry.entry_id])
+            set_subscription_item_state(engine_module, subscription_id, entry.entry_id, "skipped", "unsupported feed item")
             skipped += 1
             continue
+        payload = apply_rules_to_payload(payload, rules)
         try:
             accepted = _submission_accepted(submit(payload))
-        except Exception:
+        except Exception:  # noqa: BLE001 - queue adapters have heterogeneous failure types
             accepted = False
         if accepted:
             acknowledge_subscription_entries(engine_module, subscription_id, [entry.entry_id])
+            set_subscription_item_state(engine_module, subscription_id, entry.entry_id, "queued")
             submitted += 1
         else:
+            set_subscription_item_state(engine_module, subscription_id, entry.entry_id, "failed", "queue rejected task")
             failed += 1
 
     return AutoCheckResult(
