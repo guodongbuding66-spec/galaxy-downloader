@@ -19,7 +19,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -98,6 +98,35 @@ jobs:
             local-engine/dynamic_document.py \
             local-engine/url_policy.py \
             local-engine/external_ytdlp.py \
+            local-engine/ai_provider_manager.py \
+            local-engine/bilibili_advanced.py \
+            local-engine/content_providers.py \
+            local-engine/desktop_advanced.py \
+            local-engine/desktop_ai.py \
+            local-engine/desktop_bandwidth.py \
+            local-engine/desktop_clipboard.py \
+            local-engine/desktop_hotkey.py \
+            local-engine/desktop_learning.py \
+            local-engine/desktop_marketplace.py \
+            local-engine/desktop_platform_features.py \
+            local-engine/desktop_providers.py \
+            local-engine/desktop_transfers.py \
+            local-engine/galaxy_cli.py \
+            local-engine/headless_service.py \
+            local-engine/learning_workspace.py \
+            local-engine/local_media_import.py \
+            local-engine/media_library.py \
+            local-engine/media_postprocess.py \
+            local-engine/music_workspace.py \
+            local-engine/plugin_host.py \
+            local-engine/plugin_marketplace.py \
+            local-engine/reader_library.py \
+            local-engine/subscription_rules.py \
+            local-engine/subscription_scheduler.py \
+            local-engine/subscriptions.py \
+            local-engine/telegram_transfer.py \
+            local-engine/transcript_workspace.py \
+            local-engine/transfer_center.py \
             container-backend/app/main.py \
             container-backend/app/playback.py \
             container-backend/app/server.py
@@ -141,6 +170,9 @@ jobs:
           python3 scripts/test-local-desktop-hooks.py
           python3 scripts/test-local-desktop-managed-tool-actions.py
           python3 scripts/test-local-release-notes.py
+          python3 scripts/test-local-galaxy54.py
+          python3 local-engine/galaxy_cli.py --self-test
+          python3 local-engine/headless_service.py --self-test
 
       - name: Run tests
         run: pnpm test
@@ -150,6 +182,45 @@ jobs:
 
       - name: Build production bundle
         run: pnpm build
+
+  headless-container:
+    name: Headless Docker / NAS
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Validate Compose model
+        env:
+          GALAXY_HEADLESS_TOKEN: integration-test-token-0123456789abcdef
+        run: docker compose -f docker-compose.headless.yml config --quiet
+
+      - name: Build headless image
+        run: docker build -f Dockerfile.headless -t galaxy-local-engine:ci .
+
+      - name: Run headless container smoke
+        env:
+          GALAXY_HEADLESS_TOKEN: integration-test-token-0123456789abcdef
+        run: |
+          docker run -d --rm \
+            --name galaxy-headless-ci \
+            -e GALAXY_HEADLESS_TOKEN="$GALAXY_HEADLESS_TOKEN" \
+            -p 127.0.0.1:17837:17837 \
+            galaxy-local-engine:ci
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:17837/health >/tmp/galaxy-health.json; then
+              cat /tmp/galaxy-health.json
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs galaxy-headless-ci
+          exit 1
+
+      - name: Stop smoke container
+        if: always()
+        run: docker stop galaxy-headless-ci >/dev/null 2>&1 || true
 
   codeql:
     name: CodeQL (${{ matrix.language }})
@@ -168,7 +239,7 @@ jobs:
           - python
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@9c091bb21b7c1cd1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
