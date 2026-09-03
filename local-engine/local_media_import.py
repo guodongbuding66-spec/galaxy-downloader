@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import islice
@@ -100,10 +101,8 @@ def import_local_media(engine_module, source_file: object) -> LocalImportResult:
             raise LocalMediaImportError("导入文件大小校验失败")
         temporary.replace(destination)
     except Exception:
-        try:
+        with suppress(OSError):
             temporary.unlink()
-        except OSError:
-            pass
         raise
 
     finished = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
