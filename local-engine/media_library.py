@@ -4,6 +4,7 @@ import json
 import sqlite3
 import threading
 import uuid
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -272,7 +273,7 @@ def _upsert(connection: sqlite3.Connection, value: dict[str, Any]) -> None:
 def sync_media_library(engine_module, history_items: Iterable[object] | None = None) -> int:
     items = list(load_history(engine_module) if history_items is None else history_items)
     accepted = [value for item in items if (value := _item_from_history(engine_module, item)) is not None]
-    with _LIBRARY_LOCK, _connect(engine_module) as connection:
+    with _LIBRARY_LOCK, closing(_connect(engine_module)) as connection:
         for value in accepted:
             _upsert(connection, value)
         rows = connection.execute("SELECT file_path FROM media_items").fetchall()
@@ -326,7 +327,7 @@ def list_media_items(
         where = " WHERE media_type=?"
         params.append(media_type)
     params.extend((safe_limit, safe_offset))
-    with _LIBRARY_LOCK, _connect(engine_module) as connection:
+    with _LIBRARY_LOCK, closing(_connect(engine_module)) as connection:
         rows = connection.execute(
             f"SELECT * FROM media_items{where} ORDER BY finished_at DESC, created_at DESC LIMIT ? OFFSET ?",
             params,
@@ -341,7 +342,7 @@ def search_media_items(engine_module, query: object, *, limit: int = 100) -> lis
     safe_limit = max(1, min(int(limit), 200))
     escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")[:160]
     pattern = f"%{escaped}%"
-    with _LIBRARY_LOCK, _connect(engine_module) as connection:
+    with _LIBRARY_LOCK, closing(_connect(engine_module)) as connection:
         rows = connection.execute(
             """
             SELECT * FROM media_items
@@ -358,7 +359,7 @@ def search_media_items(engine_module, query: object, *, limit: int = 100) -> lis
 
 
 def media_library_summary(engine_module) -> MediaLibrarySummary:
-    with _LIBRARY_LOCK, _connect(engine_module) as connection:
+    with _LIBRARY_LOCK, closing(_connect(engine_module)) as connection:
         row = connection.execute(
             """
             SELECT
@@ -387,7 +388,7 @@ def resolve_media_item_path(engine_module, item_id: object) -> Path | None:
     clean_id = str(item_id or "").strip()
     if not clean_id:
         return None
-    with _LIBRARY_LOCK, _connect(engine_module) as connection:
+    with _LIBRARY_LOCK, closing(_connect(engine_module)) as connection:
         row = connection.execute("SELECT file_path FROM media_items WHERE id=?", (clean_id,)).fetchone()
     if row is None:
         return None
@@ -406,7 +407,7 @@ def set_media_item_tags(engine_module, item_id: object, tags: Iterable[object]) 
             cleaned.append(tag)
         if len(cleaned) >= 20:
             break
-    with _LIBRARY_LOCK, _connect(engine_module) as connection:
+    with _LIBRARY_LOCK, closing(_connect(engine_module)) as connection:
         connection.execute(
             "UPDATE media_items SET tags_json=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
             (json.dumps(cleaned, ensure_ascii=False), clean_id),
