@@ -30,6 +30,20 @@ from subscriptions import run_subscriptions_self_test
 from transfer_center import run_transfer_center_self_test
 
 
+def _has_job_policy_contract(engine_module) -> bool:
+    window_cls = getattr(engine_module, "EngineWindow", None)
+    return bool(
+        getattr(engine_module, "Job", None)
+        and callable(getattr(engine_module, "parse_job", None))
+        and callable(getattr(engine_module, "job_from_payload", None))
+        and callable(getattr(engine_module, "job_to_payload", None))
+        and window_cls is not None
+        and callable(getattr(window_cls, "build_options", None))
+        and callable(getattr(window_cls, "_run_external_job", None))
+        and callable(getattr(window_cls, "bridge_status", None))
+    )
+
+
 def install_desktop_platform_features(engine_module):
     """Install desktop integrations after the core download workbench.
 
@@ -37,7 +51,8 @@ def install_desktop_platform_features(engine_module):
     depends directly on Win32/macOS/Linux APIs. Higher-level local workspaces are
     wired here after queue/history and the desktop hook registry are ready.
     """
-    install_bandwidth_policy(engine_module)
+    if _has_job_policy_contract(engine_module):
+        install_bandwidth_policy(engine_module)
     install_desktop_bandwidth(engine_module)
     install_desktop_clipboard_monitor(engine_module)
     install_desktop_tray(engine_module)
@@ -78,5 +93,6 @@ def run_desktop_platform_features_self_test() -> None:
     run_desktop_learning_self_test()
     run_transfer_center_self_test()
     run_desktop_transfers_self_test()
+    assert _has_job_policy_contract(object()) is False
     assert verify_windows_tray_dependencies() is True
     assert verify_windows_hotkey_api() is True
