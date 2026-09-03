@@ -11,6 +11,7 @@ KNOWN_STATE_FILES = (
     "download-archive.txt",
     "resume-jobs.json",
     "media-library.sqlite3",
+    "subscriptions.json",
     "engine.log",
 )
 STATE_IMPORT_MARKER = ".portable-state-imported-v1"
@@ -108,6 +109,7 @@ def run_runtime_storage_self_test() -> None:
         (legacy / "desktop-features.json").write_text('{"clipboardMonitorEnabled": true}', encoding="utf-8")
         (legacy / "download-history.json").write_text('[{"id":"legacy"}]', encoding="utf-8")
         (legacy / "media-library.sqlite3").write_bytes(b"library")
+        (legacy / "subscriptions.json").write_text('{"version":1,"subscriptions":[]}', encoding="utf-8")
         (legacy / "unknown-secret.txt").write_text("do-not-copy", encoding="utf-8")
         installed.mkdir(parents=True)
         (installed / "workspace-options.json").write_text('{"historyEnabled": true}', encoding="utf-8")
@@ -128,6 +130,7 @@ def run_runtime_storage_self_test() -> None:
         assert (installed / "desktop-features.json").read_text(encoding="utf-8") == '{"clipboardMonitorEnabled": true}'
         assert (installed / "download-history.json").read_text(encoding="utf-8") == '[{"id":"legacy"}]'
         assert (installed / "media-library.sqlite3").read_bytes() == b"library"
+        assert (installed / "subscriptions.json").read_text(encoding="utf-8") == '{"version":1,"subscriptions":[]}'
         assert not (installed / "unknown-secret.txt").exists()
         assert (installed / STATE_IMPORT_MARKER).is_file()
 
