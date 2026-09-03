@@ -21,6 +21,7 @@ from headless_service import (
     _loopback_host,
     _safe_detail,
 )
+from headless_subscription_api import HeadlessSubscriptionApi, HeadlessSubscriptionApiError
 from headless_transcript_api import HeadlessTranscriptApi, HeadlessTranscriptApiError
 
 
@@ -36,6 +37,17 @@ def _path_parts(path: str) -> list[str]:
     return [part for part in path.split("/") if part]
 
 
+def _optional_bool(value: object) -> bool | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError("boolean query value must be true or false")
+
+
 class GalaxyApiRequestHandler(HeadlessRequestHandler):
     @property
     def media_api(self) -> HeadlessMediaApi:
@@ -45,10 +57,20 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
     def transcript_api(self) -> HeadlessTranscriptApi | None:
         return self.server.transcript_api  # type: ignore[attr-defined]
 
+    @property
+    def subscription_api(self) -> HeadlessSubscriptionApi | None:
+        return self.server.subscription_api  # type: ignore[attr-defined]
+
     def _transcript_unavailable(self) -> bool:
         if self.transcript_api is not None:
             return False
         self._json(503, {"ok": False, "error": "transcript api is unavailable"})
+        return True
+
+    def _subscription_unavailable(self) -> bool:
+        if self.subscription_api is not None:
+            return False
+        self._json(503, {"ok": False, "error": "subscription api is unavailable"})
         return True
 
     def _transcript_error(self, exc: Exception) -> None:
@@ -56,9 +78,62 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
         status = 404 if detail == "media item not found" else 400
         self._json(status, {"ok": False, "error": detail})
 
+    def _subscription_error(self, exc: Exception) -> None:
+        detail = _safe_detail(exc)
+        if detail in {"subscription not found", "subscription item not found"}:
+            status = 404
+        elif "invalid subscription item transition" in detail or "already subscribed" in detail:
+            status = 409
+        else:
+            status = 400
+        self._json(status, {"ok": False, "error": detail})
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         path = parsed.path
+        if path.startswith("/v1/subscriptions"):
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "unauthorized"})
+                return
+            if self._subscription_unavailable():
+                return
+            try:
+                parts = _path_parts(path)
+                values = parse_qs(parsed.query, keep_blank_values=False, max_num_fields=20)
+                if parts == ["v1", "subscriptions"]:
+                    result = self.subscription_api.list_subscriptions()  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 3 and parts[:2] == ["v1", "subscriptions"]:
+                    result = self.subscription_api.detail(parts[2])  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 4 and parts[:2] == ["v1", "subscriptions"]:
+                    subscription_id = parts[2]
+                    if parts[3] == "rules":
+                        rules = self.subscription_api.rules(subscription_id)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, "rules": rules})
+                        return
+                    if parts[3] == "counts":
+                        counts = self.subscription_api.counts(subscription_id)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, "counts": counts})
+                        return
+                    if parts[3] == "items":
+                        result = self.subscription_api.items(  # type: ignore[union-attr]
+                            subscription_id,
+                            state=_first_query_value(values, "state"),
+                            present=_optional_bool(_first_query_value(values, "present")),
+                            limit=_first_query_value(values, "limit") or 200,
+                        )
+                        self._json(200, {"ok": True, **result})
+                        return
+                self._json(404, {"ok": False, "error": "not found"})
+            except (HeadlessSubscriptionApiError, ValueError) as exc:
+                self._subscription_error(exc)
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": _safe_detail(exc)})
+            return
+
         if path.startswith("/v1/transcripts"):
             if not self._authorized():
                 self._json(401, {"ok": False, "error": "unauthorized"})
@@ -122,6 +197,52 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         path = parsed.path
+        if path.startswith("/v1/subscriptions"):
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "unauthorized"})
+                return
+            if self._subscription_unavailable():
+                return
+            try:
+                parts = _path_parts(path)
+                if parts == ["v1", "subscriptions"]:
+                    payload = self._read_json()
+                    created = self.subscription_api.create(payload)  # type: ignore[union-attr]
+                    self._json(201, {"ok": True, "subscription": created})
+                    return
+                if len(parts) >= 4 and parts[:2] == ["v1", "subscriptions"]:
+                    subscription_id = parts[2]
+                    action = parts[3:]
+                    if action == ["delete"]:
+                        result = self.subscription_api.delete(subscription_id)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    payload = self._read_json()
+                    if action == ["update"]:
+                        updated = self.subscription_api.update(subscription_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, "subscription": updated})
+                        return
+                    if action == ["rules"]:
+                        rules = self.subscription_api.configure_rules(subscription_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, "rules": rules})
+                        return
+                    if action == ["items", "transition"]:
+                        item = self.subscription_api.transition(subscription_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, "item": item})
+                        return
+                    if action == ["reconcile"]:
+                        result = self.subscription_api.reconcile(subscription_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                self._json(404, {"ok": False, "error": "not found"})
+            except (HeadlessSubscriptionApiError, ValueError) as exc:
+                self._subscription_error(exc)
+            except HeadlessServiceError as exc:
+                self._json(400, {"ok": False, "error": _safe_detail(exc)})
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": _safe_detail(exc)})
+            return
+
         if path.startswith("/v1/transcripts/"):
             if not self._authorized():
                 self._json(401, {"ok": False, "error": "unauthorized"})
@@ -193,12 +314,14 @@ class GalaxyApiServer(ThreadingHTTPServer):
         bound_host: str,
         media_api: HeadlessMediaApi,
         transcript_api: HeadlessTranscriptApi | None = None,
+        subscription_api: HeadlessSubscriptionApi | None = None,
     ) -> None:
         self.runtime = runtime
         self.auth_token = auth_token
         self.bound_host = bound_host
         self.media_api = media_api
         self.transcript_api = transcript_api
+        self.subscription_api = subscription_api
         super().__init__(address, GalaxyApiRequestHandler)
 
 
@@ -210,6 +333,7 @@ def run_server(
     auth_token: str = "",
     media_api: HeadlessMediaApi | None = None,
     transcript_api: HeadlessTranscriptApi | None = None,
+    subscription_api: HeadlessSubscriptionApi | None = None,
 ) -> int:
     clean_host = str(host or DEFAULT_HOST).strip()
     clean_port = _bounded_int(port, DEFAULT_PORT, 1, 65535)
@@ -220,7 +344,8 @@ def run_server(
     runtime = HeadlessRuntime(root)
     media = media_api or HeadlessMediaApi(root)
     transcripts = transcript_api or HeadlessTranscriptApi(root)
-    server = GalaxyApiServer((clean_host, clean_port), runtime, token, clean_host, media, transcripts)
+    subscriptions = subscription_api or HeadlessSubscriptionApi()
+    server = GalaxyApiServer((clean_host, clean_port), runtime, token, clean_host, media, transcripts, subscriptions)
     stopping = threading.Event()
 
     def stop_handler(_signum, _frame) -> None:
