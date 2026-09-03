@@ -7,7 +7,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from course_workspace import CourseWorkspaceError, _connect as _learning_connect
+from course_workspace import _connect as _learning_connect
 
 MAX_CARDS = 100_000
 MAX_CARD_CHARS = 20_000
