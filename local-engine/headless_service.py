@@ -11,6 +11,7 @@ import signal
 import threading
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -234,14 +235,10 @@ class EventBroker:
             try:
                 channel.put_nowait(dict(event))
             except queue.Full:
-                try:
+                with suppress(queue.Empty):
                     channel.get_nowait()
-                except queue.Empty:
-                    pass
-                try:
+                with suppress(queue.Full):
                     channel.put_nowait(dict(event))
-                except queue.Full:
-                    pass
 
 
 class HeadlessRuntime:
@@ -361,12 +358,10 @@ class HeadlessRuntime:
             status = str(event.get("status") or "")
             filename = str(event.get("filename") or "")
             if filename:
-                try:
+                with suppress(OSError, RuntimeError, ValueError):
                     path = Path(filename).resolve(strict=False)
                     path.relative_to(self.download_root)
                     last_name = path.name[:240]
-                except (OSError, RuntimeError, ValueError):
-                    pass
             total = _bounded_float(event.get("total_bytes") or event.get("total_bytes_estimate"), 0.0, 0.0, 10**15)
             downloaded = _bounded_float(event.get("downloaded_bytes"), 0.0, 0.0, 10**15)
             progress = downloaded * 100.0 / total if total > 0 else 0.0
@@ -422,10 +417,8 @@ class HeadlessRuntime:
 
     def stop(self) -> None:
         self._stopping.set()
-        try:
+        with suppress(queue.Full):
             self._queue.put_nowait(None)
-        except queue.Full:
-            pass
         if self._worker.is_alive():
             self._worker.join(timeout=3.0)
 
@@ -530,7 +523,7 @@ class HeadlessRequestHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b":keepalive\n\n")
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
-            pass
+            return
         finally:
             self.runtime.events.unsubscribe(subscriber_id)
 
@@ -625,10 +618,8 @@ def run_server(
     for signal_name in ("SIGINT", "SIGTERM"):
         value = getattr(signal, signal_name, None)
         if value is not None:
-            try:
+            with suppress(OSError, RuntimeError, ValueError):
                 signal.signal(value, stop_handler)
-            except (OSError, RuntimeError, ValueError):
-                pass
     try:
         print(f"Galaxy Headless API listening on {clean_host}:{clean_port}", flush=True)
         server.serve_forever(poll_interval=0.5)
@@ -650,12 +641,12 @@ def run_headless_service_self_test() -> None:
     assert _format_selector(
         {"includeAudio": True, "videoFormatId": "399", "audioFormatId": "251", "selectedVideoHasAudio": False}
     ) == "399+251"
+    unsafe_rejected = False
     try:
         _format_selector({"videoFormatId": "137+251"})
     except Exception:
-        pass
-    else:
-        raise AssertionError("unsafe exact format selector was accepted")
+        unsafe_rejected = True
+    assert unsafe_rejected, "unsafe exact format selector was accepted"
 
     with patch("headless_service.validated_public_http_url", side_effect=str):
         class FakeYdl:
