@@ -7,20 +7,21 @@ from tkinter import messagebox, ttk
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook
 from headless_asr_api import HeadlessAsrApiError
-from headless_parakeet_asr_api import ParakeetHeadlessAsrApi
+from headless_qwen3_asr_api import Qwen3HeadlessAsrApi
 
-_PROVIDERS = ("auto", "whisper", "faster-whisper", "sensevoice", "parakeet")
+_PROVIDERS = ("auto", "whisper", "faster-whisper", "sensevoice", "parakeet", "qwen3-asr")
 _PROFILES = ("fast", "balanced", "accurate")
 _LEGACY_DEVICES = ("auto", "cpu", "cuda")
 _SENSEVOICE_DEVICES = ("auto", "cpu", "mps", "cuda")
 _PARAKEET_DEVICES = ("auto", "cpu", "cuda")
+_QWEN3_DEVICES = ("auto", "cpu", "cuda")
 _DEVICES = _SENSEVOICE_DEVICES
 _COMPUTE = ("default", "int8", "int8_float16", "float16", "float32")
 _COMPUTE_PROVIDERS = {"auto", "faster-whisper"}
 
 
-def _api(engine_module) -> ParakeetHeadlessAsrApi:
-    return ParakeetHeadlessAsrApi(engine_module.default_download_dir())
+def _api(engine_module) -> Qwen3HeadlessAsrApi:
+    return Qwen3HeadlessAsrApi(engine_module.default_download_dir())
 
 
 def _provider_controls(
@@ -36,6 +37,8 @@ def _provider_controls(
         devices = _SENSEVOICE_DEVICES
     elif selected == "parakeet":
         devices = _PARAKEET_DEVICES
+    elif selected == "qwen3-asr":
+        devices = _QWEN3_DEVICES
     else:
         devices = _LEGACY_DEVICES
     selected_device = str(device or "auto").strip().lower()
@@ -80,7 +83,7 @@ def _show_asr_workspace(window, engine_module) -> None:
     ui._label(shell, "ASR 与模型", size=16, weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
         shell,
-        "Whisper / faster-whisper / SenseVoice / Parakeet 路由、偏好和模型生命周期。模型只在你点击安装时下载。",
+        "Whisper / faster-whisper / SenseVoice / Parakeet / Qwen3-ASR 路由、偏好和模型生命周期。模型只在你点击安装时下载。",
         size=8,
         color=ui.MUTED,
         bg=ui.BG,
@@ -213,6 +216,8 @@ def _show_asr_workspace(window, engine_module) -> None:
             if selected_provider == "sensevoice" and previous_model not in {"", "small"}:
                 model_var.set("")
             elif selected_provider == "parakeet" and previous_model not in {"", "tdt-0.6b-v3"}:
+                model_var.set("")
+            elif selected_provider == "qwen3-asr" and previous_model not in {"", "0.6b-hf"}:
                 model_var.set("")
 
     def on_provider_changed(_event=None) -> None:
@@ -359,7 +364,7 @@ def _add_asr_entry(window, engine_module) -> None:
     ui._label(text, "ASR / 模型管理", size=8, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
     ui._label(
         text,
-        "Whisper + faster-whisper + SenseVoice + Parakeet；自动硬件推荐，模型下载始终需要显式触发。",
+        "Whisper + faster-whisper + SenseVoice + Parakeet + Qwen3-ASR；自动硬件推荐，模型下载始终需要显式触发。",
         size=7,
         color=ui.SUBTLE,
         bg=ui.PANEL_2,
@@ -389,7 +394,14 @@ def install_desktop_asr(engine_module):
 
 
 def run_desktop_asr_self_test() -> None:
-    assert _PROVIDERS == ("auto", "whisper", "faster-whisper", "sensevoice", "parakeet")
+    assert _PROVIDERS == (
+        "auto",
+        "whisper",
+        "faster-whisper",
+        "sensevoice",
+        "parakeet",
+        "qwen3-asr",
+    )
     assert "mps" in _DEVICES and "cuda" in _DEVICES
 
     devices, device, compute, enabled = _provider_controls("sensevoice", "mps", "int8")
@@ -403,6 +415,15 @@ def run_desktop_asr_self_test() -> None:
     assert compute == "default" and enabled is False
     language, locked = _provider_language("parakeet", "en")
     assert language == "auto" and locked is True
+
+    devices, device, compute, enabled = _provider_controls("qwen3-asr", "mps", "float16")
+    assert devices == _QWEN3_DEVICES
+    assert device == "auto"
+    assert compute == "default" and enabled is False
+    language, locked = _provider_language("qwen3-asr", "zh")
+    assert language == "zh" and locked is False
+    language, locked = _provider_language("qwen3-asr", "auto")
+    assert language == "auto" and locked is False
 
     language, locked = _provider_language("faster-whisper", "auto")
     assert language == "" and locked is False
