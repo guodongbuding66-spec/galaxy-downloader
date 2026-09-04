@@ -8,6 +8,7 @@ on:
       - 'local-engine/asr_model_manager.py'
       - 'local-engine/faster_whisper_provider.py'
       - 'local-engine/sensevoice_provider.py'
+      - 'local-engine/parakeet_provider.py'
       - 'local-engine/ai_workspace.py'
       - 'scripts/test-local-asr-provider-router.py'
       - '.github/workflows/asr-provider-router.yml'
@@ -19,6 +20,7 @@ on:
       - 'local-engine/asr_model_manager.py'
       - 'local-engine/faster_whisper_provider.py'
       - 'local-engine/sensevoice_provider.py'
+      - 'local-engine/parakeet_provider.py'
       - 'local-engine/ai_workspace.py'
       - 'scripts/test-local-asr-provider-router.py'
       - '.github/workflows/asr-provider-router.yml'
@@ -47,7 +49,7 @@ jobs:
           python-version: '3.12'
 
       - name: Compile contract
-        run: python -m py_compile local-engine/asr_provider_router.py local-engine/asr_model_manager.py local-engine/faster_whisper_provider.py local-engine/sensevoice_provider.py local-engine/ai_workspace.py scripts/test-local-asr-provider-router.py
+        run: python -m py_compile local-engine/asr_provider_router.py local-engine/asr_model_manager.py local-engine/faster_whisper_provider.py local-engine/sensevoice_provider.py local-engine/parakeet_provider.py local-engine/ai_workspace.py scripts/test-local-asr-provider-router.py
 
       - name: Run router self-test
         run: python scripts/test-local-asr-provider-router.py
