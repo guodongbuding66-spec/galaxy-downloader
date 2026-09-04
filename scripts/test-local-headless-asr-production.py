@@ -176,7 +176,7 @@ def run() -> None:
         owned_asr = FakeAsrApi()
         with (
             patch.object(production, "HeadlessAiApi", return_value=owned_ai),
-            patch.object(production, "SenseVoiceHeadlessAsrApi", return_value=owned_asr),
+            patch.object(production, "ParakeetHeadlessAsrApi", return_value=owned_asr) as factory,
         ):
             server = GalaxyApiServer(
                 ("127.0.0.1", 0),
@@ -190,6 +190,7 @@ def run() -> None:
             assert server.asr_api is owned_asr
             assert server._owns_ai_api is True
             assert server._owns_asr_api is True
+            factory.assert_called_once_with(downloads)
         finally:
             server.server_close()
             server.server_close()
