@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from headless_learning_api import HeadlessLearningApi, HeadlessLearningApiError
 from headless_media_api import HeadlessMediaApi, HeadlessMediaApiError
+from headless_music_api import HeadlessMusicApi, HeadlessMusicApiError
 from headless_reader_api import HeadlessReaderApi, HeadlessReaderApiError
 from headless_service import (
     DEFAULT_HOST,
@@ -71,6 +72,10 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
     def learning_api(self) -> HeadlessLearningApi | None:
         return self.server.learning_api  # type: ignore[attr-defined]
 
+    @property
+    def music_api(self) -> HeadlessMusicApi | None:
+        return self.server.music_api  # type: ignore[attr-defined]
+
     def _transcript_unavailable(self) -> bool:
         if self.transcript_api is not None:
             return False
@@ -93,6 +98,12 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
         if self.learning_api is not None:
             return False
         self._json(503, {"ok": False, "error": "learning api is unavailable"})
+        return True
+
+    def _music_unavailable(self) -> bool:
+        if self.music_api is not None:
+            return False
+        self._json(503, {"ok": False, "error": "music api is unavailable"})
         return True
 
     def _transcript_error(self, exc: Exception) -> None:
@@ -119,9 +130,80 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
         payload = {"ok": False, "error": _safe_detail(exc), "code": exc.code}
         self._json(exc.status, payload)
 
+    def _music_error(self, exc: HeadlessMusicApiError) -> None:
+        payload = {"ok": False, "error": _safe_detail(exc), "code": exc.code}
+        self._json(exc.status, payload)
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         path = parsed.path
+        if path.startswith("/v1/music"):
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "unauthorized"})
+                return
+            if self._music_unavailable():
+                return
+            try:
+                parts = _path_parts(path)
+                values = parse_qs(parsed.query, keep_blank_values=False, max_num_fields=20)
+                if parts == ["v1", "music", "songs"]:
+                    favorites = _optional_bool(_first_query_value(values, "favoritesOnly", "favorites_only"))
+                    result = self.music_api.list_songs(  # type: ignore[union-attr]
+                        query=_first_query_value(values, "q", "query"),
+                        favorites_only=False if favorites is None else favorites,
+                        limit=_first_query_value(values, "limit") or 500,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 4 and parts[:3] == ["v1", "music", "songs"]:
+                    result = self.music_api.song_detail(parts[3])  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 5 and parts[:3] == ["v1", "music", "songs"] and parts[4] == "lyrics":
+                    result = self.music_api.song_lyrics(parts[3])  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "music", "albums"]:
+                    result = self.music_api.list_albums(  # type: ignore[union-attr]
+                        limit=_first_query_value(values, "limit") or 500,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "music", "artists"]:
+                    result = self.music_api.list_artists(  # type: ignore[union-attr]
+                        limit=_first_query_value(values, "limit") or 500,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "music", "recent"]:
+                    result = self.music_api.recent(  # type: ignore[union-attr]
+                        limit=_first_query_value(values, "limit") or 100,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "music", "most-played"]:
+                    result = self.music_api.most_played(  # type: ignore[union-attr]
+                        limit=_first_query_value(values, "limit") or 100,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "music", "queue"]:
+                    result = self.music_api.queue()  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "music", "player"]:
+                    result = self.music_api.player()  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                self._json(404, {"ok": False, "error": "not found"})
+            except HeadlessMusicApiError as exc:
+                self._music_error(exc)
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": _safe_detail(exc)})
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": _safe_detail(exc)})
+            return
+
         if path.startswith("/v1/learning"):
             if not self._authorized():
                 self._json(401, {"ok": False, "error": "unauthorized"})
@@ -344,6 +426,62 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         path = parsed.path
+        if path.startswith("/v1/music"):
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "unauthorized"})
+                return
+            if self._music_unavailable():
+                return
+            try:
+                parts = _path_parts(path)
+                if parts == ["v1", "music", "sync"]:
+                    result = self.music_api.sync()  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "music", "queue"]:
+                    result = self.music_api.enqueue(self._read_json())  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "music", "queue", "clear"]:
+                    result = self.music_api.clear_queue()  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "music", "player"]:
+                    result = self.music_api.update_player(self._read_json())  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 5 and parts[:3] == ["v1", "music", "songs"]:
+                    media_id = parts[3]
+                    action = parts[4]
+                    payload = self._read_json()
+                    if action == "metadata":
+                        result = self.music_api.update_metadata(media_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    if action == "state":
+                        result = self.music_api.update_song_state(media_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                if len(parts) == 5 and parts[:3] == ["v1", "music", "queue"]:
+                    item_id = parts[3]
+                    action = parts[4]
+                    if action == "delete":
+                        result = self.music_api.remove_queue_item(item_id)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    if action == "move":
+                        result = self.music_api.move_queue_item(item_id, self._read_json())  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                self._json(404, {"ok": False, "error": "not found"})
+            except HeadlessMusicApiError as exc:
+                self._music_error(exc)
+            except HeadlessServiceError as exc:
+                self._json(400, {"ok": False, "error": _safe_detail(exc)})
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": _safe_detail(exc)})
+            return
+
         if path.startswith("/v1/learning"):
             if not self._authorized():
                 self._json(401, {"ok": False, "error": "unauthorized"})
@@ -582,6 +720,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         subscription_api: HeadlessSubscriptionApi | None = None,
         reader_api: HeadlessReaderApi | None = None,
         learning_api: HeadlessLearningApi | None = None,
+        music_api: HeadlessMusicApi | None = None,
     ) -> None:
         self.runtime = runtime
         self.auth_token = auth_token
@@ -591,6 +730,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self.subscription_api = subscription_api
         self.reader_api = reader_api
         self.learning_api = learning_api
+        self.music_api = music_api
         super().__init__(address, GalaxyApiRequestHandler)
 
 
@@ -605,6 +745,7 @@ def run_server(
     subscription_api: HeadlessSubscriptionApi | None = None,
     reader_api: HeadlessReaderApi | None = None,
     learning_api: HeadlessLearningApi | None = None,
+    music_api: HeadlessMusicApi | None = None,
 ) -> int:
     clean_host = str(host or DEFAULT_HOST).strip()
     clean_port = _bounded_int(port, DEFAULT_PORT, 1, 65535)
@@ -618,6 +759,7 @@ def run_server(
     subscriptions = subscription_api or HeadlessSubscriptionApi()
     reader = reader_api or HeadlessReaderApi()
     learning = learning_api or HeadlessLearningApi(root)
+    music = music_api or HeadlessMusicApi(root)
     server = GalaxyApiServer(
         (clean_host, clean_port),
         runtime,
@@ -628,6 +770,7 @@ def run_server(
         subscriptions,
         reader,
         learning,
+        music,
     )
     stopping = threading.Event()
 
