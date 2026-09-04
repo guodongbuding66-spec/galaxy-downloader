@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from ai_models import WHISPER_MODELS
 from asr_model_manager import (
@@ -39,6 +39,10 @@ from platform_paths import resolve_platform_paths
 
 _MEDIA_ID_RE = re.compile(r"^[a-f0-9]{16,64}$")
 _LANGUAGE_RE = re.compile(r"^[A-Za-z0-9_-]{0,32}$")
+_WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/][^\s\"'<>|]+")
+_POSIX_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9_:])/(?:home|Users|root|tmp|var|mnt|srv|opt|private)(?:/[^\s\"'<>|,;:]+)+"
+)
 _ALLOWED_DEVICES = {"", "auto", "cpu", "cuda"}
 _ALLOWED_COMPUTE_TYPES = {"", "default", "int8", "int8_float16", "float16", "float32"}
 _ALLOWED_PROFILES = {"fast", "balanced", "accurate"}
@@ -149,10 +153,32 @@ def _public_hardware(value: object) -> dict[str, Any]:
     }
 
 
-def _translate_error(exc: Exception) -> HeadlessAsrApiError:
+def _safe_detail(value: object, *, roots: Iterable[Path] = ()) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+
+    candidates: set[str] = set()
+    for root in (*tuple(roots), Path.home()):
+        try:
+            resolved = Path(root).expanduser().resolve(strict=False)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            continue
+        candidates.add(str(resolved))
+        candidates.add(resolved.as_posix())
+
+    for candidate in sorted((item for item in candidates if item), key=len, reverse=True):
+        text = text.replace(candidate, "[LOCAL_PATH]")
+
+    text = _WINDOWS_PATH_RE.sub("[LOCAL_PATH]", text)
+    text = _POSIX_PATH_RE.sub("[LOCAL_PATH]", text)
+    return text[:1200]
+
+
+def _translate_error(exc: Exception, *, roots: Iterable[Path] = ()) -> HeadlessAsrApiError:
     if isinstance(exc, HeadlessAsrApiError):
         return exc
-    detail = str(exc).strip()
+    detail = _safe_detail(exc, roots=roots)
     if isinstance(exc, AsrProviderRouterError):
         if exc.code == "ASR_PROVIDER_UNAVAILABLE":
             return HeadlessAsrConflictError("ASR provider unavailable", code=exc.code)
@@ -245,12 +271,13 @@ def _public_operation(
     provider: str,
     model: str,
     detail: object,
+    roots: Iterable[Path] = (),
 ) -> dict[str, Any]:
     return {
         "success": bool(success),
         "provider": provider,
         "model": model,
-        "detail": str(detail or "")[:1200],
+        "detail": _safe_detail(detail, roots=roots),
     }
 
 
@@ -273,12 +300,24 @@ class HeadlessAsrApi:
             state_dir=state_dir,
         )
 
+    @property
+    def _roots(self) -> tuple[Path, ...]:
+        return (
+            self.context.program_path,
+            self.context.data_path,
+            self.context.state_path,
+            self.context.downloads_path,
+        )
+
+    def _error(self, exc: Exception) -> HeadlessAsrApiError:
+        return _translate_error(exc, roots=self._roots)
+
     # Provider / recommendation ---------------------------------------
     def providers(self) -> dict[str, Any]:
         try:
             rows = list_asr_providers(self.context)
         except Exception as exc:
-            raise _translate_error(exc) from exc
+            raise self._error(exc) from exc
         return {"providers": rows, "count": len(rows)}
 
     def recommend(self, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -291,7 +330,7 @@ class HeadlessAsrApi:
                 preferred_provider=_clean_provider(raw.get("provider", AUTO), allow_auto=True),
             )
         except Exception as exc:
-            raise _translate_error(exc) from exc
+            raise self._error(exc) from exc
         return {"recommendation": recommendation.public_payload()}
 
     # Preferences ------------------------------------------------------
@@ -299,7 +338,7 @@ class HeadlessAsrApi:
         try:
             return asr_preferences_status(self.context, _public_hardware(hardware))
         except Exception as exc:
-            raise _translate_error(exc) from exc
+            raise self._error(exc) from exc
 
     def save_preferences(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         try:
@@ -319,7 +358,7 @@ class HeadlessAsrApi:
                 preferred_provider=settings.provider,
             )
         except Exception as exc:
-            raise _translate_error(exc) from exc
+            raise self._error(exc) from exc
         return {
             "settings": settings.public_payload(),
             "recommendation": recommendation.public_payload(),
@@ -330,7 +369,7 @@ class HeadlessAsrApi:
         try:
             settings = reset_asr_preferences(self.context)
         except Exception as exc:
-            raise _translate_error(exc) from exc
+            raise self._error(exc) from exc
         return {
             "settings": settings.public_payload(),
             "modelDownloadAutomatic": False,
@@ -339,10 +378,7 @@ class HeadlessAsrApi:
     # Models -----------------------------------------------------------
     def models(self, provider_id: object = "") -> dict[str, Any]:
         requested = str(provider_id or "").strip().lower()
-        if requested:
-            providers = [_clean_provider(requested)]
-        else:
-            providers = list(ASR_PROVIDERS)
+        providers = [_clean_provider(requested)] if requested else list(ASR_PROVIDERS)
         rows: list[dict[str, Any]] = []
         try:
             if WHISPER in providers:
@@ -350,7 +386,7 @@ class HeadlessAsrApi:
             if FASTER_WHISPER in providers:
                 rows.extend(_public_faster_models(faster_whisper_status(self.context)))
         except Exception as exc:
-            raise _translate_error(exc) from exc
+            raise self._error(exc) from exc
         return {"models": rows, "count": len(rows)}
 
     def install_model(
@@ -365,16 +401,13 @@ class HeadlessAsrApi:
         timeout = _bounded_int(raw.get("timeoutSeconds"), 3600, 60, 7200)
         try:
             if provider == WHISPER:
-                operation = install_whisper_model(
-                    self.context,
-                    model,
-                    timeout_seconds=timeout,
-                )
+                operation = install_whisper_model(self.context, model, timeout_seconds=timeout)
                 rendered = _public_operation(
                     success=operation.success,
                     provider=provider,
                     model=model,
                     detail=operation.detail,
+                    roots=self._roots,
                 )
             else:
                 success, detail = install_faster_whisper_model(
@@ -387,9 +420,10 @@ class HeadlessAsrApi:
                     provider=provider,
                     model=model,
                     detail=detail,
+                    roots=self._roots,
                 )
         except Exception as exc:
-            raise _translate_error(exc) from exc
+            raise self._error(exc) from exc
         return {"operation": rendered}
 
     def remove_model(self, provider_id: object, model_id: object) -> dict[str, Any]:
@@ -403,6 +437,7 @@ class HeadlessAsrApi:
                     provider=provider,
                     model=model,
                     detail=operation.detail,
+                    roots=self._roots,
                 )
             else:
                 success, detail = remove_faster_whisper_model(self.context, model)
@@ -411,9 +446,10 @@ class HeadlessAsrApi:
                     provider=provider,
                     model=model,
                     detail=detail,
+                    roots=self._roots,
                 )
         except Exception as exc:
-            raise _translate_error(exc) from exc
+            raise self._error(exc) from exc
         return {"operation": rendered}
 
     # Transcription ----------------------------------------------------
@@ -438,7 +474,6 @@ class HeadlessAsrApi:
             )
             effective_provider = recommendation.provider if provider == AUTO else provider
             effective_model = model or recommendation.model
-
             artifact = transcribe_with_provider(
                 self.context,
                 media_id,
@@ -452,7 +487,7 @@ class HeadlessAsrApi:
                 timeout_seconds=timeout,
             )
         except Exception as exc:
-            raise _translate_error(exc) from exc
+            raise self._error(exc) from exc
 
         # Deliberately omit artifact.path. Consumers retrieve the generated SRT
         # through the existing Headless Transcript API using mediaId.
