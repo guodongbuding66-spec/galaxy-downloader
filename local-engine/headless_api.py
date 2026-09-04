@@ -64,7 +64,8 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self._transfer_closed = False
         try:
             asr = asr_api or HeadlessAsrApi(runtime.download_root)
-            whisperx = whisperx_api or HeadlessWhisperXApi(runtime.download_root, context=asr.context)
+            shared_asr_context = getattr(asr, "context", None)
+            whisperx = whisperx_api or HeadlessWhisperXApi(runtime.download_root, context=shared_asr_context)
             plugins = plugin_api or HeadlessPluginApi(runtime.download_root)
             transfer = transfer_api or HeadlessTransferApi(runtime.download_root)
             self.runtime = runtime
