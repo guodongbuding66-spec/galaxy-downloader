@@ -10,6 +10,8 @@ from headless_plugin_api import HeadlessPluginApi
 from headless_plugin_http import HeadlessPluginHttpMixin
 from headless_transfer_api import HeadlessTransferApi
 from headless_transfer_http import HeadlessTransferHttpMixin
+from headless_whisperx_api import HeadlessWhisperXApi
+from headless_whisperx_http import HeadlessWhisperXHttpMixin
 
 # Publish the legacy handler before importing headless_ai_http. That module
 # imports GalaxyApiRequestHandler from headless_api, so exposing this alias
@@ -22,10 +24,11 @@ from headless_ai_http import AiGalaxyApiRequestHandler, AiGalaxyApiServer  # noq
 class GalaxyApiRequestHandler(
     HeadlessTransferHttpMixin,
     HeadlessPluginHttpMixin,
+    HeadlessWhisperXHttpMixin,
     HeadlessAsrHttpMixin,
     AiGalaxyApiRequestHandler,
 ):
-    """Production request chain: Transfer -> Plugins -> ASR -> AI -> Galaxy."""
+    """Production request chain: Transfer -> Plugins -> WhisperX -> ASR -> AI -> Galaxy."""
 
 
 class GalaxyApiServer(ThreadingHTTPServer):
@@ -48,6 +51,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         music_api=None,
         ai_api: HeadlessAiApi | None = None,
         asr_api: HeadlessAsrApi | None = None,
+        whisperx_api: HeadlessWhisperXApi | None = None,
         plugin_api: HeadlessPluginApi | None = None,
         transfer_api: HeadlessTransferApi | None = None,
     ) -> None:
@@ -60,6 +64,8 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self._transfer_closed = False
         try:
             asr = asr_api or HeadlessAsrApi(runtime.download_root)
+            shared_asr_context = getattr(asr, "context", None)
+            whisperx = whisperx_api or HeadlessWhisperXApi(runtime.download_root, context=shared_asr_context)
             plugins = plugin_api or HeadlessPluginApi(runtime.download_root)
             transfer = transfer_api or HeadlessTransferApi(runtime.download_root)
             self.runtime = runtime
@@ -73,6 +79,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
             self.music_api = music_api
             self.ai_api = ai
             self.asr_api = asr
+            self.whisperx_api = whisperx
             self.plugin_api = plugins
             self.transfer_api = transfer
             super().__init__(address, GalaxyApiRequestHandler)
@@ -96,8 +103,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
 
 
 # The legacy run_server/main functions resolve GalaxyApiServer at call time.
-# Patching only these extension points preserves the established startup path
-# while enabling /v1/transfers/*, /v1/plugins/*, /v1/ai/* and /v1/asr/*.
+# Patching only these extension points preserves the established startup path.
 _base.GalaxyApiRequestHandler = GalaxyApiRequestHandler
 _base.GalaxyApiServer = GalaxyApiServer
 
