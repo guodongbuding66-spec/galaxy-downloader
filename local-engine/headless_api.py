@@ -5,12 +5,6 @@ from urllib.parse import urlsplit
 import headless_api_base as _base
 from headless_ai_api import HeadlessAiApi
 from headless_ai_http import handle_ai_get, handle_ai_post
-from headless_api_base import *  # noqa: F403 - preserve the existing composite API surface
-
-# Preserve helpers that star-import intentionally omits because they are private.
-_first_query_value = _base._first_query_value
-_path_parts = _base._path_parts
-_optional_bool = _base._optional_bool
 
 _BaseGalaxyApiRequestHandler = _base.GalaxyApiRequestHandler
 _BaseGalaxyApiServer = _base.GalaxyApiServer
@@ -19,10 +13,9 @@ _BaseGalaxyApiServer = _base.GalaxyApiServer
 class GalaxyApiRequestHandler(_BaseGalaxyApiRequestHandler):
     """Thin compatibility layer that adds `/v1/ai/*` before legacy routing.
 
-    Every non-AI request is delegated byte-for-byte to the previous composite
-    handler stored in `headless_api_base.py`. Keeping the extension here avoids
-    another large monolithic routing block and makes the AI surface independently
-    reversible.
+    Every non-AI request is delegated to the unchanged handler stored in
+    `headless_api_base.py`. Keeping the extension here avoids another large
+    monolithic routing block and makes the AI surface independently reversible.
     """
 
     def do_GET(self) -> None:  # noqa: N802
@@ -89,6 +82,12 @@ _base.GalaxyApiServer = GalaxyApiServer
 
 run_server = _base.run_server
 main = _base.main
+
+
+def __getattr__(name: str):
+    """Forward legacy module attributes without wildcard namespace pollution."""
+
+    return getattr(_base, name)
 
 
 if __name__ == "__main__":
