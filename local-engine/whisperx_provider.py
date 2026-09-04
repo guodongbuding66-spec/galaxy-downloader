@@ -106,6 +106,9 @@ def _clean_model(value: object) -> str:
     clean = str(value or DEFAULT_DIARIZATION_MODEL).strip()
     if not MODEL_RE.fullmatch(clean):
         raise WhisperXError("WhisperX diarization 模型名称无效")
+    namespace, name = clean.split("/", 1)
+    if namespace in {".", ".."} or name in {".", ".."} or namespace.startswith(".") or name.startswith("."):
+        raise WhisperXError("WhisperX diarization 模型名称无效")
     return clean
 
 
@@ -208,8 +211,9 @@ def _load_manifest(engine_module) -> dict[str, Any] | None:
         return None
     if not isinstance(data, dict) or data.get("provider") != PROVIDER_ID:
         return None
-    model = str(data.get("model") or "")
-    if not MODEL_RE.fullmatch(model):
+    try:
+        _clean_model(data.get("model"))
+    except WhisperXError:
         return None
     cache = cache_root(engine_module)
     try:
