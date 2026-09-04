@@ -1,0 +1,66 @@
+name: Media Cleanup Workbench V2
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/media_cleanup.py'
+      - 'local-engine/media_cleanup_inpainting.py'
+      - 'local-engine/media_cleanup_tracking.py'
+      - 'local-engine/media_cleanup_comparison.py'
+      - 'local-engine/media_cleanup_workbench.py'
+      - 'local-engine/media_cleanup_workbench_v2.py'
+      - 'local-engine/entrypoint.py'
+      - 'scripts/test-local-media-cleanup-workbench-v2.py'
+      - 'scripts/test-local-media-cleanup-workbench-v2-entrypoint.py'
+      - 'scripts/test-local-media-cleanup-workbench-v2-contract.py'
+      - '.github/workflows/media-cleanup-workbench-v2.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/media_cleanup.py'
+      - 'local-engine/media_cleanup_inpainting.py'
+      - 'local-engine/media_cleanup_tracking.py'
+      - 'local-engine/media_cleanup_comparison.py'
+      - 'local-engine/media_cleanup_workbench.py'
+      - 'local-engine/media_cleanup_workbench_v2.py'
+      - 'local-engine/entrypoint.py'
+      - 'scripts/test-local-media-cleanup-workbench-v2.py'
+      - 'scripts/test-local-media-cleanup-workbench-v2-entrypoint.py'
+      - 'scripts/test-local-media-cleanup-workbench-v2-contract.py'
+      - '.github/workflows/media-cleanup-workbench-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  workbench-v2:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r local-engine/requirements.txt
+      - run: >-
+          python -m py_compile
+          local-engine/media_cleanup.py
+          local-engine/media_cleanup_inpainting.py
+          local-engine/media_cleanup_tracking.py
+          local-engine/media_cleanup_comparison.py
+          local-engine/media_cleanup_workbench.py
+          local-engine/media_cleanup_workbench_v2.py
+          local-engine/entrypoint.py
+          scripts/test-local-media-cleanup-workbench-v2.py
+          scripts/test-local-media-cleanup-workbench-v2-entrypoint.py
+          scripts/test-local-media-cleanup-workbench-v2-contract.py
+      - run: python scripts/test-local-media-cleanup-workbench-v2.py
+      - run: python scripts/test-local-media-cleanup-workbench-v2-entrypoint.py
+      - run: python scripts/test-local-media-cleanup-workbench-v2-contract.py

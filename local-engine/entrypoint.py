@@ -57,6 +57,10 @@ from media_cleanup_workbench import (
     media_cleanup_active,
     run_media_cleanup_workbench_self_test,
 )
+from media_cleanup_workbench_v2 import (
+    install_media_cleanup_workbench_v2_patch,
+    run_media_cleanup_workbench_v2_self_test,
+)
 from media_policy import install_media_policy
 from pause_resume_policy import install_pause_resume_policy, run_pause_resume_self_test
 from resume_bridge import PauseResumeLocalBridge, install_resume_bridge, run_resume_bridge_self_test
@@ -194,6 +198,7 @@ install_desktop_learning(engine)
 install_desktop_music(engine)
 install_desktop_marketplace(engine)
 install_desktop_transfers(engine)
+install_media_cleanup_workbench_v2_patch()
 install_media_cleanup_workbench(engine)
 install_recovery_display(engine)
 install_task_center(engine)
@@ -344,6 +349,7 @@ def _run_image_self_test() -> None:
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
     run_media_cleanup_self_test()
     run_media_cleanup_workbench_self_test()
+    run_media_cleanup_workbench_v2_self_test()
     run_batch_input_self_test()
     run_batch_identity_self_test(engine)
     run_batch_submission_self_test()
