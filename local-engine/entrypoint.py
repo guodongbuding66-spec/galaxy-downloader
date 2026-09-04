@@ -13,15 +13,22 @@ from batch_input import run_batch_input_self_test
 from batch_submission import run_batch_submission_self_test
 from bridge_submission_policy import StructuredLocalBridge
 from desktop_ai import install_desktop_ai, run_desktop_ai_self_test
+from desktop_asr import install_desktop_asr, run_desktop_asr_self_test
 from desktop_download_workbench import (
     install_desktop_download_workbench,
     run_desktop_download_workbench_self_test,
 )
 from desktop_extras import install_desktop_extras
+from desktop_learning import install_desktop_learning, run_desktop_learning_self_test
 from desktop_manager import install_desktop_manager
+from desktop_marketplace import install_desktop_marketplace, run_desktop_marketplace_self_test
+from desktop_music import install_desktop_music, run_desktop_music_self_test
+from desktop_platform_features import install_desktop_platform_features, run_desktop_platform_features_self_test
 from desktop_quick_download import install_desktop_quick_download, run_desktop_quick_download_self_test
+from desktop_reader import install_desktop_reader, run_desktop_reader_self_test
 from desktop_runtime import install_desktop_runtime
 from desktop_tools import install_desktop_tools
+from desktop_transfers import install_desktop_transfers, run_desktop_transfers_self_test
 from desktop_ui import install_desktop_ui
 from document_policy import (
     install_document_policy,
@@ -176,7 +183,17 @@ install_desktop_extras(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
 install_desktop_tools(engine)
+# Platform integrations are installed before the higher-level workspaces so
+# media-library/subscription state, bandwidth controls, clipboard, tray and the
+# global hotkey are available to every advanced surface.
+install_desktop_platform_features(engine)
 install_desktop_ai(engine)
+install_desktop_asr(engine)
+install_desktop_reader(engine)
+install_desktop_learning(engine)
+install_desktop_music(engine)
+install_desktop_marketplace(engine)
+install_desktop_transfers(engine)
 install_media_cleanup_workbench(engine)
 install_recovery_display(engine)
 install_task_center(engine)
@@ -296,6 +313,13 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_tools_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_ai_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_asr_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_reader_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_learning_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_music_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_marketplace_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_transfers_installed", False) is True
+    assert getattr(engine, "_galaxy_desktop_platform_features_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_media_cleanup_workbench_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_task_center_installed", False) is True
@@ -339,7 +363,14 @@ def _run_image_self_test() -> None:
     run_exact_format_policy_self_test()
     run_desktop_quick_download_self_test()
     run_desktop_download_workbench_self_test()
+    run_desktop_platform_features_self_test()
     run_desktop_ai_self_test()
+    run_desktop_asr_self_test()
+    run_desktop_reader_self_test()
+    run_desktop_learning_self_test()
+    run_desktop_music_self_test()
+    run_desktop_marketplace_self_test()
+    run_desktop_transfers_self_test()
     run_task_center_self_test()
 
 
