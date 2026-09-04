@@ -14,8 +14,9 @@ LOCAL_ENGINE = ROOT / "local-engine"
 if str(LOCAL_ENGINE) not in sys.path:
     sys.path.insert(0, str(LOCAL_ENGINE))
 
+import headless_api_base as headless_api_base_module  # noqa: E402
 from headless_ai_api import HeadlessAiApi, HeadlessAiContext  # noqa: E402
-from headless_ai_http import AiGalaxyApiServer  # noqa: E402
+from headless_api import GalaxyApiServer  # noqa: E402
 from headless_media_api import HeadlessMediaApi, HeadlessMediaContext  # noqa: E402
 from headless_service import HeadlessRuntime  # noqa: E402
 
@@ -101,6 +102,11 @@ def _assert_public(payload: dict, *, roots: tuple[Path, ...], secret: str) -> No
 
 
 def run() -> None:
+    # The production module patches the legacy run_server extension point.
+    # This catches regressions where /v1/ai/* exists only in the standalone
+    # AiGalaxyApiServer test harness but is missing from the real entrypoint.
+    assert headless_api_base_module.GalaxyApiServer is GalaxyApiServer
+
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         program = root / "program"
@@ -121,7 +127,7 @@ def run() -> None:
 
         previous = os.environ.get("HTTP_AI_KEY")
         os.environ["HTTP_AI_KEY"] = secret
-        server = AiGalaxyApiServer(
+        server = GalaxyApiServer(
             ("127.0.0.1", 0),
             runtime,
             token,
@@ -129,6 +135,8 @@ def run() -> None:
             media_api,
             ai_api=ai_api,
         )
+        assert server.ai_api is ai_api
+        assert server._owns_ai_api is False
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -286,4 +294,4 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-    print("Headless AI HTTP self-test passed")
+    print("Headless AI production HTTP self-test passed")
