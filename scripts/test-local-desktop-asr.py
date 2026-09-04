@@ -32,25 +32,21 @@ def run_test() -> None:
     install_desktop_asr(FakeEngine)
     assert registered_after_build_ui_hooks(FakeWindow).count("desktop-asr") == 1
 
-    # The Desktop workspace must construct the Parakeet-capable adapter without
-    # touching the real filesystem during this contract test.
-    original_api = desktop_asr.ParakeetHeadlessAsrApi
+    original_api = desktop_asr.Qwen3HeadlessAsrApi
     calls: list[Path] = []
 
-    class FakeParakeetApi:
+    class FakeQwen3Api:
         def __init__(self, download_root: Path) -> None:
             calls.append(Path(download_root))
 
-    desktop_asr.ParakeetHeadlessAsrApi = FakeParakeetApi
+    desktop_asr.Qwen3HeadlessAsrApi = FakeQwen3Api
     try:
         instance = desktop_asr._api(FakeEngine)
-        assert isinstance(instance, FakeParakeetApi)
+        assert isinstance(instance, FakeQwen3Api)
         assert calls == [Path("/managed-downloads")]
     finally:
-        desktop_asr.ParakeetHeadlessAsrApi = original_api
+        desktop_asr.Qwen3HeadlessAsrApi = original_api
 
-    # SenseVoice keeps MPS while Parakeet is CPU/CUDA-only; only the legacy
-    # faster-whisper route exposes its compute selector.
     devices, device, compute, enabled = desktop_asr._provider_controls(
         "sensevoice", "mps", "int8"
     )
@@ -70,6 +66,22 @@ def run_test() -> None:
     language, locked = desktop_asr._provider_language("parakeet", "en")
     assert language == "auto"
     assert locked is True
+
+    devices, device, compute, enabled = desktop_asr._provider_controls(
+        "qwen3-asr", "mps", "float16"
+    )
+    assert devices == desktop_asr._QWEN3_DEVICES
+    assert device == "auto"
+    assert compute == "default"
+    assert enabled is False
+
+    language, locked = desktop_asr._provider_language("qwen3-asr", "zh")
+    assert language == "zh"
+    assert locked is False
+
+    language, locked = desktop_asr._provider_language("qwen3-asr", "auto")
+    assert language == "auto"
+    assert locked is False
 
     language, locked = desktop_asr._provider_language("faster-whisper", "auto")
     assert language == ""
