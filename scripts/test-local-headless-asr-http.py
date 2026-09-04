@@ -122,8 +122,15 @@ class FakeAsrApi:
         }
 
 
-class CombinedHandler(HeadlessAsrHttpMixin, GalaxyApiRequestHandler):
-    pass
+# Before production wiring the public handler does not include the ASR mixin,
+# so this contract composes it explicitly. After production wiring the handler
+# already inherits the mixin; reusing it directly avoids an invalid duplicate
+# MRO while exercising exactly the same HTTP contract in both lifecycle stages.
+if issubclass(GalaxyApiRequestHandler, HeadlessAsrHttpMixin):
+    CombinedHandler = GalaxyApiRequestHandler
+else:
+    class CombinedHandler(HeadlessAsrHttpMixin, GalaxyApiRequestHandler):
+        pass
 
 
 class TestServer(ThreadingHTTPServer):
