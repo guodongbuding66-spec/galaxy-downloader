@@ -33,7 +33,8 @@ def _guard(handler) -> bool:
 
 
 def _error(handler, exc: HeadlessAiApiError) -> None:
-    handler._json(exc.status, {"ok": False, "error": _safe_detail(exc), "code": exc.code})
+    detail = "raw AI credentials are not accepted" if exc.code == "AI_RAW_CREDENTIAL_REJECTED" else _safe_detail(exc)
+    handler._json(exc.status, {"ok": False, "error": detail, "code": exc.code})
 
 
 def handle_ai_get(handler, parsed) -> bool:
