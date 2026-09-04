@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { fetchDailymotionHlsResource } from '@/lib/dailymotion-hls';
+
 const USER_AGENT =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36';
 
@@ -347,25 +349,18 @@ async function handleDailymotionHls(request: NextRequest, headOnly: boolean) {
         if (!target) return failure('Dailymotion HLS stream not available', 502);
     }
 
-    const upstreamHeaders = new Headers({
-        Accept: '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'User-Agent': USER_AGENT,
-        Referer: 'https://www.dailymotion.com/',
-    });
     const range = request.headers.get('range');
-    if (range && !target.pathname.toLowerCase().endsWith('.m3u8')) upstreamHeaders.set('Range', range);
-
     let upstream: Response;
     try {
-        upstream = await fetch(target.toString(), {
-            method: 'GET',
-            headers: upstreamHeaders,
-            redirect: 'follow',
-            cache: 'no-store',
+        upstream = await fetchDailymotionHlsResource({
+            id,
+            target,
+            range,
+            userAgent: USER_AGENT,
         });
-    } catch {
-        return failure('Unable to fetch Dailymotion HLS resource', 502);
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Unable to fetch Dailymotion HLS resource';
+        return failure(detail, 502);
     }
 
     if (!upstream.ok || !upstream.body) {
