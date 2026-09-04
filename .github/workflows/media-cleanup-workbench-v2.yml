@@ -12,6 +12,7 @@ on:
       - 'local-engine/media_cleanup_workbench_v2.py'
       - 'local-engine/entrypoint.py'
       - 'scripts/test-local-media-cleanup-workbench-v2.py'
+      - 'scripts/test-local-media-cleanup-workbench-v2-entrypoint.py'
       - '.github/workflows/media-cleanup-workbench-v2.yml'
   push:
     branches:
@@ -25,6 +26,7 @@ on:
       - 'local-engine/media_cleanup_workbench_v2.py'
       - 'local-engine/entrypoint.py'
       - 'scripts/test-local-media-cleanup-workbench-v2.py'
+      - 'scripts/test-local-media-cleanup-workbench-v2-entrypoint.py'
       - '.github/workflows/media-cleanup-workbench-v2.yml'
 
 permissions:
@@ -55,4 +57,6 @@ jobs:
           local-engine/media_cleanup_workbench_v2.py
           local-engine/entrypoint.py
           scripts/test-local-media-cleanup-workbench-v2.py
+          scripts/test-local-media-cleanup-workbench-v2-entrypoint.py
       - run: python scripts/test-local-media-cleanup-workbench-v2.py
+      - run: python scripts/test-local-media-cleanup-workbench-v2-entrypoint.py
