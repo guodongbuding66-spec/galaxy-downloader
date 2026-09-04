@@ -176,7 +176,7 @@ def run() -> None:
         owned_asr = FakeAsrApi()
         with (
             patch.object(production, "HeadlessAiApi", return_value=owned_ai),
-            patch.object(production, "HeadlessAsrApi", return_value=owned_asr),
+            patch.object(production, "SenseVoiceHeadlessAsrApi", return_value=owned_asr),
         ):
             server = GalaxyApiServer(
                 ("127.0.0.1", 0),
