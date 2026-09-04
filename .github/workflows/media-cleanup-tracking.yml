@@ -1,0 +1,46 @@
+name: Media Cleanup Temporal Tracking
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/media_cleanup.py'
+      - 'local-engine/media_cleanup_suggestions.py'
+      - 'local-engine/media_cleanup_tracking.py'
+      - 'scripts/test-local-media-cleanup-tracking.py'
+      - '.github/workflows/media-cleanup-tracking.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/media_cleanup.py'
+      - 'local-engine/media_cleanup_suggestions.py'
+      - 'local-engine/media_cleanup_tracking.py'
+      - 'scripts/test-local-media-cleanup-tracking.py'
+      - '.github/workflows/media-cleanup-tracking.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  tracking:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r local-engine/requirements.txt
+      - run: >-
+          python -m py_compile
+          local-engine/media_cleanup.py
+          local-engine/media_cleanup_suggestions.py
+          local-engine/media_cleanup_tracking.py
+          scripts/test-local-media-cleanup-tracking.py
+      - run: python scripts/test-local-media-cleanup-tracking.py
