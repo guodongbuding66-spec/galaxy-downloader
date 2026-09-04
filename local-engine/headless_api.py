@@ -54,6 +54,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         ai = ai_api or HeadlessAiApi(runtime.download_root)
         self._owns_ai_api = ai_api is None
         self._ai_closed = False
+        self._owns_asr_api = asr_api is None
         transfer: HeadlessTransferApi | None = None
         self._owns_transfer_api = transfer_api is None
         self._transfer_closed = False
