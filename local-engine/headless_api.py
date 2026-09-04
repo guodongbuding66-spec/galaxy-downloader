@@ -9,6 +9,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from headless_learning_api import HeadlessLearningApi, HeadlessLearningApiError
 from headless_media_api import HeadlessMediaApi, HeadlessMediaApiError
 from headless_reader_api import HeadlessReaderApi, HeadlessReaderApiError
 from headless_service import (
@@ -66,6 +67,10 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
     def reader_api(self) -> HeadlessReaderApi | None:
         return self.server.reader_api  # type: ignore[attr-defined]
 
+    @property
+    def learning_api(self) -> HeadlessLearningApi | None:
+        return self.server.learning_api  # type: ignore[attr-defined]
+
     def _transcript_unavailable(self) -> bool:
         if self.transcript_api is not None:
             return False
@@ -82,6 +87,12 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
         if self.reader_api is not None:
             return False
         self._json(503, {"ok": False, "error": "reader api is unavailable"})
+        return True
+
+    def _learning_unavailable(self) -> bool:
+        if self.learning_api is not None:
+            return False
+        self._json(503, {"ok": False, "error": "learning api is unavailable"})
         return True
 
     def _transcript_error(self, exc: Exception) -> None:
@@ -104,9 +115,71 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
         status = 404 if detail in {"book not found", "bookmark not found", "annotation not found"} else 400
         self._json(status, {"ok": False, "error": detail})
 
+    def _learning_error(self, exc: HeadlessLearningApiError) -> None:
+        payload = {"ok": False, "error": _safe_detail(exc), "code": exc.code}
+        self._json(exc.status, payload)
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         path = parsed.path
+        if path.startswith("/v1/learning"):
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "unauthorized"})
+                return
+            if self._learning_unavailable():
+                return
+            try:
+                parts = _path_parts(path)
+                values = parse_qs(parsed.query, keep_blank_values=False, max_num_fields=20)
+                if parts == ["v1", "learning", "courses"]:
+                    result = self.learning_api.courses(  # type: ignore[union-attr]
+                        limit=_first_query_value(values, "limit") or 100,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 4 and parts[:3] == ["v1", "learning", "courses"]:
+                    result = self.learning_api.course_detail(  # type: ignore[union-attr]
+                        parts[3],
+                        item_limit=_first_query_value(values, "itemLimit", "limit") or 500,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 5 and parts[:3] == ["v1", "learning", "courses"] and parts[4] == "items":
+                    result = self.learning_api.items(  # type: ignore[union-attr]
+                        parts[3],
+                        limit=_first_query_value(values, "limit") or 500,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 5 and parts[:3] == ["v1", "learning", "items"] and parts[4] == "notes":
+                    result = self.learning_api.notes(  # type: ignore[union-attr]
+                        parts[3],
+                        limit=_first_query_value(values, "limit") or 1000,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "learning", "flashcards"]:
+                    due_only = _optional_bool(_first_query_value(values, "dueOnly", "due_only"))
+                    result = self.learning_api.flashcards(  # type: ignore[union-attr]
+                        course_id=_first_query_value(values, "courseId", "course_id"),
+                        due_only=False if due_only is None else due_only,
+                        limit=_first_query_value(values, "limit") or 500,
+                    )
+                    self._json(200, {"ok": True, **result})
+                    return
+                if len(parts) == 4 and parts[:3] == ["v1", "learning", "flashcards"]:
+                    result = self.learning_api.flashcard_detail(parts[3])  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                self._json(404, {"ok": False, "error": "not found"})
+            except HeadlessLearningApiError as exc:
+                self._learning_error(exc)
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": _safe_detail(exc)})
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": _safe_detail(exc)})
+            return
+
         if path.startswith("/v1/reader"):
             if not self._authorized():
                 self._json(401, {"ok": False, "error": "unauthorized"})
@@ -271,6 +344,79 @@ class GalaxyApiRequestHandler(HeadlessRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         path = parsed.path
+        if path.startswith("/v1/learning"):
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "unauthorized"})
+                return
+            if self._learning_unavailable():
+                return
+            try:
+                parts = _path_parts(path)
+                if parts == ["v1", "learning", "courses"]:
+                    result = self.learning_api.create_course(self._read_json())  # type: ignore[union-attr]
+                    self._json(201, {"ok": True, **result})
+                    return
+                if len(parts) == 5 and parts[:3] == ["v1", "learning", "courses"]:
+                    course_id = parts[3]
+                    action = parts[4]
+                    if action == "delete":
+                        result = self.learning_api.remove_course(course_id)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    payload = self._read_json()
+                    if action == "update":
+                        result = self.learning_api.update_course(course_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    if action == "items":
+                        result = self.learning_api.add_item(course_id, payload)  # type: ignore[union-attr]
+                        self._json(201, {"ok": True, **result})
+                        return
+                if len(parts) == 5 and parts[:3] == ["v1", "learning", "items"]:
+                    item_id = parts[3]
+                    action = parts[4]
+                    payload = self._read_json()
+                    if action == "progress":
+                        result = self.learning_api.set_progress(item_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    if action == "notes":
+                        result = self.learning_api.create_note(item_id, payload)  # type: ignore[union-attr]
+                        self._json(201, {"ok": True, **result})
+                        return
+                if len(parts) == 5 and parts[:3] == ["v1", "learning", "notes"] and parts[4] == "delete":
+                    result = self.learning_api.remove_note(parts[3])  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
+                if parts == ["v1", "learning", "flashcards"]:
+                    result = self.learning_api.create_flashcard(self._read_json())  # type: ignore[union-attr]
+                    self._json(201, {"ok": True, **result})
+                    return
+                if len(parts) == 5 and parts[:3] == ["v1", "learning", "flashcards"]:
+                    card_id = parts[3]
+                    action = parts[4]
+                    if action == "delete":
+                        result = self.learning_api.remove_flashcard(card_id)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    payload = self._read_json()
+                    if action == "update":
+                        result = self.learning_api.update_flashcard(card_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                    if action == "review":
+                        result = self.learning_api.review_flashcard(card_id, payload)  # type: ignore[union-attr]
+                        self._json(200, {"ok": True, **result})
+                        return
+                self._json(404, {"ok": False, "error": "not found"})
+            except HeadlessLearningApiError as exc:
+                self._learning_error(exc)
+            except HeadlessServiceError as exc:
+                self._json(400, {"ok": False, "error": _safe_detail(exc)})
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": _safe_detail(exc)})
+            return
+
         if path.startswith("/v1/reader/"):
             if not self._authorized():
                 self._json(401, {"ok": False, "error": "unauthorized"})
@@ -435,6 +581,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         transcript_api: HeadlessTranscriptApi | None = None,
         subscription_api: HeadlessSubscriptionApi | None = None,
         reader_api: HeadlessReaderApi | None = None,
+        learning_api: HeadlessLearningApi | None = None,
     ) -> None:
         self.runtime = runtime
         self.auth_token = auth_token
@@ -443,6 +590,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self.transcript_api = transcript_api
         self.subscription_api = subscription_api
         self.reader_api = reader_api
+        self.learning_api = learning_api
         super().__init__(address, GalaxyApiRequestHandler)
 
 
@@ -456,6 +604,7 @@ def run_server(
     transcript_api: HeadlessTranscriptApi | None = None,
     subscription_api: HeadlessSubscriptionApi | None = None,
     reader_api: HeadlessReaderApi | None = None,
+    learning_api: HeadlessLearningApi | None = None,
 ) -> int:
     clean_host = str(host or DEFAULT_HOST).strip()
     clean_port = _bounded_int(port, DEFAULT_PORT, 1, 65535)
@@ -468,6 +617,7 @@ def run_server(
     transcripts = transcript_api or HeadlessTranscriptApi(root)
     subscriptions = subscription_api or HeadlessSubscriptionApi()
     reader = reader_api or HeadlessReaderApi()
+    learning = learning_api or HeadlessLearningApi(root)
     server = GalaxyApiServer(
         (clean_host, clean_port),
         runtime,
@@ -477,6 +627,7 @@ def run_server(
         transcripts,
         subscriptions,
         reader,
+        learning,
     )
     stopping = threading.Event()
 
