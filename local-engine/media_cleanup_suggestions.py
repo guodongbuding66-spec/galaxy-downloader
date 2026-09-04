@@ -7,6 +7,10 @@ from pathlib import Path
 
 from media_cleanup import CleanupRegion, MediaCleanupError, MediaProbe
 
+TEMPORAL_SAMPLE_COUNT = 3
+TEMPORAL_MIN_DURATION_SECONDS = 2.0
+TEMPORAL_IOU_THRESHOLD = 0.30
+
 
 @dataclass(frozen=True)
 class GrayFrame:
@@ -47,12 +51,34 @@ def normalize_suggestion_profile(value: str | None) -> str:
     return _PROFILE_ALIASES.get(key, "auto")
 
 
-def build_gray_frame_command(ffmpeg_path: Path, source: Path, probe: MediaProbe) -> list[str]:
-    seek = 0.0
-    if probe.media_kind == "video" and probe.duration_seconds > 0:
-        seek = min(1.0, probe.duration_seconds / 2.0)
+def _default_seek_seconds(probe: MediaProbe) -> float:
+    if probe.media_kind != "video" or probe.duration_seconds <= 0:
+        return 0.0
+    return min(1.0, probe.duration_seconds / 2.0)
+
+
+def temporal_sample_times(probe: MediaProbe, *, sample_count: int = TEMPORAL_SAMPLE_COUNT) -> tuple[float, ...]:
+    """Return bounded interior sample times for static visible-overlay detection."""
+    if probe.media_kind != "video" or probe.duration_seconds < TEMPORAL_MIN_DURATION_SECONDS:
+        return (_default_seek_seconds(probe),)
+    count = max(2, min(int(sample_count), 5))
+    duration = max(0.0, float(probe.duration_seconds))
+    fractions = tuple((index + 1) / (count + 1) for index in range(count))
+    return tuple(round(max(0.0, min(duration - 0.05, duration * fraction)), 3) for fraction in fractions)
+
+
+def build_gray_frame_command(
+    ffmpeg_path: Path,
+    source: Path,
+    probe: MediaProbe,
+    *,
+    seek_seconds: float | None = None,
+) -> list[str]:
+    seek = _default_seek_seconds(probe) if seek_seconds is None else max(0.0, float(seek_seconds))
+    if probe.duration_seconds > 0:
+        seek = min(seek, max(0.0, probe.duration_seconds - 0.01))
     command = [str(ffmpeg_path), "-hide_banner", "-loglevel", "error", "-nostdin"]
-    if seek > 0:
+    if probe.media_kind == "video" and seek > 0:
         command.extend(["-ss", f"{seek:.3f}"])
     command.extend(
         [
@@ -76,8 +102,14 @@ def extract_gray_frame(
     probe: MediaProbe,
     *,
     timeout_seconds: float = 30.0,
+    seek_seconds: float | None = None,
 ) -> GrayFrame:
-    command = build_gray_frame_command(ffmpeg_path, source, probe)
+    command = build_gray_frame_command(
+        ffmpeg_path,
+        source,
+        probe,
+        seek_seconds=seek_seconds,
+    )
     try:
         completed = subprocess.run(
             command,
@@ -105,6 +137,92 @@ def extract_gray_frame(
     return GrayFrame(probe.width, probe.height, pixels).validate()
 
 
+def _region_iou(left: CleanupRegion, right: CleanupRegion) -> float:
+    ix1 = max(left.x, right.x)
+    iy1 = max(left.y, right.y)
+    ix2 = min(left.x + left.width, right.x + right.width)
+    iy2 = min(left.y + left.height, right.y + right.height)
+    intersection = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    if intersection <= 0:
+        return 0.0
+    union = left.width * left.height + right.width * right.height - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def merge_temporal_suggestions(
+    suggestions_by_frame: tuple[tuple[CleanupRegionSuggestion, ...], ...],
+    *,
+    frame_width: int,
+    frame_height: int,
+    profile: str,
+) -> tuple[CleanupRegionSuggestion, ...]:
+    """Require a stable visible region across video samples before suggesting it.
+
+    Profile-only fallbacks are deliberately excluded from consensus: they are
+    hints, not evidence that an overlay is actually present in multiple frames.
+    """
+    indexed_evidence: list[tuple[int, CleanupRegionSuggestion]] = [
+        (frame_index, suggestion)
+        for frame_index, group in enumerate(suggestions_by_frame)
+        for suggestion in group
+        if suggestion.source == "edge-analysis"
+    ]
+    if len(indexed_evidence) < 2:
+        return ()
+
+    best: list[tuple[int, CleanupRegionSuggestion]] = []
+    for candidate_frame, candidate in indexed_evidence:
+        cluster = [
+            (frame_index, other)
+            for frame_index, other in indexed_evidence
+            if frame_index == candidate_frame
+            or _region_iou(candidate.region, other.region) >= TEMPORAL_IOU_THRESHOLD
+        ]
+        distinct_frames = {frame_index for frame_index, _item in cluster}
+        best_frames = {frame_index for frame_index, _item in best}
+        if len(distinct_frames) > len(best_frames):
+            best = cluster
+    required = max(2, (len(suggestions_by_frame) + 1) // 2)
+    best_by_frame: dict[int, CleanupRegionSuggestion] = {}
+    for frame_index, suggestion in best:
+        current = best_by_frame.get(frame_index)
+        if current is None or suggestion.confidence > current.confidence:
+            best_by_frame[frame_index] = suggestion
+    stable = list(best_by_frame.values())
+    if len(stable) < required:
+        return ()
+
+    xs = sorted(item.region.x for item in stable)
+    ys = sorted(item.region.y for item in stable)
+    rights = sorted(item.region.x + item.region.width for item in stable)
+    bottoms = sorted(item.region.y + item.region.height for item in stable)
+    mid = len(stable) // 2
+    x1 = xs[mid]
+    y1 = ys[mid]
+    x2 = rights[mid]
+    y2 = bottoms[mid]
+    x1 = max(0, min(x1, frame_width - 2))
+    y1 = max(0, min(y1, frame_height - 2))
+    x2 = max(x1 + 2, min(x2, frame_width))
+    y2 = max(y1 + 2, min(y2, frame_height))
+    region = CleanupRegion(x1, y1, x2 - x1, y2 - y1).validate()
+    coverage = region.width * region.height / max(1, frame_width * frame_height)
+    if coverage > 0.22:
+        return ()
+
+    support = len(stable) / max(1, len(suggestions_by_frame))
+    confidence = statistics.mean(item.confidence for item in stable)
+    confidence = max(0.45, min(0.98, confidence * 0.75 + support * 0.25))
+    return (
+        CleanupRegionSuggestion(
+            region=region,
+            confidence=round(confidence, 3),
+            source="temporal-edge-analysis",
+            profile=profile,
+        ),
+    )
+
+
 def suggest_visible_overlay_for_media(
     ffmpeg_path: Path,
     source: Path,
@@ -113,13 +231,47 @@ def suggest_visible_overlay_for_media(
     provider_hint: str | None = None,
     timeout_seconds: float = 30.0,
 ) -> tuple[CleanupRegionSuggestion, ...]:
-    frame = extract_gray_frame(
-        ffmpeg_path,
-        source,
-        probe,
-        timeout_seconds=timeout_seconds,
+    profile = normalize_suggestion_profile(provider_hint)
+    sample_times = temporal_sample_times(probe)
+
+    if len(sample_times) == 1:
+        frame = extract_gray_frame(
+            ffmpeg_path,
+            source,
+            probe,
+            timeout_seconds=timeout_seconds,
+            seek_seconds=sample_times[0],
+        )
+        return suggest_visible_overlay_regions(frame, provider_hint=provider_hint)
+
+    per_sample_timeout = max(2.0, float(timeout_seconds) / len(sample_times))
+    groups: list[tuple[CleanupRegionSuggestion, ...]] = []
+    middle_frame: GrayFrame | None = None
+    for index, seek in enumerate(sample_times):
+        frame = extract_gray_frame(
+            ffmpeg_path,
+            source,
+            probe,
+            timeout_seconds=per_sample_timeout,
+            seek_seconds=seek,
+        )
+        if index == len(sample_times) // 2:
+            middle_frame = frame
+        groups.append(suggest_visible_overlay_regions(frame, provider_hint=None))
+
+    merged = merge_temporal_suggestions(
+        tuple(groups),
+        frame_width=probe.width,
+        frame_height=probe.height,
+        profile=profile,
     )
-    return suggest_visible_overlay_regions(frame, provider_hint=provider_hint)
+    if merged:
+        return merged
+
+    if profile != "auto" and middle_frame is not None:
+        fallback = _profile_fallback(middle_frame, profile)
+        return (fallback,) if fallback else ()
+    return ()
 
 
 def _zone_for_profile(width: int, height: int, profile: str) -> tuple[int, int, int, int]:
@@ -243,6 +395,20 @@ def run_media_cleanup_suggestions_self_test() -> None:
     assert suggestion.source == "edge-analysis"
     assert suggestion.region.x >= width // 2
     assert suggestion.region.y >= height // 2
+
+    temporal = merge_temporal_suggestions(
+        (
+            (CleanupRegionSuggestion(CleanupRegion(230, 138, 72, 26), 0.70, "edge-analysis", "auto"),),
+            (CleanupRegionSuggestion(CleanupRegion(232, 139, 70, 25), 0.74, "edge-analysis", "auto"),),
+            (CleanupRegionSuggestion(CleanupRegion(12, 12, 50, 20), 0.80, "edge-analysis", "auto"),),
+        ),
+        frame_width=width,
+        frame_height=height,
+        profile="auto",
+    )
+    assert temporal and temporal[0].source == "temporal-edge-analysis"
+    assert temporal[0].region.x >= width // 2
+
     fallback = suggest_visible_overlay_regions(
         GrayFrame(width, height, bytes([32] * (width * height))),
         provider_hint="doubao",
