@@ -1,0 +1,24 @@
+name: Desktop Music
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['local-engine/desktop_music.py','scripts/test-local-desktop-music.py','.github/workflows/desktop-music.yml']
+  push:
+    branches: [main]
+    paths: ['local-engine/desktop_music.py','scripts/test-local-desktop-music.py','.github/workflows/desktop-music.yml']
+permissions: {contents: read}
+jobs:
+  music:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - run: python -m pip install -r local-engine/requirements.txt
+      - run: python -m py_compile local-engine/desktop_music.py scripts/test-local-desktop-music.py
+      - run: python scripts/test-local-desktop-music.py
