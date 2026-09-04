@@ -1,0 +1,44 @@
+name: Desktop Product Suite
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/entrypoint.py'
+      - 'local-engine/desktop_ai.py'
+      - 'local-engine/desktop_asr.py'
+      - 'local-engine/desktop_reader.py'
+      - 'local-engine/desktop_learning.py'
+      - 'local-engine/desktop_music.py'
+      - 'local-engine/desktop_marketplace.py'
+      - 'local-engine/desktop_transfers.py'
+      - 'local-engine/desktop_platform_features.py'
+      - '.github/workflows/desktop-product-suite.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'local-engine/entrypoint.py'
+      - 'local-engine/desktop_ai.py'
+      - 'local-engine/desktop_asr.py'
+      - 'local-engine/desktop_reader.py'
+      - 'local-engine/desktop_learning.py'
+      - 'local-engine/desktop_music.py'
+      - 'local-engine/desktop_marketplace.py'
+      - 'local-engine/desktop_transfers.py'
+      - 'local-engine/desktop_platform_features.py'
+      - '.github/workflows/desktop-product-suite.yml'
+permissions: {contents: read}
+jobs:
+  suite:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - run: python -m pip install -r local-engine/requirements.txt
+      - run: python -m py_compile local-engine/entrypoint.py local-engine/desktop_ai.py local-engine/desktop_asr.py local-engine/desktop_reader.py local-engine/desktop_learning.py local-engine/desktop_music.py local-engine/desktop_marketplace.py local-engine/desktop_transfers.py local-engine/desktop_platform_features.py
+      - run: python local-engine/entrypoint.py --self-test
