@@ -1,0 +1,41 @@
+name: Headless WhisperX API
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'local-engine/headless_api.py'
+      - 'local-engine/headless_whisperx_api.py'
+      - 'local-engine/headless_whisperx_http.py'
+      - 'local-engine/whisperx_provider.py'
+      - 'scripts/test-local-headless-whisperx-api.py'
+      - '.github/workflows/headless-whisperx-api.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'local-engine/headless_api.py'
+      - 'local-engine/headless_whisperx_api.py'
+      - 'local-engine/headless_whisperx_http.py'
+      - 'local-engine/whisperx_provider.py'
+      - 'scripts/test-local-headless-whisperx-api.py'
+      - '.github/workflows/headless-whisperx-api.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r local-engine/requirements.txt
+      - run: python -m py_compile local-engine/headless_whisperx_api.py local-engine/headless_whisperx_http.py scripts/test-local-headless-whisperx-api.py
+      - run: python scripts/test-local-headless-whisperx-api.py
