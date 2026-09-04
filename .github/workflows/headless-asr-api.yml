@@ -1,0 +1,58 @@
+name: Headless ASR API
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/headless_asr_api.py'
+      - 'local-engine/asr_provider_router.py'
+      - 'local-engine/asr_preferences.py'
+      - 'local-engine/asr_model_manager.py'
+      - 'local-engine/faster_whisper_provider.py'
+      - 'local-engine/ai_models.py'
+      - 'scripts/test-local-headless-asr-api.py'
+      - '.github/workflows/headless-asr-api.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/headless_asr_api.py'
+      - 'local-engine/asr_provider_router.py'
+      - 'local-engine/asr_preferences.py'
+      - 'local-engine/asr_model_manager.py'
+      - 'local-engine/faster_whisper_provider.py'
+      - 'local-engine/ai_models.py'
+      - 'scripts/test-local-headless-asr-api.py'
+      - '.github/workflows/headless-asr-api.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install local engine requirements
+        run: python -m pip install -r local-engine/requirements.txt
+
+      - name: Compile Headless ASR contract
+        run: python -m py_compile local-engine/headless_asr_api.py scripts/test-local-headless-asr-api.py
+
+      - name: Run Headless ASR self-test
+        run: python scripts/test-local-headless-asr-api.py
