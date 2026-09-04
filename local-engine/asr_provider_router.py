@@ -26,7 +26,11 @@ WHISPER = "whisper"
 FASTER_WHISPER = "faster-whisper"
 SENSEVOICE = "sensevoice"
 AUTO = "auto"
-ASR_PROVIDERS = (WHISPER, FASTER_WHISPER, SENSEVOICE)
+# Compatibility boundary: Headless/model-management consumers currently import
+# ASR_PROVIDERS and only implement Whisper/faster-whisper install/delete flows.
+# Keep that public set stable until the dedicated SenseVoice Headless PR lands.
+ASR_PROVIDERS = (WHISPER, FASTER_WHISPER)
+ROUTABLE_ASR_PROVIDERS = (*ASR_PROVIDERS, SENSEVOICE)
 PROFILES = ("fast", "balanced", "accurate")
 
 
@@ -68,7 +72,7 @@ def _clean_profile(value: object) -> str:
 
 def _clean_provider(value: object, *, allow_auto: bool = True) -> str:
     provider = str(value or AUTO).strip().lower()
-    allowed = {AUTO, *ASR_PROVIDERS} if allow_auto else set(ASR_PROVIDERS)
+    allowed = {AUTO, *ROUTABLE_ASR_PROVIDERS} if allow_auto else set(ROUTABLE_ASR_PROVIDERS)
     if provider not in allowed:
         raise AsrProviderRouterError("ASR_PROVIDER_INVALID", "ASR Provider 无效")
     return provider
@@ -148,7 +152,12 @@ def _sensevoice_status(engine_module) -> dict[str, Any]:
 
 
 def list_asr_providers(engine_module) -> list[dict[str, Any]]:
-    """Return the stable public status for every supported local ASR runtime."""
+    """Return providers supported by current external management consumers."""
+    return [_whisper_status(engine_module), _faster_status(engine_module)]
+
+
+def list_routable_asr_providers(engine_module) -> list[dict[str, Any]]:
+    """Return every provider the unified router can explicitly dispatch."""
     return [
         _whisper_status(engine_module),
         _faster_status(engine_module),
@@ -157,7 +166,7 @@ def list_asr_providers(engine_module) -> list[dict[str, Any]]:
 
 
 def _status_map(engine_module) -> dict[str, dict[str, Any]]:
-    return {row["id"]: row for row in list_asr_providers(engine_module)}
+    return {row["id"]: row for row in list_routable_asr_providers(engine_module)}
 
 
 def recommend_asr_route(
@@ -342,13 +351,15 @@ def run_asr_provider_router_self_test() -> None:
             "asr_provider_router.recommend_whisper_model",
             return_value="small",
         ):
-            providers = list_asr_providers(Engine)
-            assert [item["id"] for item in providers] == [
+            managed = list_asr_providers(Engine)
+            assert [item["id"] for item in managed] == [WHISPER, FASTER_WHISPER]
+            routable = list_routable_asr_providers(Engine)
+            assert [item["id"] for item in routable] == [
                 WHISPER,
                 FASTER_WHISPER,
                 SENSEVOICE,
             ]
-            assert all(item["runtimeAvailable"] for item in providers)
+            assert all(item["runtimeAvailable"] for item in routable)
 
             automatic = recommend_asr_route(Engine, {"ramGb": 16}, profile="balanced")
             assert automatic.provider == FASTER_WHISPER
