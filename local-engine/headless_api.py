@@ -6,9 +6,9 @@ import headless_api_base as _base
 from headless_ai_api import HeadlessAiApi
 from headless_asr_api import HeadlessAsrApi
 from headless_asr_http import HeadlessAsrHttpMixin
+from headless_parakeet_asr_api import ParakeetHeadlessAsrApi
 from headless_plugin_api import HeadlessPluginApi
 from headless_plugin_http import HeadlessPluginHttpMixin
-from headless_sensevoice_asr_api import SenseVoiceHeadlessAsrApi
 from headless_transfer_api import HeadlessTransferApi
 from headless_transfer_http import HeadlessTransferHttpMixin
 from headless_whisperx_api import HeadlessWhisperXApi
@@ -64,7 +64,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self._owns_transfer_api = transfer_api is None
         self._transfer_closed = False
         try:
-            asr = asr_api or SenseVoiceHeadlessAsrApi(runtime.download_root)
+            asr = asr_api or ParakeetHeadlessAsrApi(runtime.download_root)
             shared_asr_context = getattr(asr, "context", None)
             whisperx = whisperx_api or HeadlessWhisperXApi(runtime.download_root, context=shared_asr_context)
             plugins = plugin_api or HeadlessPluginApi(runtime.download_root)
