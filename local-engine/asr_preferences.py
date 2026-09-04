@@ -11,6 +11,7 @@ from ai_models import WHISPER_MODELS
 from asr_provider_router import (
     AUTO,
     FASTER_WHISPER,
+    PARAKEET,
     PROFILES,
     SENSEVOICE,
     WHISPER,
@@ -18,12 +19,13 @@ from asr_provider_router import (
     recommend_asr_route,
     transcribe_with_provider,
 )
+from parakeet_provider import LANGUAGES as PARAKEET_LANGUAGES, MODELS as PARAKEET_MODELS
 from runtime_storage import state_dir as runtime_state_dir
 from sensevoice_provider import LANGUAGES as SENSEVOICE_LANGUAGES, MODELS as SENSEVOICE_MODELS
 
 SETTINGS_FILENAME = "asr-settings.json"
 SCHEMA_VERSION = 1
-PROVIDERS = (AUTO, WHISPER, FASTER_WHISPER, SENSEVOICE)
+PROVIDERS = (AUTO, WHISPER, FASTER_WHISPER, SENSEVOICE, PARAKEET)
 LANGUAGE_RE = re.compile(r"^[A-Za-z0-9_-]{0,32}$")
 DEVICE_RE = re.compile(r"^(?:|auto|cpu|mps|cuda(?::[0-9]{1,2})?)$")
 DEVICES = ("", "auto", "cpu", "cuda", "mps")
@@ -75,6 +77,8 @@ def _clean_model(value: object, *, provider: str) -> str:
         return ""
     if provider == SENSEVOICE:
         allowed = set(SENSEVOICE_MODELS)
+    elif provider == PARAKEET:
+        allowed = set(PARAKEET_MODELS)
     else:
         allowed = set(WHISPER_MODELS)
     if model not in allowed:
@@ -88,13 +92,20 @@ def _clean_language(value: object, *, provider: str) -> str:
         raise AsrPreferencesError("ASR 语言偏好无效")
     if provider == SENSEVOICE and language and language not in set(SENSEVOICE_LANGUAGES):
         raise AsrPreferencesError("SenseVoice 语言偏好无效")
+    if provider == PARAKEET:
+        normalized = language or "auto"
+        if normalized not in set(PARAKEET_LANGUAGES):
+            raise AsrPreferencesError("Parakeet 仅支持自动语言识别")
+        return normalized
     return language
 
 
-def _clean_device(value: object) -> str:
+def _clean_device(value: object, *, provider: str) -> str:
     device = str(value or "").strip().lower()
     if not DEVICE_RE.fullmatch(device):
         raise AsrPreferencesError("ASR Device 偏好无效")
+    if provider == PARAKEET and device == "mps":
+        raise AsrPreferencesError("Parakeet 不支持 MPS Device 偏好")
     return device
 
 
@@ -102,10 +113,11 @@ def _clean_compute_type(value: object, *, provider: str) -> str:
     compute = str(value or "").strip().lower()
     if compute not in COMPUTE_TYPES:
         raise AsrPreferencesError("ASR Compute Type 偏好无效")
-    if provider == SENSEVOICE:
+    if provider in {SENSEVOICE, PARAKEET}:
         if compute in {"", "default"}:
             return ""
-        raise AsrPreferencesError("SenseVoice 不支持 Compute Type 偏好")
+        label = "SenseVoice" if provider == SENSEVOICE else "Parakeet"
+        raise AsrPreferencesError(f"{label} 不支持 Compute Type 偏好")
     return compute
 
 
@@ -117,7 +129,7 @@ def _normalize(payload: dict[str, Any] | None) -> AsrPreferences:
         profile=_clean_profile(raw.get("profile", "balanced")),
         model=_clean_model(raw.get("model", ""), provider=provider),
         language=_clean_language(raw.get("language", ""), provider=provider),
-        device=_clean_device(raw.get("device", "")),
+        device=_clean_device(raw.get("device", ""), provider=provider),
         compute_type=_clean_compute_type(
             raw.get("computeType", raw.get("compute_type", "")),
             provider=provider,
@@ -327,6 +339,51 @@ def run_asr_preferences_self_test() -> None:
             assert kwargs["device"] == "mps"
             assert kwargs["compute_type"] == ""
 
+        parakeet = save_asr_preferences(
+            Engine,
+            provider=PARAKEET,
+            profile="balanced",
+            model="tdt-0.6b-v3",
+            language="",
+            device="cuda:0",
+            compute_type="default",
+        )
+        assert parakeet.provider == PARAKEET
+        assert parakeet.model == "tdt-0.6b-v3"
+        assert parakeet.language == "auto"
+        assert parakeet.device == "cuda:0"
+        assert parakeet.compute_type == ""
+        assert load_asr_preferences(Engine) == parakeet
+
+        parakeet_recommendation = AsrRouteRecommendation(
+            provider=PARAKEET,
+            model="tdt-0.6b-v3",
+            profile="balanced",
+            runtime_available=True,
+            model_installed=True,
+            device="cuda:0",
+            compute_type="",
+        )
+        with patch("asr_preferences.recommend_asr_route", return_value=parakeet_recommendation):
+            status = asr_preferences_status(Engine, {"gpuAvailable": True, "vramGb": 8})
+            assert status["settings"]["provider"] == PARAKEET
+            assert status["settings"]["language"] == "auto"
+            assert status["recommendation"]["provider"] == PARAKEET
+
+        with patch("asr_preferences.transcribe_with_provider", return_value=sentinel) as transcribe:
+            result = transcribe_with_preferences(
+                Engine,
+                "c" * 32,
+                hardware={"gpuAvailable": True, "vramGb": 8},
+            )
+            assert result is sentinel
+            kwargs = transcribe.call_args.kwargs
+            assert kwargs["provider"] == PARAKEET
+            assert kwargs["model"] == "tdt-0.6b-v3"
+            assert kwargs["language"] == "auto"
+            assert kwargs["device"] == "cuda:0"
+            assert kwargs["compute_type"] == ""
+
         try:
             save_asr_preferences(Engine, provider=SENSEVOICE, model="large-v3")
         except AsrPreferencesError:
@@ -352,6 +409,49 @@ def run_asr_preferences_self_test() -> None:
             pass
         else:
             raise AssertionError("SenseVoice accepted a faster-whisper compute preference")
+
+        try:
+            save_asr_preferences(Engine, provider=PARAKEET, model="small")
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("Parakeet accepted a Whisper-only model preference")
+
+        try:
+            save_asr_preferences(
+                Engine,
+                provider=PARAKEET,
+                model="tdt-0.6b-v3",
+                language="en",
+            )
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("Parakeet accepted a forced language preference")
+
+        try:
+            save_asr_preferences(
+                Engine,
+                provider=PARAKEET,
+                model="tdt-0.6b-v3",
+                device="mps",
+            )
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("Parakeet accepted an unsupported MPS preference")
+
+        try:
+            save_asr_preferences(
+                Engine,
+                provider=PARAKEET,
+                model="tdt-0.6b-v3",
+                compute_type="float16",
+            )
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("Parakeet accepted a faster-whisper compute preference")
 
         try:
             save_asr_preferences(Engine, provider="../bad")
