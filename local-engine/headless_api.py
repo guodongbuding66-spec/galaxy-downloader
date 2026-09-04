@@ -8,6 +8,8 @@ from headless_asr_api import HeadlessAsrApi
 from headless_asr_http import HeadlessAsrHttpMixin
 from headless_plugin_api import HeadlessPluginApi
 from headless_plugin_http import HeadlessPluginHttpMixin
+from headless_transfer_api import HeadlessTransferApi
+from headless_transfer_http import HeadlessTransferHttpMixin
 
 # Publish the legacy handler before importing headless_ai_http. That module
 # imports GalaxyApiRequestHandler from headless_api, so exposing this alias
@@ -18,20 +20,16 @@ from headless_ai_http import AiGalaxyApiRequestHandler, AiGalaxyApiServer  # noq
 
 
 class GalaxyApiRequestHandler(
+    HeadlessTransferHttpMixin,
     HeadlessPluginHttpMixin,
     HeadlessAsrHttpMixin,
     AiGalaxyApiRequestHandler,
 ):
-    """Production request chain: Plugins -> ASR -> AI -> existing workspaces."""
+    """Production request chain: Transfer -> Plugins -> ASR -> AI -> Galaxy."""
 
 
 class GalaxyApiServer(ThreadingHTTPServer):
-    """Production Galaxy server with Plugin, AI and ASR workspaces enabled.
-
-    Existing Media/Transcript/Subscription/Reader/Learning/Music routing stays
-    in `headless_api_base.py`. Plugin management, AI and ASR are layered on the
-    same listener so CLI, Docker/NAS, and direct embedders keep one API surface.
-    """
+    """Production Galaxy server with Transfer, Plugin, AI and ASR enabled."""
 
     daemon_threads = True
     allow_reuse_address = True
@@ -51,14 +49,19 @@ class GalaxyApiServer(ThreadingHTTPServer):
         ai_api: HeadlessAiApi | None = None,
         asr_api: HeadlessAsrApi | None = None,
         plugin_api: HeadlessPluginApi | None = None,
+        transfer_api: HeadlessTransferApi | None = None,
     ) -> None:
         ai = ai_api or HeadlessAiApi(runtime.download_root)
         self._owns_ai_api = ai_api is None
         self._ai_closed = False
         self._owns_asr_api = asr_api is None
+        transfer: HeadlessTransferApi | None = None
+        self._owns_transfer_api = transfer_api is None
+        self._transfer_closed = False
         try:
             asr = asr_api or HeadlessAsrApi(runtime.download_root)
             plugins = plugin_api or HeadlessPluginApi(runtime.download_root)
+            transfer = transfer_api or HeadlessTransferApi(runtime.download_root)
             self.runtime = runtime
             self.auth_token = auth_token
             self.bound_host = bound_host
@@ -71,8 +74,11 @@ class GalaxyApiServer(ThreadingHTTPServer):
             self.ai_api = ai
             self.asr_api = asr
             self.plugin_api = plugins
+            self.transfer_api = transfer
             super().__init__(address, GalaxyApiRequestHandler)
         except Exception:
+            if self._owns_transfer_api and transfer is not None:
+                transfer.shutdown()
             if self._owns_ai_api:
                 ai.shutdown()
             raise
@@ -81,6 +87,9 @@ class GalaxyApiServer(ThreadingHTTPServer):
         try:
             super().server_close()
         finally:
+            if self._owns_transfer_api and not self._transfer_closed:
+                self._transfer_closed = True
+                self.transfer_api.shutdown()
             if self._owns_ai_api and not self._ai_closed:
                 self._ai_closed = True
                 self.ai_api.shutdown()
@@ -88,7 +97,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
 
 # The legacy run_server/main functions resolve GalaxyApiServer at call time.
 # Patching only these extension points preserves the established startup path
-# while enabling /v1/plugins/*, /v1/ai/* and /v1/asr/* in production.
+# while enabling /v1/transfers/*, /v1/plugins/*, /v1/ai/* and /v1/asr/*.
 _base.GalaxyApiRequestHandler = GalaxyApiRequestHandler
 _base.GalaxyApiServer = GalaxyApiServer
 
