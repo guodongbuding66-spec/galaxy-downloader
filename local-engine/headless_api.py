@@ -55,6 +55,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         ai = ai_api or HeadlessAiApi(runtime.download_root)
         self._owns_ai_api = ai_api is None
         self._ai_closed = False
+        self._owns_asr_api = asr_api is None
         try:
             asr = asr_api or HeadlessAsrApi(runtime.download_root)
             plugins = plugin_api or HeadlessPluginApi(runtime.download_root)
