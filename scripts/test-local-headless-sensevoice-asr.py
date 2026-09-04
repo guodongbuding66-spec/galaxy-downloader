@@ -16,6 +16,7 @@ import headless_api  # noqa: E402
 import headless_sensevoice_asr_api as module  # noqa: E402
 from asr_preferences import save_asr_preferences  # noqa: E402
 from headless_asr_api import HeadlessAsrApiError, HeadlessAsrContext  # noqa: E402
+from headless_parakeet_asr_api import ParakeetHeadlessAsrApi  # noqa: E402
 from headless_sensevoice_asr_api import SenseVoiceHeadlessAsrApi  # noqa: E402
 
 
@@ -50,6 +51,8 @@ def _expect_code(fn, code: str) -> None:
 
 
 def run() -> None:
+    assert issubclass(ParakeetHeadlessAsrApi, SenseVoiceHeadlessAsrApi)
+
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         program = root / "program"
@@ -244,13 +247,14 @@ def run() -> None:
             "ASR_COMPUTE_TYPE_INVALID",
         )
 
-        # Production wiring: when no ASR adapter is injected, GalaxyApiServer
-        # must create the SenseVoice-capable extension rather than the legacy API.
+        # Production wiring now creates the Parakeet-capable subclass. Because
+        # that class extends SenseVoiceHeadlessAsrApi, SenseVoice remains part of
+        # the production ASR surface while the default factory advances.
         sentinel_asr = SimpleNamespace(context=context)
         runtime = SimpleNamespace(download_root=downloads)
         ai = SimpleNamespace(shutdown=lambda: None)
         transfer = SimpleNamespace(shutdown=lambda: None)
-        with patch.object(headless_api, "SenseVoiceHeadlessAsrApi", return_value=sentinel_asr) as factory:
+        with patch.object(headless_api, "ParakeetHeadlessAsrApi", return_value=sentinel_asr) as factory:
             server = headless_api.GalaxyApiServer(
                 ("127.0.0.1", 0),
                 runtime,
