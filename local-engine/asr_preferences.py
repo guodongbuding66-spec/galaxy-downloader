@@ -12,18 +12,21 @@ from asr_provider_router import (
     AUTO,
     FASTER_WHISPER,
     PROFILES,
+    SENSEVOICE,
     WHISPER,
     AsrProviderRouterError,
     recommend_asr_route,
     transcribe_with_provider,
 )
 from runtime_storage import state_dir as runtime_state_dir
+from sensevoice_provider import LANGUAGES as SENSEVOICE_LANGUAGES, MODELS as SENSEVOICE_MODELS
 
 SETTINGS_FILENAME = "asr-settings.json"
 SCHEMA_VERSION = 1
-PROVIDERS = (AUTO, WHISPER, FASTER_WHISPER)
+PROVIDERS = (AUTO, WHISPER, FASTER_WHISPER, SENSEVOICE)
 LANGUAGE_RE = re.compile(r"^[A-Za-z0-9_-]{0,32}$")
-DEVICES = ("", "auto", "cpu", "cuda")
+DEVICE_RE = re.compile(r"^(?:|auto|cpu|mps|cuda(?::[0-9]{1,2})?)$")
+DEVICES = ("", "auto", "cpu", "cuda", "mps")
 COMPUTE_TYPES = ("", "default", "int8", "int8_float16", "float16", "float32")
 
 
@@ -66,43 +69,59 @@ def _clean_profile(value: object) -> str:
     return profile
 
 
-def _clean_model(value: object) -> str:
+def _clean_model(value: object, *, provider: str) -> str:
     model = str(value or "").strip().lower()
-    if model and model not in WHISPER_MODELS:
+    if not model:
+        return ""
+    if provider == SENSEVOICE:
+        allowed = set(SENSEVOICE_MODELS)
+    else:
+        allowed = set(WHISPER_MODELS)
+    if model not in allowed:
         raise AsrPreferencesError("ASR 模型偏好无效")
     return model
 
 
-def _clean_language(value: object) -> str:
-    language = str(value or "").strip()
+def _clean_language(value: object, *, provider: str) -> str:
+    language = str(value or "").strip().lower()
     if not LANGUAGE_RE.fullmatch(language):
         raise AsrPreferencesError("ASR 语言偏好无效")
+    if provider == SENSEVOICE and language and language not in set(SENSEVOICE_LANGUAGES):
+        raise AsrPreferencesError("SenseVoice 语言偏好无效")
     return language
 
 
 def _clean_device(value: object) -> str:
     device = str(value or "").strip().lower()
-    if device not in DEVICES:
+    if not DEVICE_RE.fullmatch(device):
         raise AsrPreferencesError("ASR Device 偏好无效")
     return device
 
 
-def _clean_compute_type(value: object) -> str:
+def _clean_compute_type(value: object, *, provider: str) -> str:
     compute = str(value or "").strip().lower()
     if compute not in COMPUTE_TYPES:
         raise AsrPreferencesError("ASR Compute Type 偏好无效")
+    if provider == SENSEVOICE:
+        if compute in {"", "default"}:
+            return ""
+        raise AsrPreferencesError("SenseVoice 不支持 Compute Type 偏好")
     return compute
 
 
 def _normalize(payload: dict[str, Any] | None) -> AsrPreferences:
     raw = payload if isinstance(payload, dict) else {}
+    provider = _clean_provider(raw.get("provider", AUTO))
     return AsrPreferences(
-        provider=_clean_provider(raw.get("provider", AUTO)),
+        provider=provider,
         profile=_clean_profile(raw.get("profile", "balanced")),
-        model=_clean_model(raw.get("model", "")),
-        language=_clean_language(raw.get("language", "")),
+        model=_clean_model(raw.get("model", ""), provider=provider),
+        language=_clean_language(raw.get("language", ""), provider=provider),
         device=_clean_device(raw.get("device", "")),
-        compute_type=_clean_compute_type(raw.get("computeType", raw.get("compute_type", ""))),
+        compute_type=_clean_compute_type(
+            raw.get("computeType", raw.get("compute_type", "")),
+            provider=provider,
+        ),
     )
 
 
@@ -267,6 +286,72 @@ def run_asr_preferences_self_test() -> None:
             assert kwargs["language"] == "zh"
             assert kwargs["device"] == "cuda"
             assert kwargs["compute_type"] == "float16"
+
+        sense = save_asr_preferences(
+            Engine,
+            provider=SENSEVOICE,
+            profile="balanced",
+            model="small",
+            language="zh",
+            device="mps",
+            compute_type="default",
+        )
+        assert sense.provider == SENSEVOICE
+        assert sense.model == "small"
+        assert sense.language == "zh"
+        assert sense.device == "mps"
+        assert sense.compute_type == ""
+        assert load_asr_preferences(Engine) == sense
+
+        sense_recommendation = AsrRouteRecommendation(
+            provider=SENSEVOICE,
+            model="small",
+            profile="balanced",
+            runtime_available=True,
+            model_installed=True,
+            device="mps",
+            compute_type="",
+        )
+        with patch("asr_preferences.recommend_asr_route", return_value=sense_recommendation):
+            status = asr_preferences_status(Engine, {"metalAvailable": True})
+            assert status["settings"]["provider"] == SENSEVOICE
+            assert status["recommendation"]["provider"] == SENSEVOICE
+
+        with patch("asr_preferences.transcribe_with_provider", return_value=sentinel) as transcribe:
+            result = transcribe_with_preferences(Engine, "b" * 32, hardware={"metalAvailable": True})
+            assert result is sentinel
+            kwargs = transcribe.call_args.kwargs
+            assert kwargs["provider"] == SENSEVOICE
+            assert kwargs["model"] == "small"
+            assert kwargs["language"] == "zh"
+            assert kwargs["device"] == "mps"
+            assert kwargs["compute_type"] == ""
+
+        try:
+            save_asr_preferences(Engine, provider=SENSEVOICE, model="large-v3")
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("SenseVoice accepted a Whisper-only model preference")
+
+        try:
+            save_asr_preferences(Engine, provider=SENSEVOICE, model="small", language="fr")
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("SenseVoice accepted an unsupported language preference")
+
+        try:
+            save_asr_preferences(
+                Engine,
+                provider=SENSEVOICE,
+                model="small",
+                compute_type="float16",
+            )
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("SenseVoice accepted a faster-whisper compute preference")
 
         try:
             save_asr_preferences(Engine, provider="../bad")
