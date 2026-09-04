@@ -32,25 +32,25 @@ def run_test() -> None:
     install_desktop_asr(FakeEngine)
     assert registered_after_build_ui_hooks(FakeWindow).count("desktop-asr") == 1
 
-    # The Desktop workspace must construct the SenseVoice-capable adapter without
+    # The Desktop workspace must construct the Parakeet-capable adapter without
     # touching the real filesystem during this contract test.
-    original_api = desktop_asr.SenseVoiceHeadlessAsrApi
+    original_api = desktop_asr.ParakeetHeadlessAsrApi
     calls: list[Path] = []
 
-    class FakeSenseVoiceApi:
+    class FakeParakeetApi:
         def __init__(self, download_root: Path) -> None:
             calls.append(Path(download_root))
 
-    desktop_asr.SenseVoiceHeadlessAsrApi = FakeSenseVoiceApi
+    desktop_asr.ParakeetHeadlessAsrApi = FakeParakeetApi
     try:
         instance = desktop_asr._api(FakeEngine)
-        assert isinstance(instance, FakeSenseVoiceApi)
+        assert isinstance(instance, FakeParakeetApi)
         assert calls == [Path("/managed-downloads")]
     finally:
-        desktop_asr.SenseVoiceHeadlessAsrApi = original_api
+        desktop_asr.ParakeetHeadlessAsrApi = original_api
 
-    # Provider-aware UI policy: SenseVoice may use MPS and does not expose
-    # faster-whisper compute modes; legacy providers retain their old behavior.
+    # SenseVoice keeps MPS while Parakeet is CPU/CUDA-only; only the legacy
+    # faster-whisper route exposes its compute selector.
     devices, device, compute, enabled = desktop_asr._provider_controls(
         "sensevoice", "mps", "int8"
     )
@@ -58,6 +58,22 @@ def run_test() -> None:
     assert device == "mps"
     assert compute == "default"
     assert enabled is False
+
+    devices, device, compute, enabled = desktop_asr._provider_controls(
+        "parakeet", "mps", "float16"
+    )
+    assert devices == desktop_asr._PARAKEET_DEVICES
+    assert device == "auto"
+    assert compute == "default"
+    assert enabled is False
+
+    language, locked = desktop_asr._provider_language("parakeet", "en")
+    assert language == "auto"
+    assert locked is True
+
+    language, locked = desktop_asr._provider_language("faster-whisper", "auto")
+    assert language == ""
+    assert locked is False
 
     devices, device, compute, enabled = desktop_asr._provider_controls(
         "faster-whisper", "mps", "float16"

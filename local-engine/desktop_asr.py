@@ -7,19 +7,20 @@ from tkinter import messagebox, ttk
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook
 from headless_asr_api import HeadlessAsrApiError
-from headless_sensevoice_asr_api import SenseVoiceHeadlessAsrApi
+from headless_parakeet_asr_api import ParakeetHeadlessAsrApi
 
-_PROVIDERS = ("auto", "whisper", "faster-whisper", "sensevoice")
+_PROVIDERS = ("auto", "whisper", "faster-whisper", "sensevoice", "parakeet")
 _PROFILES = ("fast", "balanced", "accurate")
 _LEGACY_DEVICES = ("auto", "cpu", "cuda")
 _SENSEVOICE_DEVICES = ("auto", "cpu", "mps", "cuda")
+_PARAKEET_DEVICES = ("auto", "cpu", "cuda")
 _DEVICES = _SENSEVOICE_DEVICES
 _COMPUTE = ("default", "int8", "int8_float16", "float16", "float32")
 _COMPUTE_PROVIDERS = {"auto", "faster-whisper"}
 
 
-def _api(engine_module) -> SenseVoiceHeadlessAsrApi:
-    return SenseVoiceHeadlessAsrApi(engine_module.default_download_dir())
+def _api(engine_module) -> ParakeetHeadlessAsrApi:
+    return ParakeetHeadlessAsrApi(engine_module.default_download_dir())
 
 
 def _provider_controls(
@@ -31,7 +32,12 @@ def _provider_controls(
     if selected not in _PROVIDERS:
         selected = "auto"
 
-    devices = _SENSEVOICE_DEVICES if selected == "sensevoice" else _LEGACY_DEVICES
+    if selected == "sensevoice":
+        devices = _SENSEVOICE_DEVICES
+    elif selected == "parakeet":
+        devices = _PARAKEET_DEVICES
+    else:
+        devices = _LEGACY_DEVICES
     selected_device = str(device or "auto").strip().lower()
     if selected_device not in devices:
         selected_device = "auto"
@@ -41,6 +47,16 @@ def _provider_controls(
     if selected_compute not in _COMPUTE or not compute_enabled:
         selected_compute = "default"
     return devices, selected_device, selected_compute, compute_enabled
+
+
+def _provider_language(provider: object, language: object) -> tuple[str, bool]:
+    selected = str(provider or "auto").strip().lower()
+    current = str(language or "").strip().lower()
+    if selected == "parakeet":
+        return "auto", True
+    if selected in {"auto", "whisper", "faster-whisper"} and current == "auto":
+        return "", False
+    return current, False
 
 
 def _show_asr_workspace(window, engine_module) -> None:
@@ -64,7 +80,7 @@ def _show_asr_workspace(window, engine_module) -> None:
     ui._label(shell, "ASR 与模型", size=16, weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
         shell,
-        "Whisper / faster-whisper / SenseVoice 路由、偏好和模型生命周期。模型只在你点击安装时下载。",
+        "Whisper / faster-whisper / SenseVoice / Parakeet 路由、偏好和模型生命周期。模型只在你点击安装时下载。",
         size=8,
         color=ui.MUTED,
         bg=ui.BG,
@@ -136,7 +152,7 @@ def _show_asr_workspace(window, engine_module) -> None:
         highlightbackground=ui.BORDER,
     ).pack(side="left", padx=(6, 12))
     ui._label(lower, "Language", size=7, color=ui.MUTED).pack(side="left")
-    tk.Entry(
+    language_entry = tk.Entry(
         lower,
         textvariable=language_var,
         width=10,
@@ -146,7 +162,8 @@ def _show_asr_workspace(window, engine_module) -> None:
         relief="flat",
         highlightthickness=1,
         highlightbackground=ui.BORDER,
-    ).pack(side="left", padx=(6, 12))
+    )
+    language_entry.pack(side="left", padx=(6, 12))
     ui._label(lower, variable=status_var, size=7, color=ui.CYAN, bg=ui.PANEL).pack(
         side="left", fill="x", expand=True
     )
@@ -176,9 +193,10 @@ def _show_asr_workspace(window, engine_module) -> None:
     rows: list[dict] = []
 
     def sync_provider_controls(*, clear_incompatible_model: bool = False) -> None:
+        selected_provider = str(provider_var.get() or "auto").strip().lower()
         previous_model = model_var.get().strip().lower()
         devices, device, compute, compute_enabled = _provider_controls(
-            provider_var.get(),
+            selected_provider,
             device_var.get(),
             compute_var.get(),
         )
@@ -186,8 +204,16 @@ def _show_asr_workspace(window, engine_module) -> None:
         device_var.set(device)
         compute_var.set(compute)
         controls["compute"].configure(state="readonly" if compute_enabled else "disabled")
-        if clear_incompatible_model and provider_var.get() == "sensevoice" and previous_model not in {"", "small"}:
-            model_var.set("")
+
+        language, language_locked = _provider_language(selected_provider, language_var.get())
+        language_var.set(language)
+        language_entry.configure(state="disabled" if language_locked else "normal")
+
+        if clear_incompatible_model:
+            if selected_provider == "sensevoice" and previous_model not in {"", "small"}:
+                model_var.set("")
+            elif selected_provider == "parakeet" and previous_model not in {"", "tdt-0.6b-v3"}:
+                model_var.set("")
 
     def on_provider_changed(_event=None) -> None:
         sync_provider_controls(clear_incompatible_model=True)
@@ -333,7 +359,7 @@ def _add_asr_entry(window, engine_module) -> None:
     ui._label(text, "ASR / 模型管理", size=8, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
     ui._label(
         text,
-        "Whisper + faster-whisper + SenseVoice；自动硬件推荐，模型下载始终需要显式触发。",
+        "Whisper + faster-whisper + SenseVoice + Parakeet；自动硬件推荐，模型下载始终需要显式触发。",
         size=7,
         color=ui.SUBTLE,
         bg=ui.PANEL_2,
@@ -363,13 +389,23 @@ def install_desktop_asr(engine_module):
 
 
 def run_desktop_asr_self_test() -> None:
-    assert _PROVIDERS == ("auto", "whisper", "faster-whisper", "sensevoice")
+    assert _PROVIDERS == ("auto", "whisper", "faster-whisper", "sensevoice", "parakeet")
     assert "mps" in _DEVICES and "cuda" in _DEVICES
 
     devices, device, compute, enabled = _provider_controls("sensevoice", "mps", "int8")
     assert devices == _SENSEVOICE_DEVICES
     assert device == "mps"
     assert compute == "default" and enabled is False
+
+    devices, device, compute, enabled = _provider_controls("parakeet", "mps", "float16")
+    assert devices == _PARAKEET_DEVICES
+    assert device == "auto"
+    assert compute == "default" and enabled is False
+    language, locked = _provider_language("parakeet", "en")
+    assert language == "auto" and locked is True
+
+    language, locked = _provider_language("faster-whisper", "auto")
+    assert language == "" and locked is False
 
     devices, device, compute, enabled = _provider_controls("faster-whisper", "mps", "float16")
     assert devices == _LEGACY_DEVICES
