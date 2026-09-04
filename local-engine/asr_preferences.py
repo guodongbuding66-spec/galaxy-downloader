@@ -13,6 +13,7 @@ from asr_provider_router import (
     FASTER_WHISPER,
     PARAKEET,
     PROFILES,
+    QWEN3_ASR,
     SENSEVOICE,
     WHISPER,
     AsrProviderRouterError,
@@ -20,12 +21,13 @@ from asr_provider_router import (
     transcribe_with_provider,
 )
 from parakeet_provider import LANGUAGES as PARAKEET_LANGUAGES, MODELS as PARAKEET_MODELS
+from qwen3_asr_provider import LANGUAGES as QWEN3_ASR_LANGUAGES, MODELS as QWEN3_ASR_MODELS
 from runtime_storage import state_dir as runtime_state_dir
 from sensevoice_provider import LANGUAGES as SENSEVOICE_LANGUAGES, MODELS as SENSEVOICE_MODELS
 
 SETTINGS_FILENAME = "asr-settings.json"
 SCHEMA_VERSION = 1
-PROVIDERS = (AUTO, WHISPER, FASTER_WHISPER, SENSEVOICE, PARAKEET)
+PROVIDERS = (AUTO, WHISPER, FASTER_WHISPER, SENSEVOICE, PARAKEET, QWEN3_ASR)
 LANGUAGE_RE = re.compile(r"^[A-Za-z0-9_-]{0,32}$")
 DEVICE_RE = re.compile(r"^(?:|auto|cpu|mps|cuda(?::[0-9]{1,2})?)$")
 DEVICES = ("", "auto", "cpu", "cuda", "mps")
@@ -79,6 +81,8 @@ def _clean_model(value: object, *, provider: str) -> str:
         allowed = set(SENSEVOICE_MODELS)
     elif provider == PARAKEET:
         allowed = set(PARAKEET_MODELS)
+    elif provider == QWEN3_ASR:
+        allowed = set(QWEN3_ASR_MODELS)
     else:
         allowed = set(WHISPER_MODELS)
     if model not in allowed:
@@ -97,6 +101,11 @@ def _clean_language(value: object, *, provider: str) -> str:
         if normalized not in set(PARAKEET_LANGUAGES):
             raise AsrPreferencesError("Parakeet 仅支持自动语言识别")
         return normalized
+    if provider == QWEN3_ASR:
+        normalized = language or "auto"
+        if normalized not in set(QWEN3_ASR_LANGUAGES):
+            raise AsrPreferencesError("Qwen3-ASR 语言偏好无效")
+        return normalized
     return language
 
 
@@ -104,8 +113,9 @@ def _clean_device(value: object, *, provider: str) -> str:
     device = str(value or "").strip().lower()
     if not DEVICE_RE.fullmatch(device):
         raise AsrPreferencesError("ASR Device 偏好无效")
-    if provider == PARAKEET and device == "mps":
-        raise AsrPreferencesError("Parakeet 不支持 MPS Device 偏好")
+    if provider in {PARAKEET, QWEN3_ASR} and device == "mps":
+        label = "Parakeet" if provider == PARAKEET else "Qwen3-ASR"
+        raise AsrPreferencesError(f"{label} 不支持 MPS Device 偏好")
     return device
 
 
@@ -113,11 +123,15 @@ def _clean_compute_type(value: object, *, provider: str) -> str:
     compute = str(value or "").strip().lower()
     if compute not in COMPUTE_TYPES:
         raise AsrPreferencesError("ASR Compute Type 偏好无效")
-    if provider in {SENSEVOICE, PARAKEET}:
+    if provider in {SENSEVOICE, PARAKEET, QWEN3_ASR}:
         if compute in {"", "default"}:
             return ""
-        label = "SenseVoice" if provider == SENSEVOICE else "Parakeet"
-        raise AsrPreferencesError(f"{label} 不支持 Compute Type 偏好")
+        labels = {
+            SENSEVOICE: "SenseVoice",
+            PARAKEET: "Parakeet",
+            QWEN3_ASR: "Qwen3-ASR",
+        }
+        raise AsrPreferencesError(f"{labels[provider]} 不支持 Compute Type 偏好")
     return compute
 
 
@@ -384,6 +398,61 @@ def run_asr_preferences_self_test() -> None:
             assert kwargs["device"] == "cuda:0"
             assert kwargs["compute_type"] == ""
 
+        qwen = save_asr_preferences(
+            Engine,
+            provider=QWEN3_ASR,
+            profile="accurate",
+            model="0.6b-hf",
+            language="zh",
+            device="cuda:0",
+            compute_type="default",
+        )
+        assert qwen.provider == QWEN3_ASR
+        assert qwen.model == "0.6b-hf"
+        assert qwen.language == "zh"
+        assert qwen.device == "cuda:0"
+        assert qwen.compute_type == ""
+        assert load_asr_preferences(Engine) == qwen
+
+        qwen_recommendation = AsrRouteRecommendation(
+            provider=QWEN3_ASR,
+            model="0.6b-hf",
+            profile="accurate",
+            runtime_available=True,
+            model_installed=True,
+            device="cuda:0",
+            compute_type="",
+        )
+        with patch("asr_preferences.recommend_asr_route", return_value=qwen_recommendation):
+            status = asr_preferences_status(Engine, {"gpuAvailable": True, "vramGb": 8})
+            assert status["settings"]["provider"] == QWEN3_ASR
+            assert status["settings"]["language"] == "zh"
+            assert status["recommendation"]["provider"] == QWEN3_ASR
+            assert status["modelDownloadAutomatic"] is False
+
+        with patch("asr_preferences.transcribe_with_provider", return_value=sentinel) as transcribe:
+            result = transcribe_with_preferences(
+                Engine,
+                "d" * 32,
+                hardware={"gpuAvailable": True, "vramGb": 8},
+            )
+            assert result is sentinel
+            kwargs = transcribe.call_args.kwargs
+            assert kwargs["provider"] == QWEN3_ASR
+            assert kwargs["model"] == "0.6b-hf"
+            assert kwargs["language"] == "zh"
+            assert kwargs["device"] == "cuda:0"
+            assert kwargs["compute_type"] == ""
+
+        qwen_auto = save_asr_preferences(
+            Engine,
+            provider=QWEN3_ASR,
+            model="0.6b-hf",
+            language="",
+            device="cpu",
+        )
+        assert qwen_auto.language == "auto"
+
         try:
             save_asr_preferences(Engine, provider=SENSEVOICE, model="large-v3")
         except AsrPreferencesError:
@@ -452,6 +521,49 @@ def run_asr_preferences_self_test() -> None:
             pass
         else:
             raise AssertionError("Parakeet accepted a faster-whisper compute preference")
+
+        try:
+            save_asr_preferences(Engine, provider=QWEN3_ASR, model="small")
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("Qwen3-ASR accepted a Whisper-only model preference")
+
+        try:
+            save_asr_preferences(
+                Engine,
+                provider=QWEN3_ASR,
+                model="0.6b-hf",
+                language="xx",
+            )
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("Qwen3-ASR accepted an unsupported language preference")
+
+        try:
+            save_asr_preferences(
+                Engine,
+                provider=QWEN3_ASR,
+                model="0.6b-hf",
+                device="mps",
+            )
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("Qwen3-ASR accepted an unsupported MPS preference")
+
+        try:
+            save_asr_preferences(
+                Engine,
+                provider=QWEN3_ASR,
+                model="0.6b-hf",
+                compute_type="float16",
+            )
+        except AsrPreferencesError:
+            pass
+        else:
+            raise AssertionError("Qwen3-ASR accepted a faster-whisper compute preference")
 
         try:
             save_asr_preferences(Engine, provider="../bad")
