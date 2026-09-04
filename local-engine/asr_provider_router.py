@@ -22,6 +22,14 @@ from parakeet_provider import (
     recommend as recommend_parakeet,
     transcribe as transcribe_parakeet,
 )
+from qwen3_asr_provider import (
+    LANGUAGES as QWEN3_ASR_LANGUAGES,
+    MODELS as QWEN3_ASR_MODELS,
+    Qwen3AsrError,
+    provider_status as qwen3_asr_provider_status,
+    recommend as recommend_qwen3_asr,
+    transcribe as transcribe_qwen3_asr,
+)
 from sensevoice_provider import (
     LANGUAGES as SENSEVOICE_LANGUAGES,
     MODELS as SENSEVOICE_MODELS,
@@ -35,12 +43,13 @@ WHISPER = "whisper"
 FASTER_WHISPER = "faster-whisper"
 SENSEVOICE = "sensevoice"
 PARAKEET = "parakeet"
+QWEN3_ASR = "qwen3-asr"
 AUTO = "auto"
 # Compatibility boundary: external model-management consumers historically use
 # ASR_PROVIDERS for Whisper/faster-whisper lifecycle operations. Keep that set
 # stable; newer providers expose dedicated install/delete adapters.
 ASR_PROVIDERS = (WHISPER, FASTER_WHISPER)
-ROUTABLE_ASR_PROVIDERS = (*ASR_PROVIDERS, SENSEVOICE, PARAKEET)
+ROUTABLE_ASR_PROVIDERS = (*ASR_PROVIDERS, SENSEVOICE, PARAKEET, QWEN3_ASR)
 PROFILES = ("fast", "balanced", "accurate")
 
 
@@ -93,6 +102,8 @@ def _models_for_provider(provider: str) -> tuple[str, ...]:
         return tuple(SENSEVOICE_MODELS)
     if provider == PARAKEET:
         return tuple(PARAKEET_MODELS)
+    if provider == QWEN3_ASR:
+        return tuple(QWEN3_ASR_MODELS)
     return tuple(WHISPER_MODELS)
 
 
@@ -101,7 +112,12 @@ def _clean_model(value: object, *, provider: str | None = None) -> str:
     if not model:
         return ""
     if provider is None:
-        allowed = {*WHISPER_MODELS, *SENSEVOICE_MODELS, *PARAKEET_MODELS}
+        allowed = {
+            *WHISPER_MODELS,
+            *SENSEVOICE_MODELS,
+            *PARAKEET_MODELS,
+            *QWEN3_ASR_MODELS,
+        }
     else:
         allowed = set(_models_for_provider(provider))
     if model not in allowed:
@@ -184,6 +200,26 @@ def _parakeet_status(engine_module) -> dict[str, Any]:
     }
 
 
+def _qwen3_asr_status(engine_module) -> dict[str, Any]:
+    status = qwen3_asr_provider_status(engine_module)
+    return {
+        "id": QWEN3_ASR,
+        "name": "Qwen3-ASR",
+        "runtimeAvailable": bool(status.available),
+        "installerAvailable": bool(status.installer_available),
+        "version": status.version,
+        "installedModels": list(status.installed_models),
+        "models": list(QWEN3_ASR_MODELS),
+        "languages": list(QWEN3_ASR_LANGUAGES),
+        "languageMode": "automatic-or-forced",
+        "explicitInstallRequired": True,
+        "localFilesOnly": True,
+        "supportsCpu": True,
+        "supportsGpu": True,
+        "supportsMps": False,
+    }
+
+
 def list_asr_providers(engine_module) -> list[dict[str, Any]]:
     """Return providers supported by legacy external management consumers."""
     return [_whisper_status(engine_module), _faster_status(engine_module)]
@@ -196,6 +232,7 @@ def list_routable_asr_providers(engine_module) -> list[dict[str, Any]]:
         _faster_status(engine_module),
         _sensevoice_status(engine_module),
         _parakeet_status(engine_module),
+        _qwen3_asr_status(engine_module),
     ]
 
 
@@ -238,6 +275,11 @@ def recommend_asr_route(
     elif selected == PARAKEET:
         route = recommend_parakeet(hardware, profile=mode)
         model = _clean_model(route.get("model"), provider=PARAKEET) or PARAKEET_MODELS[0]
+        device = str(route.get("device") or "cpu")
+        compute_type = ""
+    elif selected == QWEN3_ASR:
+        route = recommend_qwen3_asr(hardware, profile=mode)
+        model = _clean_model(route.get("model"), provider=QWEN3_ASR) or QWEN3_ASR_MODELS[0]
         device = str(route.get("device") or "cpu")
         compute_type = ""
     else:
@@ -342,6 +384,21 @@ def transcribe_with_provider(
                 device=selected_device,
                 timeout_seconds=timeout_seconds,
             )
+        if selected == QWEN3_ASR:
+            requested_device = str(device or "").strip().lower()
+            selected_device = (
+                recommendation.device
+                if requested_device in {"", "auto"}
+                else requested_device
+            ) or "cpu"
+            return transcribe_qwen3_asr(
+                engine_module,
+                media_id,
+                model=requested_model,
+                language=language or "auto",
+                device=selected_device,
+                timeout_seconds=timeout_seconds,
+            )
         return transcribe_whisper(
             engine_module,
             media_id,
@@ -349,7 +406,13 @@ def transcribe_with_provider(
             language=language,
             timeout_seconds=timeout_seconds,
         )
-    except (AsrModelError, FasterWhisperError, SenseVoiceError, ParakeetError) as exc:
+    except (
+        AsrModelError,
+        FasterWhisperError,
+        SenseVoiceError,
+        ParakeetError,
+        Qwen3AsrError,
+    ) as exc:
         raise AsrProviderRouterError("ASR_TRANSCRIBE_FAILED", str(exc)[-1600:]) from exc
     except Exception as exc:
         # ai_workspace owns its own error type; keep the router independent from
@@ -363,6 +426,7 @@ def run_asr_provider_router_self_test() -> None:
 
     from faster_whisper_provider import FasterWhisperStatus
     from parakeet_provider import ParakeetStatus
+    from qwen3_asr_provider import Qwen3AsrStatus
     from sensevoice_provider import SenseVoiceStatus
 
     with tempfile.TemporaryDirectory() as directory:
@@ -399,6 +463,9 @@ def run_asr_provider_router_self_test() -> None:
             "asr_provider_router.parakeet_provider_status",
             return_value=ParakeetStatus(True, True, "5.6.0", (PARAKEET_MODELS[0],)),
         ), patch(
+            "asr_provider_router.qwen3_asr_provider_status",
+            return_value=Qwen3AsrStatus(True, True, "5.13.0", (QWEN3_ASR_MODELS[0],)),
+        ), patch(
             "asr_provider_router.recommend_faster",
             return_value={"model": "small", "device": "cpu", "computeType": "int8"},
         ), patch(
@@ -407,6 +474,9 @@ def run_asr_provider_router_self_test() -> None:
         ), patch(
             "asr_provider_router.recommend_parakeet",
             return_value={"model": PARAKEET_MODELS[0], "device": "cpu", "profile": "balanced"},
+        ), patch(
+            "asr_provider_router.recommend_qwen3_asr",
+            return_value={"model": QWEN3_ASR_MODELS[0], "device": "cuda:0", "profile": "balanced"},
         ), patch(
             "asr_provider_router.recommend_whisper_model",
             return_value="small",
@@ -419,11 +489,16 @@ def run_asr_provider_router_self_test() -> None:
                 FASTER_WHISPER,
                 SENSEVOICE,
                 PARAKEET,
+                QWEN3_ASR,
             ]
             assert all(item["runtimeAvailable"] for item in routable)
-            parakeet_status = routable[-1]
+            parakeet_status = routable[-2]
             assert parakeet_status["languageMode"] == "automatic-only"
             assert parakeet_status["languages"] == ["auto"]
+            qwen_status = routable[-1]
+            assert qwen_status["languageMode"] == "automatic-or-forced"
+            assert "auto" in qwen_status["languages"] and "zh" in qwen_status["languages"]
+            assert qwen_status["supportsMps"] is False
 
             automatic = recommend_asr_route(Engine, {"ramGb": 16}, profile="balanced")
             assert automatic.provider == FASTER_WHISPER
@@ -453,6 +528,15 @@ def run_asr_provider_router_self_test() -> None:
             assert parakeet.provider == PARAKEET
             assert parakeet.model == PARAKEET_MODELS[0] and parakeet.model_installed
             assert parakeet.device == "cpu"
+            qwen = recommend_asr_route(
+                Engine,
+                {"gpuAvailable": True, "vramGb": 8},
+                profile="balanced",
+                preferred_provider=QWEN3_ASR,
+            )
+            assert qwen.provider == QWEN3_ASR
+            assert qwen.model == QWEN3_ASR_MODELS[0] and qwen.model_installed
+            assert qwen.device == "cuda:0"
 
             artifact = AiArtifactResult(
                 "transcript",
@@ -539,10 +623,33 @@ def run_asr_provider_router_self_test() -> None:
                 assert parakeet_call.call_args.kwargs["language"] == "auto"
                 assert parakeet_call.call_args.kwargs["device"] == "cpu"
 
+            qwen_artifact = AiArtifactResult(
+                "transcript",
+                "e" * 32,
+                root / "qwen.srt",
+                f"qwen3-asr:{QWEN3_ASR_MODELS[0]}",
+            )
+            with patch(
+                "asr_provider_router.transcribe_qwen3_asr",
+                return_value=qwen_artifact,
+            ) as qwen_call:
+                result = transcribe_with_provider(
+                    Engine,
+                    "e" * 32,
+                    provider=QWEN3_ASR,
+                    model=QWEN3_ASR_MODELS[0],
+                    language="zh",
+                    device="auto",
+                )
+                assert result == qwen_artifact
+                assert qwen_call.call_args.kwargs["model"] == QWEN3_ASR_MODELS[0]
+                assert qwen_call.call_args.kwargs["language"] == "zh"
+                assert qwen_call.call_args.kwargs["device"] == "cuda:0"
+
             try:
                 transcribe_with_provider(
                     Engine,
-                    "e" * 32,
+                    "f" * 32,
                     provider=SENSEVOICE,
                     model="large-v3",
                 )
@@ -563,6 +670,18 @@ def run_asr_provider_router_self_test() -> None:
             else:
                 raise AssertionError("Parakeet accepted a Whisper-only model")
 
+            try:
+                transcribe_with_provider(
+                    Engine,
+                    "f" * 32,
+                    provider=QWEN3_ASR,
+                    model="large-v3",
+                )
+            except AsrProviderRouterError as exc:
+                assert exc.code == "ASR_MODEL_INVALID"
+            else:
+                raise AssertionError("Qwen3-ASR accepted a Whisper-only model")
+
         with patch(
             "asr_provider_router.whisper_executable",
             return_value=None,
@@ -578,6 +697,9 @@ def run_asr_provider_router_self_test() -> None:
         ), patch(
             "asr_provider_router.parakeet_provider_status",
             return_value=ParakeetStatus(False, False, "", ()),
+        ), patch(
+            "asr_provider_router.qwen3_asr_provider_status",
+            return_value=Qwen3AsrStatus(False, False, "", ()),
         ):
             try:
                 transcribe_with_provider(
@@ -602,6 +724,18 @@ def run_asr_provider_router_self_test() -> None:
                 assert exc.code == "ASR_PROVIDER_UNAVAILABLE"
             else:
                 raise AssertionError("unavailable Parakeet provider was accepted")
+
+            try:
+                transcribe_with_provider(
+                    Engine,
+                    "f" * 32,
+                    provider=QWEN3_ASR,
+                    model=QWEN3_ASR_MODELS[0],
+                )
+            except AsrProviderRouterError as exc:
+                assert exc.code == "ASR_PROVIDER_UNAVAILABLE"
+            else:
+                raise AssertionError("unavailable Qwen3-ASR provider was accepted")
 
         try:
             recommend_asr_route(Engine, preferred_provider="../bad")
