@@ -6,6 +6,7 @@ on:
     paths:
       - 'local-engine/asr_preferences.py'
       - 'local-engine/asr_provider_router.py'
+      - 'local-engine/sensevoice_provider.py'
       - 'local-engine/runtime_storage.py'
       - 'scripts/test-local-asr-preferences.py'
       - '.github/workflows/asr-preferences.yml'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'local-engine/asr_preferences.py'
       - 'local-engine/asr_provider_router.py'
+      - 'local-engine/sensevoice_provider.py'
       - 'local-engine/runtime_storage.py'
       - 'scripts/test-local-asr-preferences.py'
       - '.github/workflows/asr-preferences.yml'
@@ -43,7 +45,7 @@ jobs:
           python-version: '3.12'
 
       - name: Compile contract
-        run: python -m py_compile local-engine/asr_preferences.py local-engine/asr_provider_router.py local-engine/runtime_storage.py scripts/test-local-asr-preferences.py
+        run: python -m py_compile local-engine/asr_preferences.py local-engine/asr_provider_router.py local-engine/sensevoice_provider.py local-engine/runtime_storage.py scripts/test-local-asr-preferences.py
 
       - name: Run preferences self-test
         run: python scripts/test-local-asr-preferences.py
