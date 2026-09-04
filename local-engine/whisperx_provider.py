@@ -143,17 +143,25 @@ def _bounded_timeout(value: object, *, default: int, maximum: int) -> int:
     return max(60, min(parsed, maximum))
 
 
+def _resolved_interpreter(value: object) -> Path | None:
+    try:
+        candidate = Path(str(value)).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return candidate if candidate.is_file() else None
+
+
 def _python_executable() -> Path | None:
     if not getattr(sys, "frozen", False):
-        current = Path(sys.executable)
-        if current.is_file() and not current.is_symlink():
+        current = _resolved_interpreter(sys.executable)
+        if current is not None:
             return current
     names = ("python.exe", "python", "python3") if os.name == "nt" else ("python3", "python")
     for name in names:
         resolved = shutil.which(name)
         if resolved:
-            candidate = Path(resolved)
-            if candidate.is_file() and not candidate.is_symlink():
+            candidate = _resolved_interpreter(resolved)
+            if candidate is not None:
                 return candidate
     return None
 
@@ -164,6 +172,17 @@ def _token() -> str:
         if value:
             return value
     return ""
+
+
+def _safe_detail(value: object, *, token: str = "") -> str:
+    detail = str(value or "").strip()
+    secrets = [token]
+    secrets.extend(str(os.getenv(name) or "").strip() for name in HF_TOKEN_ENV_NAMES)
+    for secret in secrets:
+        if secret:
+            detail = detail.replace(secret, "[REDACTED]")
+    detail = re.sub(r"(?i)(?:hf_[A-Za-z0-9]{8,}|bearer\s+[A-Za-z0-9._-]{8,})", "[REDACTED]", detail)
+    return detail[-1600:]
 
 
 def provider_available() -> bool:
@@ -250,8 +269,8 @@ def prepare_diarization(
     token = _token()
     if not token:
         raise WhisperXError("WhisperX diarization 首次准备需要 Hugging Face token")
-    interpreter = _python_executable() if python_executable is None else Path(str(python_executable)).expanduser().resolve(strict=True)
-    if interpreter is None or not interpreter.is_file() or interpreter.is_symlink():
+    interpreter = _python_executable() if python_executable is None else _resolved_interpreter(python_executable)
+    if interpreter is None:
         raise WhisperXError("Python 解释器不可用")
     if not provider_available():
         return False, "WhisperX Python runtime 未安装"
@@ -270,10 +289,10 @@ def prepare_diarization(
     except subprocess.TimeoutExpired:
         return False, "WhisperX diarization 模型准备超时"
     except OSError as exc:
-        return False, str(exc)[:1000]
+        return False, _safe_detail(exc, token=token)
     if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()
-        return False, detail[-1600:] or f"Python exited with {result.returncode}"
+        detail = _safe_detail(result.stderr or result.stdout, token=token)
+        return False, detail or f"Python exited with {result.returncode}"
 
     manifest = manifest_path(engine_module)
     temporary = manifest.with_suffix(".tmp")
@@ -300,7 +319,7 @@ def remove_diarization_models(engine_module) -> tuple[bool, str]:
         with suppress(FileNotFoundError):
             marker.unlink()
     except OSError as exc:
-        return False, str(exc)[:1000]
+        return False, _safe_detail(exc)
     return True, "WhisperX diarization 模型已删除"
 
 
@@ -349,8 +368,8 @@ def diarize_media(
     if minimum is not None and maximum is not None and minimum > maximum:
         raise WhisperXError("minSpeakers 不能大于 maxSpeakers")
     selected_device = _clean_device(device)
-    interpreter = _python_executable() if python_executable is None else Path(str(python_executable)).expanduser().resolve(strict=True)
-    if interpreter is None or not interpreter.is_file() or interpreter.is_symlink():
+    interpreter = _python_executable() if python_executable is None else _resolved_interpreter(python_executable)
+    if interpreter is None:
         raise WhisperXError("Python 解释器不可用")
 
     cache = cache_root(engine_module)
@@ -378,10 +397,10 @@ def diarize_media(
     except subprocess.TimeoutExpired as exc:
         raise WhisperXError("WhisperX diarization 超时") from exc
     except OSError as exc:
-        raise WhisperXError(str(exc)) from exc
+        raise WhisperXError(_safe_detail(exc)) from exc
     if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()
-        raise WhisperXError(detail[-1600:] or f"Python exited with {result.returncode}")
+        detail = _safe_detail(result.stderr or result.stdout, token=_token())
+        raise WhisperXError(detail or f"Python exited with {result.returncode}")
     try:
         if not output.is_file() or output.is_symlink() or output.stat().st_size > 16 * 1024 * 1024:
             raise WhisperXError("WhisperX 未生成有效 diarization 结果")
@@ -404,7 +423,7 @@ def diarize_media(
             clear_unmatched=bool(clear_unmatched),
         )
     except (TranscriptWorkspaceError, DiarizationAssignmentError) as exc:
-        raise WhisperXError(str(exc)) from exc
+        raise WhisperXError(_safe_detail(exc)) from exc
     return WhisperXDiarizationResult(
         media_id=clean_id,
         model=model,
@@ -418,6 +437,10 @@ def diarize_media(
 def run_whisperx_provider_self_test() -> None:
     import tempfile
     from unittest.mock import patch
+
+    resolved_current = _resolved_interpreter(sys.executable)
+    assert resolved_current is not None and resolved_current.is_file()
+    assert _safe_detail("failed hf_abcdefgh12345678", token="hf_abcdefgh12345678") == "failed [REDACTED]"
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
