@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'local-engine/desktop_asr.py'
+      - 'local-engine/headless_parakeet_asr_api.py'
       - 'scripts/test-local-desktop-asr.py'
       - '.github/workflows/desktop-asr.yml'
   push:
@@ -12,6 +13,7 @@ on:
       - main
     paths:
       - 'local-engine/desktop_asr.py'
+      - 'local-engine/headless_parakeet_asr_api.py'
       - 'scripts/test-local-desktop-asr.py'
       - '.github/workflows/desktop-asr.yml'
 
@@ -33,5 +35,5 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r local-engine/requirements.txt
-      - run: python -m py_compile local-engine/desktop_asr.py scripts/test-local-desktop-asr.py
+      - run: python -m py_compile local-engine/desktop_asr.py local-engine/headless_parakeet_asr_api.py scripts/test-local-desktop-asr.py
       - run: python scripts/test-local-desktop-asr.py
