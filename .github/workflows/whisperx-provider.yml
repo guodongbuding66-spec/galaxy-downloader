@@ -1,0 +1,42 @@
+name: WhisperX Provider
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'local-engine/whisperx_provider.py'
+      - 'local-engine/diarization_assignment.py'
+      - 'local-engine/transcript_workspace.py'
+      - 'scripts/test-local-whisperx-provider.py'
+      - '.github/workflows/whisperx-provider.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'local-engine/whisperx_provider.py'
+      - 'local-engine/diarization_assignment.py'
+      - 'local-engine/transcript_workspace.py'
+      - 'scripts/test-local-whisperx-provider.py'
+      - '.github/workflows/whisperx-provider.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install Local Engine requirements
+        run: python -m pip install -r local-engine/requirements.txt
+      - name: Compile WhisperX provider contract
+        run: python -m py_compile local-engine/whisperx_provider.py scripts/test-local-whisperx-provider.py
+      - name: Run WhisperX provider self-test
+        run: python scripts/test-local-whisperx-provider.py
