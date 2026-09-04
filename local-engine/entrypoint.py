@@ -12,6 +12,7 @@ from batch_identity import install_batch_identity_policy, run_batch_identity_sel
 from batch_input import run_batch_input_self_test
 from batch_submission import run_batch_submission_self_test
 from bridge_submission_policy import StructuredLocalBridge
+from desktop_ai import install_desktop_ai, run_desktop_ai_self_test
 from desktop_download_workbench import (
     install_desktop_download_workbench,
     run_desktop_download_workbench_self_test,
@@ -175,6 +176,7 @@ install_desktop_extras(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
 install_desktop_tools(engine)
+install_desktop_ai(engine)
 install_media_cleanup_workbench(engine)
 install_recovery_display(engine)
 install_task_center(engine)
@@ -293,6 +295,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_tools_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_ai_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_media_cleanup_workbench_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_task_center_installed", False) is True
@@ -336,6 +339,7 @@ def _run_image_self_test() -> None:
     run_exact_format_policy_self_test()
     run_desktop_quick_download_self_test()
     run_desktop_download_workbench_self_test()
+    run_desktop_ai_self_test()
     run_task_center_self_test()
 
 
