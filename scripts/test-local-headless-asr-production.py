@@ -95,7 +95,6 @@ def _http_error_json(
 
 
 def run() -> None:
-    # The legacy run_server entrypoint must now resolve the production composite.
     assert base.GalaxyApiServer is GalaxyApiServer
     assert base.GalaxyApiRequestHandler is GalaxyApiRequestHandler
 
@@ -163,11 +162,8 @@ def run() -> None:
             thread.join(timeout=3)
             runtime.stop()
 
-        # Injected adapters are caller-owned and must never be shut down here.
         assert ai.shutdown_calls == 0
 
-    # Verify automatic production adapter creation and AI ownership cleanup
-    # without starting real model/provider workers in the test process.
     with tempfile.TemporaryDirectory() as directory:
         downloads = Path(directory).resolve() / "downloads"
         downloads.mkdir()
@@ -176,7 +172,7 @@ def run() -> None:
         owned_asr = FakeAsrApi()
         with (
             patch.object(production, "HeadlessAiApi", return_value=owned_ai),
-            patch.object(production, "ParakeetHeadlessAsrApi", return_value=owned_asr) as factory,
+            patch.object(production, "Qwen3HeadlessAsrApi", return_value=owned_asr) as factory,
         ):
             server = GalaxyApiServer(
                 ("127.0.0.1", 0),

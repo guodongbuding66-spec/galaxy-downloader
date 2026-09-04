@@ -12,9 +12,11 @@ on:
       - 'local-engine/headless_asr_http.py'
       - 'local-engine/headless_sensevoice_asr_api.py'
       - 'local-engine/headless_parakeet_asr_api.py'
+      - 'local-engine/headless_qwen3_asr_api.py'
       - 'local-engine/asr_preferences.py'
       - 'local-engine/asr_provider_router.py'
       - 'local-engine/parakeet_provider.py'
+      - 'local-engine/qwen3_asr_provider.py'
       - 'scripts/test-local-headless-asr-production.py'
       - '.github/workflows/headless-asr-production.yml'
   push:
@@ -29,9 +31,11 @@ on:
       - 'local-engine/headless_asr_http.py'
       - 'local-engine/headless_sensevoice_asr_api.py'
       - 'local-engine/headless_parakeet_asr_api.py'
+      - 'local-engine/headless_qwen3_asr_api.py'
       - 'local-engine/asr_preferences.py'
       - 'local-engine/asr_provider_router.py'
       - 'local-engine/parakeet_provider.py'
+      - 'local-engine/qwen3_asr_provider.py'
       - 'scripts/test-local-headless-asr-production.py'
       - '.github/workflows/headless-asr-production.yml'
 
@@ -69,9 +73,11 @@ jobs:
           local-engine/headless_asr_http.py
           local-engine/headless_sensevoice_asr_api.py
           local-engine/headless_parakeet_asr_api.py
+          local-engine/headless_qwen3_asr_api.py
           local-engine/asr_preferences.py
           local-engine/asr_provider_router.py
           local-engine/parakeet_provider.py
+          local-engine/qwen3_asr_provider.py
           scripts/test-local-headless-asr-production.py
 
       - name: Run production AI and ASR composition smoke
