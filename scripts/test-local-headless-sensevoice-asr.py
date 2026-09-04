@@ -17,6 +17,7 @@ import headless_sensevoice_asr_api as module  # noqa: E402
 from asr_preferences import save_asr_preferences  # noqa: E402
 from headless_asr_api import HeadlessAsrApiError, HeadlessAsrContext  # noqa: E402
 from headless_parakeet_asr_api import ParakeetHeadlessAsrApi  # noqa: E402
+from headless_qwen3_asr_api import Qwen3HeadlessAsrApi  # noqa: E402
 from headless_sensevoice_asr_api import SenseVoiceHeadlessAsrApi  # noqa: E402
 
 
@@ -52,6 +53,7 @@ def _expect_code(fn, code: str) -> None:
 
 def run() -> None:
     assert issubclass(ParakeetHeadlessAsrApi, SenseVoiceHeadlessAsrApi)
+    assert issubclass(Qwen3HeadlessAsrApi, ParakeetHeadlessAsrApi)
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
@@ -177,8 +179,6 @@ def run() -> None:
             rendered = json.dumps(result)
             assert str(state) not in rendered and '"path"' not in rendered.lower()
 
-        # A one-off provider switch must not inherit an incompatible model or
-        # compute type from a different stored provider.
         save_asr_preferences(
             context,
             provider="faster-whisper",
@@ -247,14 +247,11 @@ def run() -> None:
             "ASR_COMPUTE_TYPE_INVALID",
         )
 
-        # Production wiring now creates the Parakeet-capable subclass. Because
-        # that class extends SenseVoiceHeadlessAsrApi, SenseVoice remains part of
-        # the production ASR surface while the default factory advances.
         sentinel_asr = SimpleNamespace(context=context)
         runtime = SimpleNamespace(download_root=downloads)
         ai = SimpleNamespace(shutdown=lambda: None)
         transfer = SimpleNamespace(shutdown=lambda: None)
-        with patch.object(headless_api, "ParakeetHeadlessAsrApi", return_value=sentinel_asr) as factory:
+        with patch.object(headless_api, "Qwen3HeadlessAsrApi", return_value=sentinel_asr) as factory:
             server = headless_api.GalaxyApiServer(
                 ("127.0.0.1", 0),
                 runtime,
