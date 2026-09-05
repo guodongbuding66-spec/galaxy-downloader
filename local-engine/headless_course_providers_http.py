@@ -15,6 +15,7 @@ def _provider_plan(payload: dict) -> dict:
         provider=payload.get("provider", "auto"),
         browser=payload.get("browser", "none"),
         include_subtitles=payload.get("includeSubtitles", True),
+        include_attachments=payload.get("includeAttachments", True),
     )
 
 
