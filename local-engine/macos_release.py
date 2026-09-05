@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Build a deterministic macOS DMG from an assembled GalaxyLocalEngine.app.
+"""Prepare the final macOS app and build a deterministic DMG from it.
 
 Developer ID signing and notarization are intentionally out of scope here. The
-DMG builder does make the final app distribution-ready: it installs the branded
-icon, writes stable bundle/protocol metadata, and applies a verified ad-hoc
-signature after all bundled tools and runtime markers are present. A later
-Developer ID step can therefore replace the identity without restructuring the
-bundle.
+finalization step installs the branded icon, writes stable bundle/protocol
+metadata, and applies a verified ad-hoc signature after all bundled tools and
+runtime markers are present. ZIP and DMG packaging can then consume that exact
+same finalized application bundle without mutating or re-signing it.
 """
 
 from __future__ import annotations
@@ -111,17 +110,32 @@ def _run(command: list[str], *, timeout: int = 300) -> str:
     return completed.stdout or ""
 
 
+def _codesign_path() -> str:
+    codesign = shutil.which("codesign")
+    if not codesign:
+        raise MacOSReleaseError("codesign is unavailable")
+    return codesign
+
+
+def validate_distribution_app(app_path: Path) -> Path:
+    """Validate finalized bundle identity, icon, protocol metadata and signature."""
+    if sys.platform != "darwin":
+        raise MacOSReleaseError("macOS distribution validation must run on macOS")
+    app = validate_app_bundle(app_path)
+    macos_bundle.validate_bundle(app)
+    _run([_codesign_path(), "--verify", "--deep", "--strict", "--verbose=2", str(app)])
+    return app
+
+
 def prepare_distribution_app(app_path: Path) -> Path:
-    """Brand, configure and ad-hoc sign the final assembled application bundle."""
+    """Brand, configure and ad-hoc sign the fully assembled application bundle."""
     if sys.platform != "darwin":
         raise MacOSReleaseError("macOS distribution preparation must run on macOS")
     app = validate_app_bundle(app_path)
     iconutil = shutil.which("iconutil")
-    codesign = shutil.which("codesign")
     if not iconutil:
         raise MacOSReleaseError("iconutil is unavailable")
-    if not codesign:
-        raise MacOSReleaseError("codesign is unavailable")
+    codesign = _codesign_path()
 
     resources = macos_bundle.resources_dir(app)
     resources.mkdir(parents=True, exist_ok=True)
@@ -142,13 +156,11 @@ def prepare_distribution_app(app_path: Path) -> Path:
             str(app),
         ]
     )
-    _run([codesign, "--verify", "--deep", "--strict", "--verbose=2", str(app)])
-    macos_bundle.validate_bundle(app)
-    return app
+    return validate_distribution_app(app)
 
 
 def prepare_dmg_staging(app_path: Path, staging_dir: Path) -> Path:
-    app = validate_app_bundle(app_path)
+    app = validate_distribution_app(app_path)
     ditto = shutil.which("ditto")
     if not ditto:
         raise MacOSReleaseError("ditto is unavailable; macOS DMG staging requires Apple ditto")
@@ -160,19 +172,25 @@ def prepare_dmg_staging(app_path: Path, staging_dir: Path) -> Path:
     _run([ditto, str(app), str(staged_app)])
     applications = staging / "Applications"
     applications.symlink_to("/Applications", target_is_directory=True)
-    validate_app_bundle(staged_app)
+    validate_distribution_app(staged_app)
     if not applications.is_symlink() or os.readlink(applications) != "/Applications":
         raise MacOSReleaseError("DMG staging Applications link is invalid")
     return staging
 
 
-def build_dmg(app_path: Path, output_dir: Path, architecture: str) -> Path:
+def build_dmg(
+    app_path: Path,
+    output_dir: Path,
+    architecture: str,
+    *,
+    prepared_app: bool = False,
+) -> Path:
     if sys.platform != "darwin":
         raise MacOSReleaseError("macOS DMG creation must run on macOS")
     hdiutil = shutil.which("hdiutil")
     if not hdiutil:
         raise MacOSReleaseError("hdiutil is unavailable")
-    app = prepare_distribution_app(app_path)
+    app = validate_distribution_app(app_path) if prepared_app else prepare_distribution_app(app_path)
     output_root = output_dir.expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     output = artifact_path(output_root, architecture)
@@ -210,24 +228,50 @@ def print_plan(architecture: str, output_dir: Path) -> None:
         "protocolScheme": macos_bundle.PROTOCOL_SCHEME,
         "bundleIcon": macos_bundle.APP_ICON_FILE,
         "signing": "ad-hoc verified",
+        "packagingModel": "one finalized app for ZIP and DMG",
     }
     print(json.dumps(payload, indent=2))
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build a Galaxy Local Engine macOS DMG.")
+    parser = argparse.ArgumentParser(description="Finalize Galaxy Local Engine macOS apps and build DMGs.")
     parser.add_argument("--app")
     parser.add_argument("--output-dir", default="dist")
-    parser.add_argument("--architecture", required=True)
+    parser.add_argument("--architecture")
     parser.add_argument("--print-plan", action="store_true")
+    parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument(
+        "--prepared-app",
+        action="store_true",
+        help="Build DMG from an already finalized app; validate it without mutating/re-signing.",
+    )
     args = parser.parse_args()
 
     if args.print_plan:
+        if not args.architecture:
+            parser.error("--architecture is required with --print-plan")
         print_plan(args.architecture, Path(args.output_dir))
         return 0
+
     if not args.app:
-        parser.error("--app is required unless --print-plan is used")
-    output = build_dmg(Path(args.app), Path(args.output_dir), args.architecture)
+        parser.error("--app is required")
+    app = Path(args.app)
+
+    if args.prepare_only:
+        if args.prepared_app:
+            parser.error("--prepare-only and --prepared-app cannot be combined")
+        prepared = prepare_distribution_app(app)
+        print(prepared)
+        return 0
+
+    if not args.architecture:
+        parser.error("--architecture is required when building a DMG")
+    output = build_dmg(
+        app,
+        Path(args.output_dir),
+        args.architecture,
+        prepared_app=bool(args.prepared_app),
+    )
     print(output)
     return 0
 
