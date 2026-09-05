@@ -16,13 +16,12 @@ _SKIP_START_FLAGS = {"--self-test", "--ui-smoke-test", "--version"}
 def tray_platform_supported(platform: str | None = None) -> bool:
     """Return whether this release enables a tested native tray backend.
 
-    The abstraction is deliberately platform-neutral, but the first shipping
-    backend is Windows-only because Galaxy currently only publishes a signed-off
-    Windows desktop package. macOS/Linux activation stays fail-closed until their
-    packaging/main-loop gates are added.
+    Windows and macOS both use pystray's native operating-system backends.
+    Linux intentionally remains fail-closed because AppIndicator/GTK/XOrg
+    availability and Wayland behavior depend on the target desktop session.
     """
     value = str(platform or sys.platform).lower()
-    return value.startswith("win")
+    return value.startswith("win") or value == "darwin"
 
 
 def tray_dependency_available() -> bool:
@@ -91,6 +90,20 @@ def _tray_image():
     return image
 
 
+def _pystray_icon_kwargs(platform: str) -> dict[str, object]:
+    if platform != "darwin":
+        return {}
+    # pystray's Darwin detached integration must share the NSApplication that
+    # drives the host GUI loop. macOS has one shared NSApplication per process;
+    # resolving it after Tk has created the root binds pystray to that same app.
+    from AppKit import NSApplication
+
+    application = NSApplication.sharedApplication()
+    if application is None:
+        raise RuntimeError("macOS NSApplication is unavailable")
+    return {"darwin_nsapplication": application}
+
+
 @dataclass
 class TrayState:
     available: bool
@@ -99,11 +112,16 @@ class TrayState:
 
 
 class WindowsPystrayProvider:
-    """Small adapter that owns pystray while Tk remains Galaxy's main loop."""
+    """Small native-pystray adapter while Tk remains Galaxy's main loop.
 
-    def __init__(self, window, app_name: str) -> None:
+    The historical class name is retained to avoid breaking external imports;
+    the provider now owns both the tested Windows and macOS native backends.
+    """
+
+    def __init__(self, window, app_name: str, *, platform: str | None = None) -> None:
         self.window = window
         self.app_name = app_name
+        self.platform = str(platform or sys.platform).lower()
         self.icon = None
         self.state = TrayState(available=True)
         self._stop_lock = threading.Lock()
@@ -124,7 +142,7 @@ class WindowsPystrayProvider:
                 pystray.MenuItem(
                     "打开 Galaxy",
                     self._menu_callback(lambda: _show_window(self.window)),
-                    default=True,
+                    default=self.platform.startswith("win"),
                 ),
                 pystray.MenuItem("隐藏窗口", self._menu_callback(lambda: _hide_window(self.window))),
                 pystray.Menu.SEPARATOR,
@@ -134,10 +152,17 @@ class WindowsPystrayProvider:
                 ),
                 pystray.MenuItem("退出 Galaxy", self._menu_callback(self._request_exit)),
             )
-            self.icon = pystray.Icon(TRAY_NAME, _tray_image(), self.app_name, menu)
-            # On Windows pystray explicitly supports detached integration with a
-            # GUI framework main loop. Tk remains authoritative for all window
-            # mutations; tray callbacks only enqueue work onto Tk via after().
+            self.icon = pystray.Icon(
+                TRAY_NAME,
+                _tray_image(),
+                self.app_name,
+                menu,
+                **_pystray_icon_kwargs(self.platform),
+            )
+            # run_detached() is the supported integration path when another GUI
+            # framework owns the main loop. On Darwin the shared NSApplication is
+            # passed above; tray callbacks still enqueue all Tk mutations via
+            # window.after() so UI work remains on the Tk thread.
             self.icon.run_detached()
             self.state.active = True
             self.state.error = ""
@@ -181,7 +206,11 @@ def create_tray_provider(window, engine_module):
         return NullTrayProvider(error="System tray backend is not enabled for this packaged platform")
     if not tray_dependency_available():
         return NullTrayProvider(error="pystray/Pillow are unavailable")
-    return WindowsPystrayProvider(window, str(getattr(engine_module, "APP_NAME", "Galaxy Local Engine")))
+    return WindowsPystrayProvider(
+        window,
+        str(getattr(engine_module, "APP_NAME", "Galaxy Local Engine")),
+        platform=sys.platform,
+    )
 
 
 def _install_tray_for_window(window, engine_module) -> None:
@@ -235,12 +264,14 @@ def install_desktop_tray(engine_module):
 
 
 def verify_windows_tray_dependencies() -> bool:
-    """Import the actual packaged dependencies in Windows self-test mode."""
+    """Import dependencies required by every currently enabled tray backend."""
     if not tray_platform_supported():
         return True
     try:
         import pystray  # noqa: F401
         from PIL import Image  # noqa: F401
+        if sys.platform == "darwin":
+            from AppKit import NSApplication  # noqa: F401
     except Exception:
         return False
     return True
@@ -248,11 +279,14 @@ def verify_windows_tray_dependencies() -> bool:
 
 def run_desktop_tray_self_test() -> None:
     assert tray_platform_supported("win32") is True
+    assert tray_platform_supported("darwin") is True
     assert tray_platform_supported("linux") is False
-    assert tray_platform_supported("darwin") is False
     assert tray_should_start(platform="win32", argv=("--self-test",)) is False
+    assert tray_should_start(platform="darwin", argv=("--self-test",)) is False
     assert tray_should_start(platform="win32", argv=("--ui-smoke-test",)) is False
+    assert tray_should_start(platform="darwin", argv=("--ui-smoke-test",)) is False
     assert tray_should_start(platform="win32", argv=("--no-tray",)) is False
+    assert tray_should_start(platform="darwin", argv=("--no-tray",)) is False
 
     class Window:
         @staticmethod
