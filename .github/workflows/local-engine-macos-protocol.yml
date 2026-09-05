@@ -1,0 +1,100 @@
+name: Local Engine macOS Protocol
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/desktop_platform_features.py'
+      - 'local-engine/macos_protocol.py'
+      - 'local-engine/macos_bundle.py'
+      - 'local-engine/generate_icon.py'
+      - 'local-engine/generate_macos_icon.py'
+      - 'local-engine/macos_release.py'
+      - 'local-engine/requirements.txt'
+      - 'local-engine/VERSION'
+      - 'scripts/test-local-macos-protocol.py'
+      - 'scripts/test-local-macos-release.py'
+      - '.github/workflows/local-engine-macos-protocol.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/desktop_platform_features.py'
+      - 'local-engine/macos_protocol.py'
+      - 'local-engine/macos_bundle.py'
+      - 'local-engine/generate_icon.py'
+      - 'local-engine/generate_macos_icon.py'
+      - 'local-engine/macos_release.py'
+      - 'local-engine/requirements.txt'
+      - 'local-engine/VERSION'
+      - 'scripts/test-local-macos-protocol.py'
+      - 'scripts/test-local-macos-release.py'
+      - '.github/workflows/local-engine-macos-protocol.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  macos-protocol:
+    name: macOS Protocol (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Intel
+            runner: macos-15-intel
+          - label: Apple Silicon
+            runner: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+
+      - name: Compile macOS protocol and bundle modules
+        run: >-
+          python -m py_compile
+          local-engine/macos_protocol.py
+          local-engine/macos_bundle.py
+          local-engine/generate_macos_icon.py
+          local-engine/macos_release.py
+          local-engine/desktop_platform_features.py
+          scripts/test-local-macos-protocol.py
+          scripts/test-local-macos-release.py
+
+      - name: Exercise TkAqua protocol runtime
+        run: python scripts/test-local-macos-protocol.py
+
+      - name: Exercise macOS release preparation contract
+        run: python scripts/test-local-macos-release.py
+
+      - name: Verify native macOS tools
+        run: |
+          set -euo pipefail
+          command -v iconutil
+          command -v codesign
+          command -v ditto
+          command -v hdiutil
+          python - <<'PY'
+          import tkinter as tk
+          root = tk.Tk()
+          try:
+              patchlevel = str(root.tk.call('info', 'patchlevel'))
+              windowing = str(root.tk.call('tk', 'windowingsystem'))
+              print(f'Tk {patchlevel} / {windowing}')
+              assert windowing == 'aqua'
+              version = tuple(int(part) for part in patchlevel.split('.')[:3])
+              assert version >= (8, 6, 10), 'TkAqua LaunchURL requires Tcl/Tk >= 8.6.10'
+          finally:
+              root.destroy()
+          PY

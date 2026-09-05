@@ -23,6 +23,7 @@ from desktop_tray import (
     run_desktop_tray_self_test,
     verify_windows_tray_dependencies,
 )
+from macos_protocol import install_macos_protocol, run_macos_protocol_self_test
 from media_library import install_media_library, run_media_library_self_test
 from subscription_scheduler import run_subscription_scheduler_self_test
 from subscriptions import run_subscriptions_self_test
@@ -63,6 +64,7 @@ def install_desktop_platform_features(engine_module):
     install_desktop_clipboard_monitor(engine_module)
     install_desktop_tray(engine_module)
     install_desktop_global_hotkey(engine_module)
+    install_macos_protocol(engine_module)
     install_linux_hotkey_preferences(engine_module)
     install_linux_portal_hotkey(engine_module)
 
@@ -82,6 +84,7 @@ def run_desktop_platform_features_self_test() -> None:
     run_desktop_clipboard_monitor_self_test()
     run_desktop_tray_self_test()
     run_desktop_global_hotkey_self_test()
+    run_macos_protocol_self_test()
     run_linux_hotkey_preferences_self_test()
     run_linux_portal_hotkey_integration_self_test()
     run_media_library_self_test()

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Build a deterministic macOS DMG from an assembled GalaxyLocalEngine.app.
 
-Signing and notarization are intentionally out of scope here. The input app must
-already be a runnable release bundle and carry installed.flag so it uses writable
-per-user runtime paths even when launched directly from the read-only DMG.
+Developer ID signing and notarization are intentionally out of scope here. The
+DMG builder does make the final app distribution-ready: it installs the branded
+icon, writes stable bundle/protocol metadata, and applies a verified ad-hoc
+signature after all bundled tools and runtime markers are present. A later
+Developer ID step can therefore replace the identity without restructuring the
+bundle.
 """
 
 from __future__ import annotations
@@ -16,6 +19,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import generate_macos_icon
+import macos_bundle
 
 
 ROOT = Path(__file__).resolve().parent
@@ -105,6 +111,42 @@ def _run(command: list[str], *, timeout: int = 300) -> str:
     return completed.stdout or ""
 
 
+def prepare_distribution_app(app_path: Path) -> Path:
+    """Brand, configure and ad-hoc sign the final assembled application bundle."""
+    if sys.platform != "darwin":
+        raise MacOSReleaseError("macOS distribution preparation must run on macOS")
+    app = validate_app_bundle(app_path)
+    iconutil = shutil.which("iconutil")
+    codesign = shutil.which("codesign")
+    if not iconutil:
+        raise MacOSReleaseError("iconutil is unavailable")
+    if not codesign:
+        raise MacOSReleaseError("codesign is unavailable")
+
+    resources = macos_bundle.resources_dir(app)
+    resources.mkdir(parents=True, exist_ok=True)
+    icon_path = resources / macos_bundle.APP_ICON_FILE
+    with tempfile.TemporaryDirectory(prefix="galaxy-macos-icon-") as temp_name:
+        iconset = generate_macos_icon.generate_iconset(Path(temp_name) / "GalaxyLocalEngine.iconset")
+        _run([iconutil, "--convert", "icns", "--output", str(icon_path), str(iconset)])
+
+    macos_bundle.configure_bundle(app)
+    _run(
+        [
+            codesign,
+            "--force",
+            "--deep",
+            "--sign",
+            "-",
+            "--timestamp=none",
+            str(app),
+        ]
+    )
+    _run([codesign, "--verify", "--deep", "--strict", "--verbose=2", str(app)])
+    macos_bundle.validate_bundle(app)
+    return app
+
+
 def prepare_dmg_staging(app_path: Path, staging_dir: Path) -> Path:
     app = validate_app_bundle(app_path)
     ditto = shutil.which("ditto")
@@ -130,11 +172,12 @@ def build_dmg(app_path: Path, output_dir: Path, architecture: str) -> Path:
     hdiutil = shutil.which("hdiutil")
     if not hdiutil:
         raise MacOSReleaseError("hdiutil is unavailable")
+    app = prepare_distribution_app(app_path)
     output_root = output_dir.expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     output = artifact_path(output_root, architecture)
     with tempfile.TemporaryDirectory(prefix="galaxy-macos-dmg-") as temp_name:
-        staging = prepare_dmg_staging(app_path, Path(temp_name) / "staging")
+        staging = prepare_dmg_staging(app, Path(temp_name) / "staging")
         _run(
             [
                 hdiutil,
@@ -163,6 +206,10 @@ def print_plan(architecture: str, output_dir: Path) -> None:
         "applicationsLink": "/Applications",
         "format": "UDZO",
         "version": read_version(),
+        "bundleIdentifier": macos_bundle.BUNDLE_IDENTIFIER,
+        "protocolScheme": macos_bundle.PROTOCOL_SCHEME,
+        "bundleIcon": macos_bundle.APP_ICON_FILE,
+        "signing": "ad-hoc verified",
     }
     print(json.dumps(payload, indent=2))
 
