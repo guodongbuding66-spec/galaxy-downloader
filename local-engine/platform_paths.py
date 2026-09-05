@@ -9,6 +9,7 @@ from typing import Mapping
 APP_DIR_NAME = "GalaxyLocalEngine"
 LINUX_APP_DIR_NAME = "galaxy-local-engine"
 PORTABLE_MARKER = "portable.flag"
+INSTALLED_MARKER = "installed.flag"
 PORTABLE_ENV = "GALAXY_PORTABLE"
 HOME_ENV = "GALAXY_HOME"
 
@@ -88,8 +89,13 @@ def portable_mode(
     explicit = _parse_portable_env(env.get(PORTABLE_ENV))
     if explicit is not None:
         return explicit
+    # portable.flag is an explicit user/package override and therefore wins if
+    # both markers are present. Formal app bundles may carry installed.flag so
+    # they remain writable even when launched from read-only installation media.
     if (program_dir / PORTABLE_MARKER).is_file():
         return True
+    if (program_dir / INSTALLED_MARKER).is_file():
+        return False
     # Preserve the established Local Engine behavior: extracted/release folders
     # keep their state and downloads beside the executable unless the caller
     # explicitly opts into installed per-user paths.
@@ -210,6 +216,30 @@ def run_platform_paths_self_test() -> None:
         assert portable.state_dir == root / "app" / "state"
         assert portable.downloads_dir == root / "app" / "downloads"
         assert portable.tools_dir == root / "app"
+
+        marked = root / "marked-app"
+        marked.mkdir()
+        (marked / INSTALLED_MARKER).write_text("1\n", encoding="utf-8")
+        installed_marker = resolve_platform_paths(
+            program_dir=marked,
+            platform="darwin",
+            environ={"HOME": str(root / "marker-user")},
+        )
+        assert installed_marker.mode == "installed"
+        assert installed_marker.state_dir == (
+            root / "marker-user" / "Library" / "Application Support" / APP_DIR_NAME / "state"
+        )
+        (marked / PORTABLE_MARKER).write_text("1\n", encoding="utf-8")
+        assert resolve_platform_paths(
+            program_dir=marked,
+            platform="darwin",
+            environ={"HOME": str(root / "marker-user")},
+        ).mode == "portable"
+        assert resolve_platform_paths(
+            program_dir=marked,
+            platform="darwin",
+            environ={"GALAXY_PORTABLE": "0", "HOME": str(root / "marker-user")},
+        ).mode == "installed"
 
         installed_windows = resolve_platform_paths(
             program_dir=root / "app",

@@ -12,9 +12,12 @@ on:
       - 'local-engine/requirements.txt'
       - 'local-engine/prepare-unix-bundle.py'
       - 'local-engine/linux_release.py'
+      - 'local-engine/macos_release.py'
+      - 'local-engine/platform_paths.py'
       - 'local-engine/desktop_tray.py'
       - 'local-engine/VERSION'
       - 'scripts/test-local-linux-release.py'
+      - 'scripts/test-local-macos-release.py'
       - 'scripts/test-local-packaged-linux-tray.py'
       - '.github/workflows/local-engine-unix-release.yml'
 
@@ -134,6 +137,16 @@ jobs:
           .venv-linux-package/bin/python -m py_compile local-engine/linux_release.py scripts/test-local-linux-release.py scripts/test-local-packaged-linux-tray.py
           .venv-linux-package/bin/python scripts/test-local-linux-release.py
           .venv-linux-package/bin/python local-engine/linux_release.py --package-dir unused --architecture '${{ matrix.arch }}' --print-plan
+
+      - name: Validate macOS DMG package contract
+        if: matrix.os_name == 'darwin'
+        run: |
+          set -euo pipefail
+          python -m py_compile local-engine/macos_release.py scripts/test-local-macos-release.py
+          python scripts/test-local-macos-release.py
+          python local-engine/macos_release.py --output-dir dist --architecture '${{ matrix.arch }}' --print-plan
+          command -v ditto
+          command -v hdiutil
 
       - name: Build Linux portable executable
         if: matrix.os_name == 'linux'
@@ -279,8 +292,12 @@ jobs:
           test -d dist/GalaxyLocalEngine.app
           MACOS_DIR='dist/GalaxyLocalEngine.app/Contents/MacOS'
           python local-engine/prepare-unix-bundle.py --package-dir "$MACOS_DIR" --os darwin --architecture '${{ matrix.arch }}'
+          printf '1\n' > "$MACOS_DIR/installed.flag"
           chmod +x "$MACOS_DIR/GalaxyLocalEngine" "$MACOS_DIR/yt-dlp" "$MACOS_DIR/ffmpeg/bin/ffmpeg" "$MACOS_DIR/ffmpeg/bin/ffprobe"
-          "$MACOS_DIR/GalaxyLocalEngine" --self-test
+          TEST_HOME="$RUNNER_TEMP/galaxy-macos-home-${{ matrix.arch }}"
+          rm -rf "$TEST_HOME"
+          mkdir -p "$TEST_HOME"
+          HOME="$TEST_HOME" "$MACOS_DIR/GalaxyLocalEngine" --self-test
           "$MACOS_DIR/yt-dlp" --version
           "$MACOS_DIR/ffmpeg/bin/ffmpeg" -version | head -n 1
           "$MACOS_DIR/ffmpeg/bin/ffprobe" -version | head -n 1
@@ -291,6 +308,36 @@ jobs:
           cp local-engine/VERSION dist/package/VERSION
           ditto -c -k --sequesterRsrc --keepParent dist/package 'dist/${{ matrix.archive }}'
           shasum -a 256 'dist/${{ matrix.archive }}' > 'dist/${{ matrix.archive }}.sha256'
+
+      - name: Build and smoke test macOS DMG
+        if: matrix.os_name == 'darwin'
+        run: |
+          set -euo pipefail
+          DMG='dist/${{ matrix.artifact }}.dmg'
+          python local-engine/macos_release.py \
+            --app dist/package/GalaxyLocalEngine.app \
+            --output-dir dist \
+            --architecture '${{ matrix.arch }}'
+          test -f "$DMG"
+          hdiutil verify "$DMG"
+
+          MOUNT="$RUNNER_TEMP/galaxy-dmg-${{ matrix.arch }}"
+          DMG_HOME="$RUNNER_TEMP/galaxy-dmg-home-${{ matrix.arch }}"
+          rm -rf "$MOUNT" "$DMG_HOME"
+          mkdir -p "$MOUNT" "$DMG_HOME"
+          cleanup_dmg() {
+            hdiutil detach "$MOUNT" >/dev/null 2>&1 || hdiutil detach -force "$MOUNT" >/dev/null 2>&1 || true
+          }
+          trap cleanup_dmg EXIT
+          hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT" >/dev/null
+          test -d "$MOUNT/GalaxyLocalEngine.app"
+          test -L "$MOUNT/Applications"
+          test "$(readlink "$MOUNT/Applications")" = '/Applications'
+          test -f "$MOUNT/GalaxyLocalEngine.app/Contents/MacOS/installed.flag"
+          HOME="$DMG_HOME" "$MOUNT/GalaxyLocalEngine.app/Contents/MacOS/GalaxyLocalEngine" --self-test
+          cleanup_dmg
+          trap - EXIT
+          shasum -a 256 "$DMG" > "$DMG.sha256"
 
       - name: Upload Unix release evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -347,6 +394,7 @@ jobs:
           find dist/collected -type f \( \
             -name '*.tar.gz' -o \
             -name '*.zip' -o \
+            -name '*.dmg' -o \
             -name '*.AppImage' -o \
             -name '*.deb' -o \
             -name '*.rpm' \
@@ -373,7 +421,9 @@ jobs:
             GalaxyLocalEngine-Linux-arm64.deb
             GalaxyLocalEngine-Linux-arm64.rpm
             GalaxyLocalEngine-macOS-x64.zip
+            GalaxyLocalEngine-macOS-x64.dmg
             GalaxyLocalEngine-macOS-arm64.zip
+            GalaxyLocalEngine-macOS-arm64.dmg
           )
           for file in "${expected[@]}"; do
             test -f "dist/publish/$file" || { echo "Missing release asset: $file" >&2; exit 1; }
@@ -397,6 +447,8 @@ jobs:
             dist/publish/GalaxyLocalEngine-Linux-arm64.deb \
             dist/publish/GalaxyLocalEngine-Linux-arm64.rpm \
             dist/publish/GalaxyLocalEngine-macOS-x64.zip \
+            dist/publish/GalaxyLocalEngine-macOS-x64.dmg \
             dist/publish/GalaxyLocalEngine-macOS-arm64.zip \
+            dist/publish/GalaxyLocalEngine-macOS-arm64.dmg \
             dist/publish/SHA256SUMS.txt \
             --clobber
