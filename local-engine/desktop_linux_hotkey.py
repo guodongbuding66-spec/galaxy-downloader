@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import secrets
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -162,7 +163,7 @@ class LinuxPortalGlobalHotkeyProvider:
             self.state.active = False
 
     async def _call(self, bus, message):
-        from dbus_fast.message import MessageType
+        from dbus_fast import MessageType
 
         reply = await bus.call(message)
         if reply.message_type == MessageType.ERROR:
@@ -186,7 +187,7 @@ class LinuxPortalGlobalHotkeyProvider:
         )
 
     def _message_handler(self, message):
-        from dbus_fast.message import MessageType
+        from dbus_fast import MessageType
 
         if message.message_type != MessageType.SIGNAL:
             return False
@@ -205,11 +206,9 @@ class LinuxPortalGlobalHotkeyProvider:
                 session_handle = str(message.body[0] or "")
                 shortcut_id = str(message.body[1] or "")
                 if session_handle == self._session_handle and shortcut_id == SHORTCUT_ID:
-                    try:
-                        self.on_activate()
-                    except Exception:
+                    with suppress(Exception):
                         # A UI teardown race must not terminate the D-Bus session.
-                        return False
+                        self.on_activate()
             return False
         return False
 
@@ -372,10 +371,8 @@ class LinuxPortalGlobalHotkeyProvider:
             await self._stop_event.wait()
         finally:
             await self._close_session(bus)
-            try:
+            with suppress(Exception):
                 bus.disconnect()
-            except Exception:
-                pass
             self.state.active = False
             self._ready.set()
 
@@ -386,10 +383,8 @@ class LinuxPortalGlobalHotkeyProvider:
             stop_event = self._stop_event
             self._thread = None
         if loop is not None and stop_event is not None:
-            try:
+            with suppress(RuntimeError):
                 loop.call_soon_threadsafe(stop_event.set)
-            except RuntimeError:
-                pass
         if thread is not None and thread is not threading.current_thread() and thread.is_alive():
             thread.join(timeout=2.0)
         self.state.active = False
