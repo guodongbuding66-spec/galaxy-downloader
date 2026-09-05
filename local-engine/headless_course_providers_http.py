@@ -1,61 +1,21 @@
 from __future__ import annotations
 
-from contextlib import suppress
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
 
 from course_download_coordinator import CourseDownloadCoordinatorError
-from course_providers import CourseProviderError, build_course_provider_plan, list_course_providers
+from course_providers import CourseProviderError, list_course_providers
 from headless_learning_api import HeadlessLearningApiError
 from headless_service import HeadlessServiceError, _safe_detail
+from managed_course_download import build_managed_course_plan, submit_managed_course_download
 
 
 def _provider_plan(payload: dict) -> dict:
-    return build_course_provider_plan(
+    return build_managed_course_plan(
         payload.get("sourceUrl"),
         provider=payload.get("provider", "auto"),
         browser=payload.get("browser", "none"),
         include_subtitles=payload.get("includeSubtitles", True),
     )
-
-
-def _course_name(value: object, source_url: str) -> str:
-    explicit = " ".join(str(value or "").split()).strip()[:160]
-    if explicit:
-        return explicit
-    try:
-        parts = [unquote(part) for part in urlsplit(source_url).path.split("/") if part]
-    except ValueError:
-        parts = []
-    slug = parts[-1] if parts else "Udemy Course"
-    rendered = " ".join(slug.replace("-", " ").replace("_", " ").split()).strip()
-    return (rendered or "Udemy Course")[:160]
-
-
-def _source_identity(value: object) -> tuple[str, str, str] | None:
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    try:
-        parsed = urlsplit(raw)
-        host = str(parsed.hostname or "").strip().lower().rstrip(".")
-        scheme = parsed.scheme.lower()
-        if scheme not in {"http", "https"} or not host:
-            return None
-        path = "/" + "/".join(part for part in parsed.path.split("/") if part)
-        return scheme, host, path.rstrip("/") or "/"
-    except ValueError:
-        return None
-
-
-def _validate_existing_course_binding(course: dict, plan: dict) -> None:
-    course_provider = str(course.get("provider") or "").strip().lower()
-    provider = str(plan.get("provider") or "").strip().lower()
-    if course_provider != provider:
-        raise CourseDownloadCoordinatorError("existing course provider does not match course download provider")
-    existing_source = _source_identity(course.get("sourceUrl"))
-    requested_source = _source_identity(plan.get("sourceUrl"))
-    if existing_source is not None and existing_source != requested_source:
-        raise CourseDownloadCoordinatorError("existing course source does not match course download URL")
 
 
 def _course_download_coordinator(handler):
@@ -160,38 +120,22 @@ class HeadlessCourseProvidersHttpMixin:
                 self._json(503, {"ok": False, "error": "managed course downloads are unavailable"})
                 return
 
-            created_course = False
-            course_id = str(payload.get("courseId") or "").strip().lower()
-            if course_id:
-                course = learning_api.course_detail(course_id, item_limit=1)["course"]
-                _validate_existing_course_binding(course, plan)
-            else:
-                course = learning_api.create_course(
-                    {
-                        "name": _course_name(payload.get("courseName"), plan["sourceUrl"]),
-                        "sourceUrl": plan["sourceUrl"],
-                        "provider": plan["provider"],
-                    }
-                )["course"]
-                created_course = True
-
-            try:
-                job, session = coordinator.submit(plan, course["id"])
-            except Exception:
-                if created_course:
-                    with suppress(Exception):
-                        learning_api.remove_course(course["id"])
-                raise
-
+            submitted = submit_managed_course_download(
+                learning_api,
+                coordinator,
+                plan,
+                course_id=payload.get("courseId", ""),
+                course_name=payload.get("courseName", ""),
+            )
             self._json(
                 202,
                 {
                     "ok": True,
-                    "provider": plan["provider"],
-                    "course": course,
-                    "session": session,
-                    "job": job.public_payload(),
-                    "warnings": list(plan.get("warnings") or []),
+                    "provider": submitted["provider"],
+                    "course": submitted["course"],
+                    "session": submitted["session"],
+                    "job": submitted["job"].public_payload(),
+                    "warnings": submitted["warnings"],
                 },
             )
         except CourseProviderError as exc:
