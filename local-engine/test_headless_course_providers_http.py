@@ -4,6 +4,34 @@ import unittest
 from unittest.mock import patch
 
 from headless_course_providers_http import HeadlessCourseProvidersHttpMixin
+from headless_service import HeadlessServiceError
+
+
+class _Job:
+    def public_payload(self):
+        return {
+            "id": "a" * 32,
+            "sourceHost": "www.udemy.com",
+            "state": "queued",
+            "progress": 0.0,
+            "detail": "",
+            "fileName": "",
+            "attempt": 1,
+            "createdAt": "2026-09-05T00:00:00Z",
+            "updatedAt": "2026-09-05T00:00:00Z",
+        }
+
+
+class _Runtime:
+    def __init__(self) -> None:
+        self.submissions = []
+        self.error = None
+
+    def submit(self, payload):
+        if self.error is not None:
+            raise self.error
+        self.submissions.append(dict(payload))
+        return _Job()
 
 
 class _FallbackHandler:
@@ -14,6 +42,7 @@ class _FallbackHandler:
         self.response = None
         self.fallback_get = False
         self.fallback_post = False
+        self.runtime = _Runtime()
 
     def _authorized(self) -> bool:
         return self.authorized
@@ -71,6 +100,52 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["plan"]["provider"], "udemy")
         self.assertEqual(payload["plan"]["enginePayload"]["browser"], "chrome")
+        self.assertEqual(handler.runtime.submissions, [])
+
+    def test_post_download_submits_only_provider_engine_payload(self) -> None:
+        handler = _Handler()
+        handler.path = "/v1/learning/providers/download"
+        handler.payload = {
+            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
+            "browser": "chrome",
+            "includeSubtitles": True,
+            "cookie": "must-not-pass-through",
+            "cookieFile": "../../cookies.txt",
+            "httpHeaders": {"Authorization": "must-not-pass-through"},
+        }
+        handler.do_POST()
+        status, payload = handler.response
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["provider"], "udemy")
+        self.assertEqual(payload["job"]["state"], "queued")
+        self.assertEqual(len(handler.runtime.submissions), 1)
+        submitted = handler.runtime.submissions[0]
+        self.assertEqual(submitted["browser"], "chrome")
+        self.assertEqual(submitted["collectionMode"], "all")
+        self.assertTrue(submitted["includeSubtitle"])
+        self.assertNotIn("cookie", submitted)
+        self.assertNotIn("cookieFile", submitted)
+        self.assertNotIn("httpHeaders", submitted)
+        self.assertNotIn("enginePayload", payload)
+
+    def test_post_download_requires_authorization_before_submit(self) -> None:
+        handler = _Handler()
+        handler.path = "/v1/learning/providers/download"
+        handler.authorized = False
+        handler.payload = {"sourceUrl": "https://www.udemy.com/course/python-bootcamp/"}
+        handler.do_POST()
+        self.assertEqual(handler.response, (401, {"ok": False, "error": "unauthorized"}))
+        self.assertEqual(handler.runtime.submissions, [])
+
+    def test_post_download_maps_queue_full_to_429(self) -> None:
+        handler = _Handler()
+        handler.path = "/v1/learning/providers/download"
+        handler.payload = {"sourceUrl": "https://www.udemy.com/course/python-bootcamp/"}
+        handler.runtime.error = HeadlessServiceError("download queue is full")
+        handler.do_POST()
+        status, payload = handler.response
+        self.assertEqual(status, 429)
+        self.assertEqual(payload["code"], "LEARNING_COURSE_DOWNLOAD_QUEUE_FULL")
 
     def test_post_returns_typed_validation_error(self) -> None:
         handler = _Handler()
