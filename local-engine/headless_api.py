@@ -18,15 +18,18 @@ from headless_qwen3_asr_api import Qwen3HeadlessAsrApi
 from headless_settings_http import HeadlessSettingsHttpMixin
 from headless_transfer_api import HeadlessTransferApi
 from headless_transfer_http import HeadlessTransferHttpMixin
+from headless_udemy_attachment_inventory import install_headless_udemy_attachment_inventory
 from headless_web_dashboard import HeadlessWebDashboardMixin
 from headless_whisperx_api import HeadlessWhisperXApi
 from headless_whisperx_http import HeadlessWhisperXHttpMixin
 
-# Compose bounded browser authentication first, final-file tracking second, and
-# safe course metadata capture last. Each layer extends the established Headless
-# download options without exposing credentials or absolute paths publicly.
+# Compose bounded browser authentication first, final-file tracking second,
+# provider-specific safe inventory capture third, and persistent metadata capture
+# last. No layer exposes browser credentials, signed attachment URLs, or absolute
+# output paths publicly.
 install_headless_browser_cookie_support()
 install_headless_output_tracking()
+install_headless_udemy_attachment_inventory()
 install_headless_course_metadata_tracking()
 install_headless_learning_structure()
 
