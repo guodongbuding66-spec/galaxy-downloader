@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from course_structure import CourseStructureError, set_course_item_metadata, upsert_course_section
 from course_workspace import CourseWorkspaceError, add_media_to_course
+from headless_course_metadata_tracking import clear_course_metadata_tracking, tracked_course_metadata
 from headless_output_tracking import clear_output_tracking, tracked_output_paths
 from media_library import resolve_media_item_path, search_media_items, sync_media_library
 
@@ -89,6 +91,11 @@ def _best_effort_clear_tracking(tracking_id: object) -> None:
     except Exception:
         # Tracking state is process-local and may already have been evicted.
         # Session lifecycle cleanup must remain non-fatal in that case.
+        pass
+    try:
+        clear_course_metadata_tracking(tracking_id)
+    except Exception:
+        # Metadata tracking is independently bounded and may already be gone.
         return
 
 
@@ -171,11 +178,11 @@ def remove_course_download_session(job_id: object, *, clear_tracking: bool = Tru
 
 
 def discard_course_download_outputs(job_id: object) -> int:
-    """Discard tracked files for a download that itself failed or was cancelled.
+    """Discard tracked state for a download that itself failed or was cancelled.
 
     The Session remains queryable. This is intentionally separate from sync
-    failures, where tracked outputs must be retained for the manual `/sync`
-    recovery path.
+    failures, where file and course metadata tracking must be retained for the
+    manual `/sync` recovery path.
     """
 
     clean = _clean_id(job_id, "job")
@@ -185,12 +192,18 @@ def discard_course_download_outputs(job_id: object) -> int:
             raise CourseDownloadSessionError("course download session not found")
         tracking_id = str(session["trackingId"])
         _SESSIONS.move_to_end(clean)
+    discarded = 0
     try:
-        return clear_output_tracking(tracking_id)
+        discarded = clear_output_tracking(tracking_id)
     except Exception:
-        # A bounded tracking session may already have been evicted; discard is
-        # best-effort and must not hide the original terminal job state.
-        return 0
+        # A bounded output session may already have been evicted.
+        pass
+    try:
+        clear_course_metadata_tracking(tracking_id)
+    except Exception:
+        # Metadata tracking may have been independently evicted.
+        pass
+    return discarded
 
 
 def mark_course_download_sync_failed(job_id: object, detail: object) -> dict[str, Any]:
@@ -251,6 +264,45 @@ def _library_records(session: dict[str, Any], outputs: list[Path]) -> list[dict[
     return records
 
 
+def _apply_course_metadata(
+    engine_module,
+    *,
+    course_id: str,
+    course_item_id: str,
+    provider: str,
+    metadata: dict[str, Any] | None,
+) -> None:
+    if provider != "udemy" or not metadata or metadata.get("provider") != "udemy":
+        return
+
+    section_id = ""
+    section_title = str(metadata.get("sectionTitle") or "").strip()
+    section_position = int(metadata.get("sectionPosition") or 0)
+    if section_title and section_position > 0:
+        section = upsert_course_section(
+            engine_module,
+            course_id,
+            provider_section_id=f"udemy:chapter:{section_position}",
+            title=section_title,
+            position=section_position,
+        )
+        section_id = str(section["id"])
+
+    provider_item_id = str(metadata.get("providerItemId") or "").strip()
+    provider_title = str(metadata.get("providerTitle") or "").strip()
+    provider_position = int(metadata.get("providerPosition") or 0)
+    if not any((section_id, provider_item_id, provider_title, provider_position)):
+        return
+    set_course_item_metadata(
+        engine_module,
+        course_item_id,
+        section_id=section_id,
+        provider_item_id=provider_item_id,
+        provider_title=provider_title,
+        provider_position=provider_position,
+    )
+
+
 def sync_course_download_outputs(engine_module, job_id: object) -> dict[str, Any]:
     clean = _clean_id(job_id, "job")
     with _LOCK:
@@ -267,12 +319,14 @@ def sync_course_download_outputs(engine_module, job_id: object) -> dict[str, Any
         session["updatedAt"] = _now()
         tracking_id = str(session["trackingId"])
         course_id = str(session["courseId"])
+        provider = str(session["provider"])
         session_snapshot = dict(session)
 
     try:
         outputs = tracked_output_paths(tracking_id, existing_only=True)
         if not outputs:
             raise CourseDownloadSessionError("no final course output files were tracked")
+        metadata_by_output = tracked_course_metadata(tracking_id, existing_only=True)
         records = _library_records(session_snapshot, outputs)
         sync_media_library(engine_module, records)
         media_ids: list[str] = []
@@ -282,10 +336,17 @@ def sync_course_download_outputs(engine_module, job_id: object) -> dict[str, Any
                 raise CourseDownloadSessionError(f"media library did not index output: {output.name}")
             media_ids.append(media_id)
         synced = 0
-        for media_id in media_ids:
+        for output, media_id in zip(outputs, media_ids):
             try:
-                add_media_to_course(engine_module, course_id, media_id)
-            except CourseWorkspaceError as exc:
+                course_item_id = add_media_to_course(engine_module, course_id, media_id)
+                _apply_course_metadata(
+                    engine_module,
+                    course_id=course_id,
+                    course_item_id=course_item_id,
+                    provider=provider,
+                    metadata=metadata_by_output.get(output),
+                )
+            except (CourseWorkspaceError, CourseStructureError, ValueError) as exc:
                 raise CourseDownloadSessionError(str(exc)) from exc
             synced += 1
     except Exception as exc:
@@ -310,5 +371,5 @@ def sync_course_download_outputs(engine_module, job_id: object) -> dict[str, Any
         current["updatedAt"] = _now()
         result = _public(current)
         _SESSIONS.move_to_end(clean)
-    clear_output_tracking(tracking_id)
+    _best_effort_clear_tracking(tracking_id)
     return result
