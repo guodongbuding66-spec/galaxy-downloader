@@ -31,6 +31,8 @@ class _LearningApi:
         self.created: list[dict] = []
         self.removed: list[str] = []
         self.existing_id = "c" * 32
+        self.existing_source = "https://www.udemy.com/course/python-bootcamp/?couponCode=OLD"
+        self.existing_provider = "udemy"
 
     def create_course(self, payload):
         course = {
@@ -49,8 +51,8 @@ class _LearningApi:
             "course": {
                 "id": self.existing_id,
                 "name": "Existing Course",
-                "sourceUrl": "https://www.udemy.com/course/existing-course/",
-                "provider": "udemy",
+                "sourceUrl": self.existing_source,
+                "provider": self.existing_provider,
             },
             "items": [],
             "itemLimit": item_limit,
@@ -238,11 +240,11 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         self.assertEqual(handler.response[0], 202)
         self.assertEqual(handler.learning_api.created[0]["name"], "My Python Course")
 
-    def test_post_download_can_bind_existing_course(self) -> None:
+    def test_post_download_can_bind_same_existing_course_ignoring_query(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers/download"
         handler.payload = {
-            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
+            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/?couponCode=NEW#overview",
             "courseId": handler.learning_api.existing_id,
         }
         handler.do_POST()
@@ -251,6 +253,36 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         self.assertEqual(payload["course"]["id"], handler.learning_api.existing_id)
         self.assertEqual(handler.learning_api.created, [])
         self.assertEqual(handler.coordinator.submissions[0][1], handler.learning_api.existing_id)
+
+    def test_post_download_rejects_existing_course_from_different_source(self) -> None:
+        handler = _Handler()
+        handler.path = "/v1/learning/providers/download"
+        handler.learning_api.existing_source = "https://www.udemy.com/course/another-course/"
+        handler.payload = {
+            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
+            "courseId": handler.learning_api.existing_id,
+        }
+        handler.do_POST()
+        status, payload = handler.response
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["code"], "LEARNING_COURSE_DOWNLOAD_REJECTED")
+        self.assertIn("source does not match", payload["error"])
+        self.assertEqual(handler.coordinator.submissions, [])
+
+    def test_post_download_rejects_existing_course_from_different_provider(self) -> None:
+        handler = _Handler()
+        handler.path = "/v1/learning/providers/download"
+        handler.learning_api.existing_provider = "generic"
+        handler.payload = {
+            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
+            "courseId": handler.learning_api.existing_id,
+        }
+        handler.do_POST()
+        status, payload = handler.response
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["code"], "LEARNING_COURSE_DOWNLOAD_REJECTED")
+        self.assertIn("provider does not match", payload["error"])
+        self.assertEqual(handler.coordinator.submissions, [])
 
     def test_post_download_requires_authorization_before_course_creation(self) -> None:
         handler = _Handler()
