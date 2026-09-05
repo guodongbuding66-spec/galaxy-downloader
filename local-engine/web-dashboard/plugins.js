@@ -120,8 +120,8 @@
 
   function rowActions(row) {
     const actions = []
-    actions.push(`<button class="action" data-plugin-detail="${esc(row.id)}" type="button">Detail</button>`)
     if (row.installed) {
+      actions.push(`<button class="action" data-plugin-detail="${esc(row.id)}" type="button">Detail</button>`)
       actions.push(`<button class="action" data-plugin-toggle="${esc(row.id)}" data-plugin-enabled="${row.enabled ? 'false' : 'true'}" type="button">${row.enabled ? 'Disable' : 'Enable'}</button>`)
       if (row.updateAvailable) actions.push(`<button class="action" data-plugin-update="${esc(row.id)}" type="button">Update</button>`)
       actions.push(`<button class="action danger-text" data-plugin-remove="${esc(row.id)}" type="button">Remove</button>`)
