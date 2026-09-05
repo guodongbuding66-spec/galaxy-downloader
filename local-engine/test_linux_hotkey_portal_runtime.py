@@ -140,7 +140,7 @@ class FakeGlobalShortcutsPortal:
             asyncio.create_task(
                 self._emit_response(
                     request_path,
-                    {"session_handle": Variant("s", SESSION_PATH)},
+                    {"session_handle": Variant("o", SESSION_PATH)},
                 )
             )
             return Message.new_method_return(message, "o", [request_path])
