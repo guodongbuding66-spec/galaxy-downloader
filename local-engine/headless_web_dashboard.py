@@ -9,6 +9,8 @@ _DASHBOARD_ASSETS = {
     "/dashboard/": ("index.html", "text/html; charset=utf-8"),
     "/dashboard/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/dashboard/styles.css": ("styles.css", "text/css; charset=utf-8"),
+    "/dashboard/ai-subscriptions.js": ("ai-subscriptions.js", "text/javascript; charset=utf-8"),
+    "/dashboard/ai-subscriptions.css": ("ai-subscriptions.css", "text/css; charset=utf-8"),
 }
 
 
