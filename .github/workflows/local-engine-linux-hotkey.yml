@@ -1,0 +1,72 @@
+name: Local Engine Linux Hotkey
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/desktop_linux_hotkey.py'
+      - 'local-engine/desktop_linux_hotkey_integration.py'
+      - 'local-engine/desktop_hotkey_preferences.py'
+      - 'local-engine/desktop_platform_features.py'
+      - 'local-engine/test_linux_hotkey_portal_runtime.py'
+      - 'local-engine/requirements.txt'
+      - '.github/workflows/local-engine-linux-hotkey.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/desktop_linux_hotkey.py'
+      - 'local-engine/desktop_linux_hotkey_integration.py'
+      - 'local-engine/desktop_hotkey_preferences.py'
+      - 'local-engine/desktop_platform_features.py'
+      - 'local-engine/test_linux_hotkey_portal_runtime.py'
+      - 'local-engine/requirements.txt'
+      - '.github/workflows/local-engine-linux-hotkey.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  portal-hotkey:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64 portal hotkey
+            runner: ubuntu-24.04
+          - label: Linux arm64 portal hotkey
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install D-Bus session runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends dbus-daemon
+          command -v dbus-run-session
+
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+
+      - name: Validate Linux portal hotkey contract
+        run: |
+          python -m py_compile \
+            local-engine/desktop_linux_hotkey.py \
+            local-engine/desktop_linux_hotkey_integration.py \
+            local-engine/test_linux_hotkey_portal_runtime.py
+          python local-engine/entrypoint.py --self-test
+          python -c "import dbus_fast; print(dbus_fast.__version__ if hasattr(dbus_fast, '__version__') else 'dbus-fast loaded')"
+
+      - name: Exercise XDG GlobalShortcuts D-Bus lifecycle
+        run: dbus-run-session -- python local-engine/test_linux_hotkey_portal_runtime.py
