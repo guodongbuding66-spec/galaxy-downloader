@@ -79,7 +79,7 @@ jobs:
         if: matrix.os_name == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends desktop-file-utils rpm cpio
+          sudo apt-get install -y --no-install-recommends desktop-file-utils rpm libarchive-tools
 
       - name: Validate release source and bundle policy
         run: |
@@ -165,30 +165,8 @@ jobs:
           mkdir -p dist/rpm-root
           rpm -qip "$prefix.rpm" >/dev/null
           rpm -qlp "$prefix.rpm" | grep -Fx '/usr/bin/galaxy-local-engine'
-          (
-            cd dist/rpm-root
-            rpm2cpio '../${{ matrix.artifact }}.rpm' > package.cpio
-            test -s package.cpio
-            set +e
-            cpio -id --quiet --no-absolute-filenames < package.cpio 2>cpio.stderr
-            cpio_status=$?
-            set -e
-            rm -f package.cpio
-            expected_cpio_warning="cpio: Removing leading \`/' from member names"
-            if [ -s cpio.stderr ]; then
-              if [ "$(wc -l < cpio.stderr)" -ne 1 ] || ! grep -Fxq "$expected_cpio_warning" cpio.stderr; then
-                cat cpio.stderr >&2
-                exit 1
-              fi
-            fi
-            if [ "$cpio_status" -ne 0 ]; then
-              if [ "$cpio_status" -ne 1 ] || [ ! -s cpio.stderr ]; then
-                cat cpio.stderr >&2
-                exit 1
-              fi
-            fi
-            rm -f cpio.stderr
-          )
+          bsdtar -tf "$prefix.rpm" >/dev/null
+          bsdtar -xf "$prefix.rpm" -C dist/rpm-root
           desktop-file-validate dist/rpm-root/usr/share/applications/galaxy-local-engine.desktop
           grep -F 'MimeType=x-scheme-handler/galaxy-downloader;' dist/rpm-root/usr/share/applications/galaxy-local-engine.desktop
           test -x dist/rpm-root/usr/bin/galaxy-local-engine
