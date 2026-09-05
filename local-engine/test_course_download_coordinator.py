@@ -13,7 +13,6 @@ from course_download_sessions import CourseDownloadSessionError
 from course_workspace import create_course, list_course_items
 from headless_learning_api import HeadlessLearningApi, HeadlessLearningContext
 from headless_output_tracking import install_headless_output_tracking, tracked_output_paths
-from headless_service import EventBroker
 from media_library import list_media_items
 
 
@@ -40,7 +39,7 @@ class _Job:
 class _Runtime:
     def __init__(self, download_root: Path) -> None:
         self.download_root = download_root
-        self.events = EventBroker()
+        self.events = headless_service.EventBroker()
         self.jobs: dict[str, _Job] = {}
         self.submissions: list[dict] = []
         self.submit_error: Exception | None = None
@@ -119,7 +118,7 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
             if session.get("syncState") == state:
                 return value
             time.sleep(0.02)
-        self.fail(f"course download session did not reach {state}")
+        raise AssertionError(f"course download session did not reach {state}")
 
     def _tracking_id(self, runtime: _Runtime) -> str:
         return str(runtime.submissions[-1].get("_outputTrackingId") or "")
