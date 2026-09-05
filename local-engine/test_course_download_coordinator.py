@@ -9,9 +9,10 @@ from unittest.mock import patch
 
 import headless_service
 from course_download_coordinator import CourseDownloadCoordinator, CourseDownloadCoordinatorError
+from course_download_sessions import CourseDownloadSessionError
 from course_workspace import create_course, list_course_items
 from headless_learning_api import HeadlessLearningApi, HeadlessLearningContext
-from headless_output_tracking import install_headless_output_tracking
+from headless_output_tracking import install_headless_output_tracking, tracked_output_paths
 from headless_service import EventBroker
 from media_library import list_media_items
 
@@ -120,6 +121,9 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
             time.sleep(0.02)
         self.fail(f"course download session did not reach {state}")
 
+    def _tracking_id(self, runtime: _Runtime) -> str:
+        return str(runtime.submissions[-1].get("_outputTrackingId") or "")
+
     def _record_outputs(self, runtime: _Runtime, *outputs: Path) -> None:
         payload = runtime.submissions[-1]
         options = headless_service._download_options(
@@ -143,7 +147,7 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
             job, session = coordinator.submit(self._plan(), course_id)
             self.assertEqual(session["syncState"], "pending")
             self.assertNotIn("trackingId", session)
-            self.assertTrue(runtime.submissions[-1].get("_outputTrackingId"))
+            self.assertTrue(self._tracking_id(runtime))
 
             first = downloads / "01 Introduction.mp4"
             second = downloads / "02 Variables.mkv"
@@ -158,8 +162,9 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
             self.assertEqual(len(list_media_items(learning_api.context, limit=10)), 2)
             items = list_course_items(learning_api.context, course_id)
             self.assertEqual([item["title"] for item in items], ["01 Introduction", "02 Variables"])
+            self.assertEqual(tracked_output_paths(self._tracking_id(runtime)), [])
 
-    def test_failed_job_marks_session_failed_without_course_items(self) -> None:
+    def test_failed_job_discards_partial_tracking_without_course_items(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             learning_api, course_id, downloads = self._learning(root)
@@ -168,12 +173,19 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
             self.addCleanup(coordinator.close)
 
             job, _session = coordinator.submit(self._plan(), course_id)
+            partial = downloads / "partial-lesson.mp4"
+            partial.write_bytes(b"partial")
+            self._record_outputs(runtime, partial)
+            tracking_id = self._tracking_id(runtime)
+            self.assertEqual(tracked_output_paths(tracking_id), [partial.resolve()])
+
             runtime.terminal(job.job_id, "failed", "authorized course request failed")
             final = self._wait_state(coordinator, job.job_id, "failed")
             self.assertIn("authorized course request failed", final["session"]["syncError"])
             self.assertEqual(list_course_items(learning_api.context, course_id), [])
+            self.assertEqual(tracked_output_paths(tracking_id), [])
 
-    def test_cancelled_job_marks_session_failed(self) -> None:
+    def test_cancelled_job_discards_partial_tracking(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             learning_api, course_id, downloads = self._learning(root)
@@ -182,9 +194,38 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
             self.addCleanup(coordinator.close)
 
             job, _session = coordinator.submit(self._plan(), course_id)
+            partial = downloads / "cancelled-partial.mp4"
+            partial.write_bytes(b"partial")
+            self._record_outputs(runtime, partial)
+            tracking_id = self._tracking_id(runtime)
             runtime.cancel(job.job_id)
             final = self._wait_state(coordinator, job.job_id, "failed")
             self.assertEqual(final["job"]["state"], "cancelled")
+            self.assertEqual(tracked_output_paths(tracking_id), [])
+
+    def test_sync_failure_keeps_tracking_for_manual_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            learning_api, course_id, downloads = self._learning(root)
+            runtime = _Runtime(downloads)
+            coordinator = CourseDownloadCoordinator(runtime, learning_api)
+            self.addCleanup(coordinator.close)
+
+            job, _session = coordinator.submit(self._plan(), course_id)
+            output = downloads / "recoverable-lesson.mp4"
+            output.write_bytes(b"lesson")
+            self._record_outputs(runtime, output)
+            tracking_id = self._tracking_id(runtime)
+
+            with patch(
+                "course_download_coordinator.sync_course_download_outputs",
+                side_effect=CourseDownloadSessionError("temporary media index failure"),
+            ):
+                runtime.terminal(job.job_id, "completed")
+                final = self._wait_state(coordinator, job.job_id, "failed")
+
+            self.assertIn("temporary media index failure", final["session"]["syncError"])
+            self.assertEqual(tracked_output_paths(tracking_id), [output.resolve()])
 
     def test_manual_sync_rejects_non_completed_job(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
