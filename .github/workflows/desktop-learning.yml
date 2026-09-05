@@ -2,10 +2,24 @@ name: Desktop Learning
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['local-engine/desktop_learning.py','scripts/test-local-desktop-learning.py','.github/workflows/desktop-learning.yml']
+    paths:
+      - 'local-engine/desktop_learning.py'
+      - 'local-engine/desktop_hooks.py'
+      - 'local-engine/desktop_course_download.py'
+      - 'local-engine/test_desktop_learning.py'
+      - 'local-engine/test_desktop_hooks.py'
+      - 'scripts/test-local-desktop-learning.py'
+      - '.github/workflows/desktop-learning.yml'
   push:
     branches: [main]
-    paths: ['local-engine/desktop_learning.py','scripts/test-local-desktop-learning.py','.github/workflows/desktop-learning.yml']
+    paths:
+      - 'local-engine/desktop_learning.py'
+      - 'local-engine/desktop_hooks.py'
+      - 'local-engine/desktop_course_download.py'
+      - 'local-engine/test_desktop_learning.py'
+      - 'local-engine/test_desktop_hooks.py'
+      - 'scripts/test-local-desktop-learning.py'
+      - '.github/workflows/desktop-learning.yml'
 permissions: {contents: read}
 jobs:
   learning:
@@ -20,5 +34,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with: {python-version: '3.12'}
       - run: python -m pip install -r local-engine/requirements.txt
-      - run: python -m py_compile local-engine/desktop_learning.py scripts/test-local-desktop-learning.py
+      - run: >-
+          python -m py_compile
+          local-engine/desktop_hooks.py
+          local-engine/desktop_course_download.py
+          local-engine/desktop_learning.py
+          local-engine/test_desktop_hooks.py
+          local-engine/test_desktop_learning.py
+          scripts/test-local-desktop-learning.py
+      - run: python local-engine/test_desktop_hooks.py
+      - run: python local-engine/test_desktop_learning.py
       - run: python scripts/test-local-desktop-learning.py
