@@ -13,7 +13,6 @@ _TRACKING_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 _PROVIDER_ITEM_RE = re.compile(r"^[A-Za-z0-9._:-]{1,120}$")
 _LOCK = threading.RLock()
 _METADATA: OrderedDict[str, OrderedDict[str, dict[str, Any]]] = OrderedDict()
-_INSTALLED = False
 
 
 class HeadlessCourseMetadataTrackingError(_service.HeadlessServiceError):
@@ -164,14 +163,12 @@ def clear_course_metadata_tracking(tracking_id: object) -> int:
 def install_headless_course_metadata_tracking() -> None:
     """Capture a bounded safe metadata subset at yt-dlp's final move step."""
 
-    global _INSTALLED
-    if _INSTALLED:
+    current_download_options = _service._download_options
+    if getattr(current_download_options, "_galaxy_course_metadata_tracking", False):
         return
 
-    original_download_options = _service._download_options
-
     def download_options_with_course_metadata(payload: dict[str, Any], root: Path, progress_hook) -> dict[str, Any]:
-        options = original_download_options(payload, root, progress_hook)
+        options = current_download_options(payload, root, progress_hook)
         raw_tracking_id = payload.get("_outputTrackingId")
         if raw_tracking_id in {None, ""}:
             return options
@@ -194,5 +191,5 @@ def install_headless_course_metadata_tracking() -> None:
         options["postprocessor_hooks"] = hooks
         return options
 
+    download_options_with_course_metadata._galaxy_course_metadata_tracking = True  # type: ignore[attr-defined]
     _service._download_options = download_options_with_course_metadata
-    _INSTALLED = True
