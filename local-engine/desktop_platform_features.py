@@ -9,6 +9,11 @@ from desktop_hotkey import (
     verify_windows_hotkey_api,
 )
 from desktop_library import install_desktop_library, run_desktop_library_self_test
+from desktop_protocol import (
+    install_desktop_protocol,
+    run_desktop_protocol_self_test,
+    verify_macos_protocol_runtime,
+)
 from desktop_subscriptions import install_desktop_subscriptions, run_desktop_subscriptions_self_test
 from desktop_tray import (
     install_desktop_tray,
@@ -51,6 +56,7 @@ def install_desktop_platform_features(engine_module):
     """
     if _has_job_policy_contract(engine_module):
         install_bandwidth_policy(engine_module)
+        install_desktop_protocol(engine_module)
     install_desktop_bandwidth(engine_module)
     install_desktop_clipboard_monitor(engine_module)
     install_desktop_tray(engine_module)
@@ -72,6 +78,7 @@ def run_desktop_platform_features_self_test() -> None:
     run_desktop_clipboard_monitor_self_test()
     run_desktop_tray_self_test()
     run_desktop_global_hotkey_self_test()
+    run_desktop_protocol_self_test()
     run_media_library_self_test()
     run_desktop_library_self_test()
     run_subscriptions_self_test()
@@ -80,3 +87,4 @@ def run_desktop_platform_features_self_test() -> None:
     assert _has_job_policy_contract(object()) is False
     assert verify_windows_tray_dependencies() is True
     assert verify_windows_hotkey_api() is True
+    assert verify_macos_protocol_runtime() is True
