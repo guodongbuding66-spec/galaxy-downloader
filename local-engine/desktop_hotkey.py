@@ -18,11 +18,40 @@ MOD_NOREPEAT = 0x4000
 WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
 VK_G = 0x47
+
+MAC_CONTROL_KEY = 1 << 12
+MAC_SHIFT_KEY = 1 << 9
+MAC_KVK_ANSI_G = 0x05
+MAC_HOTKEY_ID = 1
+MAC_HOTKEY_SIGNATURE = int.from_bytes(b"GLHK", "big")
+K_EVENT_CLASS_KEYBOARD = int.from_bytes(b"keyb", "big")
+K_EVENT_HOTKEY_PRESSED = 5
+K_EVENT_PARAM_DIRECT_OBJECT = int.from_bytes(b"----", "big")
+TYPE_EVENT_HOTKEY_ID = int.from_bytes(b"hkid", "big")
+EVENT_NOT_HANDLED_ERR = -9874
+
 _SKIP_START_FLAGS = {"--self-test", "--ui-smoke-test", "--version"}
 
 
+class EventTypeSpec(ctypes.Structure):
+    _fields_ = [("eventClass", ctypes.c_uint32), ("eventKind", ctypes.c_uint32)]
+
+
+class EventHotKeyID(ctypes.Structure):
+    _fields_ = [("signature", ctypes.c_uint32), ("id", ctypes.c_uint32)]
+
+
+CarbonEventHandler = ctypes.CFUNCTYPE(
+    ctypes.c_int32,
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+)
+
+
 def hotkey_platform_supported(platform: str | None = None) -> bool:
-    return str(platform or sys.platform).lower().startswith("win")
+    value = str(platform or sys.platform).lower()
+    return value.startswith("win") or value == "darwin"
 
 
 def hotkey_should_start(*, platform: str | None = None, argv: tuple[str, ...] | None = None) -> bool:
@@ -169,6 +198,172 @@ class WindowsGlobalHotkeyProvider:
         self.state.active = False
 
 
+class MacOSCarbonGlobalHotkeyProvider:
+    """Register Control+Shift+G through macOS' Carbon hot-key API.
+
+    RegisterEventHotKey does not require Accessibility/Input Monitoring access and
+    integrates with the application's existing event loop. Tk mutations are still
+    scheduled through window.after(), keeping UI work on the Tk thread.
+    """
+
+    def __init__(self, window) -> None:
+        self.window = window
+        self.state = HotkeyState(available=True)
+        self._carbon = None
+        self._event_target = ctypes.c_void_p()
+        self._handler_ref = ctypes.c_void_p()
+        self._hotkey_ref = ctypes.c_void_p()
+        self._callback: CarbonEventHandler | None = None
+        self._stop_lock = threading.Lock()
+
+    @staticmethod
+    def _load_carbon():
+        carbon = ctypes.CDLL("/System/Library/Frameworks/Carbon.framework/Carbon")
+        carbon.GetApplicationEventTarget.argtypes = []
+        carbon.GetApplicationEventTarget.restype = ctypes.c_void_p
+        carbon.InstallEventHandler.argtypes = [
+            ctypes.c_void_p,
+            CarbonEventHandler,
+            ctypes.c_uint32,
+            ctypes.POINTER(EventTypeSpec),
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        carbon.InstallEventHandler.restype = ctypes.c_int32
+        carbon.RemoveEventHandler.argtypes = [ctypes.c_void_p]
+        carbon.RemoveEventHandler.restype = ctypes.c_int32
+        carbon.RegisterEventHotKey.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            EventHotKeyID,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        carbon.RegisterEventHotKey.restype = ctypes.c_int32
+        carbon.UnregisterEventHotKey.argtypes = [ctypes.c_void_p]
+        carbon.UnregisterEventHotKey.restype = ctypes.c_int32
+        carbon.GetEventParameter.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        carbon.GetEventParameter.restype = ctypes.c_int32
+        return carbon
+
+    def start(self, timeout: float = 2.0) -> bool:
+        del timeout  # Windows uses a registration thread; Carbon registration is synchronous.
+        if self.state.active:
+            return True
+        if threading.current_thread() is not threading.main_thread():
+            self.state.error = "macOS global hotkey must be registered on the main thread"
+            return False
+
+        self.state.error = ""
+        try:
+            carbon = self._load_carbon()
+            target = carbon.GetApplicationEventTarget()
+            if not target:
+                raise RuntimeError("GetApplicationEventTarget returned null")
+
+            self._carbon = carbon
+            self._event_target = ctypes.c_void_p(target)
+            self._callback = CarbonEventHandler(self._handle_event)
+            event_spec = EventTypeSpec(K_EVENT_CLASS_KEYBOARD, K_EVENT_HOTKEY_PRESSED)
+            handler_ref = ctypes.c_void_p()
+            status = int(
+                carbon.InstallEventHandler(
+                    self._event_target,
+                    self._callback,
+                    1,
+                    ctypes.byref(event_spec),
+                    None,
+                    ctypes.byref(handler_ref),
+                )
+            )
+            if status != 0:
+                raise RuntimeError(f"InstallEventHandler failed ({status})")
+            self._handler_ref = handler_ref
+
+            hotkey_ref = ctypes.c_void_p()
+            hotkey_id = EventHotKeyID(MAC_HOTKEY_SIGNATURE, MAC_HOTKEY_ID)
+            status = int(
+                carbon.RegisterEventHotKey(
+                    MAC_KVK_ANSI_G,
+                    MAC_CONTROL_KEY | MAC_SHIFT_KEY,
+                    hotkey_id,
+                    self._event_target,
+                    0,
+                    ctypes.byref(hotkey_ref),
+                )
+            )
+            if status != 0:
+                raise RuntimeError(f"RegisterEventHotKey failed ({status})")
+            self._hotkey_ref = hotkey_ref
+            self.state.active = True
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.state.error = str(exc)[:240]
+            self._cleanup()
+            return False
+
+    def _handle_event(self, _next_handler, event_ref, _user_data) -> int:
+        carbon = self._carbon
+        if carbon is None or not event_ref:
+            return EVENT_NOT_HANDLED_ERR
+        hotkey_id = EventHotKeyID()
+        status = int(
+            carbon.GetEventParameter(
+                event_ref,
+                K_EVENT_PARAM_DIRECT_OBJECT,
+                TYPE_EVENT_HOTKEY_ID,
+                None,
+                ctypes.sizeof(hotkey_id),
+                None,
+                ctypes.byref(hotkey_id),
+            )
+        )
+        if status != 0:
+            return status
+        if int(hotkey_id.signature) != MAC_HOTKEY_SIGNATURE or int(hotkey_id.id) != MAC_HOTKEY_ID:
+            return EVENT_NOT_HANDLED_ERR
+        _schedule_workbench(self.window)
+        return 0
+
+    def _cleanup(self) -> None:
+        carbon = self._carbon
+        hotkey_ref = self._hotkey_ref
+        handler_ref = self._handler_ref
+        self._hotkey_ref = ctypes.c_void_p()
+        self._handler_ref = ctypes.c_void_p()
+        self._event_target = ctypes.c_void_p()
+        self._callback = None
+        self._carbon = None
+        if carbon is not None and hotkey_ref:
+            try:
+                carbon.UnregisterEventHotKey(hotkey_ref)
+            except Exception:
+                # Carbon teardown is best-effort during application shutdown; the
+                # local provider state must still be cleared even if Cocoa is exiting.
+                pass
+        if carbon is not None and handler_ref:
+            try:
+                carbon.RemoveEventHandler(handler_ref)
+            except Exception:
+                # The application event target may already be dismantling during
+                # Tk/Cocoa shutdown, so a teardown-only native error is non-fatal.
+                pass
+        self.state.active = False
+
+    def stop(self) -> None:
+        with self._stop_lock:
+            self._cleanup()
+
+
 class NullGlobalHotkeyProvider:
     def __init__(self, error: str = "") -> None:
         self.state = HotkeyState(available=False, active=False, error=error)
@@ -181,9 +376,12 @@ class NullGlobalHotkeyProvider:
 
 
 def create_hotkey_provider(window):
-    if not hotkey_platform_supported():
-        return NullGlobalHotkeyProvider("Global hotkey backend is not enabled for this platform")
-    return WindowsGlobalHotkeyProvider(window)
+    platform = str(sys.platform).lower()
+    if platform.startswith("win"):
+        return WindowsGlobalHotkeyProvider(window)
+    if platform == "darwin":
+        return MacOSCarbonGlobalHotkeyProvider(window)
+    return NullGlobalHotkeyProvider("Global hotkey backend is not enabled for this platform")
 
 
 def _install_hotkey_for_window(window) -> None:
@@ -233,6 +431,23 @@ def install_desktop_global_hotkey(engine_module):
 
 
 def verify_windows_hotkey_api() -> bool:
+    """Verify the native API required by every currently enabled hotkey backend."""
+    if sys.platform == "darwin":
+        try:
+            carbon = MacOSCarbonGlobalHotkeyProvider._load_carbon()
+            return all(
+                hasattr(carbon, name)
+                for name in (
+                    "GetApplicationEventTarget",
+                    "InstallEventHandler",
+                    "RemoveEventHandler",
+                    "RegisterEventHotKey",
+                    "UnregisterEventHotKey",
+                    "GetEventParameter",
+                )
+            )
+        except Exception:
+            return False
     if not hotkey_platform_supported():
         return True
     try:
@@ -244,12 +459,19 @@ def verify_windows_hotkey_api() -> bool:
 
 def run_desktop_global_hotkey_self_test() -> None:
     assert hotkey_platform_supported("win32") is True
+    assert hotkey_platform_supported("darwin") is True
     assert hotkey_platform_supported("linux") is False
     assert hotkey_should_start(platform="win32", argv=("--self-test",)) is False
+    assert hotkey_should_start(platform="darwin", argv=("--self-test",)) is False
     assert hotkey_should_start(platform="win32", argv=("--no-hotkey",)) is False
+    assert hotkey_should_start(platform="darwin", argv=("--no-hotkey",)) is False
     assert hotkey_should_start(platform="linux", argv=()) is False
     assert HOTKEY_LABEL == "Ctrl+Shift+G"
     assert MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT == 0x4006
+    assert MAC_CONTROL_KEY | MAC_SHIFT_KEY == 0x1200
+    assert MAC_KVK_ANSI_G == 0x05
+    assert K_EVENT_CLASS_KEYBOARD == 0x6B657962
+    assert K_EVENT_HOTKEY_PRESSED == 5
 
     class Window:
         @staticmethod
