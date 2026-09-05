@@ -24,6 +24,7 @@ class CourseProviderTests(unittest.TestCase):
         providers = list_course_providers()
         self.assertEqual([provider["id"] for provider in providers], ["udemy"])
         self.assertTrue(providers[0]["requiresAuthorizedSession"])
+        self.assertTrue(providers[0]["supportsAttachments"])
         self.assertFalse(providers[0]["drmBypassSupported"])
 
     def test_detects_standard_udemy_course_url(self) -> None:
@@ -55,6 +56,7 @@ class CourseProviderTests(unittest.TestCase):
         self.assertFalse(plan["drmBypassSupported"])
         self.assertEqual(plan["enginePayload"]["browser"], "chrome")
         self.assertTrue(plan["enginePayload"]["includeSubtitle"])
+        self.assertTrue(plan["enginePayload"]["includeCourseAttachments"])
         self.assertEqual(plan["enginePayload"]["subtitleMode"], "both")
         self.assertEqual(plan["enginePayload"]["collectionMode"], "all")
 
@@ -63,12 +65,14 @@ class CourseProviderTests(unittest.TestCase):
         self.assertEqual(plan["enginePayload"]["browser"], "none")
         self.assertTrue(any("Cookie" in warning for warning in plan["warnings"]))
 
-    def test_subtitles_can_be_disabled(self) -> None:
+    def test_subtitles_and_attachment_inventory_can_be_disabled(self) -> None:
         plan = build_course_provider_plan(
             "https://www.udemy.com/course/python-bootcamp/",
             include_subtitles=False,
+            include_attachments=False,
         )
         self.assertFalse(plan["enginePayload"]["includeSubtitle"])
+        self.assertFalse(plan["enginePayload"]["includeCourseAttachments"])
         self.assertEqual(plan["enginePayload"]["subtitleMode"], "none")
 
     def test_rejects_invalid_browser(self) -> None:
@@ -85,11 +89,16 @@ class CourseProviderTests(unittest.TestCase):
                 provider="hotmart",
             )
 
-    def test_include_subtitles_must_be_boolean(self) -> None:
+    def test_include_flags_must_be_boolean(self) -> None:
         with self.assertRaises(CourseProviderError):
             build_course_provider_plan(
                 "https://www.udemy.com/course/python-bootcamp/",
                 include_subtitles="yes",
+            )
+        with self.assertRaises(CourseProviderError):
+            build_course_provider_plan(
+                "https://www.udemy.com/course/python-bootcamp/",
+                include_attachments="yes",
             )
 
 
