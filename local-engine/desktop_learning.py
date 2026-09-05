@@ -39,7 +39,11 @@ def build_course_tree_rows(sections: list[dict], items: list[dict]) -> list[dict
     """Return stable Section -> Lecture rows without requiring a Tk display."""
     ordered_sections = sorted(
         (dict(section) for section in sections),
-        key=lambda row: (_position(row.get("position"), 10**9), str(row.get("title") or ""), str(row.get("id") or "")),
+        key=lambda row: (
+            _position(row.get("position"), 10**9),
+            str(row.get("title") or ""),
+            str(row.get("id") or ""),
+        ),
     )
     indexed_items = list(enumerate(dict(item) for item in items))
     item_groups: dict[str, list[tuple[int, dict]]] = {}
@@ -48,12 +52,10 @@ def build_course_tree_rows(sections: list[dict], items: list[dict]) -> list[dict
         item_groups.setdefault(section_id, []).append((index, item))
 
     rows: list[dict[str, Any]] = []
-    known_sections: set[str] = set()
     for index, section in enumerate(ordered_sections):
         section_id = str(section.get("id") or "").strip()
         if not section_id:
             section_id = f"missing-{index}"
-        known_sections.add(section_id)
         key = f"section:{section_id}"
         rows.append(
             {
@@ -230,13 +232,21 @@ def _show_learning(window, engine_module) -> None:
         highlightbackground=ui.BORDER,
     ).pack(side="left", padx=(6, 10), fill="x", expand=True)
     ui._label(source_row, "Provider", size=7, color=ui.MUTED).pack(side="left")
-    ttk.Combobox(source_row, textvariable=provider_var, values=_PROVIDER_VALUES, state="readonly", width=9).pack(
-        side="left", padx=(6, 10)
-    )
+    ttk.Combobox(
+        source_row,
+        textvariable=provider_var,
+        values=_PROVIDER_VALUES,
+        state="readonly",
+        width=9,
+    ).pack(side="left", padx=(6, 10))
     ui._label(source_row, "浏览器登录", size=7, color=ui.MUTED).pack(side="left")
-    ttk.Combobox(source_row, textvariable=browser_var, values=_BROWSER_VALUES, state="readonly", width=9).pack(
-        side="left", padx=(6, 0)
-    )
+    ttk.Combobox(
+        source_row,
+        textvariable=browser_var,
+        values=_BROWSER_VALUES,
+        state="readonly",
+        width=9,
+    ).pack(side="left", padx=(6, 0))
 
     managed_row = tk.Frame(courses_tab, bg=ui.PANEL)
     managed_row.pack(fill="x", pady=(8, 0))
@@ -361,11 +371,14 @@ def _show_learning(window, engine_module) -> None:
     def create() -> None:
         try:
             name = course_name.get().strip() or "新课程"
+            manual_provider = provider_var.get()
+            if manual_provider == "auto":
+                manual_provider = "generic"
             api.create_course(
                 {
                     "name": name,
                     "sourceUrl": source_url.get(),
-                    "provider": provider_var.get() or "generic",
+                    "provider": manual_provider or "generic",
                 }
             )
             status.set("空课程已创建")
@@ -433,7 +446,10 @@ def _show_learning(window, engine_module) -> None:
         sync_state = str(session.get("syncState") or "").lower()
         status.set(managed_download_status_text(payload))
         finished = managed_download_finished(payload)
-        set_download_controls(not finished, sync_failed=state == "completed" and sync_state == "failed")
+        set_download_controls(
+            not finished,
+            sync_failed=state == "completed" and sync_state == "failed",
+        )
         if finished:
             course_id = str(session.get("courseId") or getattr(window, "_learning_course_id", "") or "")
             if state == "completed" and sync_state == "synced":
@@ -461,6 +477,12 @@ def _show_learning(window, engine_module) -> None:
         if not source:
             status.set("请输入课程 URL")
             return
+        try:
+            service = _course_service(window, engine_module)
+        except Exception as exc:  # noqa: BLE001
+            status.set(f"课程下载服务启动失败：{exc}")
+            set_download_controls(False)
+            return
         set_download_controls(True)
         status.set("正在提交课程下载…")
         provider = provider_var.get()
@@ -470,7 +492,7 @@ def _show_learning(window, engine_module) -> None:
 
         def worker() -> None:
             try:
-                submitted = _course_service(window, engine_module).submit(
+                submitted = service.submit(
                     source,
                     provider=provider,
                     browser=browser,
@@ -478,18 +500,29 @@ def _show_learning(window, engine_module) -> None:
                     course_name=requested_name,
                 )
             except Exception as exc:  # noqa: BLE001
+                error_text = str(exc)
+
                 def failed() -> None:
-                    if dialog.winfo_exists():
-                        status.set(f"提交失败：{exc}")
+                    try:
+                        exists = bool(dialog.winfo_exists())
+                    except tk.TclError:
+                        exists = False
+                    if exists:
+                        status.set(f"提交失败：{error_text}")
                         set_download_controls(False)
+
                 try:
-                    dialog.after(0, failed)
+                    window.ui(failed)
                 except tk.TclError:
                     pass
                 return
 
             def accepted() -> None:
-                if not dialog.winfo_exists():
+                try:
+                    exists = bool(dialog.winfo_exists())
+                except tk.TclError:
+                    exists = False
+                if not exists:
                     return
                 job = submitted.get("job") if isinstance(submitted.get("job"), dict) else {}
                 course = submitted.get("course") if isinstance(submitted.get("course"), dict) else {}
@@ -497,8 +530,9 @@ def _show_learning(window, engine_module) -> None:
                 window._learning_course_id = str(course.get("id") or "")
                 apply_download_status(submitted)
                 refresh_courses(window._learning_course_id or None)
+
             try:
-                dialog.after(0, accepted)
+                window.ui(accepted)
             except tk.TclError:
                 pass
 
@@ -527,16 +561,58 @@ def _show_learning(window, engine_module) -> None:
     actions = tk.Frame(courses_tab, bg=ui.PANEL)
     actions.pack(fill="x", pady=(10, 0))
     ui._label(actions, variable=status, size=8, color=ui.MUTED).pack(side="left", fill="x", expand=True)
-    download_button = ui.ActionButton(actions, text="下载课程", command=submit_managed, kind="secondary", compact=True)
+    download_button = ui.ActionButton(
+        actions,
+        text="下载课程",
+        command=submit_managed,
+        kind="secondary",
+        compact=True,
+    )
     download_button.pack(side="right")
-    cancel_button = ui.ActionButton(actions, text="取消下载", command=cancel_managed, kind="ghost", compact=True)
+    cancel_button = ui.ActionButton(
+        actions,
+        text="取消下载",
+        command=cancel_managed,
+        kind="ghost",
+        compact=True,
+    )
     cancel_button.pack(side="right", padx=(0, 6))
-    sync_button = ui.ActionButton(actions, text="重试同步", command=retry_sync, kind="ghost", compact=True)
+    sync_button = ui.ActionButton(
+        actions,
+        text="重试同步",
+        command=retry_sync,
+        kind="ghost",
+        compact=True,
+    )
     sync_button.pack(side="right", padx=(0, 6))
-    ui.ActionButton(actions, text="创建空课程", command=create, kind="ghost", compact=True).pack(side="right", padx=(0, 6))
-    ui.ActionButton(actions, text="保存笔记", command=add_note, kind="ghost", compact=True).pack(side="right", padx=(0, 6))
-    ui.ActionButton(actions, text="标记完成", command=lambda: save_progress(True), kind="ghost", compact=True).pack(side="right", padx=(0, 6))
-    ui.ActionButton(actions, text="保存进度", command=lambda: save_progress(False), kind="ghost", compact=True).pack(side="right", padx=(0, 6))
+    ui.ActionButton(
+        actions,
+        text="创建空课程",
+        command=create,
+        kind="ghost",
+        compact=True,
+    ).pack(side="right", padx=(0, 6))
+    ui.ActionButton(
+        actions,
+        text="保存笔记",
+        command=add_note,
+        kind="ghost",
+        compact=True,
+    ).pack(side="right", padx=(0, 6))
+    ui.ActionButton(
+        actions,
+        text="标记完成",
+        command=lambda: save_progress(True),
+        kind="ghost",
+        compact=True,
+    ).pack(side="right", padx=(0, 6))
+    ui.ActionButton(
+        actions,
+        text="保存进度",
+        command=lambda: save_progress(False),
+        kind="ghost",
+        compact=True,
+    ).pack(side="right", padx=(0, 6))
     set_download_controls(False)
 
     front_var = tk.StringVar()
@@ -569,7 +645,13 @@ def _show_learning(window, engine_module) -> None:
             highlightthickness=1,
             highlightbackground=ui.BORDER,
         ).pack(side="left", padx=(6, 10), fill="x", expand=True)
-    ttk.Combobox(form, textvariable=rating_var, values=("again", "hard", "good", "easy"), state="readonly", width=8).pack(side="left")
+    ttk.Combobox(
+        form,
+        textvariable=rating_var,
+        values=("again", "hard", "good", "easy"),
+        state="readonly",
+        width=8,
+    ).pack(side="left")
 
     def selected_card():
         selection = card_list.curselection()
@@ -605,8 +687,20 @@ def _show_learning(window, engine_module) -> None:
     card_actions = tk.Frame(cards_tab, bg=ui.PANEL)
     card_actions.pack(fill="x", pady=(10, 0))
     ui._label(card_actions, variable=cards_status, size=8, color=ui.MUTED).pack(side="left")
-    ui.ActionButton(card_actions, text="创建卡片", command=create_card, kind="secondary", compact=True).pack(side="right")
-    ui.ActionButton(card_actions, text="记录复习", command=review, kind="ghost", compact=True).pack(side="right", padx=(0, 6))
+    ui.ActionButton(
+        card_actions,
+        text="创建卡片",
+        command=create_card,
+        kind="secondary",
+        compact=True,
+    ).pack(side="right")
+    ui.ActionButton(
+        card_actions,
+        text="记录复习",
+        command=review,
+        kind="ghost",
+        compact=True,
+    ).pack(side="right", padx=(0, 6))
 
     def close() -> None:
         nonlocal poll_after_id
@@ -672,11 +766,16 @@ def install_desktop_learning(engine_module):
 def run_desktop_learning_self_test() -> None:
     assert callable(HeadlessLearningApi)
     rows = build_course_tree_rows(
-        [{"id": "s1", "title": "第二章", "position": 2}, {"id": "s0", "title": "第一章", "position": 1}],
+        [
+            {"id": "s1", "title": "第二章", "position": 2},
+            {"id": "s0", "title": "第一章", "position": 1},
+        ],
         [
             {"id": "i2", "sectionId": "s1", "title": "2.1", "providerPosition": 1},
             {"id": "i1", "sectionId": "s0", "title": "1.1", "providerPosition": 1},
         ],
     )
     assert [row["title"] for row in rows] == ["第一章", "1.1", "第二章", "2.1"]
-    assert managed_download_finished({"job": {"state": "completed"}, "session": {"syncState": "synced"}})
+    assert managed_download_finished(
+        {"job": {"state": "completed"}, "session": {"syncState": "synced"}}
+    )
