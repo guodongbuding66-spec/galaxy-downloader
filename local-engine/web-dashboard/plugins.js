@@ -202,12 +202,22 @@
     $('pluginDetailPanel').scrollIntoView({ block: 'nearest' })
   }
 
+  function loadSettingsModule() {
+    if (document.querySelector('script[data-settings-module]')) return
+    const script = document.createElement('script')
+    script.src = '/dashboard/settings.js'
+    script.async = false
+    script.dataset.settingsModule = 'true'
+    document.head.appendChild(script)
+  }
+
   injectShell()
+  loadSettingsModule()
 
   document.addEventListener('click', async (event) => {
     const pluginView = event.target.closest('[data-plugin-view]')
     if (pluginView) { showPlugins(); return }
-    if (event.target.closest('[data-view], [data-view-jump], [data-ops-view]')) hidePlugins()
+    if (event.target.closest('[data-view], [data-view-jump], [data-ops-view], [data-settings-view]')) hidePlugins()
 
     try {
       const detail = event.target.closest('[data-plugin-detail]')

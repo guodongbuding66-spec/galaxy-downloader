@@ -13,6 +13,8 @@ _DASHBOARD_ASSETS = {
     "/dashboard/ai-subscriptions.css": ("ai-subscriptions.css", "text/css; charset=utf-8"),
     "/dashboard/plugins.js": ("plugins.js", "text/javascript; charset=utf-8"),
     "/dashboard/plugins.css": ("plugins.css", "text/css; charset=utf-8"),
+    "/dashboard/settings.js": ("settings.js", "text/javascript; charset=utf-8"),
+    "/dashboard/settings.css": ("settings.css", "text/css; charset=utf-8"),
 }
 
 

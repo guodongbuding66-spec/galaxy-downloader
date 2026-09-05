@@ -97,6 +97,8 @@ class HeadlessWebDashboardTest(unittest.TestCase):
             ("/dashboard/ai-subscriptions.css", "text/css"),
             ("/dashboard/plugins.js", "text/javascript"),
             ("/dashboard/plugins.css", "text/css"),
+            ("/dashboard/settings.js", "text/javascript"),
+            ("/dashboard/settings.css", "text/css"),
         ):
             status, asset_headers, asset_body = self.request("GET", asset)
             self.assertEqual(status, 200)
@@ -162,17 +164,39 @@ class HeadlessWebDashboardTest(unittest.TestCase):
             b"/v1/plugins/status",
             b"/v1/plugins/marketplace",
             b"/v1/plugins/marketplace/refresh",
-            b"/install",
-            b"/update",
-            b"/enable",
-            b"/disable",
-            b"/remove",
         ):
             self.assertIn(route, script)
+        for action in (
+            b"pluginAction(install.dataset.pluginInstall, 'install')",
+            b"pluginAction(update.dataset.pluginUpdate, 'update')",
+            b"'enable' : 'disable'",
+            b"pluginAction(remove.dataset.pluginRemove, 'remove')",
+        ):
+            self.assertIn(action, script)
         self.assertIn(b"Remove this installed plugin?", script)
+        self.assertIn(b"/dashboard/settings.js", script)
         self.assertNotIn(b"executable", script)
         self.assertNotIn(b"plugin.root", script)
         self.assertNotIn(b"https://cdn.", script)
+
+    def test_dashboard_exposes_read_only_runtime_settings_workflow(self) -> None:
+        status, _, script = self.request("GET", "/dashboard/settings.js")
+        self.assertEqual(status, 200)
+        self.assertIn(b"/v1/settings", script)
+        self.assertIn(b"/dashboard/settings.css", script)
+        self.assertIn(b"dataset.settingsView = 'settings'", script)
+        self.assertIn(b"Read-only", script)
+        self.assertIn(b"environment variables or CLI", script)
+        self.assertNotIn(b"localStorage", script)
+        self.assertNotIn(b"method: 'POST'", script)
+        self.assertNotIn(b"/v1/settings/", script)
+        self.assertNotIn(b"settingsSave", script)
+        self.assertNotIn(b"https://cdn.", script)
+
+        status, _, stylesheet = self.request("GET", "/dashboard/settings.css")
+        self.assertEqual(status, 200)
+        self.assertIn(b".settings-readonly-banner", stylesheet)
+        self.assertIn(b"prefers-color-scheme:dark", stylesheet)
 
     def test_same_origin_browser_request_still_requires_bearer_token(self) -> None:
         origin = f"http://127.0.0.1:{self.port}"
