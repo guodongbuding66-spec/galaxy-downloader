@@ -14,6 +14,8 @@
       <nav>
         <button class="nav-item is-active" data-view="dashboard" type="button">Dashboard</button>
         <button class="nav-item" data-view="downloads" type="button">Downloads</button>
+        <button class="nav-item" data-view="library" type="button">Library</button>
+        <button class="nav-item" data-view="transcript" type="button">Transcript</button>
       </nav>
       <div class="sidebar-meta"><span class="status-dot" id="connectionDot"></span><span id="connectionLabel">Connecting</span></div>
     </aside>
@@ -56,6 +58,62 @@
               <thead><tr><th data-sort-header="state"><button class="table-sort" data-sort="state" type="button">Status</button></th><th data-sort-header="title"><button class="table-sort" data-sort="title" type="button">Title</button></th><th data-sort-header="progress"><button class="table-sort" data-sort="progress" type="button">Progress</button></th><th>Speed</th><th>ETA</th><th>Size</th><th data-sort-header="sourceHost"><button class="table-sort" data-sort="sourceHost" type="button">Source</button></th><th data-sort-header="createdAt"><button class="table-sort" data-sort="createdAt" type="button">Added</button></th><th><span class="sr-only">Actions</span></th></tr></thead>
               <tbody id="downloadsBody"><tr><td colspan="9"><div class="empty">Loading…</div></td></tr></tbody>
             </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="libraryView" class="view is-hidden">
+        <div class="metrics library-metrics" aria-label="媒体库摘要">
+          <article class="metric"><span>Total</span><strong id="libraryTotal">0</strong><small>indexed media</small></article>
+          <article class="metric"><span>Available</span><strong id="libraryAvailable">0</strong><small>present on disk</small></article>
+          <article class="metric"><span>Missing</span><strong id="libraryMissing">0</strong><small>file unavailable</small></article>
+          <article class="metric"><span>Video</span><strong id="libraryVideo">0</strong><small>video items</small></article>
+          <article class="metric"><span>Audio</span><strong id="libraryAudio">0</strong><small>audio items</small></article>
+        </div>
+        <section class="panel">
+          <div class="panel-header library-header">
+            <div><h2>Media Library</h2><p id="libraryCount">0 items</p></div>
+            <div class="toolbar"><button class="button secondary" id="librarySyncButton" type="button">Sync Library</button></div>
+          </div>
+          <form class="filterbar" id="libraryFilterForm">
+            <label class="field grow" for="librarySearch"><span>Search</span><input id="librarySearch" type="search" placeholder="Title, filename, source or tag" autocomplete="off"></label>
+            <label class="field" for="libraryType"><span>Type</span><select id="libraryType"><option value="">All types</option><option value="video">Video</option><option value="audio">Audio</option><option value="image">Image</option><option value="other">Other</option></select></label>
+            <button class="button primary filter-submit" type="submit">Apply</button>
+            <button class="button secondary filter-submit" id="libraryResetButton" type="button">Reset</button>
+          </form>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Title</th><th>Type</th><th>Duration</th><th>Size</th><th>Source</th><th>Finished</th><th>File</th><th><span class="sr-only">Actions</span></th></tr></thead>
+              <tbody id="libraryBody"><tr><td colspan="8"><div class="empty">Load Library to begin.</div></td></tr></tbody>
+            </table>
+          </div>
+          <div class="pager"><button class="button secondary" id="libraryPrevButton" type="button">Previous</button><span id="libraryPageLabel" class="numeric">Page 1</span><button class="button secondary" id="libraryNextButton" type="button">Next</button></div>
+        </section>
+      </section>
+
+      <section id="transcriptView" class="view is-hidden">
+        <section class="panel transcript-panel">
+          <div class="panel-header transcript-header">
+            <div><h2 id="transcriptTitle">Transcript</h2><p id="transcriptMeta">Select a Library item or search all indexed transcripts.</p></div>
+            <div class="toolbar"><button class="button secondary" id="transcriptIndexButton" type="button" disabled>Index Transcript</button><select id="transcriptExportFormat" aria-label="Export format"><option>txt</option><option>md</option><option>srt</option><option>vtt</option><option>json</option><option>csv</option></select><button class="button secondary" id="transcriptExportButton" type="button" disabled>Export</button></div>
+          </div>
+          <form class="filterbar transcript-filter" id="transcriptSearchForm">
+            <label class="field grow" for="transcriptSearch"><span>Search text</span><input id="transcriptSearch" type="search" placeholder="Search transcript text" autocomplete="off"></label>
+            <label class="field" for="transcriptSpeaker"><span>Speaker</span><input id="transcriptSpeaker" type="text" placeholder="Optional" autocomplete="off"></label>
+            <button class="button primary filter-submit" type="submit">Search</button>
+            <button class="button secondary filter-submit" id="transcriptClearButton" type="button">Clear</button>
+          </form>
+          <div class="transcript-workspace">
+            <aside class="transcript-media-list" aria-label="媒体选择">
+              <div class="subhead"><strong>Media</strong><span id="transcriptMediaCount">0</span></div>
+              <div id="transcriptMediaList" class="media-list"><div class="empty small-empty">Open Library first.</div></div>
+            </aside>
+            <div class="transcript-content">
+              <div class="transcript-tools">
+                <form id="speakerRelabelForm" class="relabel-form"><label class="field" for="oldSpeaker"><span>Old speaker</span><input id="oldSpeaker" type="text" autocomplete="off"></label><label class="field" for="newSpeaker"><span>New speaker</span><input id="newSpeaker" type="text" autocomplete="off"></label><button class="button secondary filter-submit" id="speakerRelabelButton" type="submit" disabled>Relabel</button></form>
+              </div>
+              <div id="transcriptResults" class="segments"><div class="empty">Select a media item or run a global transcript search.</div></div>
+            </div>
           </div>
         </section>
       </section>
