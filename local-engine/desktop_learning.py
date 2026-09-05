@@ -183,7 +183,7 @@ def _show_learning(window, engine_module) -> None:
             existing.lift()
             return
         except tk.TclError:
-            pass
+            window._learning_workspace_window = None
     dialog = tk.Toplevel(window)
     window._learning_workspace_window = dialog
     dialog.title("学习中心 · Galaxy Local Engine")
@@ -436,7 +436,7 @@ def _show_learning(window, engine_module) -> None:
             try:
                 dialog.after_cancel(poll_after_id)
             except tk.TclError:
-                pass
+                poll_after_id = None
         poll_after_id = dialog.after(delay, poll_download)
 
     def apply_download_status(payload: dict[str, Any]) -> None:
@@ -514,7 +514,7 @@ def _show_learning(window, engine_module) -> None:
                 try:
                     window.ui(failed)
                 except tk.TclError:
-                    pass
+                    return
                 return
 
             def accepted() -> None:
@@ -534,7 +534,7 @@ def _show_learning(window, engine_module) -> None:
             try:
                 window.ui(accepted)
             except tk.TclError:
-                pass
+                return
 
         threading.Thread(target=worker, daemon=True, name="galaxy-course-submit").start()
 
@@ -708,7 +708,7 @@ def _show_learning(window, engine_module) -> None:
             try:
                 dialog.after_cancel(poll_after_id)
             except tk.TclError:
-                pass
+                poll_after_id = None
             poll_after_id = None
         window._learning_workspace_window = None
         dialog.destroy()
