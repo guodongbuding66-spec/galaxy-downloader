@@ -27,9 +27,10 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Parse manifest and JavaScript
+      - name: Parse Chromium manifest and JavaScript
         run: |
           node --check browser-extension/background.js
+          node --check browser-extension/candidate-browser.js
           node --check browser-extension/content.js
           node --check browser-extension/dynamic-scan.js
           node --check browser-extension/element-actions.js
@@ -38,4 +39,49 @@ jobs:
           node -e "JSON.parse(require('node:fs').readFileSync('browser-extension/manifest.json','utf8'))"
 
       - name: Validate media candidate policy
-        run: node browser-extension/test-media-core.mjs
+        run: |
+          node browser-extension/test-media-core.mjs
+          node --test browser-extension/tests/media-core.test.mjs
+
+  firefox-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Validate Firefox packaging contract
+        run: |
+          python -m py_compile browser-extension/build_firefox.py browser-extension/tests/firefox-package.test.py
+          python -m unittest -v browser-extension/tests/firefox-package.test.py
+
+      - name: Build Firefox XPI
+        run: python browser-extension/build_firefox.py --output dist/GalaxyMediaCapture-Firefox.xpi
+
+      - name: Validate packaged Firefox JavaScript
+        run: |
+          mkdir -p dist/firefox-unpacked
+          python -m zipfile -e dist/GalaxyMediaCapture-Firefox.xpi dist/firefox-unpacked
+          node -e "JSON.parse(require('node:fs').readFileSync('dist/firefox-unpacked/manifest.json','utf8'))"
+          for file in background.js candidate-browser.js content.js dynamic-scan.js element-actions.js media-core.js page-probe.js; do
+            node --check "dist/firefox-unpacked/$file"
+          done
+          if grep -R -n -F 'chrome.' dist/firefox-unpacked --include='*.js'; then
+            echo 'Firefox artifact contains an unconverted chrome.* API reference.' >&2
+            exit 1
+          fi
+
+      - name: Upload Firefox package evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: GalaxyMediaCapture-Firefox
+          path: dist/GalaxyMediaCapture-Firefox.xpi
+          if-no-files-found: error
+          retention-days: 30
