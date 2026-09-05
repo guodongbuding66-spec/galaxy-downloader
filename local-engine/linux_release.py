@@ -230,6 +230,10 @@ def launcher_script() -> str:
     return (
         "#!/bin/sh\n"
         "set -eu\n"
+        'if [ -z "${GALAXY_PORTABLE:-}" ]; then\n'
+        "  GALAXY_PORTABLE=0\n"
+        "  export GALAXY_PORTABLE\n"
+        "fi\n"
         f'exec "{INSTALL_ROOT / "GalaxyLocalEngine"}" "$@"\n'
     )
 
@@ -238,6 +242,10 @@ def apprun_script() -> str:
     return (
         "#!/bin/sh\n"
         "set -eu\n"
+        'if [ -z "${GALAXY_PORTABLE:-}" ]; then\n'
+        "  GALAXY_PORTABLE=0\n"
+        "  export GALAXY_PORTABLE\n"
+        "fi\n"
         'HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"\n'
         'exec "$HERE/opt/galaxy-local-engine/GalaxyLocalEngine" "$@"\n'
     )
