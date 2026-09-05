@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import Any
 
 import headless_service as _service
+from course_subtitles import (
+    CourseSubtitleError,
+    MAX_SUBTITLE_TRACKS_PER_ITEM,
+    normalize_subtitle_tracks,
+)
 from headless_output_tracking import MAX_OUTPUTS_PER_SESSION, MAX_TRACKING_SESSIONS
 
 _TRACKING_ID_RE = re.compile(r"^[a-f0-9]{32}$")
@@ -74,6 +79,32 @@ def _bounded_positive_int(value: object) -> int:
     return parsed
 
 
+def _safe_subtitle_tracks(info: dict[str, Any]) -> list[dict[str, str]]:
+    tracks: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for field, kind in (("subtitles", "manual"), ("automatic_captions", "automatic")):
+        values = info.get(field)
+        if not isinstance(values, dict):
+            continue
+        for raw_language in values:
+            candidate = {"language": str(raw_language or "").strip(), "kind": kind}
+            try:
+                normalized = normalize_subtitle_tracks([candidate])
+            except CourseSubtitleError:
+                continue
+            if not normalized:
+                continue
+            track = normalized[0]
+            key = (track["language"].lower(), track["kind"])
+            if key in seen:
+                continue
+            if len(tracks) >= MAX_SUBTITLE_TRACKS_PER_ITEM:
+                return tracks
+            seen.add(key)
+            tracks.append(track)
+    return tracks
+
+
 def _udemy_metadata(info: dict[str, Any]) -> dict[str, Any] | None:
     extractor = str(info.get("extractor_key") or info.get("extractor") or "").strip().lower()
     if extractor != "udemy":
@@ -90,8 +121,9 @@ def _udemy_metadata(info: dict[str, Any]) -> dict[str, Any] | None:
     chapter = _clean_text(info.get("chapter"), 240)
     chapter_number = _bounded_positive_int(info.get("chapter_number"))
     playlist_index = _bounded_positive_int(info.get("playlist_index"))
+    subtitle_tracks = _safe_subtitle_tracks(info)
 
-    if not any((provider_item_id, title, chapter, chapter_number, playlist_index)):
+    if not any((provider_item_id, title, chapter, chapter_number, playlist_index, subtitle_tracks)):
         return None
     return {
         "provider": "udemy",
@@ -100,6 +132,7 @@ def _udemy_metadata(info: dict[str, Any]) -> dict[str, Any] | None:
         "providerPosition": playlist_index,
         "sectionTitle": chapter,
         "sectionPosition": chapter_number,
+        "subtitleTracks": subtitle_tracks,
     }
 
 
