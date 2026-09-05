@@ -9,6 +9,7 @@ from pathlib import Path
 KNOWN_STATE_FILES = (
     "workspace-options.json",
     "desktop-features.json",
+    "desktop-hotkey.json",
     "download-history.json",
     "download-archive.txt",
     "resume-jobs.json",
@@ -144,6 +145,7 @@ def run_runtime_storage_self_test() -> None:
         legacy.mkdir(parents=True)
         (legacy / "workspace-options.json").write_text('{"historyEnabled": false}', encoding="utf-8")
         (legacy / "desktop-features.json").write_text('{"clipboardMonitorEnabled": true}', encoding="utf-8")
+        (legacy / "desktop-hotkey.json").write_text('{"shortcut":"Ctrl+Alt+H"}', encoding="utf-8")
         (legacy / "download-history.json").write_text('[{"id":"legacy"}]', encoding="utf-8")
         (legacy / "media-library.sqlite3").write_bytes(b"library")
         (legacy / "transcripts.sqlite3").write_bytes(b"transcripts")
@@ -176,6 +178,7 @@ def run_runtime_storage_self_test() -> None:
         assert target == installed
         assert (installed / "workspace-options.json").read_text(encoding="utf-8") == '{"historyEnabled": true}'
         assert not (installed / "desktop-features.json").exists()
+        assert (installed / "desktop-hotkey.json").read_text(encoding="utf-8") == '{"shortcut":"Ctrl+Alt+H"}'
         assert not (installed / "download-history.json").exists()
         assert not (installed / "media-library.sqlite3").exists()
         assert not (installed / "subscriptions.json").exists()
