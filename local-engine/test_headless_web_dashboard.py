@@ -93,6 +93,24 @@ class HeadlessWebDashboardTest(unittest.TestCase):
         status, _, _ = self.request("GET", "/dashboard/not-a-file")
         self.assertEqual(status, 404)
 
+    def test_dashboard_exposes_library_and_transcript_workflows(self) -> None:
+        status, _, html = self.request("GET", "/dashboard/")
+        self.assertEqual(status, 200)
+        self.assertIn(b'data-view="library"', html)
+        self.assertIn(b'data-view="transcript"', html)
+        self.assertIn(b'id="librarySyncButton"', html)
+        self.assertIn(b'id="transcriptIndexButton"', html)
+        self.assertIn(b'id="speakerRelabelForm"', html)
+
+        status, _, script = self.request("GET", "/dashboard/app.js")
+        self.assertEqual(status, 200)
+        self.assertIn(b"/v1/media/summary", script)
+        self.assertIn(b"/v1/media/sync", script)
+        self.assertIn(b"/v1/transcripts/search", script)
+        self.assertIn(b"/speakers/relabel", script)
+        self.assertIn(b"/export", script)
+        self.assertNotIn(b"https://cdn.", script)
+
     def test_same_origin_browser_request_still_requires_bearer_token(self) -> None:
         origin = f"http://127.0.0.1:{self.port}"
         status, _, _ = self.request("POST", "/v1/test", headers={"Origin": origin})
