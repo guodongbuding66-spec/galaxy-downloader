@@ -347,11 +347,15 @@ class MacOSCarbonGlobalHotkeyProvider:
             try:
                 carbon.UnregisterEventHotKey(hotkey_ref)
             except Exception:
+                # Carbon teardown is best-effort during application shutdown; the
+                # local provider state must still be cleared even if Cocoa is exiting.
                 pass
         if carbon is not None and handler_ref:
             try:
                 carbon.RemoveEventHandler(handler_ref)
             except Exception:
+                # The application event target may already be dismantling during
+                # Tk/Cocoa shutdown, so a teardown-only native error is non-fatal.
                 pass
         self.state.active = False
 
