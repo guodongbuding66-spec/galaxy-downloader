@@ -109,6 +109,14 @@ class CourseSubtitleTests(unittest.TestCase):
             self.assertNotIn("url", str(enriched).lower())
             self.assertNotIn("token", str(enriched).lower())
 
+            cleared = set_course_item_subtitle_tracks(engine, item_id, [])
+            self.assertEqual(cleared["subtitleTracks"], [])
+            self.assertEqual(course_item_subtitle_tracks(engine, [item_id]), {})
+            self.assertNotIn(
+                "subtitleTracks",
+                enrich_course_item_subtitles(engine, [{"id": item_id, "title": "Lesson"}])[0],
+            )
+
     def test_invalid_language_and_kind_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
