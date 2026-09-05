@@ -8,6 +8,10 @@ from desktop_hotkey import (
     run_desktop_global_hotkey_self_test,
     verify_windows_hotkey_api,
 )
+from desktop_hotkey_preferences import (
+    install_linux_hotkey_preferences,
+    run_linux_hotkey_preferences_self_test,
+)
 from desktop_library import install_desktop_library, run_desktop_library_self_test
 from desktop_subscriptions import install_desktop_subscriptions, run_desktop_subscriptions_self_test
 from desktop_tray import (
@@ -55,6 +59,7 @@ def install_desktop_platform_features(engine_module):
     install_desktop_clipboard_monitor(engine_module)
     install_desktop_tray(engine_module)
     install_desktop_global_hotkey(engine_module)
+    install_linux_hotkey_preferences(engine_module)
 
     window_cls = engine_module.EngineWindow
     if hasattr(window_cls, "_run_job") and callable(getattr(engine_module, "default_download_dir", None)):
@@ -72,6 +77,7 @@ def run_desktop_platform_features_self_test() -> None:
     run_desktop_clipboard_monitor_self_test()
     run_desktop_tray_self_test()
     run_desktop_global_hotkey_self_test()
+    run_linux_hotkey_preferences_self_test()
     run_media_library_self_test()
     run_desktop_library_self_test()
     run_subscriptions_self_test()
