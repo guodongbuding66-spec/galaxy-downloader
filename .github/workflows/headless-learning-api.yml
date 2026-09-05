@@ -11,10 +11,12 @@ on:
       - 'local-engine/headless_output_tracking.py'
       - 'local-engine/headless_service.py'
       - 'local-engine/course_providers.py'
+      - 'local-engine/course_download_sessions.py'
       - 'local-engine/course_workspace.py'
       - 'local-engine/spaced_repetition.py'
       - 'local-engine/media_library.py'
       - 'local-engine/test_course_providers.py'
+      - 'local-engine/test_course_download_sessions.py'
       - 'local-engine/test_headless_course_providers_http.py'
       - 'local-engine/test_headless_browser_cookies.py'
       - 'local-engine/test_headless_output_tracking.py'
@@ -31,10 +33,12 @@ on:
       - 'local-engine/headless_output_tracking.py'
       - 'local-engine/headless_service.py'
       - 'local-engine/course_providers.py'
+      - 'local-engine/course_download_sessions.py'
       - 'local-engine/course_workspace.py'
       - 'local-engine/spaced_repetition.py'
       - 'local-engine/media_library.py'
       - 'local-engine/test_course_providers.py'
+      - 'local-engine/test_course_download_sessions.py'
       - 'local-engine/test_headless_course_providers_http.py'
       - 'local-engine/test_headless_browser_cookies.py'
       - 'local-engine/test_headless_output_tracking.py'
@@ -68,11 +72,12 @@ jobs:
         run: python -m pip install -r local-engine/requirements.txt
 
       - name: Compile contract
-        run: python -m py_compile local-engine/headless_api.py local-engine/headless_learning_api.py local-engine/headless_course_providers_http.py local-engine/headless_browser_cookies.py local-engine/headless_output_tracking.py local-engine/course_providers.py local-engine/test_course_providers.py local-engine/test_headless_course_providers_http.py local-engine/test_headless_browser_cookies.py local-engine/test_headless_output_tracking.py scripts/test-local-headless-learning-api.py
+        run: python -m py_compile local-engine/headless_api.py local-engine/headless_learning_api.py local-engine/headless_course_providers_http.py local-engine/headless_browser_cookies.py local-engine/headless_output_tracking.py local-engine/course_providers.py local-engine/course_download_sessions.py local-engine/test_course_providers.py local-engine/test_course_download_sessions.py local-engine/test_headless_course_providers_http.py local-engine/test_headless_browser_cookies.py local-engine/test_headless_output_tracking.py scripts/test-local-headless-learning-api.py
 
       - name: Run course provider unit tests
         run: |
           python local-engine/test_course_providers.py
+          python local-engine/test_course_download_sessions.py
           python local-engine/test_headless_course_providers_http.py
           python local-engine/test_headless_browser_cookies.py
           python local-engine/test_headless_output_tracking.py
