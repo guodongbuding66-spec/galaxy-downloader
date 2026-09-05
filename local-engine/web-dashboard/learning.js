@@ -98,7 +98,7 @@
 
   async function showLearningView() {
     document.querySelectorAll('main .view').forEach((view) => view.classList.add('is-hidden'))
-    document.querySelectorAll('[data-view], [data-ops-view]').forEach((button) => button.classList.remove('is-active'))
+    document.querySelectorAll('.sidebar .nav-item').forEach((button) => button.classList.remove('is-active'))
     $('learningView')?.classList.remove('is-hidden')
     document.querySelector('[data-learning-view="learning"]')?.classList.add('is-active')
     if ($('viewTitle')) $('viewTitle').textContent = 'Learning'
@@ -295,7 +295,8 @@
       showLearningView().catch((error) => showError(error instanceof Error ? error.message : 'Unable to open Learning'))
       return
     }
-    if (event.target.closest('[data-view], [data-ops-view]')) closeLearningView()
+    const navItem = event.target.closest('.sidebar .nav-item')
+    if (navItem) closeLearningView()
     const course = event.target.closest('[data-learning-course]')
     if (course) selectCourse(course.dataset.learningCourse).catch((error) => showError(error instanceof Error ? error.message : 'Unable to load course'))
     if (event.target.closest('[data-learning-cancel]')) cancelDownload().catch((error) => showError(error instanceof Error ? error.message : 'Unable to cancel course download'))
