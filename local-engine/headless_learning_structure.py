@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from course_attachments import CourseAttachmentError, enrich_course_item_attachments
 from course_structure import CourseStructureError, enrich_course_items, list_course_sections
 from course_subtitles import CourseSubtitleError, enrich_course_item_subtitles
 from headless_learning_api import HeadlessLearningApi, HeadlessLearningApiError
@@ -104,12 +105,13 @@ def _structured_payload(api: HeadlessLearningApi, result: dict[str, Any], course
         values = dict(result)
         items = enrich_course_items(api.context, values.get("items") or [])
         items = enrich_course_item_subtitles(api.context, items)
+        items = enrich_course_item_attachments(api.context, items)
         sections = list_course_sections(api.context, course_id)
         items, sections = _with_navigation(items, sections)
         values["items"] = items
         values["sections"] = sections
         return values
-    except (CourseStructureError, CourseSubtitleError) as exc:
+    except (CourseAttachmentError, CourseStructureError, CourseSubtitleError) as exc:
         raise HeadlessLearningApiError(
             str(exc).strip() or "course structure lookup failed",
             code="LEARNING_COURSE_STRUCTURE_ERROR",
