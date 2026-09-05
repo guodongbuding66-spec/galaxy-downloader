@@ -3,13 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from course_download_coordinator import CourseDownloadCoordinator
+from course_download_coordinator import CourseDownloadCoordinator, CourseDownloadCoordinatorError
 from headless_browser_cookies import install_headless_browser_cookie_support
 from headless_course_metadata_tracking import install_headless_course_metadata_tracking
 from headless_learning_api import HeadlessLearningApi
 from headless_learning_structure import install_headless_learning_structure
 from headless_output_tracking import install_headless_output_tracking
-from headless_service import HeadlessRuntime, HeadlessServiceError
+from headless_service import HeadlessRuntime
 from managed_course_download import build_managed_course_plan, submit_managed_course_download
 
 
@@ -86,7 +86,7 @@ class DesktopCourseDownloadService:
         job = self.runtime.cancel(job_id)
         try:
             status = self.coordinator.status(job_id)
-        except Exception:
+        except CourseDownloadCoordinatorError:
             status = {"session": None, "job": job.public_payload()}
         if status.get("job") is None:
             status["job"] = job.public_payload()
