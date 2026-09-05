@@ -164,13 +164,15 @@ class HeadlessWebDashboardTest(unittest.TestCase):
             b"/v1/plugins/status",
             b"/v1/plugins/marketplace",
             b"/v1/plugins/marketplace/refresh",
-            b"/install",
-            b"/update",
-            b"/enable",
-            b"/disable",
-            b"/remove",
         ):
             self.assertIn(route, script)
+        for action in (
+            b"pluginAction(install.dataset.pluginInstall, 'install')",
+            b"pluginAction(update.dataset.pluginUpdate, 'update')",
+            b"'enable' : 'disable'",
+            b"pluginAction(remove.dataset.pluginRemove, 'remove')",
+        ):
+            self.assertIn(action, script)
         self.assertIn(b"Remove this installed plugin?", script)
         self.assertIn(b"/dashboard/settings.js", script)
         self.assertNotIn(b"executable", script)
