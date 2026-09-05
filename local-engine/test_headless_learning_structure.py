@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from course_attachments import replace_course_item_attachments
 from course_structure import CourseStructureError, set_course_item_metadata, upsert_course_section
 from course_subtitles import set_course_item_subtitle_tracks
 from course_workspace import add_media_to_course, create_course
@@ -63,7 +64,7 @@ class HeadlessLearningStructureTests(unittest.TestCase):
         )
         return add_media_to_course(context, course_id, media_id)
 
-    def test_course_detail_and_items_include_sections_provider_subtitles_and_navigation(self) -> None:
+    def test_course_detail_and_items_include_structure_subtitles_attachments_and_navigation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             context = self._context(root)
@@ -110,6 +111,18 @@ class HeadlessLearningStructureTests(unittest.TestCase):
                     {"language": "zh-CN", "kind": "automatic"},
                 ],
             )
+            replace_course_item_attachments(
+                context,
+                first_item,
+                provider="udemy",
+                provider_lecture_id="udemy:lecture:1001",
+                attachments=[{
+                    "providerAttachmentId": "udemy:asset:7001",
+                    "title": "Starter Files",
+                    "fileName": "starter.zip",
+                    "assetType": "File",
+                }],
+            )
 
             detail = api.course_detail(course_id)
             self.assertEqual(detail["course"]["id"], course_id)
@@ -125,6 +138,13 @@ class HeadlessLearningStructureTests(unittest.TestCase):
                     {"language": "zh-CN", "kind": "automatic"},
                 ],
             )
+            self.assertEqual(len(detail["items"][0]["attachments"]), 1)
+            attachment = detail["items"][0]["attachments"][0]
+            self.assertEqual(attachment["providerAttachmentId"], "udemy:asset:7001")
+            self.assertEqual(attachment["fileName"], "starter.zip")
+            self.assertNotIn("providerLectureId", attachment)
+            self.assertNotIn("url", str(attachment).lower())
+            self.assertNotIn("attachments", detail["items"][1])
             self.assertEqual(detail["items"][0]["previousItemId"], "")
             self.assertEqual(detail["items"][0]["nextItemId"], second_item)
             self.assertEqual(detail["items"][1]["previousItemId"], first_item)
@@ -143,6 +163,7 @@ class HeadlessLearningStructureTests(unittest.TestCase):
             self.assertEqual(items["items"][1]["sectionTitle"], "Python Basics")
             self.assertEqual(items["items"][1]["providerTitle"], "Variables and Types")
             self.assertEqual(items["items"][0]["nextItemId"], second_item)
+            self.assertEqual(items["items"][0]["attachments"][0]["title"], "Starter Files")
 
     def test_unstructured_course_remains_backward_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -158,6 +179,7 @@ class HeadlessLearningStructureTests(unittest.TestCase):
             self.assertEqual(detail["items"][0]["title"], "plain")
             self.assertNotIn("sectionTitle", detail["items"][0])
             self.assertNotIn("subtitleTracks", detail["items"][0])
+            self.assertNotIn("attachments", detail["items"][0])
             self.assertNotIn("previousItemId", detail["items"][0])
             self.assertNotIn("nextItemId", detail["items"][0])
 
