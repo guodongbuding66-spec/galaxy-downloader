@@ -14,6 +14,7 @@ def build_managed_course_plan(
     provider: object = "auto",
     browser: object = "none",
     include_subtitles: object = True,
+    include_attachments: object = True,
 ) -> dict[str, Any]:
     """Build the bounded provider plan shared by Headless HTTP and Desktop."""
 
@@ -22,6 +23,7 @@ def build_managed_course_plan(
         provider=provider,
         browser=browser,
         include_subtitles=include_subtitles,
+        include_attachments=include_attachments,
     )
 
 
