@@ -54,6 +54,23 @@ def _safe_inventory(value: object) -> list[dict[str, str]]:
         return []
 
 
+def _inventory_by_lecture(response: object) -> dict[str, list[dict[str, str]]]:
+    inventory: dict[str, list[dict[str, str]]] = {}
+    if not isinstance(response, dict):
+        return inventory
+    results = response.get("results")
+    if not isinstance(results, list):
+        return inventory
+    for entry in results:
+        if not isinstance(entry, dict) or entry.get("_class") != "lecture":
+            continue
+        lecture_id = str(entry.get("id") or "").strip()
+        if not lecture_id.isdigit() or len(lecture_id) > 40:
+            continue
+        inventory[lecture_id] = _safe_inventory(entry.get("supplementary_assets"))
+    return inventory
+
+
 def _remember_inventory(provider_lecture_id: str, attachments: list[dict[str, str]]) -> str:
     token = uuid.uuid4().hex
     with _LOCK:
@@ -75,6 +92,46 @@ def _take_inventory(token: object) -> dict[str, Any] | None:
     with _LOCK:
         value = _PENDING.pop(clean, None)
     return None if value is None else dict(value)
+
+
+def _attach_inventory_tokens(
+    entries: object,
+    inventory: dict[str, list[dict[str, str]]],
+) -> object:
+    if not isinstance(entries, list):
+        return entries
+    updated_entries: list[Any] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            updated_entries.append(entry)
+            continue
+        rendered_url = str(entry.get("url") or "")
+        match = _LECTURE_RE.search(rendered_url)
+        lecture_id = match.group(1) if match else ""
+        if not lecture_id or lecture_id not in inventory:
+            updated_entries.append(entry)
+            continue
+        provider_lecture_id = f"udemy:lecture:{lecture_id}"
+        token = _remember_inventory(provider_lecture_id, inventory[lecture_id])
+        plain_url, data = unsmuggle_url(rendered_url, {})
+        smuggled = dict(data or {})
+        smuggled["galaxy_attachment_inventory_id"] = token
+        enriched = dict(entry)
+        enriched["url"] = smuggle_url(plain_url, smuggled)
+        updated_entries.append(enriched)
+    return updated_entries
+
+
+def _consume_inventory(url: object, result: object) -> object:
+    if not isinstance(result, dict):
+        return result
+    _plain_url, data = unsmuggle_url(str(url or ""), {})
+    inventory = _take_inventory((data or {}).get("galaxy_attachment_inventory_id"))
+    if inventory is None:
+        return result
+    values = dict(result)
+    values["_galaxyCourseAttachmentInventory"] = inventory
+    return values
 
 
 def install_headless_udemy_attachment_inventory() -> None:
@@ -108,18 +165,8 @@ def install_headless_udemy_attachment_inventory() -> None:
                 query["fields[asset]"] = "id,title,filename,asset_type"
                 kwargs["query"] = query
             response = current_course_download_json(self, url_or_request, *args, **kwargs)
-            if capture and isinstance(response, dict):
-                inventory: dict[str, list[dict[str, str]]] = {}
-                results = response.get("results")
-                if isinstance(results, list):
-                    for entry in results:
-                        if not isinstance(entry, dict) or entry.get("_class") != "lecture":
-                            continue
-                        lecture_id = str(entry.get("id") or "").strip()
-                        if not lecture_id.isdigit() or len(lecture_id) > 40:
-                            continue
-                        inventory[lecture_id] = _safe_inventory(entry.get("supplementary_assets"))
-                self._galaxy_course_attachment_inventory = inventory
+            if capture:
+                self._galaxy_course_attachment_inventory = _inventory_by_lecture(response)
             return response
 
         course_download_json_with_inventory._galaxy_udemy_attachment_inventory = True  # type: ignore[attr-defined]
@@ -134,31 +181,10 @@ def install_headless_udemy_attachment_inventory() -> None:
             if not _enabled(self) or not isinstance(result, dict):
                 return result
             inventory = getattr(self, "_galaxy_course_attachment_inventory", None)
-            entries = result.get("entries")
-            if not isinstance(inventory, dict) or not isinstance(entries, list):
+            if not isinstance(inventory, dict):
                 return result
-
-            updated_entries: list[Any] = []
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    updated_entries.append(entry)
-                    continue
-                rendered_url = str(entry.get("url") or "")
-                match = _LECTURE_RE.search(rendered_url)
-                lecture_id = match.group(1) if match else ""
-                if not lecture_id or lecture_id not in inventory:
-                    updated_entries.append(entry)
-                    continue
-                provider_lecture_id = f"udemy:lecture:{lecture_id}"
-                token = _remember_inventory(provider_lecture_id, inventory[lecture_id])
-                plain_url, data = unsmuggle_url(rendered_url, {})
-                smuggled = dict(data or {})
-                smuggled["galaxy_attachment_inventory_id"] = token
-                enriched = dict(entry)
-                enriched["url"] = smuggle_url(plain_url, smuggled)
-                updated_entries.append(enriched)
             values = dict(result)
-            values["entries"] = updated_entries
+            values["entries"] = _attach_inventory_tokens(result.get("entries"), inventory)
             return values
 
         course_extract_with_inventory._galaxy_udemy_attachment_inventory = True  # type: ignore[attr-defined]
@@ -167,14 +193,8 @@ def install_headless_udemy_attachment_inventory() -> None:
     current_lecture_extract = UdemyIE._real_extract
     if not getattr(current_lecture_extract, "_galaxy_udemy_attachment_inventory", False):
         def lecture_extract_with_inventory(self, url):
-            _plain_url, data = unsmuggle_url(url, {})
-            inventory = _take_inventory((data or {}).get("galaxy_attachment_inventory_id"))
             result = current_lecture_extract(self, url)
-            if inventory is None or not isinstance(result, dict):
-                return result
-            values = dict(result)
-            values["_galaxyCourseAttachmentInventory"] = inventory
-            return values
+            return _consume_inventory(url, result)
 
         lecture_extract_with_inventory._galaxy_udemy_attachment_inventory = True  # type: ignore[attr-defined]
         UdemyIE._real_extract = lecture_extract_with_inventory
