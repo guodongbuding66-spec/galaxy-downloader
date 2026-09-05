@@ -101,12 +101,16 @@ def _pause_all_downloads(window) -> bool:
             pause_queue(True)
             changed = True
         except Exception:
+            # Tray callbacks are optional convenience controls; a queue-control
+            # failure must not crash the UI thread or prevent active-job pause.
             pass
     elif hasattr(window, "queue_paused"):
         try:
             window.queue_paused = True
             changed = True
         except Exception:
+            # A foreign/partial EngineWindow may expose a read-only compatibility
+            # attribute. Continue so the independently available active pause runs.
             pass
 
     pause_active = getattr(window, "pause_active_job", None)
@@ -114,6 +118,8 @@ def _pause_all_downloads(window) -> bool:
         try:
             changed = bool(pause_active()) or changed
         except Exception:
+            # Active pause is intentionally fail-soft from the tray boundary;
+            # download-policy code owns error/status reporting for the real job.
             pass
     return changed
 
