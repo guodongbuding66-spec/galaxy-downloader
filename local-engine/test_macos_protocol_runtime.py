@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import sys
 import threading
-import time
 import tkinter as tk
 from urllib.parse import urlencode
 
@@ -56,18 +55,36 @@ class TkWindowProbe:
             self.submitted.set()
             completed.set()
 
+        # This mirrors EngineWindow.submit_bridge_job(): a non-Tk thread hands
+        # the payload back to the Tk thread and waits for that handoff to finish.
+        # It requires a real Tk mainloop, not repeated root.update() polling.
         self.root.after(0, accept)
         return completed.wait(timeout=2.0)
 
 
-def _pump(root: tk.Tk, predicate, timeout: float = 3.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        root.update()
+def _run_mainloop_until(root: tk.Tk, predicate, timeout_ms: int = 3000) -> bool:
+    result = {"matched": False, "finished": False}
+
+    def check() -> None:
+        if result["finished"]:
+            return
         if predicate():
-            return True
-        time.sleep(0.01)
-    return bool(predicate())
+            result["matched"] = True
+            result["finished"] = True
+            root.quit()
+            return
+        root.after(10, check)
+
+    def timeout() -> None:
+        if result["finished"]:
+            return
+        result["finished"] = True
+        root.quit()
+
+    root.after(0, check)
+    root.after(timeout_ms, timeout)
+    root.mainloop()
+    return bool(result["matched"] or predicate())
 
 
 def _deliver(provider: MacOSURLProtocolProvider, raw_url: str) -> None:
@@ -104,20 +121,22 @@ def main() -> int:
             raise RuntimeError("non-Galaxy URL was accepted by the Apple Event handler")
 
         _deliver(provider, "galaxy-downloader://open")
-        if not _pump(root, lambda: window.opened):
-            raise RuntimeError("galaxy-downloader://open did not surface the Tk workbench")
+        if not _run_mainloop_until(root, lambda: window.opened):
+            raise RuntimeError(
+                f"galaxy-downloader://open did not surface the Tk workbench: {provider.state.error}"
+            )
         if provider.state.last_action != "open":
             raise RuntimeError("open protocol action was not recorded")
 
-        query = urlencode({"url": "https://example.com/video.mp4", "format": "best"})
+        query = urlencode({"url": "https://example.com/video.mp4", "video": "best"})
         _deliver(provider, f"galaxy-downloader://download?{query}")
-        if not _pump(root, window.submitted.is_set):
-            raise RuntimeError("download protocol event was not submitted")
+        if not _run_mainloop_until(root, window.submitted.is_set):
+            raise RuntimeError(f"download protocol event was not submitted: {provider.state.error}")
         if window.submit_thread is threading.main_thread():
             raise RuntimeError("download submission blocked the Tk/Cocoa main thread")
         if not isinstance(window.submitted_payload, dict):
             raise RuntimeError("download protocol payload was not produced")
-        if window.submitted_payload.get("url") != "https://example.com/video.mp4":
+        if window.submitted_payload.get("sourceUrl") != "https://example.com/video.mp4":
             raise RuntimeError(f"unexpected protocol payload: {window.submitted_payload}")
         if provider.state.last_action != "download":
             raise RuntimeError("download protocol action was not recorded")
