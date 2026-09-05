@@ -55,6 +55,8 @@ def main() -> int:
         try:
             root.destroy()
         except Exception:
+            # Cleanup must not mask the tray lifecycle result if Tk has already
+            # torn down its interpreter while unwinding a prior failure.
             pass
         watchdog.cancel()
 
