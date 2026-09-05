@@ -31,6 +31,33 @@ def _course_name(value: object, source_url: str) -> str:
     return (rendered or "Udemy Course")[:160]
 
 
+def _source_identity(value: object) -> tuple[str, str, str] | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = urlsplit(raw)
+        host = str(parsed.hostname or "").strip().lower().rstrip(".")
+        scheme = parsed.scheme.lower()
+        if scheme not in {"http", "https"} or not host:
+            return None
+        path = "/" + "/".join(part for part in parsed.path.split("/") if part)
+        return scheme, host, path.rstrip("/") or "/"
+    except ValueError:
+        return None
+
+
+def _validate_existing_course_binding(course: dict, plan: dict) -> None:
+    course_provider = str(course.get("provider") or "").strip().lower()
+    provider = str(plan.get("provider") or "").strip().lower()
+    if course_provider != provider:
+        raise CourseDownloadCoordinatorError("existing course provider does not match course download provider")
+    existing_source = _source_identity(course.get("sourceUrl"))
+    requested_source = _source_identity(plan.get("sourceUrl"))
+    if existing_source is not None and existing_source != requested_source:
+        raise CourseDownloadCoordinatorError("existing course source does not match course download URL")
+
+
 def _course_download_coordinator(handler):
     server = getattr(handler, "server", None)
     return getattr(server, "course_download_coordinator", None)
@@ -137,6 +164,7 @@ class HeadlessCourseProvidersHttpMixin:
             course_id = str(payload.get("courseId") or "").strip().lower()
             if course_id:
                 course = learning_api.course_detail(course_id, item_limit=1)["course"]
+                _validate_existing_course_binding(course, plan)
             else:
                 course = learning_api.create_course(
                     {
