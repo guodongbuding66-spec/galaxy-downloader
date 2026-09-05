@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import plistlib
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENGINE = ROOT / "local-engine"
 sys.path.insert(0, str(LOCAL_ENGINE))
 
+import macos_bundle  # noqa: E402
 import macos_release  # noqa: E402
 
 
@@ -20,10 +22,15 @@ class MacOSReleaseContractTest(unittest.TestCase):
         contents = app / "Contents"
         runtime = contents / "MacOS"
         runtime.mkdir(parents=True)
-        (contents / "Info.plist").write_text(
-            '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict></dict></plist>\n',
-            encoding="utf-8",
-        )
+        with (contents / "Info.plist").open("wb") as handle:
+            plistlib.dump(
+                {
+                    "CFBundleExecutable": macos_release.APP_EXECUTABLE,
+                    "CFBundleName": "GalaxyLocalEngine",
+                    "CFBundlePackageType": "APPL",
+                },
+                handle,
+            )
         executable = runtime / macos_release.APP_EXECUTABLE
         executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         executable.chmod(0o755)
@@ -46,6 +53,11 @@ class MacOSReleaseContractTest(unittest.TestCase):
             "GalaxyLocalEngine-macOS-arm64.dmg",
         )
 
+    def test_release_plan_declares_protocol_identity(self) -> None:
+        self.assertEqual(macos_bundle.PROTOCOL_SCHEME, "galaxy-downloader")
+        self.assertEqual(macos_bundle.BUNDLE_IDENTIFIER, "com.guodongbuding66.galaxy-local-engine")
+        self.assertEqual(macos_bundle.APP_ICON_FILE, "GalaxyLocalEngine.icns")
+
     def test_app_bundle_requires_installed_runtime_marker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_name:
             tmp = Path(tmp_name)
@@ -66,6 +78,22 @@ class MacOSReleaseContractTest(unittest.TestCase):
             executable.chmod(0o644)
             with self.assertRaisesRegex(macos_release.MacOSReleaseError, "not executable"):
                 macos_release.validate_app_bundle(app)
+
+    @unittest.skipUnless(sys.platform == "darwin", "distribution preparation is macOS-native")
+    def test_distribution_app_is_branded_and_codesign_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_name:
+            app = self._app(Path(tmp_name))
+            prepared = macos_release.prepare_distribution_app(app)
+            self.assertEqual(prepared, app.resolve())
+            payload = macos_bundle.validate_bundle(prepared)
+            self.assertEqual(payload["CFBundleIdentifier"], macos_bundle.BUNDLE_IDENTIFIER)
+            self.assertEqual(
+                payload["CFBundleURLTypes"][0]["CFBundleURLSchemes"],
+                [macos_bundle.PROTOCOL_SCHEME],
+            )
+            icon = macos_bundle.resources_dir(prepared) / macos_bundle.APP_ICON_FILE
+            self.assertTrue(icon.is_file())
+            self.assertGreater(icon.stat().st_size, 0)
 
     @unittest.skipUnless(sys.platform == "darwin", "ditto staging contract is macOS-native")
     def test_staging_contains_app_and_applications_link(self) -> None:
