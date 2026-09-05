@@ -72,6 +72,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             python3-venv \
+            python3-tk \
             python3-gi \
             python3-gi-cairo \
             gir1.2-gtk-3.0 \
@@ -92,7 +93,8 @@ jobs:
           assert AyatanaAppIndicator3 is not None
           assert importlib.util.find_spec('pystray') is not None
           assert importlib.util.find_spec('PIL') is not None
-          print('Linux GI/AppIndicator build dependencies OK')
+          assert importlib.util.find_spec('tkinter') is not None
+          print('Linux GI/AppIndicator/Tk build dependencies OK')
           PY
 
       - name: Validate portable dependency policy
