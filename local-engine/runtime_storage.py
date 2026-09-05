@@ -66,6 +66,30 @@ def _same_path(left: Path, right: Path) -> bool:
         return left.absolute() == right.absolute()
 
 
+def _legacy_state_sources(engine_module, target: Path) -> tuple[Path, ...]:
+    """Return historical state roots in migration priority order.
+
+    Before XDG_STATE_HOME support, Linux installed mode stored state below the
+    data root (XDG_DATA_HOME/galaxy-local-engine/state). Prefer that location
+    over the older portable program/state root so an installed user's newer
+    state wins if both happen to exist.
+    """
+    candidates: list[Path] = []
+    data_accessor = getattr(engine_module, "data_dir", None)
+    if callable(data_accessor):
+        try:
+            previous_installed = Path(data_accessor()) / "state"
+        except (OSError, TypeError, RuntimeError):
+            previous_installed = None
+        if previous_installed is not None and not _same_path(previous_installed, target):
+            candidates.append(previous_installed)
+
+    portable = _legacy_state_dir(engine_module)
+    if not _same_path(portable, target) and not any(_same_path(portable, item) for item in candidates):
+        candidates.append(portable)
+    return tuple(candidates)
+
+
 def _load_imported_files(target: Path) -> set[str]:
     ledger = target / STATE_IMPORT_LEDGER
     try:
@@ -98,8 +122,8 @@ def _write_imported_files(target: Path, imported: set[str]) -> None:
 
 
 def _import_legacy_state_once(engine_module, target: Path) -> None:
-    legacy = _legacy_state_dir(engine_module)
-    if _same_path(legacy, target):
+    sources = _legacy_state_sources(engine_module, target)
+    if not sources:
         return
     with _STATE_MIGRATION_LOCK:
         target.mkdir(parents=True, exist_ok=True)
@@ -109,9 +133,21 @@ def _import_legacy_state_once(engine_module, target: Path) -> None:
             return
         changed = False
         for name in pending:
-            source = legacy / name
             destination = target / name
-            if destination.exists() or not source.is_file() or source.is_symlink():
+            if destination.exists():
+                imported.add(name)
+                changed = True
+                continue
+
+            source = next(
+                (
+                    candidate
+                    for root in sources
+                    if (candidate := root / name).is_file() and not candidate.is_symlink()
+                ),
+                None,
+            )
+            if source is None:
                 imported.add(name)
                 changed = True
                 continue
@@ -201,6 +237,32 @@ def run_runtime_storage_self_test() -> None:
         (installed / "ai-models.json").unlink()
         state_dir(InstalledEngine)
         assert not (installed / "ai-models.json").exists()
+
+        old_xdg_data = root / "xdg-data" / "galaxy-local-engine"
+        old_xdg_state = old_xdg_data / "state"
+        new_xdg_state = root / "xdg-state" / "galaxy-local-engine"
+        old_xdg_state.mkdir(parents=True)
+        (old_xdg_state / "download-history.json").write_text('[{"id":"old-xdg"}]', encoding="utf-8")
+        (old_xdg_state / "desktop-hotkey.json").write_text('{"shortcut":"Ctrl+Super+G"}', encoding="utf-8")
+        # Installed state takes priority over a stale portable copy.
+        (legacy / "download-history.json").write_text('[{"id":"portable"}]', encoding="utf-8")
+
+        class XdgEngine:
+            @staticmethod
+            def app_dir() -> Path:
+                return program
+            @staticmethod
+            def data_dir() -> Path:
+                return old_xdg_data
+            @staticmethod
+            def state_dir() -> Path:
+                return new_xdg_state
+
+        migrated = state_dir(XdgEngine)
+        assert migrated == new_xdg_state
+        assert (migrated / "download-history.json").read_text(encoding="utf-8") == '[{"id":"old-xdg"}]'
+        assert (migrated / "desktop-hotkey.json").read_text(encoding="utf-8") == '{"shortcut":"Ctrl+Super+G"}'
+        assert not (migrated / "unknown-secret.txt").exists()
 
         class PortableEngine:
             @staticmethod

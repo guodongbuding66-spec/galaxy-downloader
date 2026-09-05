@@ -105,35 +105,48 @@ def _home_directory(environ: Mapping[str, str], home: Path | None) -> Path:
     return Path.home().expanduser().resolve()
 
 
+def _xdg_directory(environ: Mapping[str, str], name: str, fallback: Path) -> Path:
+    """Resolve one XDG base directory, ignoring invalid relative overrides."""
+    value = str(environ.get(name) or "").strip()
+    if not value:
+        return fallback
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        return fallback
+    return candidate.resolve()
+
+
 def _installed_roots(
     platform: str,
     *,
     environ: Mapping[str, str],
     home: Path,
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path, Path, Path]:
     explicit_home = environ.get(HOME_ENV)
     if explicit_home:
         root = Path(explicit_home).expanduser().resolve()
-        return root, root / "cache", root / "downloads"
+        return root, root / "state", root / "cache", root / "downloads"
 
     if platform == "windows":
         data_base = Path(environ.get("LOCALAPPDATA") or (home / "AppData" / "Local"))
         data = data_base / APP_DIR_NAME
         downloads = home / "Downloads" / "Galaxy"
-        return data, data / "cache", downloads
+        return data, data / "state", data / "cache", downloads
 
     if platform == "macos":
         data = home / "Library" / "Application Support" / APP_DIR_NAME
         cache = home / "Library" / "Caches" / APP_DIR_NAME
         downloads = home / "Downloads" / "Galaxy"
-        return data, cache, downloads
+        return data, data / "state", cache, downloads
 
-    data_base = Path(environ.get("XDG_DATA_HOME") or (home / ".local" / "share"))
-    cache_base = Path(environ.get("XDG_CACHE_HOME") or (home / ".cache"))
+    data_base = _xdg_directory(environ, "XDG_DATA_HOME", home / ".local" / "share")
+    state_base = _xdg_directory(environ, "XDG_STATE_HOME", home / ".local" / "state")
+    cache_base = _xdg_directory(environ, "XDG_CACHE_HOME", home / ".cache")
     data = data_base / LINUX_APP_DIR_NAME
+    state = state_base / LINUX_APP_DIR_NAME
     cache = cache_base / LINUX_APP_DIR_NAME
     downloads = home / "Downloads" / "Galaxy"
-    return data, cache, downloads
+    return data, state, cache, downloads
 
 
 def resolve_platform_paths(
@@ -163,12 +176,11 @@ def resolve_platform_paths(
         cache = program / "cache"
     else:
         resolved_home = _home_directory(env, home)
-        data, cache, downloads = _installed_roots(
+        data, state, cache, downloads = _installed_roots(
             runtime_platform,
             environ=env,
             home=resolved_home,
         )
-        state = data / "state"
         tools = data / "tools"
 
     return PlatformPaths(
@@ -210,6 +222,7 @@ def run_platform_paths_self_test() -> None:
         )
         assert installed_windows.mode == "installed"
         assert installed_windows.data_dir == root / "local" / APP_DIR_NAME
+        assert installed_windows.state_dir == root / "local" / APP_DIR_NAME / "state"
         assert installed_windows.downloads_dir == root / "user" / "Downloads" / "Galaxy"
 
         installed_macos = resolve_platform_paths(
@@ -218,6 +231,7 @@ def run_platform_paths_self_test() -> None:
             environ={"GALAXY_PORTABLE": "false", "HOME": str(root / "mac-user")},
         )
         assert installed_macos.data_dir == root / "mac-user" / "Library" / "Application Support" / APP_DIR_NAME
+        assert installed_macos.state_dir == installed_macos.data_dir / "state"
 
         installed_linux = resolve_platform_paths(
             program_dir=root / "app",
@@ -226,11 +240,28 @@ def run_platform_paths_self_test() -> None:
                 "GALAXY_PORTABLE": "installed",
                 "HOME": str(root / "linux-user"),
                 "XDG_DATA_HOME": str(root / "xdg-data"),
+                "XDG_STATE_HOME": str(root / "xdg-state"),
                 "XDG_CACHE_HOME": str(root / "xdg-cache"),
             },
         )
         assert installed_linux.data_dir == root / "xdg-data" / LINUX_APP_DIR_NAME
+        assert installed_linux.state_dir == root / "xdg-state" / LINUX_APP_DIR_NAME
         assert installed_linux.cache_dir == root / "xdg-cache" / LINUX_APP_DIR_NAME
+
+        linux_defaults = resolve_platform_paths(
+            program_dir=root / "app",
+            platform="linux",
+            environ={
+                "GALAXY_PORTABLE": "0",
+                "HOME": str(root / "linux-default"),
+                "XDG_DATA_HOME": "relative-data",
+                "XDG_STATE_HOME": "relative-state",
+                "XDG_CACHE_HOME": "relative-cache",
+            },
+        )
+        assert linux_defaults.data_dir == root / "linux-default" / ".local" / "share" / LINUX_APP_DIR_NAME
+        assert linux_defaults.state_dir == root / "linux-default" / ".local" / "state" / LINUX_APP_DIR_NAME
+        assert linux_defaults.cache_dir == root / "linux-default" / ".cache" / LINUX_APP_DIR_NAME
 
         try:
             resolve_platform_paths(
