@@ -26,11 +26,12 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
             lambda _event: None,
         )
 
-    def test_movefiles_finished_captures_only_safe_udemy_metadata(self) -> None:
+    def test_movefiles_finished_derives_final_path_and_keeps_only_safe_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             output = root / "lesson.mp4"
             output.write_bytes(b"lesson")
+            pre_move = root / ".work" / output.name
             tracking_id = new_output_tracking_id()
             self.addCleanup(clear_course_metadata_tracking, tracking_id)
             options = self._options(root, tracking_id)
@@ -42,7 +43,8 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                     "status": "finished",
                     "postprocessor": "MoveFiles",
                     "info_dict": {
-                        "filepath": str(output),
+                        "filepath": str(pre_move),
+                        "__finaldir": str(root),
                         "extractor_key": "Udemy",
                         "id": "9001",
                         "title": "Variables and Types",
@@ -73,6 +75,7 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                     }
                 },
             )
+            self.assertNotIn(str(pre_move), str(tracked))
             self.assertNotIn("SECRET", str(tracked))
             self.assertNotIn("url", str(tracked).lower())
             self.assertNotIn("cookie", str(tracked).lower())
@@ -83,7 +86,8 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
             root = Path(directory)
             output = root / "lesson.mp4"
             output.write_bytes(b"lesson")
-            outside = Path(outside_directory) / "outside.mp4"
+            outside_root = Path(outside_directory)
+            outside = outside_root / "outside.mp4"
             outside.write_bytes(b"outside")
             tracking_id = new_output_tracking_id()
             self.addCleanup(clear_course_metadata_tracking, tracking_id)
@@ -106,7 +110,17 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                     "info_dict": {**base, "filepath": str(output), "extractor_key": "Youtube"},
                 }
             )
-            hook({"status": "finished", "postprocessor": "MoveFiles", "info_dict": {**base, "filepath": str(outside)}})
+            hook(
+                {
+                    "status": "finished",
+                    "postprocessor": "MoveFiles",
+                    "info_dict": {
+                        **base,
+                        "filepath": str(root / ".work" / outside.name),
+                        "__finaldir": str(outside_root),
+                    },
+                }
+            )
             self.assertEqual(tracked_course_metadata(tracking_id), {})
 
     def test_missing_chapter_is_kept_as_unsectioned_safe_metadata(self) -> None:
@@ -122,7 +136,8 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                     "status": "finished",
                     "postprocessor": "MoveFiles",
                     "info_dict": {
-                        "filepath": str(output),
+                        "filepath": str(root / ".work" / output.name),
+                        "__finaldir": str(root),
                         "extractor": "udemy",
                         "id": "202",
                         "title": "Standalone Lesson",
