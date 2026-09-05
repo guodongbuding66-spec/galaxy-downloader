@@ -15,6 +15,7 @@ from course_download_sessions import (
     sync_course_download_outputs,
 )
 from course_structure import enrich_course_items, list_course_sections
+from course_subtitles import enrich_course_item_subtitles
 from course_workspace import create_course, list_course_items
 from headless_course_metadata_tracking import (
     install_headless_course_metadata_tracking,
@@ -119,12 +120,18 @@ class CourseMetadataSyncTests(unittest.TestCase):
                     "playlist_index": playlist_index,
                     "url": "https://cdn.example/media?sig=PRIVATE",
                     "http_headers": {"Authorization": "PRIVATE"},
+                    "subtitles": {
+                        "en": [{"url": "https://cdn.example/sub.vtt?sig=PRIVATE"}]
+                    },
+                    "automatic_captions": {
+                        "zh-CN": [{"url": "https://cdn.example/auto.vtt?sig=PRIVATE"}]
+                    },
                 },
             }
         )
         output_hooks[0](str(output))
 
-    def test_two_lessons_sync_into_real_sections_and_provider_titles(self) -> None:
+    def test_two_lessons_sync_into_real_sections_provider_titles_and_safe_subtitles(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             engine, downloads = self._engine(root)
@@ -164,12 +171,21 @@ class CourseMetadataSyncTests(unittest.TestCase):
             self.assertEqual([section["title"] for section in sections], ["Getting Started", "Python Basics"])
             self.assertEqual([section["position"] for section in sections], [1, 2])
             items = enrich_course_items(engine, list_course_items(engine, course_id))
+            items = enrich_course_item_subtitles(engine, items)
             self.assertEqual([item["title"] for item in items], ["Welcome to the Course", "Variables and Types"])
             self.assertEqual(items[0]["providerItemId"], "udemy:asset:501")
             self.assertEqual(items[0]["sectionTitle"], "Getting Started")
             self.assertEqual(items[1]["providerItemId"], "udemy:asset:502")
             self.assertEqual(items[1]["sectionTitle"], "Python Basics")
+            self.assertEqual(
+                items[0]["subtitleTracks"],
+                [
+                    {"language": "en", "kind": "manual"},
+                    {"language": "zh-CN", "kind": "automatic"},
+                ],
+            )
             self.assertNotIn("PRIVATE", str(items))
+            self.assertNotIn("url", str(items).lower())
             self.assertEqual(tracked_output_paths(tracking_id), [])
             self.assertEqual(tracked_course_metadata(tracking_id), {})
 
@@ -202,16 +218,18 @@ class CourseMetadataSyncTests(unittest.TestCase):
                     sync_course_download_outputs(engine, job_id)
 
             self.assertEqual(tracked_output_paths(tracking_id), [output.resolve()])
-            self.assertEqual(
-                tracked_course_metadata(tracking_id)[output.resolve()]["providerItemId"],
-                "udemy:asset:601",
-            )
+            retained = tracked_course_metadata(tracking_id)[output.resolve()]
+            self.assertEqual(retained["providerItemId"], "udemy:asset:601")
+            self.assertEqual(retained["subtitleTracks"][0], {"language": "en", "kind": "manual"})
+            self.assertNotIn("PRIVATE", str(retained))
 
             recovered = sync_course_download_outputs(engine, job_id)
             self.assertEqual(recovered["syncState"], "synced")
             items = enrich_course_items(engine, list_course_items(engine, course_id))
+            items = enrich_course_item_subtitles(engine, items)
             self.assertEqual(items[0]["title"], "Recoverable Lesson")
             self.assertEqual(items[0]["sectionTitle"], "Recovery")
+            self.assertEqual(items[0]["subtitleTracks"][1], {"language": "zh-CN", "kind": "automatic"})
             self.assertEqual(tracked_output_paths(tracking_id), [])
             self.assertEqual(tracked_course_metadata(tracking_id), {})
 

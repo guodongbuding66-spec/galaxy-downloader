@@ -56,6 +56,9 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                         "http_headers": {"Authorization": "Bearer SECRET"},
                         "cookie": "session=SECRET",
                         "subtitles": {"en": [{"url": "https://cdn.example/sub.vtt?sig=SECRET"}]},
+                        "automatic_captions": {
+                            "zh-CN": [{"url": "https://cdn.example/auto.vtt?sig=SECRET"}]
+                        },
                         "description": "SECRET should never be retained",
                     },
                 }
@@ -72,6 +75,10 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                         "providerPosition": 7,
                         "sectionTitle": "Python Basics",
                         "sectionPosition": 2,
+                        "subtitleTracks": [
+                            {"language": "en", "kind": "manual"},
+                            {"language": "zh-CN", "kind": "automatic"},
+                        ],
                     }
                 },
             )
@@ -151,6 +158,7 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
             self.assertEqual(metadata["providerPosition"], 3)
             self.assertEqual(metadata["sectionTitle"], "")
             self.assertEqual(metadata["sectionPosition"], 0)
+            self.assertEqual(metadata["subtitleTracks"], [])
 
 
 if __name__ == "__main__":

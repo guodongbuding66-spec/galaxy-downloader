@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from course_structure import CourseStructureError, set_course_item_metadata, upsert_course_section
+from course_subtitles import set_course_item_subtitle_tracks
 from course_workspace import add_media_to_course, create_course
 from headless_learning_api import HeadlessLearningApi, HeadlessLearningApiError, HeadlessLearningContext
 from headless_learning_structure import install_headless_learning_structure
@@ -62,7 +63,7 @@ class HeadlessLearningStructureTests(unittest.TestCase):
         )
         return add_media_to_course(context, course_id, media_id)
 
-    def test_course_detail_and_items_include_sections_and_provider_metadata(self) -> None:
+    def test_course_detail_and_items_include_sections_provider_subtitles_and_navigation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             context = self._context(root)
@@ -101,6 +102,14 @@ class HeadlessLearningStructureTests(unittest.TestCase):
                 provider_title="Variables and Types",
                 provider_position=2,
             )
+            set_course_item_subtitle_tracks(
+                context,
+                first_item,
+                [
+                    {"language": "en", "kind": "manual"},
+                    {"language": "zh-CN", "kind": "automatic"},
+                ],
+            )
 
             detail = api.course_detail(course_id)
             self.assertEqual(detail["course"]["id"], course_id)
@@ -109,12 +118,31 @@ class HeadlessLearningStructureTests(unittest.TestCase):
             self.assertEqual(detail["items"][0]["sectionTitle"], "Getting Started")
             self.assertEqual(detail["items"][0]["providerItemId"], "udemy:asset:501")
             self.assertEqual(detail["items"][1]["providerPosition"], 2)
+            self.assertEqual(
+                detail["items"][0]["subtitleTracks"],
+                [
+                    {"language": "en", "kind": "manual"},
+                    {"language": "zh-CN", "kind": "automatic"},
+                ],
+            )
+            self.assertEqual(detail["items"][0]["previousItemId"], "")
+            self.assertEqual(detail["items"][0]["nextItemId"], second_item)
+            self.assertEqual(detail["items"][1]["previousItemId"], first_item)
+            self.assertEqual(detail["items"][1]["nextItemId"], "")
+            self.assertEqual(detail["items"][0]["sectionItemIndex"], 1)
+            self.assertEqual(detail["items"][0]["sectionItemCount"], 1)
+            self.assertEqual(detail["sections"][0]["itemCount"], 1)
+            self.assertEqual(detail["sections"][0]["previousSectionId"], "")
+            self.assertEqual(detail["sections"][0]["nextSectionId"], basics["id"])
+            self.assertEqual(detail["sections"][1]["previousSectionId"], intro["id"])
+            self.assertEqual(detail["sections"][1]["nextSectionId"], "")
 
             items = api.items(course_id)
             self.assertEqual(items["courseId"], course_id)
             self.assertEqual([section["position"] for section in items["sections"]], [1, 2])
             self.assertEqual(items["items"][1]["sectionTitle"], "Python Basics")
             self.assertEqual(items["items"][1]["providerTitle"], "Variables and Types")
+            self.assertEqual(items["items"][0]["nextItemId"], second_item)
 
     def test_unstructured_course_remains_backward_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -129,6 +157,9 @@ class HeadlessLearningStructureTests(unittest.TestCase):
             self.assertEqual(len(detail["items"]), 1)
             self.assertEqual(detail["items"][0]["title"], "plain")
             self.assertNotIn("sectionTitle", detail["items"][0])
+            self.assertNotIn("subtitleTracks", detail["items"][0])
+            self.assertNotIn("previousItemId", detail["items"][0])
+            self.assertNotIn("nextItemId", detail["items"][0])
 
     def test_structure_lookup_failure_uses_typed_learning_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

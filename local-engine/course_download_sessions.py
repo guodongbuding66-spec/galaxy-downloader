@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from course_structure import CourseStructureError, set_course_item_metadata, upsert_course_section
+from course_subtitles import CourseSubtitleError, set_course_item_subtitle_tracks
 from course_workspace import CourseWorkspaceError, add_media_to_course
 from headless_course_metadata_tracking import clear_course_metadata_tracking, tracked_course_metadata
 from headless_output_tracking import clear_output_tracking, tracked_output_paths
@@ -280,16 +281,18 @@ def _apply_course_metadata(
     provider_item_id = str(metadata.get("providerItemId") or "").strip()
     provider_title = str(metadata.get("providerTitle") or "").strip()
     provider_position = int(metadata.get("providerPosition") or 0)
-    if not any((section_id, provider_item_id, provider_title, provider_position)):
-        return
-    set_course_item_metadata(
-        engine_module,
-        course_item_id,
-        section_id=section_id,
-        provider_item_id=provider_item_id,
-        provider_title=provider_title,
-        provider_position=provider_position,
-    )
+    subtitle_tracks = metadata.get("subtitleTracks") or []
+    if any((section_id, provider_item_id, provider_title, provider_position)):
+        set_course_item_metadata(
+            engine_module,
+            course_item_id,
+            section_id=section_id,
+            provider_item_id=provider_item_id,
+            provider_title=provider_title,
+            provider_position=provider_position,
+        )
+    if "subtitleTracks" in metadata:
+        set_course_item_subtitle_tracks(engine_module, course_item_id, subtitle_tracks)
 
 
 def sync_course_download_outputs(engine_module, job_id: object) -> dict[str, Any]:
@@ -335,7 +338,7 @@ def sync_course_download_outputs(engine_module, job_id: object) -> dict[str, Any
                     provider=provider,
                     metadata=metadata_by_output.get(output),
                 )
-            except (CourseWorkspaceError, CourseStructureError, ValueError) as exc:
+            except (CourseWorkspaceError, CourseStructureError, CourseSubtitleError, ValueError) as exc:
                 raise CourseDownloadSessionError(str(exc)) from exc
             synced += 1
     except Exception as exc:
