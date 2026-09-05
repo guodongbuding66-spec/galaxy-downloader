@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 import time
+from contextlib import suppress
 
 from desktop_linux_hotkey import (
     PORTAL_BUS_NAME,
@@ -68,10 +69,8 @@ class FakeGlobalShortcutsPortal:
         try:
             await self._stop_event.wait()
         finally:
-            try:
+            with suppress(Exception):
                 bus.disconnect()
-            except Exception:
-                pass
 
     def _next_request_path(self) -> str:
         self._request_index += 1
@@ -125,8 +124,8 @@ class FakeGlobalShortcutsPortal:
         self.activation_sent.set()
 
     def _handle_message(self, message):
-        from dbus_fast import Variant
-        from dbus_fast.message import Message, MessageType
+        from dbus_fast import MessageType, Variant
+        from dbus_fast.message import Message
 
         if message.message_type != MessageType.METHOD_CALL:
             return False
@@ -169,10 +168,8 @@ class FakeGlobalShortcutsPortal:
         loop = self._loop
         stop_event = self._stop_event
         if loop is not None and stop_event is not None:
-            try:
+            with suppress(RuntimeError):
                 loop.call_soon_threadsafe(stop_event.set)
-            except RuntimeError:
-                pass
         thread = self._thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=2.0)
