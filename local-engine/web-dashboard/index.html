@@ -20,34 +20,15 @@
 
     <main class="main">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">HEADLESS / NAS</p>
-          <h1 id="viewTitle">Dashboard</h1>
-        </div>
-        <div class="topbar-actions">
-          <button class="button secondary" id="refreshButton" type="button">Refresh</button>
-          <button class="button secondary" id="credentialsButton" type="button">Credentials</button>
-        </div>
+        <div><p class="eyebrow">HEADLESS / NAS</p><h1 id="viewTitle">Dashboard</h1></div>
+        <div class="topbar-actions"><button class="button secondary" id="refreshButton" type="button">Refresh</button><button class="button secondary" id="credentialsButton" type="button">Credentials</button></div>
       </header>
 
-      <div class="notice is-hidden" id="errorNotice" role="alert">
-        <span id="errorText"></span>
-        <button class="link-button" id="retryButton" type="button">Retry</button>
-      </div>
+      <div class="notice is-hidden" id="errorNotice" role="alert"><span id="errorText"></span><button class="link-button" id="retryButton" type="button">Retry</button></div>
 
       <section class="credentials is-hidden" id="credentialsPanel" aria-labelledby="credentialsTitle">
-        <div>
-          <h2 id="credentialsTitle">Bearer token</h2>
-          <p>远程 Headless 模式需要凭证。Token 仅保存在当前标签页的 sessionStorage。</p>
-        </div>
-        <form id="credentialsForm">
-          <label for="tokenInput">Token</label>
-          <div class="credential-row">
-            <input id="tokenInput" name="token" type="password" autocomplete="off" spellcheck="false">
-            <button class="button primary" type="submit">Connect</button>
-            <button class="button secondary" id="clearTokenButton" type="button">Clear</button>
-          </div>
-        </form>
+        <div><h2 id="credentialsTitle">Bearer token</h2><p>远程 Headless 模式需要凭证。Token 仅保存在当前标签页的 sessionStorage。</p></div>
+        <form id="credentialsForm"><label for="tokenInput">Token</label><div class="credential-row"><input id="tokenInput" name="token" type="password" autocomplete="off" spellcheck="false"><button class="button primary" type="submit">Connect</button><button class="button secondary" id="clearTokenButton" type="button">Clear</button></div></form>
       </section>
 
       <section id="dashboardView" class="view">
@@ -68,16 +49,11 @@
         <section class="panel downloads-panel">
           <div class="panel-header downloads-header">
             <div><h2>Downloads</h2><p id="downloadCount">0 jobs</p></div>
-            <div class="toolbar" aria-label="下载批量操作">
-              <button class="button secondary" id="pauseAllButton" type="button">Pause All</button>
-              <button class="button secondary" id="resumeAllButton" type="button">Resume All</button>
-              <button class="button secondary" id="retryFailedButton" type="button">Retry Failed</button>
-              <button class="button secondary" type="button" disabled title="Current Headless API has no clear-completed contract">Clear Completed</button>
-            </div>
+            <div class="toolbar" aria-label="下载批量操作"><button class="button secondary" id="pauseAllButton" type="button">Pause All</button><button class="button secondary" id="resumeAllButton" type="button">Resume All</button><button class="button secondary" id="retryFailedButton" type="button">Retry Failed</button><button class="button secondary" type="button" disabled title="Current Headless API has no clear-completed contract">Clear Completed</button></div>
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Status</th><th>Title</th><th>Progress</th><th>Speed</th><th>ETA</th><th>Size</th><th>Source</th><th>Added</th><th><span class="sr-only">Actions</span></th></tr></thead>
+              <thead><tr><th data-sort-header="state"><button class="table-sort" data-sort="state" type="button">Status</button></th><th data-sort-header="title"><button class="table-sort" data-sort="title" type="button">Title</button></th><th data-sort-header="progress"><button class="table-sort" data-sort="progress" type="button">Progress</button></th><th>Speed</th><th>ETA</th><th>Size</th><th data-sort-header="sourceHost"><button class="table-sort" data-sort="sourceHost" type="button">Source</button></th><th data-sort-header="createdAt"><button class="table-sort" data-sort="createdAt" type="button">Added</button></th><th><span class="sr-only">Actions</span></th></tr></thead>
               <tbody id="downloadsBody"><tr><td colspan="9"><div class="empty">Loading…</div></td></tr></tbody>
             </table>
           </div>
