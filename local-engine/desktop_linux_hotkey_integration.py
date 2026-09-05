@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import suppress
 from typing import Any
 
 from desktop_hooks import register_after_build_ui_hook, registered_after_build_ui_hooks
@@ -53,12 +54,10 @@ def _install_linux_provider(window, engine_module) -> None:
 
     previous = getattr(window, "_galaxy_hotkey_provider", None)
     if previous is not None:
-        try:
+        # The base Linux provider is normally null; replacement must still
+        # proceed if a third-party teardown hook raises unexpectedly.
+        with suppress(Exception):
             previous.stop()
-        except Exception:
-            # The base Linux provider is normally null; provider replacement must
-            # still proceed if a third-party teardown hook raises unexpectedly.
-            pass
 
     shortcut = str(load_linux_hotkey_preferences(engine_module).get("shortcut") or "")
     provider = LinuxPortalGlobalHotkeyProvider(
@@ -74,11 +73,9 @@ def _install_linux_provider(window, engine_module) -> None:
         if getattr(event, "widget", None) is window:
             provider.stop()
 
-    try:
+    # Some architecture fixtures expose bridge_status without a Tk bind API.
+    with suppress(Exception):
         window.bind("<Destroy>", on_destroy, add="+")
-    except Exception:
-        # Some architecture fixtures expose bridge_status without a Tk bind API.
-        pass
 
 
 def install_linux_portal_hotkey(engine_module):
