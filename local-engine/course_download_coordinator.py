@@ -47,6 +47,12 @@ class CourseDownloadCoordinator:
         if self._thread.is_alive():
             self._thread.join(timeout=2.0)
 
+    def _session(self, job_id: object) -> dict[str, Any] | None:
+        try:
+            return course_download_session(job_id)
+        except CourseDownloadSessionError as exc:
+            raise CourseDownloadCoordinatorError(str(exc)) from exc
+
     def submit(self, plan: dict[str, Any], course_id: object) -> tuple[object, dict[str, Any]]:
         if not isinstance(plan, dict):
             raise CourseDownloadCoordinatorError("course provider plan is invalid")
@@ -76,6 +82,12 @@ class CourseDownloadCoordinator:
                 provider=provider,
                 source_url=source_url,
             )
+        except CourseDownloadSessionError as exc:
+            with suppress(Exception):
+                self.runtime.cancel(job.job_id)
+            with suppress(Exception):
+                clear_output_tracking(tracking_id)
+            raise CourseDownloadCoordinatorError(str(exc)) from exc
         except Exception:
             with suppress(Exception):
                 self.runtime.cancel(job.job_id)
@@ -86,11 +98,11 @@ class CourseDownloadCoordinator:
         # Reconcile once after registration to close the tiny race where a very
         # small job reaches a terminal state before the queued event is consumed.
         self._handle_job(job.public_payload())
-        refreshed = course_download_session(job.job_id)
+        refreshed = self._session(job.job_id)
         return job, refreshed or session
 
     def status(self, job_id: object) -> dict[str, Any]:
-        session = course_download_session(job_id)
+        session = self._session(job_id)
         job = self.runtime.get(job_id)
         if session is None and job is None:
             raise CourseDownloadCoordinatorError("course download session not found")
@@ -134,7 +146,10 @@ class CourseDownloadCoordinator:
         state = str(snapshot.get("state") or "").strip().lower()
         if not job_id or state not in _TERMINAL_STATES:
             return
-        session = course_download_session(job_id)
+        try:
+            session = course_download_session(job_id)
+        except CourseDownloadSessionError:
+            return
         if session is None:
             return
 
