@@ -4,7 +4,6 @@ import sys
 import threading
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any
 from urllib.parse import urlparse
 
 from desktop_hooks import register_after_build_ui_hook, registered_after_build_ui_hooks
@@ -35,7 +34,7 @@ def _show_workbench(window) -> None:
         window.lift()
         window.focus_force()
     except Exception:
-        pass
+        return
 
 
 def _schedule_workbench(window) -> bool:
@@ -51,16 +50,10 @@ def _macos_handler_class():
     if _HANDLER_CLASS is not None:
         return _HANDLER_CLASS
 
-    import objc
     from Cocoa import NSObject
 
     class GalaxyURLAppleEventHandler(NSObject):
-        def initWithProvider_(self, provider):
-            self = objc.super(GalaxyURLAppleEventHandler, self).init()
-            if self is None:
-                return None
-            self._galaxy_provider = provider
-            return self
+        __slots__ = ("_galaxy_provider",)
 
         def handleEvent_withReplyEvent_(self, event, _reply_event):
             provider = getattr(self, "_galaxy_provider", None)
@@ -103,17 +96,18 @@ class MacOSURLProtocolProvider:
             if manager is None:
                 raise RuntimeError("NSAppleEventManager is unavailable")
             handler_cls = _macos_handler_class()
-            handler = handler_cls.alloc().initWithProvider_(self)
+            handler = handler_cls.alloc().init()
             if handler is None:
                 raise RuntimeError("macOS URL event handler could not be created")
+            handler._galaxy_provider = self
+            self._manager = manager
+            self._handler = handler
             manager.setEventHandler_andSelector_forEventClass_andEventID_(
                 handler,
                 "handleEvent:withReplyEvent:",
                 GURL_EVENT_CLASS,
                 GURL_EVENT_ID,
             )
-            self._manager = manager
-            self._handler = handler
             self.state.active = True
             self.state.error = ""
             return True
@@ -149,7 +143,10 @@ class MacOSURLProtocolProvider:
         if action == "open":
             self.state.last_action = "open"
             self.state.error = ""
-            return _schedule_workbench(self.window)
+            scheduled = _schedule_workbench(self.window)
+            if not scheduled:
+                self.state.error = "Tk workbench is unavailable"
+            return scheduled
         if action != "download":
             self.state.error = f"Unsupported Galaxy protocol action: {action or 'missing'}"[:240]
             return False
@@ -227,7 +224,7 @@ def _install_protocol_for_window(window, engine_module) -> None:
     try:
         window.bind("<Destroy>", on_destroy, add="+")
     except Exception:
-        pass
+        return
 
 
 def install_desktop_protocol(engine_module):
@@ -250,7 +247,7 @@ def verify_macos_protocol_runtime() -> bool:
     if sys.platform != "darwin":
         return True
     try:
-        from Cocoa import NSAppleEventManager, NSAppleEventDescriptor, NSObject  # noqa: F401
+        from Cocoa import NSAppleEventDescriptor, NSAppleEventManager, NSObject  # noqa: F401
 
         manager = NSAppleEventManager.sharedAppleEventManager()
         return manager is not None and all(
