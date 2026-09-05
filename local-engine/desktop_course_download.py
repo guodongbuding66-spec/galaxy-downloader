@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -36,10 +37,16 @@ class DesktopCourseDownloadService:
         self.download_root = Path(download_root).expanduser().resolve(strict=False)
         self._closed = False
         self._owns_runtime = runtime is None
-        self.runtime = runtime or HeadlessRuntime(self.download_root)
-        self.learning_api = learning_api or HeadlessLearningApi(self.download_root)
         self._owns_coordinator = coordinator is None
-        self.coordinator = coordinator or CourseDownloadCoordinator(self.runtime, self.learning_api)
+        self.runtime = runtime or HeadlessRuntime(self.download_root)
+        try:
+            self.learning_api = learning_api or HeadlessLearningApi(self.download_root)
+            self.coordinator = coordinator or CourseDownloadCoordinator(self.runtime, self.learning_api)
+        except Exception:
+            if self._owns_runtime:
+                with suppress(Exception):
+                    self.runtime.stop()
+            raise
 
     def _ensure_open(self) -> None:
         if self._closed:
