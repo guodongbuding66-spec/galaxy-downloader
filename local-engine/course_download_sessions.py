@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import threading
 from collections import OrderedDict
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -86,17 +87,10 @@ def _public(session: dict[str, Any]) -> dict[str, Any]:
 
 
 def _best_effort_clear_tracking(tracking_id: object) -> None:
-    try:
+    with suppress(Exception):
         clear_output_tracking(tracking_id)
-    except Exception:
-        # Tracking state is process-local and may already have been evicted.
-        # Session lifecycle cleanup must remain non-fatal in that case.
-        pass
-    try:
+    with suppress(Exception):
         clear_course_metadata_tracking(tracking_id)
-    except Exception:
-        # Metadata tracking is independently bounded and may already be gone.
-        return
 
 
 def _evict_terminal_sessions_locked() -> None:
@@ -192,17 +186,12 @@ def discard_course_download_outputs(job_id: object) -> int:
             raise CourseDownloadSessionError("course download session not found")
         tracking_id = str(session["trackingId"])
         _SESSIONS.move_to_end(clean)
-    discarded = 0
     try:
         discarded = clear_output_tracking(tracking_id)
     except Exception:
-        # A bounded output session may already have been evicted.
-        pass
-    try:
+        discarded = 0
+    with suppress(Exception):
         clear_course_metadata_tracking(tracking_id)
-    except Exception:
-        # Metadata tracking may have been independently evicted.
-        pass
     return discarded
 
 
