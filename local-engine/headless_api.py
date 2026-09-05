@@ -10,6 +10,7 @@ from headless_asr_http import HeadlessAsrHttpMixin
 from headless_browser_cookies import install_headless_browser_cookie_support
 from headless_course_metadata_tracking import install_headless_course_metadata_tracking
 from headless_course_providers_http import HeadlessCourseProvidersHttpMixin
+from headless_learning_structure import install_headless_learning_structure
 from headless_output_tracking import install_headless_output_tracking
 from headless_plugin_api import HeadlessPluginApi
 from headless_plugin_http import HeadlessPluginHttpMixin
@@ -27,6 +28,7 @@ from headless_whisperx_http import HeadlessWhisperXHttpMixin
 install_headless_browser_cookie_support()
 install_headless_output_tracking()
 install_headless_course_metadata_tracking()
+install_headless_learning_structure()
 
 # Publish the legacy handler before importing headless_ai_http. That module
 # imports GalaxyApiRequestHandler from headless_api, so exposing this alias
