@@ -6,6 +6,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from course_workspace import CourseWorkspaceError, add_media_to_course
 from headless_output_tracking import clear_output_tracking, tracked_output_paths
@@ -37,8 +38,28 @@ def _clean_provider(value: object) -> str:
 
 
 def _clean_source_url(value: object) -> str:
-    clean = str(value or "").strip()
-    if not clean or len(clean) > 900:
+    raw = str(value or "").strip()
+    if not raw or len(raw) > 900:
+        raise CourseDownloadSessionError("invalid course source URL")
+    try:
+        parsed = urlsplit(raw)
+        hostname = str(parsed.hostname or "").strip().lower()
+        if parsed.scheme.lower() not in {"http", "https"} or not hostname:
+            raise CourseDownloadSessionError("invalid course source URL")
+        if parsed.username is not None or parsed.password is not None:
+            raise CourseDownloadSessionError("invalid course source URL")
+        host = hostname
+        try:
+            if parsed.port:
+                host = f"{host}:{parsed.port}"
+        except ValueError as exc:
+            raise CourseDownloadSessionError("invalid course source URL") from exc
+        clean = urlunsplit((parsed.scheme.lower(), host, parsed.path or "/", "", ""))
+    except CourseDownloadSessionError:
+        raise
+    except ValueError as exc:
+        raise CourseDownloadSessionError("invalid course source URL") from exc
+    if len(clean) > 900:
         raise CourseDownloadSessionError("invalid course source URL")
     return clean
 
