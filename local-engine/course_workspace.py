@@ -11,6 +11,7 @@ import uuid
 from contextlib import closing, suppress
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from media_library import list_media_items, resolve_media_item_path
 from runtime_storage import state_dir as runtime_state_dir
@@ -111,6 +112,15 @@ def _clean_text(value: object, limit: int) -> str:
     return " ".join(str(value or "").split()).strip()[:limit]
 
 
+def _persisted_public_url(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    validated = validated_public_http_url(raw)
+    parsed = urlsplit(validated)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
 def _bounded_seconds(value: object) -> float:
     try:
         parsed = float(value)
@@ -134,9 +144,7 @@ def create_course(
     clean_provider = _clean_text(provider, 40).lower() or "generic"
     if not re.fullmatch(r"[a-z0-9_-]{1,40}", clean_provider):
         raise CourseWorkspaceError("课程 Provider 无效")
-    clean_url = ""
-    if str(source_url or "").strip():
-        clean_url = validated_public_http_url(str(source_url))
+    clean_url = _persisted_public_url(source_url)
     course_id = uuid.uuid4().hex
     with closing(_connect(engine_module)) as connection:
         count = int(connection.execute("SELECT COUNT(*) FROM courses").fetchone()[0])
