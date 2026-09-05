@@ -27,7 +27,6 @@ class MacOSReleaseContractTest(unittest.TestCase):
         executable = runtime / macos_release.APP_EXECUTABLE
         executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         executable.chmod(0o755)
-        (runtime / "VERSION").write_text(macos_release.read_version() + "\n", encoding="utf-8")
         if installed:
             (runtime / macos_release.INSTALLED_MARKER).write_text("1\n", encoding="utf-8")
         return app
@@ -58,11 +57,14 @@ class MacOSReleaseContractTest(unittest.TestCase):
             )
             self.assertEqual(macos_release.validate_app_bundle(app), app.resolve())
 
-    def test_app_bundle_rejects_version_mismatch(self) -> None:
+    def test_app_bundle_requires_executable_bit(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX executable-bit contract")
         with tempfile.TemporaryDirectory() as tmp_name:
             app = self._app(Path(tmp_name))
-            (macos_release.app_runtime_dir(app) / "VERSION").write_text("0.0.0\n", encoding="utf-8")
-            with self.assertRaisesRegex(macos_release.MacOSReleaseError, "does not match"):
+            executable = macos_release.app_executable(app)
+            executable.chmod(0o644)
+            with self.assertRaisesRegex(macos_release.MacOSReleaseError, "not executable"):
                 macos_release.validate_app_bundle(app)
 
     @unittest.skipUnless(sys.platform == "darwin", "ditto staging contract is macOS-native")
