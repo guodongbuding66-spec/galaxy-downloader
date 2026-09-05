@@ -27,7 +27,7 @@ def _clean_id(value: object, label: str) -> str:
 
 
 def normalize_subtitle_tracks(value: object) -> list[dict[str, str]]:
-    if value in {None, ""}:
+    if value is None or value == "":
         return []
     if not isinstance(value, (list, tuple)):
         raise CourseSubtitleError("subtitle tracks must be a list")
