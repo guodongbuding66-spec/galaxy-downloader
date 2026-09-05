@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from course_download_coordinator import CourseDownloadCoordinatorError
 from course_providers import build_course_provider_plan
@@ -38,18 +38,40 @@ def managed_course_name(value: object, source_url: str) -> str:
     return (rendered or "Udemy Course")[:160]
 
 
-def _source_identity(value: object) -> tuple[str, str, str] | None:
+def managed_course_source_url(value: object) -> str:
+    """Return stable Course metadata without query, fragment or credentials."""
+
     raw = str(value or "").strip()
     if not raw:
-        return None
+        return ""
     try:
         parsed = urlsplit(raw)
-        host = str(parsed.hostname or "").strip().lower().rstrip(".")
         scheme = parsed.scheme.lower()
+        host = str(parsed.hostname or "").strip().lower().rstrip(".")
         if scheme not in {"http", "https"} or not host:
-            return None
+            return ""
+        if parsed.username is not None or parsed.password is not None:
+            return ""
+        netloc = host
+        try:
+            if parsed.port:
+                netloc = f"{host}:{parsed.port}"
+        except ValueError:
+            return ""
+        return urlunsplit((scheme, netloc, parsed.path or "/", "", ""))
+    except ValueError:
+        return ""
+
+
+def _source_identity(value: object) -> tuple[str, str, str] | None:
+    clean = managed_course_source_url(value)
+    if not clean:
+        return None
+    try:
+        parsed = urlsplit(clean)
+        host = str(parsed.hostname or "").strip().lower().rstrip(".")
         path = "/" + "/".join(part for part in parsed.path.split("/") if part)
-        return scheme, host, path.rstrip("/") or "/"
+        return parsed.scheme.lower(), host, path.rstrip("/") or "/"
     except ValueError:
         return None
 
@@ -85,20 +107,21 @@ def submit_managed_course_download(
     if not isinstance(plan, dict):
         raise CourseDownloadCoordinatorError("course provider plan is invalid")
 
+    requested_source = managed_course_source_url(plan.get("sourceUrl"))
+    provider = str(plan.get("provider") or "").strip().lower()
+    if not requested_source or not provider:
+        raise CourseDownloadCoordinatorError("course provider plan is incomplete")
+
     created_course = False
     clean_course_id = str(course_id or "").strip().lower()
     if clean_course_id:
         course = learning_api.course_detail(clean_course_id, item_limit=1)["course"]
         validate_managed_course_binding(course, plan)
     else:
-        source_url = str(plan.get("sourceUrl") or "").strip()
-        provider = str(plan.get("provider") or "").strip().lower()
-        if not source_url or not provider:
-            raise CourseDownloadCoordinatorError("course provider plan is incomplete")
         course = learning_api.create_course(
             {
-                "name": managed_course_name(course_name, source_url),
-                "sourceUrl": source_url,
+                "name": managed_course_name(course_name, requested_source),
+                "sourceUrl": requested_source,
                 "provider": provider,
             }
         )["course"]
@@ -112,9 +135,11 @@ def submit_managed_course_download(
                 learning_api.remove_course(course["id"])
         raise
 
+    public_course = dict(course)
+    public_course["sourceUrl"] = managed_course_source_url(course.get("sourceUrl")) or requested_source
     return {
-        "provider": str(plan.get("provider") or "").strip().lower(),
-        "course": course,
+        "provider": provider,
+        "course": public_course,
         "session": session,
         "job": job,
         "warnings": list(plan.get("warnings") or []),
