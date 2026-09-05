@@ -11,7 +11,9 @@ on:
     paths:
       - 'local-engine/requirements.txt'
       - 'local-engine/prepare-unix-bundle.py'
+      - 'local-engine/linux_release.py'
       - 'local-engine/VERSION'
+      - 'scripts/test-local-linux-release.py'
       - '.github/workflows/local-engine-unix-release.yml'
 
 permissions:
@@ -28,7 +30,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -73,12 +75,25 @@ jobs:
       - name: Install Local Engine dependencies
         run: python -m pip install -r local-engine/requirements.txt
 
+      - name: Install Linux package inspection tools
+        if: matrix.os_name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends desktop-file-utils rpm libarchive-tools
+
       - name: Validate release source and bundle policy
         run: |
           python -m py_compile local-engine/prepare-unix-bundle.py scripts/test-local-unix-bundle.py
           python scripts/test-local-unix-bundle.py
           python local-engine/prepare-unix-bundle.py --package-dir unused --os '${{ matrix.os_name }}' --architecture '${{ matrix.arch }}' --print-plan
           python local-engine/entrypoint.py --self-test
+
+      - name: Validate Linux desktop package contract
+        if: matrix.os_name == 'linux'
+        run: |
+          python -m py_compile local-engine/linux_release.py scripts/test-local-linux-release.py
+          python scripts/test-local-linux-release.py
+          python local-engine/linux_release.py --package-dir unused --architecture '${{ matrix.arch }}' --print-plan
 
       - name: Build Linux portable executable
         if: matrix.os_name == 'linux'
@@ -108,7 +123,58 @@ jobs:
           dist/package/ffmpeg/bin/ffmpeg -version | head -n 1
           dist/package/ffmpeg/bin/ffprobe -version | head -n 1
           tar -C dist/package -czf 'dist/${{ matrix.archive }}' .
-          shasum -a 256 'dist/${{ matrix.archive }}' > 'dist/${{ matrix.archive }}.sha256'
+          sha256sum 'dist/${{ matrix.archive }}' > 'dist/${{ matrix.archive }}.sha256'
+
+      - name: Build AppImage DEB and RPM
+        if: matrix.os_name == 'linux'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python local-engine/linux_release.py
+          --package-dir dist/package
+          --output-dir dist
+          --architecture '${{ matrix.arch }}'
+
+      - name: Smoke test Linux desktop packages
+        if: matrix.os_name == 'linux'
+        run: |
+          set -euo pipefail
+          prefix='dist/${{ matrix.artifact }}'
+
+          test -x "$prefix.AppImage"
+          APPIMAGE_EXTRACT_AND_RUN=1 "$prefix.AppImage" --self-test
+          (
+            cd dist
+            rm -rf squashfs-root
+            './${{ matrix.artifact }}.AppImage' --appimage-extract >/dev/null
+            desktop-file-validate 'squashfs-root/galaxy-local-engine.desktop'
+            test -x 'squashfs-root/AppRun'
+            'squashfs-root/AppRun' --self-test
+          )
+
+          rm -rf dist/deb-root
+          mkdir -p dist/deb-root
+          dpkg-deb --info "$prefix.deb" >/dev/null
+          dpkg-deb --extract "$prefix.deb" dist/deb-root
+          desktop-file-validate dist/deb-root/usr/share/applications/galaxy-local-engine.desktop
+          grep -F 'MimeType=x-scheme-handler/galaxy-downloader;' dist/deb-root/usr/share/applications/galaxy-local-engine.desktop
+          test -x dist/deb-root/usr/bin/galaxy-local-engine
+          dist/deb-root/opt/galaxy-local-engine/GalaxyLocalEngine --self-test
+
+          rm -rf dist/rpm-root
+          mkdir -p dist/rpm-root
+          rpm -qip "$prefix.rpm" >/dev/null
+          rpm -qlp "$prefix.rpm" | grep -Fx '/usr/bin/galaxy-local-engine'
+          bsdtar -tf "$prefix.rpm" >/dev/null
+          bsdtar -xf "$prefix.rpm" -C dist/rpm-root
+          desktop-file-validate dist/rpm-root/usr/share/applications/galaxy-local-engine.desktop
+          grep -F 'MimeType=x-scheme-handler/galaxy-downloader;' dist/rpm-root/usr/share/applications/galaxy-local-engine.desktop
+          test -x dist/rpm-root/usr/bin/galaxy-local-engine
+          dist/rpm-root/opt/galaxy-local-engine/GalaxyLocalEngine --self-test
+
+          for package in "$prefix.AppImage" "$prefix.deb" "$prefix.rpm"; do
+            sha256sum "$package" > "$package.sha256"
+          done
 
       - name: Build macOS application bundle
         if: matrix.os_name == 'darwin'
@@ -137,7 +203,7 @@ jobs:
           mkdir -p dist/package
           mv dist/GalaxyLocalEngine.app dist/package/GalaxyLocalEngine.app
           cp local-engine/README.md dist/package/README.md
-          cp 'local-engine/使用说明.txt' 'dist/package/使用说明.txt'
+          cp 'local-engine/使用说明.txt' dist/package/使用说明.txt
           cp local-engine/VERSION dist/package/VERSION
           ditto -c -k --sequesterRsrc --keepParent dist/package 'dist/${{ matrix.archive }}'
           shasum -a 256 'dist/${{ matrix.archive }}' > 'dist/${{ matrix.archive }}.sha256'
@@ -147,8 +213,7 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: |
-            dist/${{ matrix.archive }}
-            dist/${{ matrix.archive }}.sha256
+            dist/${{ matrix.artifact }}.*
           if-no-files-found: error
           retention-days: 30
 
@@ -195,7 +260,13 @@ jobs:
             --name GalaxyLocalEngine-macOS-x64 \
             --name GalaxyLocalEngine-macOS-arm64 \
             --dir dist/collected
-          find dist/collected -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp '{}' dist/publish/ \;
+          find dist/collected -type f \( \
+            -name '*.tar.gz' -o \
+            -name '*.zip' -o \
+            -name '*.AppImage' -o \
+            -name '*.deb' -o \
+            -name '*.rpm' \
+          \) -exec cp '{}' dist/publish/ \;
 
       - name: Download existing Windows release asset
         run: |
@@ -210,7 +281,13 @@ jobs:
           expected=(
             GalaxyLocalEngine-Windows.zip
             GalaxyLocalEngine-Linux-x64.tar.gz
+            GalaxyLocalEngine-Linux-x64.AppImage
+            GalaxyLocalEngine-Linux-x64.deb
+            GalaxyLocalEngine-Linux-x64.rpm
             GalaxyLocalEngine-Linux-arm64.tar.gz
+            GalaxyLocalEngine-Linux-arm64.AppImage
+            GalaxyLocalEngine-Linux-arm64.deb
+            GalaxyLocalEngine-Linux-arm64.rpm
             GalaxyLocalEngine-macOS-x64.zip
             GalaxyLocalEngine-macOS-arm64.zip
           )
@@ -228,7 +305,13 @@ jobs:
           set -euo pipefail
           gh release upload '${{ steps.release.outputs.tag }}' \
             dist/publish/GalaxyLocalEngine-Linux-x64.tar.gz \
+            dist/publish/GalaxyLocalEngine-Linux-x64.AppImage \
+            dist/publish/GalaxyLocalEngine-Linux-x64.deb \
+            dist/publish/GalaxyLocalEngine-Linux-x64.rpm \
             dist/publish/GalaxyLocalEngine-Linux-arm64.tar.gz \
+            dist/publish/GalaxyLocalEngine-Linux-arm64.AppImage \
+            dist/publish/GalaxyLocalEngine-Linux-arm64.deb \
+            dist/publish/GalaxyLocalEngine-Linux-arm64.rpm \
             dist/publish/GalaxyLocalEngine-macOS-x64.zip \
             dist/publish/GalaxyLocalEngine-macOS-arm64.zip \
             dist/publish/SHA256SUMS.txt \
