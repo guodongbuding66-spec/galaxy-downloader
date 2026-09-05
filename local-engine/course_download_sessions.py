@@ -83,16 +83,22 @@ def _public(session: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _best_effort_clear_tracking(tracking_id: object) -> None:
+    try:
+        clear_output_tracking(tracking_id)
+    except Exception:
+        # Tracking state is process-local and may already have been evicted.
+        # Session lifecycle cleanup must remain non-fatal in that case.
+        return
+
+
 def _evict_terminal_sessions_locked() -> None:
     if len(_SESSIONS) < MAX_COURSE_DOWNLOAD_SESSIONS:
         return
     for job_id, session in list(_SESSIONS.items()):
         if session.get("syncState") in {"synced", "failed"}:
             _SESSIONS.pop(job_id, None)
-            try:
-                clear_output_tracking(session["trackingId"])
-            except Exception:
-                pass
+            _best_effort_clear_tracking(session["trackingId"])
         if len(_SESSIONS) < MAX_COURSE_DOWNLOAD_SESSIONS:
             return
 
@@ -160,10 +166,7 @@ def remove_course_download_session(job_id: object, *, clear_tracking: bool = Tru
     if session is None:
         return False
     if clear_tracking:
-        try:
-            clear_output_tracking(session["trackingId"])
-        except Exception:
-            pass
+        _best_effort_clear_tracking(session["trackingId"])
     return True
 
 
