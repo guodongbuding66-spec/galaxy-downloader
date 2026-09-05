@@ -37,7 +37,7 @@ class CourseProviderDescriptor:
         }
 
 
-_UDemy_DESCRIPTOR = CourseProviderDescriptor(
+_UDEMY_DESCRIPTOR = CourseProviderDescriptor(
     id="udemy",
     name="Udemy",
     status="foundation",
@@ -49,7 +49,7 @@ _UDemy_DESCRIPTOR = CourseProviderDescriptor(
 
 
 def list_course_providers() -> list[dict[str, Any]]:
-    return [_UDemy_DESCRIPTOR.public_payload()]
+    return [_UDEMY_DESCRIPTOR.public_payload()]
 
 
 def _is_udemy_host(host: str) -> bool:
@@ -64,8 +64,7 @@ def _validated_course_url(source_url: object) -> str:
         raise CourseProviderError(str(exc)) from exc
 
 
-def detect_course_provider(source_url: object) -> str:
-    url = _validated_course_url(source_url)
+def _detect_provider_from_validated_url(url: str) -> str:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     if _is_udemy_host(host):
@@ -74,6 +73,10 @@ def detect_course_provider(source_url: object) -> str:
             raise CourseProviderError("Udemy URL 必须指向 /course/<slug>/ 课程页面")
         return "udemy"
     raise CourseProviderError("暂不支持该课程平台；当前仅支持 Udemy")
+
+
+def detect_course_provider(source_url: object) -> str:
+    return _detect_provider_from_validated_url(_validated_course_url(source_url))
 
 
 def _clean_browser(value: object) -> str:
@@ -105,7 +108,7 @@ def build_course_provider_plan(
         raise CourseProviderError("includeSubtitles 必须是布尔值")
 
     url = _validated_course_url(source_url)
-    detected = detect_course_provider(url)
+    detected = _detect_provider_from_validated_url(url)
     provider_id = _clean_provider(provider, detected=detected)
     browser_id = _clean_browser(browser)
 
