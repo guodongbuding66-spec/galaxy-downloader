@@ -89,6 +89,10 @@ def _evict_terminal_sessions_locked() -> None:
     for job_id, session in list(_SESSIONS.items()):
         if session.get("syncState") in {"synced", "failed"}:
             _SESSIONS.pop(job_id, None)
+            try:
+                clear_output_tracking(session["trackingId"])
+            except Exception:
+                pass
         if len(_SESSIONS) < MAX_COURSE_DOWNLOAD_SESSIONS:
             return
 
