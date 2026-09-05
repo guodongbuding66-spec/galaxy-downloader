@@ -221,6 +221,29 @@ class DesktopCourseDownloadServiceTests(unittest.TestCase):
             service.close()
         self.assertEqual(events, ["coordinator.close", "runtime.stop"])
 
+    def test_owned_runtime_stops_if_learning_initialization_fails(self) -> None:
+        events: list[str] = []
+
+        class OwnedRuntime:
+            def __init__(self, root):
+                self.root = root
+
+            def stop(self):
+                events.append("runtime.stop")
+
+        class BrokenLearning:
+            def __init__(self, root):
+                raise RuntimeError("learning init failed")
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            desktop_module, "HeadlessRuntime", OwnedRuntime
+        ), patch.object(
+            desktop_module, "HeadlessLearningApi", BrokenLearning
+        ):
+            with self.assertRaisesRegex(RuntimeError, "learning init failed"):
+                DesktopCourseDownloadService(Path(directory))
+        self.assertEqual(events, ["runtime.stop"])
+
 
 if __name__ == "__main__":
     unittest.main()
