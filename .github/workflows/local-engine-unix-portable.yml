@@ -63,7 +63,7 @@ jobs:
 
       - name: Validate portable dependency policy
         run: |
-          python -m py_compile local-engine/prepare-unix-bundle.py scripts/test-local-unix-bundle.py
+          python -m py_compile local-engine/prepare-unix-bundle.py local-engine/prepare-macos-app.py scripts/test-local-unix-bundle.py
           python scripts/test-local-unix-bundle.py
           python local-engine/prepare-unix-bundle.py --package-dir unused --os '${{ matrix.os_name }}' --architecture '${{ matrix.arch }}' --print-plan
 
@@ -108,24 +108,37 @@ jobs:
           --clean
           --windowed
           --name GalaxyLocalEngine
+          --osx-bundle-identifier com.galaxydownloader.localengine
           --collect-all yt_dlp
           --add-data 'local-engine/VERSION:.'
           local-engine/entrypoint.py
+
+      - name: Register and verify macOS protocol metadata
+        if: matrix.os_name == 'darwin'
+        run: |
+          set -euo pipefail
+          python local-engine/prepare-macos-app.py --app dist/GalaxyLocalEngine.app
+          python local-engine/prepare-macos-app.py --app dist/GalaxyLocalEngine.app --verify
+          plutil -lint dist/GalaxyLocalEngine.app/Contents/Info.plist
 
       - name: Assemble macOS package and verified tools
         if: matrix.os_name == 'darwin'
         run: |
           set -euo pipefail
-          test -d dist/GalaxyLocalEngine.app
-          MACOS_DIR='dist/GalaxyLocalEngine.app/Contents/MacOS'
+          APP='dist/GalaxyLocalEngine.app'
+          test -d "$APP"
+          MACOS_DIR="$APP/Contents/MacOS"
           python local-engine/prepare-unix-bundle.py --package-dir "$MACOS_DIR" --os darwin --architecture '${{ matrix.arch }}'
           chmod +x "$MACOS_DIR/GalaxyLocalEngine" "$MACOS_DIR/yt-dlp" "$MACOS_DIR/ffmpeg/bin/ffmpeg" "$MACOS_DIR/ffmpeg/bin/ffprobe"
-          "$MACOS_DIR/GalaxyLocalEngine" --self-test
           "$MACOS_DIR/yt-dlp" --version
           "$MACOS_DIR/ffmpeg/bin/ffmpeg" -version | head -n 1
           "$MACOS_DIR/ffmpeg/bin/ffprobe" -version | head -n 1
+          python local-engine/prepare-macos-app.py --app "$APP" --verify
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          "$MACOS_DIR/GalaxyLocalEngine" --self-test
           mkdir -p dist/package
-          mv dist/GalaxyLocalEngine.app dist/package/GalaxyLocalEngine.app
+          mv "$APP" dist/package/GalaxyLocalEngine.app
           cp local-engine/README.md dist/package/README.md
           cp 'local-engine/使用说明.txt' 'dist/package/使用说明.txt'
           cp local-engine/VERSION dist/package/VERSION
