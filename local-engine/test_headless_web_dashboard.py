@@ -182,7 +182,7 @@ class HeadlessWebDashboardTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"/v1/settings", script)
         self.assertIn(b"/dashboard/settings.css", script)
-        self.assertIn(b"data.settingsView = 'settings'", script)
+        self.assertIn(b"dataset.settingsView = 'settings'", script)
         self.assertIn(b"Read-only", script)
         self.assertIn(b"environment variables or CLI", script)
         self.assertNotIn(b"localStorage", script)
