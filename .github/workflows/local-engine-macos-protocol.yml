@@ -1,0 +1,110 @@
+name: Local Engine macOS Protocol
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/desktop_protocol.py'
+      - 'local-engine/desktop_platform_features.py'
+      - 'local-engine/prepare-macos-app.py'
+      - 'local-engine/test_macos_protocol_runtime.py'
+      - 'local-engine/requirements.txt'
+      - '.github/workflows/local-engine-macos-protocol.yml'
+      - '.github/workflows/local-engine-unix-portable.yml'
+      - '.github/workflows/local-engine-unix-release.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/desktop_protocol.py'
+      - 'local-engine/desktop_platform_features.py'
+      - 'local-engine/prepare-macos-app.py'
+      - 'local-engine/test_macos_protocol_runtime.py'
+      - 'local-engine/requirements.txt'
+      - '.github/workflows/local-engine-macos-protocol.yml'
+      - '.github/workflows/local-engine-unix-portable.yml'
+      - '.github/workflows/local-engine-unix-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-protocol:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Intel protocol
+            runner: macos-15-intel
+          - label: macOS Apple Silicon protocol
+            runner: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+
+      - name: Validate source protocol contract
+        run: |
+          python -m py_compile local-engine/desktop_protocol.py local-engine/prepare-macos-app.py local-engine/test_macos_protocol_runtime.py
+          python local-engine/entrypoint.py --self-test
+
+      - name: Validate idempotent app URL metadata
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/GalaxyProtocolFixture.app"
+          mkdir -p "$APP/Contents"
+          APP="$APP" python - <<'PY'
+          import os
+          import plistlib
+          from pathlib import Path
+
+          plist = Path(os.environ['APP']) / 'Contents' / 'Info.plist'
+          with plist.open('wb') as handle:
+              plistlib.dump(
+                  {
+                      'CFBundleIdentifier': 'fixture.before',
+                      'CFBundleURLTypes': [
+                          {
+                              'CFBundleTypeRole': 'Viewer',
+                              'CFBundleURLName': 'fixture.other',
+                              'CFBundleURLSchemes': ['fixture-scheme'],
+                          }
+                      ],
+                  },
+                  handle,
+              )
+          PY
+          python local-engine/prepare-macos-app.py --app "$APP"
+          python local-engine/prepare-macos-app.py --app "$APP"
+          python local-engine/prepare-macos-app.py --app "$APP" --verify
+          plutil -lint "$APP/Contents/Info.plist"
+          APP="$APP" python - <<'PY'
+          import os
+          import plistlib
+          from pathlib import Path
+
+          with (Path(os.environ['APP']) / 'Contents' / 'Info.plist').open('rb') as handle:
+              data = plistlib.load(handle)
+          schemes = [
+              str(scheme)
+              for entry in data.get('CFBundleURLTypes', [])
+              for scheme in entry.get('CFBundleURLSchemes', [])
+          ]
+          assert schemes.count('galaxy-downloader') == 1, schemes
+          assert 'fixture-scheme' in schemes, schemes
+          PY
+
+      - name: Exercise Cocoa URL event + Tk submission lifecycle
+        run: python local-engine/test_macos_protocol_runtime.py
