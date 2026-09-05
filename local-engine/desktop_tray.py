@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import threading
 from dataclasses import dataclass
@@ -16,22 +17,59 @@ from desktop_hooks import (
 
 TRAY_NAME = "GalaxyLocalEngine"
 TRAY_ACTIONS = ("show", "hide", "downloads", "open-downloads", "pause-all", "exit")
+LINUX_TRAY_BACKEND = "appindicator"
+LINUX_TRAY_READY_TIMEOUT_SECONDS = 5.0
 _SKIP_START_FLAGS = {"--self-test", "--ui-smoke-test", "--version"}
 
 
+def _platform(value: str | None = None) -> str:
+    return str(value or sys.platform).lower()
+
+
+def _is_linux(platform: str | None = None) -> bool:
+    return _platform(platform).startswith("linux")
+
+
 def tray_platform_supported(platform: str | None = None) -> bool:
-    """Return whether this release enables a tested native tray backend.
+    """Return whether Galaxy has an implementation for this desktop platform."""
+    value = _platform(platform)
+    return value.startswith("win") or value == "darwin" or value.startswith("linux")
 
-    Windows and macOS both use pystray's native operating-system backends.
-    Linux intentionally remains fail-closed because AppIndicator/GTK/XOrg
-    availability and Wayland behavior depend on the target desktop session.
+
+def _linux_appindicator_available() -> bool:
+    """Check the GI/AppIndicator runtime without importing pystray itself.
+
+    Importing pystray selects its backend exactly once. Keeping this probe on the
+    GI layer lets the real Linux provider force AppIndicator before pystray is
+    imported, so we never silently fall back to XOrg's menu-limited backend.
     """
-    value = str(platform or sys.platform).lower()
-    return value.startswith("win") or value == "darwin"
+    try:
+        if importlib.util.find_spec("gi") is None:
+            return False
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk  # noqa: F401
+
+        try:
+            gi.require_version("AppIndicator3", "0.1")
+            from gi.repository import AppIndicator3  # noqa: F401
+        except (ImportError, ValueError):
+            gi.require_version("AyatanaAppIndicator3", "0.1")
+            from gi.repository import AyatanaAppIndicator3  # noqa: F401
+    except Exception:
+        return False
+    return True
 
 
-def tray_dependency_available() -> bool:
-    return importlib.util.find_spec("pystray") is not None and importlib.util.find_spec("PIL") is not None
+def tray_dependency_available(platform: str | None = None) -> bool:
+    try:
+        common = importlib.util.find_spec("pystray") is not None and importlib.util.find_spec("PIL") is not None
+    except (ImportError, ValueError):
+        return False
+    if not common:
+        return False
+    return _linux_appindicator_available() if _is_linux(platform) else True
 
 
 def tray_should_start(*, platform: str | None = None, argv: tuple[str, ...] | None = None) -> bool:
@@ -40,7 +78,7 @@ def tray_should_start(*, platform: str | None = None, argv: tuple[str, ...] | No
         return False
     if "--no-tray" in args:
         return False
-    return tray_platform_supported(platform) and tray_dependency_available()
+    return tray_platform_supported(platform) and tray_dependency_available(platform)
 
 
 def _schedule(window, callback: Callable[[], None]) -> bool:
@@ -158,6 +196,17 @@ def _pystray_icon_kwargs(platform: str) -> dict[str, object]:
     return {"darwin_nsapplication": application}
 
 
+def _import_pystray(platform: str):
+    if _is_linux(platform):
+        # AppIndicator is the only Linux backend with the complete menu contract
+        # needed by Galaxy. Do not permit pystray to fall back to XOrg, whose
+        # backend supports only a default action and would make Pause All/Exit lie.
+        os.environ["PYSTRAY_BACKEND"] = LINUX_TRAY_BACKEND
+    import pystray
+
+    return pystray
+
+
 @dataclass
 class TrayState:
     available: bool
@@ -166,16 +215,17 @@ class TrayState:
 
 
 class WindowsPystrayProvider:
-    """Small native-pystray adapter while Tk remains Galaxy's main loop.
+    """Native pystray adapter for Windows and macOS while Tk owns the main loop.
 
-    The historical class name is retained to avoid breaking external imports;
-    the provider now owns both the tested Windows and macOS native backends.
+    The historical class name is retained to avoid breaking external imports.
+    Linux uses ``LinuxAppIndicatorProvider`` because its GObject loop cannot be
+    detached into Tk in the same way.
     """
 
     def __init__(self, window, app_name: str, *, platform: str | None = None) -> None:
         self.window = window
         self.app_name = app_name
-        self.platform = str(platform or sys.platform).lower()
+        self.platform = _platform(platform)
         self.icon = None
         self.state = TrayState(available=True)
         self._stop_lock = threading.Lock()
@@ -209,8 +259,7 @@ class WindowsPystrayProvider:
         if self.state.active:
             return True
         try:
-            import pystray
-
+            pystray = _import_pystray(self.platform)
             self.icon = pystray.Icon(
                 TRAY_NAME,
                 _tray_image(),
@@ -219,9 +268,8 @@ class WindowsPystrayProvider:
                 **_pystray_icon_kwargs(self.platform),
             )
             # run_detached() is the supported integration path when another GUI
-            # framework owns the main loop. On Darwin the shared NSApplication is
-            # passed above; tray callbacks still enqueue all Tk mutations via
-            # window.after() so UI work remains on the Tk thread.
+            # framework owns a compatible native main loop. On Darwin the shared
+            # NSApplication is passed above; callbacks still enqueue Tk mutations.
             self.icon.run_detached()
             self.state.active = True
             self.state.error = ""
@@ -249,6 +297,87 @@ class WindowsPystrayProvider:
             pass
 
 
+class LinuxAppIndicatorProvider(WindowsPystrayProvider):
+    """Run pystray's AppIndicator/GObject loop beside Tk on Linux.
+
+    pystray documents that GTK/AppIndicator ``run_detached`` only integrates with
+    GObject-based GUI toolkits. Galaxy uses Tk, so the indicator owns a dedicated
+    daemon thread while all tray callbacks continue to marshal back through
+    ``window.after`` onto Tk's main thread.
+    """
+
+    def __init__(self, window, app_name: str) -> None:
+        super().__init__(window, app_name, platform="linux")
+        self._loop_thread: threading.Thread | None = None
+        self._ready = threading.Event()
+        self._loop_error = ""
+
+    def start(self) -> bool:
+        if self.state.active:
+            return True
+        self._ready.clear()
+        self._loop_error = ""
+        try:
+            pystray = _import_pystray(self.platform)
+            if not bool(getattr(pystray.Icon, "HAS_MENU", False)):
+                raise RuntimeError("Linux tray backend does not provide menus")
+            self.icon = pystray.Icon(
+                TRAY_NAME,
+                _tray_image(),
+                self.app_name,
+                self._build_menu(pystray),
+            )
+
+            icon = self.icon
+
+            def setup(ready_icon) -> None:
+                try:
+                    ready_icon.visible = True
+                except Exception as exc:  # noqa: BLE001
+                    self._loop_error = str(exc)[:240]
+                    # Let a cleanup failure propagate from the setup thread. The
+                    # start path has already recorded the original visibility error
+                    # and will invoke provider.stop() again before returning false.
+                    ready_icon.stop()
+                finally:
+                    self._ready.set()
+
+            def run_loop() -> None:
+                try:
+                    icon.run(setup=setup)
+                except Exception as exc:  # noqa: BLE001
+                    self._loop_error = str(exc)[:240]
+                    self._ready.set()
+
+            self._loop_thread = threading.Thread(
+                target=run_loop,
+                name="GalaxyTrayAppIndicator",
+                daemon=True,
+            )
+            self._loop_thread.start()
+            if not self._ready.wait(LINUX_TRAY_READY_TIMEOUT_SECONDS):
+                raise RuntimeError("Linux AppIndicator backend did not become ready")
+            if self._loop_error:
+                raise RuntimeError(self._loop_error)
+            if not bool(getattr(icon, "visible", False)):
+                raise RuntimeError("Linux AppIndicator backend is not visible")
+            self.state.active = True
+            self.state.error = ""
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.state.active = False
+            self.state.error = str(exc)[:240]
+            self.stop()
+            return False
+
+    def stop(self) -> None:
+        thread = self._loop_thread
+        self._loop_thread = None
+        super().stop()
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2.0)
+
+
 class NullTrayProvider:
     def __init__(self, *, available: bool = False, error: str = "") -> None:
         self.state = TrayState(available=available, active=False, error=error)
@@ -261,15 +390,18 @@ class NullTrayProvider:
 
 
 def create_tray_provider(window, engine_module):
-    if not tray_platform_supported():
+    platform = _platform()
+    if not tray_platform_supported(platform):
         return NullTrayProvider(error="System tray backend is not enabled for this packaged platform")
-    if not tray_dependency_available():
-        return NullTrayProvider(error="pystray/Pillow are unavailable")
-    return WindowsPystrayProvider(
-        window,
-        str(getattr(engine_module, "APP_NAME", "Galaxy Local Engine")),
-        platform=sys.platform,
-    )
+    if not tray_dependency_available(platform):
+        error = "pystray/Pillow are unavailable"
+        if _is_linux(platform):
+            error = "Linux AppIndicator GI runtime is unavailable"
+        return NullTrayProvider(error=error)
+    app_name = str(getattr(engine_module, "APP_NAME", "Galaxy Local Engine"))
+    if _is_linux(platform):
+        return LinuxAppIndicatorProvider(window, app_name)
+    return WindowsPystrayProvider(window, app_name, platform=platform)
 
 
 def _install_tray_for_window(window, engine_module) -> None:
@@ -323,12 +455,10 @@ def install_desktop_tray(engine_module):
 
 
 def verify_windows_tray_dependencies() -> bool:
-    """Import dependencies required by every currently enabled tray backend."""
-    if not tray_platform_supported():
-        return True
+    """Legacy source/package check for the Windows/macOS pystray dependencies."""
     try:
-        import pystray  # noqa: F401
-        from PIL import Image  # noqa: F401
+        if importlib.util.find_spec("pystray") is None or importlib.util.find_spec("PIL") is None:
+            return False
         if sys.platform == "darwin":
             from AppKit import NSApplication  # noqa: F401
     except Exception:
@@ -336,17 +466,33 @@ def verify_windows_tray_dependencies() -> bool:
     return True
 
 
+def verify_linux_tray_dependencies() -> bool:
+    """Verify the complete Linux AppIndicator backend, never the XOrg fallback."""
+    if not _is_linux():
+        return True
+    if not tray_dependency_available("linux"):
+        return False
+    try:
+        pystray = _import_pystray("linux")
+        return bool(getattr(pystray.Icon, "HAS_MENU", False)) and "appindicator" in str(pystray.Icon.__module__).lower()
+    except Exception:
+        return False
+
+
 def run_desktop_tray_self_test() -> None:
     assert tray_platform_supported("win32") is True
     assert tray_platform_supported("darwin") is True
-    assert tray_platform_supported("linux") is False
+    assert tray_platform_supported("linux") is True
     assert TRAY_ACTIONS == ("show", "hide", "downloads", "open-downloads", "pause-all", "exit")
     assert tray_should_start(platform="win32", argv=("--self-test",)) is False
     assert tray_should_start(platform="darwin", argv=("--self-test",)) is False
+    assert tray_should_start(platform="linux", argv=("--self-test",)) is False
     assert tray_should_start(platform="win32", argv=("--ui-smoke-test",)) is False
     assert tray_should_start(platform="darwin", argv=("--ui-smoke-test",)) is False
+    assert tray_should_start(platform="linux", argv=("--ui-smoke-test",)) is False
     assert tray_should_start(platform="win32", argv=("--no-tray",)) is False
     assert tray_should_start(platform="darwin", argv=("--no-tray",)) is False
+    assert tray_should_start(platform="linux", argv=("--no-tray",)) is False
 
     class Window:
         @staticmethod
