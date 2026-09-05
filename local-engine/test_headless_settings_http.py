@@ -67,7 +67,10 @@ class HeadlessSettingsContractTest(unittest.TestCase):
         )
         self.assertEqual(settings["bindingMode"], "remote")
         self.assertTrue(settings["remoteAccess"])
-        self.assertEqual(settings["authentication"], {"mode": "bearer", "configured": True})
+        self.assertEqual(
+            settings["authentication"],
+            {"mode": "bearer", "configured": True, "required": True},
+        )
         self.assertEqual(settings["queue"]["capacity"], 64)
         self.assertFalse(settings["configuration"]["writable"])
         self.assertEqual(settings["configuration"]["mode"], "environment-or-cli")
@@ -80,6 +83,14 @@ class HeadlessSettingsContractTest(unittest.TestCase):
             "GALAXY_HEADLESS_TOKEN",
         })
         self.assertTrue(all("value" not in item for item in environment))
+        by_name = {item["name"]: item for item in environment}
+        self.assertFalse(by_name["GALAXY_HEADLESS_HOST"]["sensitive"])
+        self.assertFalse(by_name["GALAXY_HEADLESS_PORT"]["sensitive"])
+        self.assertTrue(by_name["GALAXY_DOWNLOAD_DIR"]["sensitive"])
+        self.assertFalse(by_name["GALAXY_DOWNLOAD_DIR"]["secret"])
+        self.assertTrue(by_name["GALAXY_HEADLESS_TOKEN"]["sensitive"])
+        self.assertTrue(by_name["GALAXY_HEADLESS_TOKEN"]["secret"])
+        self.assertTrue(all(item["restartRequired"] for item in environment))
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -129,6 +140,10 @@ class HeadlessSettingsContractTest(unittest.TestCase):
         settings = payload["settings"]
         self.assertEqual(settings["bindingMode"], "loopback")
         self.assertFalse(settings["remoteAccess"])
+        self.assertEqual(
+            settings["authentication"],
+            {"mode": "bearer", "configured": True, "required": False},
+        )
         self.assertEqual(settings["queue"]["capacity"], 12)
         self.assertTrue(settings["features"]["media"])
         self.assertTrue(settings["features"]["plugins"])
