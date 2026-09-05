@@ -11,11 +11,13 @@ _DASHBOARD_ASSETS = {
     "/dashboard/styles.css": ("styles.css", "text/css; charset=utf-8"),
     "/dashboard/ai-subscriptions.js": ("ai-subscriptions.js", "text/javascript; charset=utf-8"),
     "/dashboard/ai-subscriptions.css": ("ai-subscriptions.css", "text/css; charset=utf-8"),
+    "/dashboard/plugins.js": ("plugins.js", "text/javascript; charset=utf-8"),
+    "/dashboard/plugins.css": ("plugins.css", "text/css; charset=utf-8"),
 }
 
 
 class HeadlessWebDashboardMixin:
-    """Serve the first NAS/Home Server dashboard slice without widening API trust."""
+    """Serve the NAS/Home Server dashboard without widening API trust."""
 
     def _browser_origin_allowed(self) -> bool:
         origin = str(self.headers.get("Origin") or "").strip()

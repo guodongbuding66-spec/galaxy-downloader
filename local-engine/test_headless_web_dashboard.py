@@ -95,6 +95,8 @@ class HeadlessWebDashboardTest(unittest.TestCase):
             ("/dashboard/styles.css", "text/css"),
             ("/dashboard/ai-subscriptions.js", "text/javascript"),
             ("/dashboard/ai-subscriptions.css", "text/css"),
+            ("/dashboard/plugins.js", "text/javascript"),
+            ("/dashboard/plugins.css", "text/css"),
         ):
             status, asset_headers, asset_body = self.request("GET", asset)
             self.assertEqual(status, 200)
@@ -146,6 +148,30 @@ class HeadlessWebDashboardTest(unittest.TestCase):
             self.assertIn(route, script)
         self.assertIn(b"env:OPENAI_API_KEY", html)
         self.assertNotIn(b"apiKey", script)
+        self.assertNotIn(b"https://cdn.", script)
+
+    def test_dashboard_exposes_plugin_marketplace_workflow(self) -> None:
+        status, _, html = self.request("GET", "/dashboard/")
+        self.assertEqual(status, 200)
+        self.assertIn(b"/dashboard/plugins.css", html)
+        self.assertIn(b"/dashboard/plugins.js", html)
+
+        status, _, script = self.request("GET", "/dashboard/plugins.js")
+        self.assertEqual(status, 200)
+        for route in (
+            b"/v1/plugins/status",
+            b"/v1/plugins/marketplace",
+            b"/v1/plugins/marketplace/refresh",
+            b"/install",
+            b"/update",
+            b"/enable",
+            b"/disable",
+            b"/remove",
+        ):
+            self.assertIn(route, script)
+        self.assertIn(b"Remove this installed plugin?", script)
+        self.assertNotIn(b"executable", script)
+        self.assertNotIn(b"plugin.root", script)
         self.assertNotIn(b"https://cdn.", script)
 
     def test_same_origin_browser_request_still_requires_bearer_token(self) -> None:
