@@ -52,6 +52,14 @@ class MacOSReleaseContractTest(unittest.TestCase):
             macos_release.artifact_path(Path("dist"), "arm64").name,
             "GalaxyLocalEngine-macOS-arm64.dmg",
         )
+        self.assertEqual(
+            macos_release.companion_zip_path(Path("dist"), "amd64").name,
+            "GalaxyLocalEngine-macOS-x64.zip",
+        )
+        self.assertEqual(
+            macos_release.companion_zip_path(Path("dist"), "arm64").name,
+            "GalaxyLocalEngine-macOS-arm64.zip",
+        )
 
     def test_release_plan_declares_protocol_identity(self) -> None:
         self.assertEqual(macos_bundle.PROTOCOL_SCHEME, "galaxy-downloader")
@@ -85,6 +93,7 @@ class MacOSReleaseContractTest(unittest.TestCase):
             app = self._app(Path(tmp_name))
             prepared = macos_release.prepare_distribution_app(app)
             self.assertEqual(prepared, app.resolve())
+            self.assertEqual(macos_release.validate_distribution_app(prepared), prepared)
             payload = macos_bundle.validate_bundle(prepared)
             self.assertEqual(payload["CFBundleIdentifier"], macos_bundle.BUNDLE_IDENTIFIER)
             self.assertEqual(
@@ -95,14 +104,33 @@ class MacOSReleaseContractTest(unittest.TestCase):
             self.assertTrue(icon.is_file())
             self.assertGreater(icon.stat().st_size, 0)
 
+    @unittest.skipUnless(sys.platform == "darwin", "release ZIP parity is macOS-native")
+    def test_companion_zip_is_rebuilt_from_finalized_app(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_name:
+            tmp = Path(tmp_name)
+            package = tmp / "package"
+            app = self._app(package)
+            (package / "README.md").write_text("Galaxy release\n", encoding="utf-8")
+            prepared = macos_release.prepare_distribution_app(app)
+            archive = macos_release.refresh_companion_zip(prepared, tmp / "dist", "arm64")
+            self.assertTrue(archive.is_file())
+            self.assertEqual(macos_release.validate_companion_zip(archive, package.name), archive)
+            sidecar = Path(str(archive) + ".sha256")
+            self.assertTrue(sidecar.is_file())
+            self.assertEqual(
+                sidecar.read_text(encoding="utf-8"),
+                f"{macos_release._sha256(archive)}  {archive.name}\n",
+            )
+
     @unittest.skipUnless(sys.platform == "darwin", "ditto staging contract is macOS-native")
-    def test_staging_contains_app_and_applications_link(self) -> None:
+    def test_staging_contains_finalized_app_and_applications_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_name:
             tmp = Path(tmp_name)
             app = self._app(tmp / "source")
-            staging = macos_release.prepare_dmg_staging(app, tmp / "staging")
+            prepared = macos_release.prepare_distribution_app(app)
+            staging = macos_release.prepare_dmg_staging(prepared, tmp / "staging")
             staged_app = staging / macos_release.APP_BUNDLE_NAME
-            self.assertEqual(macos_release.validate_app_bundle(staged_app), staged_app.resolve())
+            self.assertEqual(macos_release.validate_distribution_app(staged_app), staged_app.resolve())
             applications = staging / "Applications"
             self.assertTrue(applications.is_symlink())
             self.assertEqual(os.readlink(applications), "/Applications")
