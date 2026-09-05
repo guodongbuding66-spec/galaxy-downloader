@@ -166,7 +166,7 @@ jobs:
           rpm -qip "$prefix.rpm" >/dev/null
           (
             cd dist/rpm-root
-            rpm2cpio '../${{ matrix.artifact }}.rpm' | cpio -id --quiet
+            rpm2cpio '../${{ matrix.artifact }}.rpm' | cpio -id --quiet --no-absolute-filenames
           )
           desktop-file-validate dist/rpm-root/usr/share/applications/galaxy-local-engine.desktop
           grep -F 'MimeType=x-scheme-handler/galaxy-downloader;' dist/rpm-root/usr/share/applications/galaxy-local-engine.desktop
