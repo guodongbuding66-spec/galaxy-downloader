@@ -9,6 +9,7 @@ VERSION_FILE = ROOT / "VERSION"
 APP_BUNDLE_NAME = "GalaxyLocalEngine.app"
 APP_EXECUTABLE = "GalaxyLocalEngine"
 APP_DISPLAY_NAME = "Galaxy Local Engine"
+APP_ICON_FILE = "GalaxyLocalEngine.icns"
 BUNDLE_IDENTIFIER = "com.guodongbuding66.galaxy-local-engine"
 PROTOCOL_SCHEME = "galaxy-downloader"
 PROTOCOL_NAME = f"{BUNDLE_IDENTIFIER}.protocol"
@@ -70,6 +71,7 @@ def configure_bundle(app_path: Path) -> dict[str, object]:
             "CFBundleIdentifier": BUNDLE_IDENTIFIER,
             "CFBundleName": "GalaxyLocalEngine",
             "CFBundleDisplayName": APP_DISPLAY_NAME,
+            "CFBundleIconFile": APP_ICON_FILE,
             "CFBundleShortVersionString": version,
             "CFBundleVersion": version,
             "LSApplicationCategoryType": APP_CATEGORY,
@@ -93,10 +95,9 @@ def configure_bundle(app_path: Path) -> dict[str, object]:
 
 def _validate_icon(app_path: Path, payload: dict[str, object]) -> None:
     raw = str(payload.get("CFBundleIconFile") or "").strip()
-    if not raw:
-        raise MacOSBundleError("Info.plist does not declare CFBundleIconFile")
-    icon_name = raw if Path(raw).suffix else f"{raw}.icns"
-    icon_path = resources_dir(app_path) / icon_name
+    if raw != APP_ICON_FILE:
+        raise MacOSBundleError(f"Info.plist CFBundleIconFile mismatch: {raw!r}")
+    icon_path = resources_dir(app_path) / APP_ICON_FILE
     if icon_path.is_symlink() or not icon_path.is_file() or icon_path.stat().st_size <= 0:
         raise MacOSBundleError(f"bundle icon is missing: {icon_path}")
 
