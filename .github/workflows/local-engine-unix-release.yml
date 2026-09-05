@@ -1,0 +1,235 @@
+name: Local Engine Unix Release Assets
+
+on:
+  workflow_run:
+    workflows:
+      - Local Engine Release
+    types:
+      - completed
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/requirements.txt'
+      - 'local-engine/prepare-unix-bundle.py'
+      - 'local-engine/VERSION'
+      - '.github/workflows/local-engine-unix-release.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: local-engine-unix-release-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  build-unix-release:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64 release
+            runner: ubuntu-24.04
+            os_name: linux
+            arch: amd64
+            artifact: GalaxyLocalEngine-Linux-x64
+            archive: GalaxyLocalEngine-Linux-x64.tar.gz
+          - label: Linux arm64 release
+            runner: ubuntu-24.04-arm
+            os_name: linux
+            arch: arm64
+            artifact: GalaxyLocalEngine-Linux-arm64
+            archive: GalaxyLocalEngine-Linux-arm64.tar.gz
+          - label: macOS Intel release
+            runner: macos-15-intel
+            os_name: darwin
+            arch: amd64
+            artifact: GalaxyLocalEngine-macOS-x64
+            archive: GalaxyLocalEngine-macOS-x64.zip
+          - label: macOS Apple Silicon release
+            runner: macos-15
+            os_name: darwin
+            arch: arm64
+            artifact: GalaxyLocalEngine-macOS-arm64
+            archive: GalaxyLocalEngine-macOS-arm64.zip
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+
+      - name: Validate release source and bundle policy
+        run: |
+          python -m py_compile local-engine/prepare-unix-bundle.py scripts/test-local-unix-bundle.py
+          python scripts/test-local-unix-bundle.py
+          python local-engine/prepare-unix-bundle.py --package-dir unused --os '${{ matrix.os_name }}' --architecture '${{ matrix.arch }}' --print-plan
+          python local-engine/entrypoint.py --self-test
+
+      - name: Build Linux portable executable
+        if: matrix.os_name == 'linux'
+        run: >-
+          pyinstaller
+          --noconfirm
+          --clean
+          --onefile
+          --name GalaxyLocalEngine
+          --collect-all yt_dlp
+          --add-data 'local-engine/VERSION:.'
+          local-engine/entrypoint.py
+
+      - name: Assemble Linux release package
+        if: matrix.os_name == 'linux'
+        run: |
+          set -euo pipefail
+          mkdir -p dist/package
+          cp dist/GalaxyLocalEngine dist/package/GalaxyLocalEngine
+          cp local-engine/README.md dist/package/README.md
+          cp 'local-engine/使用说明.txt' 'dist/package/使用说明.txt'
+          cp local-engine/VERSION dist/package/VERSION
+          python local-engine/prepare-unix-bundle.py --package-dir dist/package --os linux --architecture '${{ matrix.arch }}'
+          chmod +x dist/package/GalaxyLocalEngine dist/package/yt-dlp dist/package/ffmpeg/bin/ffmpeg dist/package/ffmpeg/bin/ffprobe
+          dist/package/GalaxyLocalEngine --self-test
+          dist/package/yt-dlp --version
+          dist/package/ffmpeg/bin/ffmpeg -version | head -n 1
+          dist/package/ffmpeg/bin/ffprobe -version | head -n 1
+          tar -C dist/package -czf 'dist/${{ matrix.archive }}' .
+          shasum -a 256 'dist/${{ matrix.archive }}' > 'dist/${{ matrix.archive }}.sha256'
+
+      - name: Build macOS application bundle
+        if: matrix.os_name == 'darwin'
+        run: >-
+          pyinstaller
+          --noconfirm
+          --clean
+          --windowed
+          --name GalaxyLocalEngine
+          --collect-all yt_dlp
+          --add-data 'local-engine/VERSION:.'
+          local-engine/entrypoint.py
+
+      - name: Assemble macOS release package
+        if: matrix.os_name == 'darwin'
+        run: |
+          set -euo pipefail
+          test -d dist/GalaxyLocalEngine.app
+          MACOS_DIR='dist/GalaxyLocalEngine.app/Contents/MacOS'
+          python local-engine/prepare-unix-bundle.py --package-dir "$MACOS_DIR" --os darwin --architecture '${{ matrix.arch }}'
+          chmod +x "$MACOS_DIR/GalaxyLocalEngine" "$MACOS_DIR/yt-dlp" "$MACOS_DIR/ffmpeg/bin/ffmpeg" "$MACOS_DIR/ffmpeg/bin/ffprobe"
+          "$MACOS_DIR/GalaxyLocalEngine" --self-test
+          "$MACOS_DIR/yt-dlp" --version
+          "$MACOS_DIR/ffmpeg/bin/ffmpeg" -version | head -n 1
+          "$MACOS_DIR/ffmpeg/bin/ffprobe" -version | head -n 1
+          mkdir -p dist/package
+          mv dist/GalaxyLocalEngine.app dist/package/GalaxyLocalEngine.app
+          cp local-engine/README.md dist/package/README.md
+          cp 'local-engine/使用说明.txt' 'dist/package/使用说明.txt'
+          cp local-engine/VERSION dist/package/VERSION
+          ditto -c -k --sequesterRsrc --keepParent dist/package 'dist/${{ matrix.archive }}'
+          shasum -a 256 'dist/${{ matrix.archive }}' > 'dist/${{ matrix.archive }}.sha256'
+
+      - name: Upload Unix release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/${{ matrix.archive }}
+            dist/${{ matrix.archive }}.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-unix-assets:
+    if: github.event_name != 'pull_request'
+    needs: build-unix-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify matching Local Engine release
+        id: release
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < local-engine/VERSION)"
+          case "$version" in
+            ''|*[!0-9.]*|.*|*.) echo "Invalid local-engine/VERSION: $version" >&2; exit 1 ;;
+          esac
+          tag="local-engine-v$version"
+          gh release view "$tag" --json tagName >/dev/null
+          git fetch --tags --force
+          tag_sha="$(git rev-list -n 1 "$tag")"
+          if [ "$tag_sha" != "$SOURCE_SHA" ]; then
+            echo "Release $tag points to $tag_sha but Unix assets were built from $SOURCE_SHA" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download current Unix build artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist/collected dist/publish
+          gh run download "$GITHUB_RUN_ID" \
+            --name GalaxyLocalEngine-Linux-x64 \
+            --name GalaxyLocalEngine-Linux-arm64 \
+            --name GalaxyLocalEngine-macOS-x64 \
+            --name GalaxyLocalEngine-macOS-arm64 \
+            --dir dist/collected
+          find dist/collected -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp '{}' dist/publish/ \;
+
+      - name: Download existing Windows release asset
+        run: |
+          set -euo pipefail
+          gh release download '${{ steps.release.outputs.tag }}' \
+            --pattern 'GalaxyLocalEngine-Windows.zip' \
+            --dir dist/publish
+
+      - name: Validate complete release asset set and write SHA-256
+        run: |
+          set -euo pipefail
+          expected=(
+            GalaxyLocalEngine-Windows.zip
+            GalaxyLocalEngine-Linux-x64.tar.gz
+            GalaxyLocalEngine-Linux-arm64.tar.gz
+            GalaxyLocalEngine-macOS-x64.zip
+            GalaxyLocalEngine-macOS-arm64.zip
+          )
+          for file in "${expected[@]}"; do
+            test -f "dist/publish/$file" || { echo "Missing release asset: $file" >&2; exit 1; }
+          done
+          (
+            cd dist/publish
+            sha256sum "${expected[@]}" > SHA256SUMS.txt
+          )
+          cat dist/publish/SHA256SUMS.txt
+
+      - name: Attach Unix assets and unified checksum manifest
+        run: |
+          set -euo pipefail
+          gh release upload '${{ steps.release.outputs.tag }}' \
+            dist/publish/GalaxyLocalEngine-Linux-x64.tar.gz \
+            dist/publish/GalaxyLocalEngine-Linux-arm64.tar.gz \
+            dist/publish/GalaxyLocalEngine-macOS-x64.zip \
+            dist/publish/GalaxyLocalEngine-macOS-arm64.zip \
+            dist/publish/SHA256SUMS.txt \
+            --clobber
