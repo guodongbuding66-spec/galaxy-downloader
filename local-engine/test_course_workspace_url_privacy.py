@@ -41,7 +41,7 @@ class CourseWorkspaceUrlPrivacyTests(unittest.TestCase):
             engine = self._engine(Path(directory))
             source = "https://www.udemy.com/course/python/?couponCode=PRIVATE&token=SECRET#intro"
             expected = "https://www.udemy.com/course/python/"
-            with patch("course_workspace.validated_public_http_url", side_effect=lambda value: str(value)):
+            with patch("course_workspace.validated_public_http_url", side_effect=str):
                 created = create_course(engine, "Python", source, provider="udemy")
                 listed = list_courses(engine, limit=10)
 
