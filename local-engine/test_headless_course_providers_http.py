@@ -65,43 +65,42 @@ class _Coordinator:
     def __init__(self) -> None:
         self.submissions: list[tuple[dict, str]] = []
         self.error: Exception | None = None
+        self.sync_error: Exception | None = None
         self.job = _Job()
 
-    def submit(self, plan, course_id):
-        if self.error is not None:
-            raise self.error
-        self.submissions.append((dict(plan), str(course_id)))
-        return self.job, {
+    def _session(self, *, state="pending") -> dict:
+        return {
             "jobId": self.job.job_id,
-            "courseId": str(course_id),
-            "provider": str(plan.get("provider") or ""),
-            "sourceUrl": str(plan.get("sourceUrl") or ""),
-            "syncState": "pending",
-            "outputCount": 0,
-            "syncedCount": 0,
+            "courseId": "b" * 32,
+            "provider": "udemy",
+            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
+            "syncState": state,
+            "outputCount": 2 if state == "synced" else 0,
+            "syncedCount": 2 if state == "synced" else 0,
             "syncError": "",
             "createdAt": "2026-09-05T00:00:00Z",
             "updatedAt": "2026-09-05T00:00:00Z",
         }
 
+    def submit(self, plan, course_id):
+        if self.error is not None:
+            raise self.error
+        self.submissions.append((dict(plan), str(course_id)))
+        session = self._session()
+        session["courseId"] = str(course_id)
+        return self.job, session
+
     def status(self, job_id):
         if str(job_id) != self.job.job_id:
             raise CourseDownloadCoordinatorError("course download session not found")
-        return {
-            "job": self.job.public_payload(),
-            "session": {
-                "jobId": self.job.job_id,
-                "courseId": "b" * 32,
-                "provider": "udemy",
-                "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
-                "syncState": "pending",
-                "outputCount": 0,
-                "syncedCount": 0,
-                "syncError": "",
-                "createdAt": "2026-09-05T00:00:00Z",
-                "updatedAt": "2026-09-05T00:00:00Z",
-            },
-        }
+        return {"job": self.job.public_payload(), "session": self._session()}
+
+    def sync_now(self, job_id):
+        if self.sync_error is not None:
+            raise self.sync_error
+        if str(job_id) != self.job.job_id:
+            raise CourseDownloadCoordinatorError("course download job not found")
+        return {"job": self.job.public_payload(), "session": self._session(state="synced")}
 
 
 class _Server:
@@ -286,6 +285,24 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertEqual(payload["code"], "LEARNING_COURSE_NOT_FOUND")
         self.assertEqual(handler.coordinator.submissions, [])
+
+    def test_post_sync_recovers_completed_course_indexing(self) -> None:
+        handler = _Handler()
+        handler.path = f"/v1/learning/providers/downloads/{handler.coordinator.job.job_id}/sync"
+        handler.do_POST()
+        status, payload = handler.response
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["session"]["syncState"], "synced")
+        self.assertEqual(payload["session"]["syncedCount"], 2)
+
+    def test_post_sync_maps_non_completed_job_to_409(self) -> None:
+        handler = _Handler()
+        handler.path = f"/v1/learning/providers/downloads/{handler.coordinator.job.job_id}/sync"
+        handler.coordinator.sync_error = CourseDownloadCoordinatorError("course download cannot sync from state queued")
+        handler.do_POST()
+        status, payload = handler.response
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["code"], "LEARNING_COURSE_SYNC_REJECTED")
 
     def test_post_returns_typed_validation_error(self) -> None:
         handler = _Handler()
