@@ -25,7 +25,11 @@ class HeadlessWebDashboardMixin:
         raw_host = str(self.headers.get("Host") or "").strip()
         if not raw_host:
             return False
-        parsed = urlsplit(origin)
+        try:
+            parsed = urlsplit(origin)
+            _ = parsed.port
+        except ValueError:
+            return False
         return (
             parsed.scheme.lower() == "http"
             and parsed.netloc.lower() == raw_host.lower()
