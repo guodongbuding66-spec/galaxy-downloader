@@ -7,10 +7,10 @@ from headless_service import _loopback_host
 
 
 _CONFIGURATION_ENVIRONMENT = (
-    {"name": "GALAXY_HEADLESS_HOST", "secret": False, "restartRequired": True},
-    {"name": "GALAXY_HEADLESS_PORT", "secret": False, "restartRequired": True},
-    {"name": "GALAXY_DOWNLOAD_DIR", "secret": True, "restartRequired": True},
-    {"name": "GALAXY_HEADLESS_TOKEN", "secret": True, "restartRequired": True},
+    {"name": "GALAXY_HEADLESS_HOST", "sensitive": False, "secret": False, "restartRequired": True},
+    {"name": "GALAXY_HEADLESS_PORT", "sensitive": False, "secret": False, "restartRequired": True},
+    {"name": "GALAXY_DOWNLOAD_DIR", "sensitive": True, "secret": False, "restartRequired": True},
+    {"name": "GALAXY_HEADLESS_TOKEN", "sensitive": True, "secret": True, "restartRequired": True},
 )
 
 
