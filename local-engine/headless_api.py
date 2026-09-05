@@ -8,6 +8,7 @@ from headless_ai_api import HeadlessAiApi
 from headless_asr_api import HeadlessAsrApi
 from headless_asr_http import HeadlessAsrHttpMixin
 from headless_browser_cookies import install_headless_browser_cookie_support
+from headless_course_metadata_tracking import install_headless_course_metadata_tracking
 from headless_course_providers_http import HeadlessCourseProvidersHttpMixin
 from headless_output_tracking import install_headless_output_tracking
 from headless_plugin_api import HeadlessPluginApi
@@ -20,11 +21,12 @@ from headless_web_dashboard import HeadlessWebDashboardMixin
 from headless_whisperx_api import HeadlessWhisperXApi
 from headless_whisperx_http import HeadlessWhisperXHttpMixin
 
-# Compose bounded browser authentication first, then final-file tracking. Both
-# extend the established Headless download options without exposing credentials
-# or absolute paths through the public API.
+# Compose bounded browser authentication first, final-file tracking second, and
+# safe course metadata capture last. Each layer extends the established Headless
+# download options without exposing credentials or absolute paths publicly.
 install_headless_browser_cookie_support()
 install_headless_output_tracking()
+install_headless_course_metadata_tracking()
 
 # Publish the legacy handler before importing headless_ai_http. That module
 # imports GalaxyApiRequestHandler from headless_api, so exposing this alias
