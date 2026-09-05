@@ -12,8 +12,10 @@ on:
       - 'local-engine/requirements.txt'
       - 'local-engine/prepare-unix-bundle.py'
       - 'local-engine/linux_release.py'
+      - 'local-engine/desktop_tray.py'
       - 'local-engine/VERSION'
       - 'scripts/test-local-linux-release.py'
+      - 'scripts/test-local-packaged-linux-tray.py'
       - '.github/workflows/local-engine-unix-release.yml'
 
 permissions:
@@ -67,45 +69,101 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python
+        if: matrix.os_name == 'darwin'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
           cache: pip
 
       - name: Install Local Engine dependencies
+        if: matrix.os_name == 'darwin'
         run: python -m pip install -r local-engine/requirements.txt
 
-      - name: Install Linux package inspection tools
+      - name: Install Linux package and AppIndicator build tools
         if: matrix.os_name == 'linux'
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends desktop-file-utils rpm libarchive-tools
+          sudo apt-get install -y --no-install-recommends \
+            desktop-file-utils \
+            rpm \
+            libarchive-tools \
+            python3-venv \
+            python3-tk \
+            python3-gi \
+            python3-gi-cairo \
+            gir1.2-gtk-3.0 \
+            gir1.2-ayatanaappindicator3-0.1 \
+            libayatana-appindicator3-1 \
+            dbus-x11 \
+            xvfb \
+            xauth
+          /usr/bin/python3 -m venv --system-site-packages .venv-linux-package
+          .venv-linux-package/bin/python -m pip install -r local-engine/requirements.txt
+          .venv-linux-package/bin/python - <<'PY'
+          import importlib.util
+          import gi
+          gi.require_version('Gtk', '3.0')
+          gi.require_version('AyatanaAppIndicator3', '0.1')
+          from gi.repository import AyatanaAppIndicator3, Gtk
+          assert Gtk is not None
+          assert AyatanaAppIndicator3 is not None
+          assert importlib.util.find_spec('pystray') is not None
+          assert importlib.util.find_spec('PIL') is not None
+          assert importlib.util.find_spec('tkinter') is not None
+          print('Linux GI/AppIndicator/Tk build dependencies OK')
+          PY
 
       - name: Validate release source and bundle policy
         run: |
-          python -m py_compile local-engine/prepare-unix-bundle.py scripts/test-local-unix-bundle.py
-          python scripts/test-local-unix-bundle.py
-          python local-engine/prepare-unix-bundle.py --package-dir unused --os '${{ matrix.os_name }}' --architecture '${{ matrix.arch }}' --print-plan
-          python local-engine/entrypoint.py --self-test
+          set -euo pipefail
+          if [ '${{ matrix.os_name }}' = 'linux' ]; then
+            PYTHON='.venv-linux-package/bin/python'
+          else
+            PYTHON='python'
+          fi
+          "$PYTHON" -m py_compile local-engine/prepare-unix-bundle.py scripts/test-local-unix-bundle.py
+          "$PYTHON" scripts/test-local-unix-bundle.py
+          "$PYTHON" local-engine/prepare-unix-bundle.py --package-dir unused --os '${{ matrix.os_name }}' --architecture '${{ matrix.arch }}' --print-plan
+          "$PYTHON" local-engine/entrypoint.py --self-test
 
       - name: Validate Linux desktop package contract
         if: matrix.os_name == 'linux'
         run: |
-          python -m py_compile local-engine/linux_release.py scripts/test-local-linux-release.py
-          python scripts/test-local-linux-release.py
-          python local-engine/linux_release.py --package-dir unused --architecture '${{ matrix.arch }}' --print-plan
+          set -euo pipefail
+          .venv-linux-package/bin/python -m py_compile local-engine/linux_release.py scripts/test-local-linux-release.py scripts/test-local-packaged-linux-tray.py
+          .venv-linux-package/bin/python scripts/test-local-linux-release.py
+          .venv-linux-package/bin/python local-engine/linux_release.py --package-dir unused --architecture '${{ matrix.arch }}' --print-plan
 
       - name: Build Linux portable executable
         if: matrix.os_name == 'linux'
         run: >-
-          pyinstaller
+          .venv-linux-package/bin/pyinstaller
           --noconfirm
           --clean
           --onefile
           --name GalaxyLocalEngine
           --collect-all yt_dlp
+          --hidden-import pystray._appindicator
+          --hidden-import gi
+          --hidden-import gi.repository.Gtk
+          --hidden-import gi.repository.AyatanaAppIndicator3
           --add-data 'local-engine/VERSION:.'
           local-engine/entrypoint.py
+
+      - name: Validate frozen Linux AppIndicator runtime
+        if: matrix.os_name == 'linux'
+        env:
+          PYSTRAY_BACKEND: appindicator
+          GDK_BACKEND: x11
+          NO_AT_BRIDGE: '1'
+        run: >-
+          timeout 35s
+          dbus-run-session --
+          xvfb-run -a
+          .venv-linux-package/bin/python scripts/test-local-packaged-linux-tray.py
+          dist/GalaxyLocalEngine
+          --port 18736
 
       - name: Assemble Linux release package
         if: matrix.os_name == 'linux'
@@ -116,7 +174,7 @@ jobs:
           cp local-engine/README.md dist/package/README.md
           cp 'local-engine/使用说明.txt' 'dist/package/使用说明.txt'
           cp local-engine/VERSION dist/package/VERSION
-          python local-engine/prepare-unix-bundle.py --package-dir dist/package --os linux --architecture '${{ matrix.arch }}'
+          .venv-linux-package/bin/python local-engine/prepare-unix-bundle.py --package-dir dist/package --os linux --architecture '${{ matrix.arch }}'
           chmod +x dist/package/GalaxyLocalEngine dist/package/yt-dlp dist/package/ffmpeg/bin/ffmpeg dist/package/ffmpeg/bin/ffprobe
           dist/package/GalaxyLocalEngine --self-test
           dist/package/yt-dlp --version
@@ -125,24 +183,44 @@ jobs:
           tar -C dist/package -czf 'dist/${{ matrix.archive }}' .
           sha256sum 'dist/${{ matrix.archive }}' > 'dist/${{ matrix.archive }}.sha256'
 
+      - name: Validate assembled Linux portable tray
+        if: matrix.os_name == 'linux'
+        env:
+          PYSTRAY_BACKEND: appindicator
+          GDK_BACKEND: x11
+          NO_AT_BRIDGE: '1'
+        run: >-
+          timeout 35s
+          dbus-run-session --
+          xvfb-run -a
+          .venv-linux-package/bin/python scripts/test-local-packaged-linux-tray.py
+          dist/package/GalaxyLocalEngine
+          --port 18737
+
       - name: Build AppImage DEB and RPM
         if: matrix.os_name == 'linux'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          python local-engine/linux_release.py
+          .venv-linux-package/bin/python local-engine/linux_release.py
           --package-dir dist/package
           --output-dir dist
           --architecture '${{ matrix.arch }}'
 
       - name: Smoke test Linux desktop packages
         if: matrix.os_name == 'linux'
+        env:
+          PYSTRAY_BACKEND: appindicator
+          GDK_BACKEND: x11
+          NO_AT_BRIDGE: '1'
         run: |
           set -euo pipefail
           prefix='dist/${{ matrix.artifact }}'
 
           test -x "$prefix.AppImage"
           APPIMAGE_EXTRACT_AND_RUN=1 "$prefix.AppImage" --self-test
+          timeout 35s dbus-run-session -- xvfb-run -a \
+            .venv-linux-package/bin/python scripts/test-local-packaged-linux-tray.py "$prefix.AppImage" --port 18738
           (
             cd dist
             rm -rf squashfs-root
@@ -160,6 +238,9 @@ jobs:
           grep -F 'MimeType=x-scheme-handler/galaxy-downloader;' dist/deb-root/usr/share/applications/galaxy-local-engine.desktop
           test -x dist/deb-root/usr/bin/galaxy-local-engine
           dist/deb-root/opt/galaxy-local-engine/GalaxyLocalEngine --self-test
+          timeout 35s dbus-run-session -- xvfb-run -a \
+            .venv-linux-package/bin/python scripts/test-local-packaged-linux-tray.py \
+            dist/deb-root/opt/galaxy-local-engine/GalaxyLocalEngine --port 18739
 
           rm -rf dist/rpm-root
           mkdir -p dist/rpm-root
@@ -171,6 +252,9 @@ jobs:
           grep -F 'MimeType=x-scheme-handler/galaxy-downloader;' dist/rpm-root/usr/share/applications/galaxy-local-engine.desktop
           test -x dist/rpm-root/usr/bin/galaxy-local-engine
           dist/rpm-root/opt/galaxy-local-engine/GalaxyLocalEngine --self-test
+          timeout 35s dbus-run-session -- xvfb-run -a \
+            .venv-linux-package/bin/python scripts/test-local-packaged-linux-tray.py \
+            dist/rpm-root/opt/galaxy-local-engine/GalaxyLocalEngine --port 18740
 
           for package in "$prefix.AppImage" "$prefix.deb" "$prefix.rpm"; do
             sha256sum "$package" > "$package.sha256"
