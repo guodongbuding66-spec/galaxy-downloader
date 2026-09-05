@@ -164,9 +164,28 @@ jobs:
           rm -rf dist/rpm-root
           mkdir -p dist/rpm-root
           rpm -qip "$prefix.rpm" >/dev/null
+          rpm -qlp "$prefix.rpm" | grep -Fx '/usr/bin/galaxy-local-engine'
           (
             cd dist/rpm-root
-            rpm2cpio '../${{ matrix.artifact }}.rpm' | cpio -id --quiet --no-absolute-filenames
+            set +e
+            rpm2cpio '../${{ matrix.artifact }}.rpm' | cpio -id --quiet --no-absolute-filenames 2>cpio.stderr
+            pipeline_status=("${PIPESTATUS[@]}")
+            set -e
+            test "${pipeline_status[0]}" -eq 0
+            expected_cpio_warning="cpio: Removing leading \`/' from member names"
+            if [ -s cpio.stderr ]; then
+              if [ "$(wc -l < cpio.stderr)" -ne 1 ] || ! grep -Fxq "$expected_cpio_warning" cpio.stderr; then
+                cat cpio.stderr >&2
+                exit 1
+              fi
+            fi
+            if [ "${pipeline_status[1]}" -ne 0 ]; then
+              if [ "${pipeline_status[1]}" -ne 1 ] || [ ! -s cpio.stderr ]; then
+                cat cpio.stderr >&2
+                exit 1
+              fi
+            fi
+            rm -f cpio.stderr
           )
           desktop-file-validate dist/rpm-root/usr/share/applications/galaxy-local-engine.desktop
           grep -F 'MimeType=x-scheme-handler/galaxy-downloader;' dist/rpm-root/usr/share/applications/galaxy-local-engine.desktop
