@@ -6,6 +6,7 @@ import headless_api_base as _base
 from headless_ai_api import HeadlessAiApi
 from headless_asr_api import HeadlessAsrApi
 from headless_asr_http import HeadlessAsrHttpMixin
+from headless_browser_cookies import install_headless_browser_cookie_support
 from headless_course_providers_http import HeadlessCourseProvidersHttpMixin
 from headless_plugin_api import HeadlessPluginApi
 from headless_plugin_http import HeadlessPluginHttpMixin
@@ -16,6 +17,11 @@ from headless_transfer_http import HeadlessTransferHttpMixin
 from headless_web_dashboard import HeadlessWebDashboardMixin
 from headless_whisperx_api import HeadlessWhisperXApi
 from headless_whisperx_http import HeadlessWhisperXHttpMixin
+
+# Production Headless downloads accept only a bounded browser identifier and
+# delegate cookie loading to yt-dlp. Raw cookies and arbitrary cookie files are
+# intentionally not part of the remote request contract.
+install_headless_browser_cookie_support()
 
 # Publish the legacy handler before importing headless_ai_http. That module
 # imports GalaxyApiRequestHandler from headless_api, so exposing this alias
