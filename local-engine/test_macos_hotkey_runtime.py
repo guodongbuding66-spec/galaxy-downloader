@@ -11,10 +11,14 @@ from desktop_hotkey import (
     K_EVENT_CLASS_KEYBOARD,
     K_EVENT_HOTKEY_PRESSED,
     K_EVENT_PARAM_DIRECT_OBJECT,
+    MAC_COMMAND_KEY,
     MAC_HOTKEY_ID,
     MAC_HOTKEY_SIGNATURE,
+    MAC_SHIFT_KEY,
+    MACOS_HOTKEY_LABEL,
     MacOSCarbonGlobalHotkeyProvider,
     TYPE_EVENT_HOTKEY_ID,
+    hotkey_label,
     hotkey_platform_supported,
 )
 
@@ -106,6 +110,10 @@ def main() -> int:
         raise RuntimeError("macOS global hotkey runtime smoke must run on Darwin")
     if not hotkey_platform_supported():
         raise RuntimeError("macOS global hotkey backend is not enabled")
+    if hotkey_label() != MACOS_HOTKEY_LABEL or MACOS_HOTKEY_LABEL != "Cmd+Shift+G":
+        raise RuntimeError("macOS hotkey label does not match the desktop contract")
+    if MAC_COMMAND_KEY | MAC_SHIFT_KEY != 0x0300:
+        raise RuntimeError("macOS Carbon command+shift modifier mask is incorrect")
 
     # Fail closed instead of allowing a native event-loop regression to consume
     # the full Actions timeout.
@@ -119,6 +127,8 @@ def main() -> int:
     provider = MacOSCarbonGlobalHotkeyProvider(window)
 
     try:
+        if provider.state.shortcut != MACOS_HOTKEY_LABEL:
+            raise RuntimeError(f"macOS provider exposed the wrong shortcut: {provider.state.shortcut}")
         if not provider.start():
             raise RuntimeError(f"macOS hotkey failed to register: {provider.state.error}")
         if not provider.state.active:

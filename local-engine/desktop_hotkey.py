@@ -10,7 +10,10 @@ from typing import Any
 
 from desktop_hooks import register_after_build_ui_hook, registered_after_build_ui_hooks
 
-HOTKEY_LABEL = "Ctrl+Shift+G"
+WINDOWS_HOTKEY_LABEL = "Ctrl+Shift+G"
+MACOS_HOTKEY_LABEL = "Cmd+Shift+G"
+# Backward-compatible alias for callers that historically imported the Windows label.
+HOTKEY_LABEL = WINDOWS_HOTKEY_LABEL
 HOTKEY_ID = 0x474C  # "GL"
 MOD_SHIFT = 0x0004
 MOD_CONTROL = 0x0002
@@ -19,7 +22,7 @@ WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
 VK_G = 0x47
 
-MAC_CONTROL_KEY = 1 << 12
+MAC_COMMAND_KEY = 1 << 8
 MAC_SHIFT_KEY = 1 << 9
 MAC_KVK_ANSI_G = 0x05
 MAC_HOTKEY_ID = 1
@@ -52,6 +55,15 @@ CarbonEventHandler = ctypes.CFUNCTYPE(
 def hotkey_platform_supported(platform: str | None = None) -> bool:
     value = str(platform or sys.platform).lower()
     return value.startswith("win") or value == "darwin"
+
+
+def hotkey_label(platform: str | None = None) -> str:
+    value = str(platform or sys.platform).lower()
+    if value == "darwin":
+        return MACOS_HOTKEY_LABEL
+    if value.startswith("win"):
+        return WINDOWS_HOTKEY_LABEL
+    return ""
 
 
 def hotkey_should_start(*, platform: str | None = None, argv: tuple[str, ...] | None = None) -> bool:
@@ -90,7 +102,7 @@ def _schedule_workbench(window) -> None:
 class HotkeyState:
     available: bool
     active: bool = False
-    shortcut: str = HOTKEY_LABEL
+    shortcut: str = WINDOWS_HOTKEY_LABEL
     error: str = ""
 
 
@@ -99,7 +111,7 @@ class WindowsGlobalHotkeyProvider:
 
     def __init__(self, window) -> None:
         self.window = window
-        self.state = HotkeyState(available=True)
+        self.state = HotkeyState(available=True, shortcut=WINDOWS_HOTKEY_LABEL)
         self._thread: threading.Thread | None = None
         self._thread_id = 0
         self._ready = threading.Event()
@@ -199,7 +211,7 @@ class WindowsGlobalHotkeyProvider:
 
 
 class MacOSCarbonGlobalHotkeyProvider:
-    """Register Control+Shift+G through macOS' Carbon hot-key API.
+    """Register Command+Shift+G through macOS' Carbon hot-key API.
 
     RegisterEventHotKey does not require Accessibility/Input Monitoring access and
     integrates with the application's existing event loop. Tk mutations are still
@@ -208,7 +220,7 @@ class MacOSCarbonGlobalHotkeyProvider:
 
     def __init__(self, window) -> None:
         self.window = window
-        self.state = HotkeyState(available=True)
+        self.state = HotkeyState(available=True, shortcut=MACOS_HOTKEY_LABEL)
         self._carbon = None
         self._event_target = ctypes.c_void_p()
         self._handler_ref = ctypes.c_void_p()
@@ -294,7 +306,7 @@ class MacOSCarbonGlobalHotkeyProvider:
             status = int(
                 carbon.RegisterEventHotKey(
                     MAC_KVK_ANSI_G,
-                    MAC_CONTROL_KEY | MAC_SHIFT_KEY,
+                    MAC_COMMAND_KEY | MAC_SHIFT_KEY,
                     hotkey_id,
                     self._event_target,
                     0,
@@ -366,7 +378,7 @@ class MacOSCarbonGlobalHotkeyProvider:
 
 class NullGlobalHotkeyProvider:
     def __init__(self, error: str = "") -> None:
-        self.state = HotkeyState(available=False, active=False, error=error)
+        self.state = HotkeyState(available=False, active=False, shortcut="", error=error)
 
     def start(self) -> bool:
         return False
@@ -421,7 +433,7 @@ def install_desktop_global_hotkey(engine_module):
         state = getattr(provider, "state", None)
         payload["globalHotkeyAvailable"] = bool(getattr(state, "available", False))
         payload["globalHotkeyActive"] = bool(getattr(state, "active", False))
-        payload["globalHotkey"] = HOTKEY_LABEL
+        payload["globalHotkey"] = str(getattr(state, "shortcut", "") or "")
         return payload
 
     window_cls.bridge_status = bridge_status
@@ -466,9 +478,12 @@ def run_desktop_global_hotkey_self_test() -> None:
     assert hotkey_should_start(platform="win32", argv=("--no-hotkey",)) is False
     assert hotkey_should_start(platform="darwin", argv=("--no-hotkey",)) is False
     assert hotkey_should_start(platform="linux", argv=()) is False
-    assert HOTKEY_LABEL == "Ctrl+Shift+G"
+    assert HOTKEY_LABEL == WINDOWS_HOTKEY_LABEL == "Ctrl+Shift+G"
+    assert hotkey_label("win32") == "Ctrl+Shift+G"
+    assert hotkey_label("darwin") == "Cmd+Shift+G"
+    assert hotkey_label("linux") == ""
     assert MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT == 0x4006
-    assert MAC_CONTROL_KEY | MAC_SHIFT_KEY == 0x1200
+    assert MAC_COMMAND_KEY | MAC_SHIFT_KEY == 0x0300
     assert MAC_KVK_ANSI_G == 0x05
     assert K_EVENT_CLASS_KEYBOARD == 0x6B657962
     assert K_EVENT_HOTKEY_PRESSED == 5
