@@ -49,6 +49,7 @@ jobs:
           node --check local-engine/web-dashboard/ai-subscriptions.js
           node --check local-engine/web-dashboard/plugins.js
           node --check local-engine/web-dashboard/settings.js
+          node --check local-engine/web-dashboard/learning.js
 
       - name: Run Dashboard static HTTP contract
         run: python local-engine/test_headless_web_dashboard.py

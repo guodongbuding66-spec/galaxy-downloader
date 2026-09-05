@@ -99,6 +99,8 @@ class HeadlessWebDashboardTest(unittest.TestCase):
             ("/dashboard/plugins.css", "text/css"),
             ("/dashboard/settings.js", "text/javascript"),
             ("/dashboard/settings.css", "text/css"),
+            ("/dashboard/learning.js", "text/javascript"),
+            ("/dashboard/learning.css", "text/css"),
         ):
             status, asset_headers, asset_body = self.request("GET", asset)
             self.assertEqual(status, 200)
@@ -150,6 +152,28 @@ class HeadlessWebDashboardTest(unittest.TestCase):
             self.assertIn(route, script)
         self.assertIn(b"env:OPENAI_API_KEY", html)
         self.assertNotIn(b"apiKey", script)
+        self.assertNotIn(b"https://cdn.", script)
+
+    def test_dashboard_exposes_learning_course_workflow(self) -> None:
+        status, _, html = self.request("GET", "/dashboard/")
+        self.assertEqual(status, 200)
+        self.assertIn(b"/dashboard/learning.css", html)
+        self.assertIn(b"/dashboard/learning.js", html)
+
+        status, _, script = self.request("GET", "/dashboard/learning.js")
+        self.assertEqual(status, 200)
+        for route in (
+            b"/v1/learning/courses",
+            b"/v1/learning/providers",
+            b"/v1/learning/providers/download",
+            b"/v1/learning/providers/downloads/",
+            b"/v1/jobs/",
+        ):
+            self.assertIn(route, script)
+        for label in (b"Managed course download", b"Browser login", b"Unsectioned", b"Retry sync"):
+            self.assertIn(label, script)
+        for private_field in (b"trackingId", b"filePath", b"cookieFile", b"httpHeaders"):
+            self.assertNotIn(private_field, script)
         self.assertNotIn(b"https://cdn.", script)
 
     def test_dashboard_exposes_plugin_marketplace_workflow(self) -> None:
