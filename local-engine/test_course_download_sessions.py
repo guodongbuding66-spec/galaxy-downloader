@@ -94,11 +94,13 @@ class CourseDownloadSessionTests(unittest.TestCase):
                 tracking_id=tracking_id,
                 course_id=course_id,
                 provider="udemy",
-                source_url="https://www.udemy.com/course/python-bootcamp/",
+                source_url="https://www.udemy.com/course/python-bootcamp/?couponCode=SECRET#tracking",
             )
             self.assertEqual(session["jobId"], job_id)
             self.assertEqual(session["courseId"], course_id)
             self.assertEqual(session["syncState"], "pending")
+            self.assertEqual(session["sourceUrl"], "https://www.udemy.com/course/python-bootcamp/")
+            self.assertNotIn("SECRET", str(session))
             self.assertNotIn("trackingId", session)
             self.assertNotIn("outputPaths", session)
 
@@ -115,16 +117,17 @@ class CourseDownloadSessionTests(unittest.TestCase):
                 tracking_id=tracking_id,
                 course_id=course_id,
                 provider="udemy",
-                source_url="https://www.udemy.com/course/python-bootcamp/",
+                source_url="https://www.udemy.com/course/python-bootcamp/?couponCode=ONE",
             )
             second = register_course_download_session(
                 job_id=job_id,
                 tracking_id=tracking_id,
                 course_id=course_id,
                 provider="udemy",
-                source_url="https://www.udemy.com/course/python-bootcamp/",
+                source_url="https://www.udemy.com/course/python-bootcamp/?couponCode=TWO#fragment",
             )
             self.assertEqual(first["jobId"], second["jobId"])
+            self.assertEqual(first["sourceUrl"], second["sourceUrl"])
             with self.assertRaises(CourseDownloadSessionError):
                 register_course_download_session(
                     job_id=job_id,
@@ -151,7 +154,7 @@ class CourseDownloadSessionTests(unittest.TestCase):
                 tracking_id=tracking_id,
                 course_id=course_id,
                 provider="udemy",
-                source_url="https://www.udemy.com/course/python-bootcamp/",
+                source_url="https://www.udemy.com/course/python-bootcamp/?couponCode=SECRET",
             )
             self._record_outputs(downloads, tracking_id, first, second)
 
@@ -164,6 +167,7 @@ class CourseDownloadSessionTests(unittest.TestCase):
             media = list_media_items(engine, limit=10)
             self.assertEqual(len(media), 2)
             self.assertTrue(all(item["sourceHost"] == "www.udemy.com" for item in media))
+            self.assertTrue(all("SECRET" not in item["sourceUrl"] for item in media))
             items = list_course_items(engine, course_id)
             self.assertEqual([item["title"] for item in items], ["01 Introduction", "02 Variables"])
 
