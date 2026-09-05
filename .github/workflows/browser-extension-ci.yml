@@ -59,8 +59,8 @@ jobs:
 
       - name: Validate Firefox packaging contract
         run: |
-          python -m py_compile browser-extension/build_firefox.py browser-extension/tests/firefox-package.test.py
-          python -m unittest -v browser-extension/tests/firefox-package.test.py
+          python -m py_compile browser-extension/build_firefox.py browser-extension/tests/test_firefox_package.py
+          python -m unittest -v browser-extension/tests/test_firefox_package.py
 
       - name: Build Firefox XPI
         run: python browser-extension/build_firefox.py --output dist/GalaxyMediaCapture-Firefox.xpi
