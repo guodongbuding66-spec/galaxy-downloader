@@ -11,6 +11,7 @@ from headless_plugin_http import HeadlessPluginHttpMixin
 from headless_qwen3_asr_api import Qwen3HeadlessAsrApi
 from headless_transfer_api import HeadlessTransferApi
 from headless_transfer_http import HeadlessTransferHttpMixin
+from headless_web_dashboard import HeadlessWebDashboardMixin
 from headless_whisperx_api import HeadlessWhisperXApi
 from headless_whisperx_http import HeadlessWhisperXHttpMixin
 
@@ -23,13 +24,14 @@ from headless_ai_http import AiGalaxyApiRequestHandler, AiGalaxyApiServer  # noq
 
 
 class GalaxyApiRequestHandler(
+    HeadlessWebDashboardMixin,
     HeadlessTransferHttpMixin,
     HeadlessPluginHttpMixin,
     HeadlessWhisperXHttpMixin,
     HeadlessAsrHttpMixin,
     AiGalaxyApiRequestHandler,
 ):
-    """Production request chain: Transfer -> Plugins -> WhisperX -> ASR -> AI -> Galaxy."""
+    """Production request chain: Dashboard -> Transfer -> Plugins -> WhisperX -> ASR -> AI -> Galaxy."""
 
 
 class GalaxyApiServer(ThreadingHTTPServer):
