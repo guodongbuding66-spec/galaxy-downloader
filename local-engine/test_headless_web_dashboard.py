@@ -90,6 +90,17 @@ class HeadlessWebDashboardTest(unittest.TestCase):
         self.assertEqual(headers.get("X-Frame-Options"), "DENY")
         self.assertIn(b"Galaxy Dashboard", body)
 
+        for asset, content_type in (
+            ("/dashboard/app.js", "text/javascript"),
+            ("/dashboard/styles.css", "text/css"),
+            ("/dashboard/ai-subscriptions.js", "text/javascript"),
+            ("/dashboard/ai-subscriptions.css", "text/css"),
+        ):
+            status, asset_headers, asset_body = self.request("GET", asset)
+            self.assertEqual(status, 200)
+            self.assertIn(content_type, asset_headers.get("Content-Type", ""))
+            self.assertTrue(asset_body)
+
         status, _, _ = self.request("GET", "/dashboard/not-a-file")
         self.assertEqual(status, 404)
 
@@ -109,6 +120,32 @@ class HeadlessWebDashboardTest(unittest.TestCase):
         self.assertIn(b"/v1/transcripts/search", script)
         self.assertIn(b"/speakers/relabel", script)
         self.assertIn(b"/export", script)
+        self.assertNotIn(b"https://cdn.", script)
+
+    def test_dashboard_exposes_ai_and_subscription_workflows(self) -> None:
+        status, _, html = self.request("GET", "/dashboard/")
+        self.assertEqual(status, 200)
+        self.assertIn(b'data-ops-view="ai"', html)
+        self.assertIn(b'data-ops-view="subscriptions"', html)
+        self.assertIn(b'id="aiProviderForm"', html)
+        self.assertIn(b'id="aiTaskForm"', html)
+        self.assertIn(b'id="subsRulesForm"', html)
+        self.assertIn(b'id="subsReconcileButton"', html)
+
+        status, _, script = self.request("GET", "/dashboard/ai-subscriptions.js")
+        self.assertEqual(status, 200)
+        for route in (
+            b"/v1/ai/providers",
+            b"/v1/ai/prompts",
+            b"/v1/ai/queue",
+            b"/v1/ai/history",
+            b"/v1/subscriptions",
+            b"/items/transition",
+            b"/reconcile",
+        ):
+            self.assertIn(route, script)
+        self.assertIn(b"env:OPENAI_API_KEY", html)
+        self.assertNotIn(b"apiKey", script)
         self.assertNotIn(b"https://cdn.", script)
 
     def test_same_origin_browser_request_still_requires_bearer_token(self) -> None:
