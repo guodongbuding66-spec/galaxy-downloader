@@ -291,7 +291,7 @@ def _apply_course_metadata(
             provider_title=provider_title,
             provider_position=provider_position,
         )
-    if subtitle_tracks:
+    if "subtitleTracks" in metadata:
         set_course_item_subtitle_tracks(engine_module, course_item_id, subtitle_tracks)
 
 
