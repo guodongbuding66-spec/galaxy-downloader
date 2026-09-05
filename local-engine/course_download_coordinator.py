@@ -8,6 +8,7 @@ from typing import Any
 from course_download_sessions import (
     CourseDownloadSessionError,
     course_download_session,
+    discard_course_download_outputs,
     mark_course_download_sync_failed,
     register_course_download_session,
     sync_course_download_outputs,
@@ -157,6 +158,8 @@ class CourseDownloadCoordinator:
             try:
                 sync_course_download_outputs(self.learning_api.context, job_id)
             except CourseDownloadSessionError as exc:
+                # Keep tracked outputs on sync failure so the explicit `/sync`
+                # recovery endpoint can retry indexing without re-downloading.
                 with suppress(CourseDownloadSessionError):
                     mark_course_download_sync_failed(job_id, str(exc))
             return
@@ -164,3 +167,5 @@ class CourseDownloadCoordinator:
         detail = str(snapshot.get("detail") or state).strip() or state
         with suppress(CourseDownloadSessionError):
             mark_course_download_sync_failed(job_id, detail)
+        with suppress(CourseDownloadSessionError):
+            discard_course_download_outputs(job_id)
