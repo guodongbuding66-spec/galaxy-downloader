@@ -104,6 +104,10 @@ class HeadlessWebDashboardTest(unittest.TestCase):
         status, _, _ = self.request("POST", "/v1/test", headers={"Origin": "http://evil.example", "Authorization": "Bearer test-token"})
         self.assertEqual(status, 401)
 
+    def test_malformed_origin_is_rejected_without_handler_error(self) -> None:
+        status, _, _ = self.request("POST", "/v1/test", headers={"Origin": "http://[broken", "Authorization": "Bearer test-token"})
+        self.assertEqual(status, 401)
+
 
 if __name__ == "__main__":
     unittest.main()
