@@ -335,10 +335,10 @@ class LinuxAppIndicatorProvider(WindowsPystrayProvider):
                     ready_icon.visible = True
                 except Exception as exc:  # noqa: BLE001
                     self._loop_error = str(exc)[:240]
-                    try:
-                        ready_icon.stop()
-                    except Exception:
-                        pass
+                    # Let a cleanup failure propagate from the setup thread. The
+                    # start path has already recorded the original visibility error
+                    # and will invoke provider.stop() again before returning false.
+                    ready_icon.stop()
                 finally:
                     self._ready.set()
 
