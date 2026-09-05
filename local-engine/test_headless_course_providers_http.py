@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from headless_course_providers_http import HeadlessCourseProvidersHttpMixin
 
@@ -35,6 +36,14 @@ class _Handler(HeadlessCourseProvidersHttpMixin, _FallbackHandler):
 
 
 class HeadlessCourseProviderHttpTests(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = patch(
+            "course_providers.validated_public_http_url",
+            side_effect=lambda value: str(value or "").strip(),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_get_catalog(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers"
