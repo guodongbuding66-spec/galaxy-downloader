@@ -43,6 +43,24 @@ def _safe_output_path(root: Path, filename: object) -> Path | None:
         return None
 
 
+def _movefiles_final_path(info: dict[str, Any]) -> object:
+    """Mirror yt-dlp MoveFilesAfterDownloadPP's final-path calculation.
+
+    yt-dlp postprocessor hooks receive a copy of info_dict made before the
+    postprocessor executes. Therefore the hook's `filepath` is not guaranteed to
+    contain MoveFiles' updated value even when status is `finished`.
+    """
+
+    raw_filepath = str(info.get("filepath") or "").strip()
+    if not raw_filepath:
+        return ""
+    filepath = Path(raw_filepath)
+    finaldir = str(info.get("__finaldir") or "").strip()
+    if not finaldir:
+        return raw_filepath
+    return str(Path(finaldir) / filepath.name)
+
+
 def _clean_text(value: object, limit: int) -> str:
     return " ".join(str(value or "").split()).strip()[:limit]
 
@@ -59,7 +77,7 @@ def _bounded_positive_int(value: object) -> int:
 
 def _udemy_metadata(info: dict[str, Any]) -> dict[str, Any] | None:
     extractor = str(info.get("extractor_key") or info.get("extractor") or "").strip().lower()
-    if not extractor.startswith("udemy"):
+    if extractor != "udemy":
         return None
 
     raw_item_id = str(info.get("id") or "").strip()
@@ -169,7 +187,7 @@ def install_headless_course_metadata_tracking() -> None:
             info = event.get("info_dict")
             if not isinstance(info, dict):
                 return
-            _record_metadata(tracking_id, root, info.get("filepath"), info)
+            _record_metadata(tracking_id, root, _movefiles_final_path(info), info)
 
         hooks = list(options.get("postprocessor_hooks") or [])
         hooks.append(capture_postprocessor)
