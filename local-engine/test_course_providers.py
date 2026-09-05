@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from course_providers import (
     CourseProviderError,
@@ -11,6 +12,14 @@ from course_providers import (
 
 
 class CourseProviderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = patch(
+            "course_providers.validated_public_http_url",
+            side_effect=lambda value: str(value or "").strip(),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_catalog_exposes_udemy_without_drm_bypass(self) -> None:
         providers = list_course_providers()
         self.assertEqual([provider["id"] for provider in providers], ["udemy"])
