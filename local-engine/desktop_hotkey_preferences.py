@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -129,10 +130,10 @@ def save_linux_hotkey_preferences(engine_module, shortcut: object) -> dict[str, 
         temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(path)
     except OSError:
-        try:
+        # Cleanup is best-effort only; preserve and re-raise the original write
+        # or replace error so callers never mistake a failed save for success.
+        with suppress(OSError):
             temporary.unlink()
-        except OSError:
-            pass
         raise
     return payload
 
@@ -199,12 +200,12 @@ def run_linux_hotkey_preferences_self_test() -> None:
         "Ctrl+Shift+Mouse1",
         "Ctrl+Shift+F25",
     ):
+        rejected = False
         try:
             normalize_linux_hotkey_shortcut(invalid)
         except ValueError:
-            pass
-        else:
-            raise AssertionError(f"Invalid Linux shortcut accepted: {invalid}")
+            rejected = True
+        assert rejected, f"Invalid Linux shortcut accepted: {invalid}"
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
