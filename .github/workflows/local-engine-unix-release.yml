@@ -11,6 +11,9 @@ on:
     paths:
       - 'local-engine/requirements.txt'
       - 'local-engine/prepare-unix-bundle.py'
+      - 'local-engine/prepare-macos-app.py'
+      - 'local-engine/desktop_protocol.py'
+      - 'local-engine/desktop_platform_features.py'
       - 'local-engine/VERSION'
       - '.github/workflows/local-engine-unix-release.yml'
 
@@ -75,7 +78,7 @@ jobs:
 
       - name: Validate release source and bundle policy
         run: |
-          python -m py_compile local-engine/prepare-unix-bundle.py scripts/test-local-unix-bundle.py
+          python -m py_compile local-engine/prepare-unix-bundle.py local-engine/prepare-macos-app.py scripts/test-local-unix-bundle.py
           python scripts/test-local-unix-bundle.py
           python local-engine/prepare-unix-bundle.py --package-dir unused --os '${{ matrix.os_name }}' --architecture '${{ matrix.arch }}' --print-plan
           python local-engine/entrypoint.py --self-test
@@ -122,6 +125,14 @@ jobs:
           --add-data 'local-engine/VERSION:.'
           local-engine/entrypoint.py
 
+      - name: Register and verify macOS protocol metadata
+        if: matrix.os_name == 'darwin'
+        run: |
+          set -euo pipefail
+          python local-engine/prepare-macos-app.py --app dist/GalaxyLocalEngine.app
+          python local-engine/prepare-macos-app.py --app dist/GalaxyLocalEngine.app --verify
+          plutil -lint dist/GalaxyLocalEngine.app/Contents/Info.plist
+
       - name: Assemble macOS release package
         if: matrix.os_name == 'darwin'
         run: |
@@ -134,6 +145,7 @@ jobs:
           "$MACOS_DIR/yt-dlp" --version
           "$MACOS_DIR/ffmpeg/bin/ffmpeg" -version | head -n 1
           "$MACOS_DIR/ffmpeg/bin/ffprobe" -version | head -n 1
+          python local-engine/prepare-macos-app.py --app dist/GalaxyLocalEngine.app --verify
           mkdir -p dist/package
           mv dist/GalaxyLocalEngine.app dist/package/GalaxyLocalEngine.app
           cp local-engine/README.md dist/package/README.md
