@@ -32,9 +32,9 @@
 
   function showCredentials(force) {
     const panel = $('credentialsPanel')
-    const visible = force === undefined ? panel.classList.contains('is-hidden') : !force
-    panel.classList.toggle('is-hidden', visible)
-    if (!visible) {
+    const shouldShow = force === undefined ? panel.classList.contains('is-hidden') : Boolean(force)
+    panel.classList.toggle('is-hidden', !shouldShow)
+    if (shouldShow) {
       $('tokenInput').value = state.token
       $('tokenInput').focus()
     }
