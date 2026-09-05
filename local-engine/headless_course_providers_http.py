@@ -78,6 +78,39 @@ class HeadlessCourseProvidersHttpMixin:
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
+        sync_prefix = "/v1/learning/providers/downloads/"
+        sync_suffix = "/sync"
+        if path.startswith(sync_prefix) and path.endswith(sync_suffix):
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "unauthorized"})
+                return
+            coordinator = _course_download_coordinator(self)
+            if coordinator is None:
+                self._json(503, {"ok": False, "error": "course download coordinator is unavailable"})
+                return
+            job_id = path[len(sync_prefix) : -len(sync_suffix)].strip("/")
+            try:
+                result = coordinator.sync_now(job_id)
+                self._json(200, {"ok": True, **result})
+            except CourseDownloadCoordinatorError as exc:
+                detail = _safe_detail(exc)
+                missing = "not found" in detail.lower()
+                self._json(
+                    404 if missing else 409,
+                    {
+                        "ok": False,
+                        "error": detail,
+                        "code": (
+                            "LEARNING_COURSE_DOWNLOAD_NOT_FOUND"
+                            if missing
+                            else "LEARNING_COURSE_SYNC_REJECTED"
+                        ),
+                    },
+                )
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": _safe_detail(exc)})
+            return
+
         if path not in {
             "/v1/learning/providers/resolve",
             "/v1/learning/providers/download",
