@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import wraps
 from typing import Any
 
 _AFTER_BUILD_ATTR = "_galaxy_after_build_ui_hooks"
+_BEFORE_CLOSE_ATTR = "_galaxy_before_close_hooks"
+_BEFORE_CLOSE_WRAPPED_ATTR = "_galaxy_before_close_wrapped"
 _QUEUE_TICK_ATTR = "_galaxy_queue_tick_hooks"
 _JOB_LINES_ATTR = "_galaxy_job_line_hooks"
 _PRESENTER_ATTR = "_galaxy_desktop_presenters"
@@ -53,6 +56,10 @@ def _register(window_cls: type, attribute: str, name: str, callback: Callable[..
 
 def register_after_build_ui_hook(window_cls: type, name: str, callback: DesktopHook, *, order: int) -> None:
     _register(window_cls, _AFTER_BUILD_ATTR, name, callback, order)
+
+
+def register_before_close_hook(window_cls: type, name: str, callback: DesktopHook, *, order: int) -> None:
+    _register(window_cls, _BEFORE_CLOSE_ATTR, name, callback, order)
 
 
 def register_queue_tick_hook(window_cls: type, name: str, callback: DesktopHook, *, order: int) -> None:
@@ -152,6 +159,35 @@ def run_after_build_ui_hooks(window: Any) -> None:
     _run(window, _AFTER_BUILD_ATTR)
 
 
+def run_before_close_hooks(window: Any) -> None:
+    """Run close hooks best-effort so one extension cannot block app shutdown."""
+    errors: list[tuple[str, str]] = []
+    for _order, name, callback in list(_registry(type(window), _BEFORE_CLOSE_ATTR)):
+        try:
+            callback(window)
+        except Exception as exc:  # noqa: BLE001 - shutdown must continue
+            errors.append((name, str(exc)))
+    if errors:
+        window._galaxy_before_close_errors = tuple(errors)
+
+
+def install_before_close_support(window_cls: type) -> None:
+    """Wrap ``close_app`` once and dispatch registered before-close hooks."""
+    if window_cls.__dict__.get(_BEFORE_CLOSE_WRAPPED_ATTR, False):
+        return
+    original = getattr(window_cls, "close_app", None)
+    if not callable(original):
+        raise RuntimeError("desktop window does not expose close_app")
+
+    @wraps(original)
+    def close_with_hooks(window: Any, *args: Any, **kwargs: Any):
+        run_before_close_hooks(window)
+        return original(window, *args, **kwargs)
+
+    setattr(window_cls, "close_app", close_with_hooks)
+    setattr(window_cls, _BEFORE_CLOSE_WRAPPED_ATTR, True)
+
+
 def run_queue_tick_hooks(window: Any) -> None:
     _run(window, _QUEUE_TICK_ATTR)
 
@@ -168,6 +204,10 @@ def run_job_lines_hooks(window: Any, lines: JobLines) -> JobLines:
 
 def registered_after_build_ui_hooks(window_cls: type) -> tuple[str, ...]:
     return tuple(record[1] for record in _registry(window_cls, _AFTER_BUILD_ATTR))
+
+
+def registered_before_close_hooks(window_cls: type) -> tuple[str, ...]:
+    return tuple(record[1] for record in _registry(window_cls, _BEFORE_CLOSE_ATTR))
 
 
 def registered_queue_tick_hooks(window_cls: type) -> tuple[str, ...]:
