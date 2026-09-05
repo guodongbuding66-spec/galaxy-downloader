@@ -100,17 +100,16 @@ jobs:
           /usr/bin/python3 -m venv --system-site-packages .venv-linux-package
           .venv-linux-package/bin/python -m pip install -r local-engine/requirements.txt
           .venv-linux-package/bin/python - <<'PY'
+          import importlib.util
           import gi
           gi.require_version('Gtk', '3.0')
           gi.require_version('AyatanaAppIndicator3', '0.1')
           from gi.repository import AyatanaAppIndicator3, Gtk
           assert Gtk is not None
           assert AyatanaAppIndicator3 is not None
-          import sys
-          sys.path.insert(0, 'local-engine')
-          from desktop_tray import verify_linux_tray_dependencies
-          assert verify_linux_tray_dependencies(), 'Linux AppIndicator build runtime is incomplete'
-          print('Linux AppIndicator build runtime OK')
+          assert importlib.util.find_spec('pystray') is not None
+          assert importlib.util.find_spec('PIL') is not None
+          print('Linux GI/AppIndicator build dependencies OK')
           PY
 
       - name: Validate release source and bundle policy
