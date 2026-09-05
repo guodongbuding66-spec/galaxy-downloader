@@ -56,6 +56,7 @@ on:
 permissions:
   contents: read
 
+# Structured course extension is exercised on both supported CI platforms.
 jobs:
   contract:
     name: ${{ matrix.os }}
