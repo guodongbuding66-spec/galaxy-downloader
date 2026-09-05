@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Prepare the final macOS app and build a deterministic DMG from it.
+"""Finalize Galaxy Local Engine macOS release artifacts from one app bundle.
 
 Developer ID signing and notarization are intentionally out of scope here. The
 finalization step installs the branded icon, writes stable bundle/protocol
 metadata, and applies a verified ad-hoc signature after all bundled tools and
-runtime markers are present. ZIP and DMG packaging can then consume that exact
-same finalized application bundle without mutating or re-signing it.
+runtime markers are present. The companion ZIP is then rebuilt and verified from
+that exact finalized app before the DMG is created, preventing distribution
+formats from drifting apart.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -66,6 +68,11 @@ def artifact_path(output_dir: Path, architecture: str) -> Path:
     return output_dir / f"GalaxyLocalEngine-macOS-{label}.dmg"
 
 
+def companion_zip_path(output_dir: Path, architecture: str) -> Path:
+    label = normalize_architecture(architecture)
+    return output_dir / f"GalaxyLocalEngine-macOS-{label}.zip"
+
+
 def app_executable(app_path: Path) -> Path:
     return app_path / "Contents" / "MacOS" / APP_EXECUTABLE
 
@@ -117,6 +124,27 @@ def _codesign_path() -> str:
     return codesign
 
 
+def _ditto_path() -> str:
+    ditto = shutil.which("ditto")
+    if not ditto:
+        raise MacOSReleaseError("ditto is unavailable")
+    return ditto
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_sha256_sidecar(path: Path) -> Path:
+    sidecar = Path(str(path) + ".sha256")
+    sidecar.write_text(f"{_sha256(path)}  {path.name}\n", encoding="utf-8")
+    return sidecar
+
+
 def validate_distribution_app(app_path: Path) -> Path:
     """Validate finalized bundle identity, icon, protocol metadata and signature."""
     if sys.platform != "darwin":
@@ -159,17 +187,55 @@ def prepare_distribution_app(app_path: Path) -> Path:
     return validate_distribution_app(app)
 
 
+def validate_companion_zip(zip_path: Path, package_name: str) -> Path:
+    """Extract a release ZIP and verify its embedded finalized application."""
+    if sys.platform != "darwin":
+        raise MacOSReleaseError("macOS ZIP validation must run on macOS")
+    archive = zip_path.expanduser().resolve()
+    if archive.is_symlink() or not archive.is_file() or archive.stat().st_size <= 0:
+        raise MacOSReleaseError(f"macOS ZIP is invalid: {zip_path}")
+    with tempfile.TemporaryDirectory(prefix="galaxy-macos-zip-check-") as temp_name:
+        destination = Path(temp_name)
+        _run([_ditto_path(), "-x", "-k", str(archive), str(destination)])
+        extracted_app = destination / package_name / APP_BUNDLE_NAME
+        validate_distribution_app(extracted_app)
+    return archive
+
+
+def refresh_companion_zip(app_path: Path, output_dir: Path, architecture: str) -> Path:
+    """Rebuild the architecture ZIP from the same finalized app used by the DMG."""
+    app = validate_distribution_app(app_path)
+    package_root = app.parent
+    if package_root.is_symlink() or not package_root.is_dir():
+        raise MacOSReleaseError(f"macOS package root is invalid: {package_root}")
+    output_root = output_dir.expanduser().resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    archive = companion_zip_path(output_root, architecture)
+    archive.unlink(missing_ok=True)
+    _run(
+        [
+            _ditto_path(),
+            "-c",
+            "-k",
+            "--sequesterRsrc",
+            "--keepParent",
+            str(package_root),
+            str(archive),
+        ]
+    )
+    validate_companion_zip(archive, package_root.name)
+    _write_sha256_sidecar(archive)
+    return archive
+
+
 def prepare_dmg_staging(app_path: Path, staging_dir: Path) -> Path:
     app = validate_distribution_app(app_path)
-    ditto = shutil.which("ditto")
-    if not ditto:
-        raise MacOSReleaseError("ditto is unavailable; macOS DMG staging requires Apple ditto")
     staging = staging_dir.expanduser().resolve()
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True, exist_ok=True)
     staged_app = staging / APP_BUNDLE_NAME
-    _run([ditto, str(app), str(staged_app)])
+    _run([_ditto_path(), str(app), str(staged_app)])
     applications = staging / "Applications"
     applications.symlink_to("/Applications", target_is_directory=True)
     validate_distribution_app(staged_app)
@@ -193,6 +259,12 @@ def build_dmg(
     app = validate_distribution_app(app_path) if prepared_app else prepare_distribution_app(app_path)
     output_root = output_dir.expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
+
+    # The workflow may have produced an interim ZIP before distribution metadata
+    # and signing were added. Always replace it from this exact finalized app so
+    # ZIP and DMG expose the same identity, icon, protocol and signature contract.
+    refresh_companion_zip(app, output_root, architecture)
+
     output = artifact_path(output_root, architecture)
     with tempfile.TemporaryDirectory(prefix="galaxy-macos-dmg-") as temp_name:
         staging = prepare_dmg_staging(app, Path(temp_name) / "staging")
@@ -219,6 +291,7 @@ def print_plan(architecture: str, output_dir: Path) -> None:
     payload = {
         "architecture": normalize_architecture(architecture),
         "artifact": artifact_path(output_dir, architecture).name,
+        "companionZip": companion_zip_path(output_dir, architecture).name,
         "volumeName": VOLUME_NAME,
         "appBundle": APP_BUNDLE_NAME,
         "applicationsLink": "/Applications",
