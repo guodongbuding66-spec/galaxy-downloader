@@ -7,9 +7,15 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from desktop_hooks import register_after_build_ui_hook, registered_after_build_ui_hooks
+from desktop_hooks import (
+    register_after_build_ui_hook,
+    register_desktop_presenter,
+    registered_after_build_ui_hooks,
+    show_desktop_presenter,
+)
 
 TRAY_NAME = "GalaxyLocalEngine"
+TRAY_ACTIONS = ("show", "hide", "downloads", "open-downloads", "pause-all", "exit")
 _SKIP_START_FLAGS = {"--self-test", "--ui-smoke-test", "--version"}
 
 
@@ -61,6 +67,17 @@ def _hide_window(window) -> None:
         pass
 
 
+def _show_downloads(window) -> None:
+    """Open the existing task-center/download surface without creating another UI."""
+    _show_window(window)
+    try:
+        show_desktop_presenter(window, "history")
+    except Exception:
+        # Lightweight tests and partially composed embedders may not install the
+        # task-center presenter. Showing the main window is still a safe fallback.
+        pass
+
+
 def _open_download_folder(window) -> None:
     opener = getattr(window, "open_folder", None)
     if callable(opener):
@@ -68,6 +85,37 @@ def _open_download_folder(window) -> None:
             opener()
         except Exception:
             pass
+
+
+def _pause_all_downloads(window) -> bool:
+    """Pause the waiting queue first, then stop the active job resumably.
+
+    Queue pause must happen before ``pause_active_job`` so that pause/resume state
+    records the user's explicit Pause All intent and does not auto-release the
+    queue when the active item is resumed later.
+    """
+    changed = False
+    pause_queue = getattr(window, "set_queue_paused", None)
+    if callable(pause_queue):
+        try:
+            pause_queue(True)
+            changed = True
+        except Exception:
+            pass
+    elif hasattr(window, "queue_paused"):
+        try:
+            window.queue_paused = True
+            changed = True
+        except Exception:
+            pass
+
+    pause_active = getattr(window, "pause_active_job", None)
+    if callable(pause_active):
+        try:
+            changed = bool(pause_active()) or changed
+        except Exception:
+            pass
+    return changed
 
 
 def _exit_application(window) -> None:
@@ -132,31 +180,36 @@ class WindowsPystrayProvider:
 
         return action
 
+    def _build_menu(self, pystray):
+        return pystray.Menu(
+            pystray.MenuItem(
+                "打开 Galaxy",
+                self._menu_callback(lambda: _show_window(self.window)),
+                default=self.platform.startswith("win"),
+            ),
+            pystray.MenuItem("隐藏窗口", self._menu_callback(lambda: _hide_window(self.window))),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("下载任务", self._menu_callback(lambda: _show_downloads(self.window))),
+            pystray.MenuItem(
+                "打开下载目录",
+                self._menu_callback(lambda: _open_download_folder(self.window)),
+            ),
+            pystray.MenuItem("全部暂停", self._menu_callback(lambda: _pause_all_downloads(self.window))),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("退出 Galaxy", self._menu_callback(self._request_exit)),
+        )
+
     def start(self) -> bool:
         if self.state.active:
             return True
         try:
             import pystray
 
-            menu = pystray.Menu(
-                pystray.MenuItem(
-                    "打开 Galaxy",
-                    self._menu_callback(lambda: _show_window(self.window)),
-                    default=self.platform.startswith("win"),
-                ),
-                pystray.MenuItem("隐藏窗口", self._menu_callback(lambda: _hide_window(self.window))),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(
-                    "打开下载目录",
-                    self._menu_callback(lambda: _open_download_folder(self.window)),
-                ),
-                pystray.MenuItem("退出 Galaxy", self._menu_callback(self._request_exit)),
-            )
             self.icon = pystray.Icon(
                 TRAY_NAME,
                 _tray_image(),
                 self.app_name,
-                menu,
+                self._build_menu(pystray),
                 **_pystray_icon_kwargs(self.platform),
             )
             # run_detached() is the supported integration path when another GUI
@@ -281,6 +334,7 @@ def run_desktop_tray_self_test() -> None:
     assert tray_platform_supported("win32") is True
     assert tray_platform_supported("darwin") is True
     assert tray_platform_supported("linux") is False
+    assert TRAY_ACTIONS == ("show", "hide", "downloads", "open-downloads", "pause-all", "exit")
     assert tray_should_start(platform="win32", argv=("--self-test",)) is False
     assert tray_should_start(platform="darwin", argv=("--self-test",)) is False
     assert tray_should_start(platform="win32", argv=("--ui-smoke-test",)) is False
@@ -297,3 +351,62 @@ def run_desktop_tray_self_test() -> None:
     install_desktop_tray(engine)
     assert "desktop-system-tray" in registered_after_build_ui_hooks(Window)
     assert Window._galaxy_desktop_tray_installed is True
+
+    class ActionWindow:
+        def __init__(self) -> None:
+            self.shown = 0
+            self.withdrawn = 0
+            self.downloads_opened = 0
+            self.folder_opened = 0
+            self.queue_paused = False
+            self.pause_active_calls = 0
+            self.closed = 0
+
+        def deiconify(self) -> None:
+            self.shown += 1
+
+        def lift(self) -> None:
+            pass
+
+        def focus_force(self) -> None:
+            pass
+
+        def withdraw(self) -> None:
+            self.withdrawn += 1
+
+        def open_folder(self) -> None:
+            self.folder_opened += 1
+
+        def set_queue_paused(self, paused: bool) -> bool:
+            self.queue_paused = bool(paused)
+            return self.queue_paused
+
+        def pause_active_job(self) -> bool:
+            assert self.queue_paused is True
+            self.pause_active_calls += 1
+            return True
+
+        def close_app(self) -> None:
+            self.closed += 1
+
+    register_desktop_presenter(
+        ActionWindow,
+        "history",
+        "tray-self-test",
+        lambda window: setattr(window, "downloads_opened", window.downloads_opened + 1),
+        order=1,
+    )
+    action_window = ActionWindow()
+    _show_window(action_window)
+    _hide_window(action_window)
+    _show_downloads(action_window)
+    _open_download_folder(action_window)
+    assert _pause_all_downloads(action_window) is True
+    _exit_application(action_window)
+    assert action_window.shown == 2
+    assert action_window.withdrawn == 1
+    assert action_window.downloads_opened == 1
+    assert action_window.folder_opened == 1
+    assert action_window.queue_paused is True
+    assert action_window.pause_active_calls == 1
+    assert action_window.closed == 1
