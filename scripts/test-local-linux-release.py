@@ -74,6 +74,14 @@ class LinuxReleaseContractTest(unittest.TestCase):
         self.assertIn("MimeType=x-scheme-handler/galaxy-downloader;", entry)
         self.assertIn("Terminal=false", entry)
 
+    def test_packaged_launchers_default_to_installed_mode(self) -> None:
+        for script in (linux_release.launcher_script(), linux_release.apprun_script()):
+            self.assertIn('if [ -z "${GALAXY_PORTABLE:-}" ]; then', script)
+            self.assertIn("GALAXY_PORTABLE=0", script)
+            self.assertIn("export GALAXY_PORTABLE", script)
+            # The guard preserves an explicit GALAXY_PORTABLE=1/portable override.
+            self.assertNotIn("export GALAXY_PORTABLE=0", script)
+
     def test_appdir_contains_forwarding_entrypoint_and_protocol_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_name:
             tmp = Path(tmp_name)
@@ -81,6 +89,7 @@ class LinuxReleaseContractTest(unittest.TestCase):
             appdir = linux_release.prepare_appdir(package, tmp / "AppDir")
             self.assertTrue((appdir / "AppRun").is_file())
             self.assertTrue(os.access(appdir / "AppRun", os.X_OK))
+            self.assertIn("GALAXY_PORTABLE=0", (appdir / "AppRun").read_text())
             self.assertTrue((appdir / "GalaxyLocalEngine").is_symlink())
             self.assertEqual(
                 os.readlink(appdir / "GalaxyLocalEngine"),
@@ -122,6 +131,8 @@ class LinuxReleaseContractTest(unittest.TestCase):
                 destinations["/usr/bin/galaxy-local-engine"]["file_info"]["mode"],
                 0o755,
             )
+            launcher_source = Path(destinations["/usr/bin/galaxy-local-engine"]["src"])
+            self.assertIn("GALAXY_PORTABLE=0", launcher_source.read_text())
             desktop_source = Path(
                 destinations["/usr/share/applications/galaxy-local-engine.desktop"]["src"]
             )
