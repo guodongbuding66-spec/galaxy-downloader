@@ -51,6 +51,7 @@ def build_runtime_settings(
         "authentication": {
             "mode": "bearer" if auth_token_configured else "none",
             "configured": bool(auth_token_configured),
+            "required": not loopback,
         },
         "queue": {"capacity": capacity},
         "configuration": {
