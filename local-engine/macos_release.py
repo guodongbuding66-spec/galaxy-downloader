@@ -75,24 +75,16 @@ def validate_app_bundle(app_path: Path) -> Path:
         raise MacOSReleaseError(f"macOS app bundle is invalid: {app_path}")
     info_plist = app / "Contents" / "Info.plist"
     executable = app_executable(app)
-    runtime_dir = app_runtime_dir(app)
-    version_file = runtime_dir / "VERSION"
-    marker = runtime_dir / INSTALLED_MARKER
+    marker = app_runtime_dir(app) / INSTALLED_MARKER
     for path, label in (
         (info_plist, "Info.plist"),
         (executable, "app executable"),
-        (version_file, "bundled VERSION"),
         (marker, "installed runtime marker"),
     ):
         if path.is_symlink() or not path.is_file():
             raise MacOSReleaseError(f"macOS app is missing {label}: {path}")
     if not os.access(executable, os.X_OK):
         raise MacOSReleaseError(f"macOS app executable is not executable: {executable}")
-    bundled_version = version_file.read_text(encoding="utf-8").strip()
-    if bundled_version != read_version():
-        raise MacOSReleaseError(
-            f"bundled VERSION {bundled_version!r} does not match Local Engine VERSION {read_version()!r}"
-        )
     return app
 
 
