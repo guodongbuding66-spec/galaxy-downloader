@@ -170,6 +170,29 @@ def remove_course_download_session(job_id: object, *, clear_tracking: bool = Tru
     return True
 
 
+def discard_course_download_outputs(job_id: object) -> int:
+    """Discard tracked files for a download that itself failed or was cancelled.
+
+    The Session remains queryable. This is intentionally separate from sync
+    failures, where tracked outputs must be retained for the manual `/sync`
+    recovery path.
+    """
+
+    clean = _clean_id(job_id, "job")
+    with _LOCK:
+        session = _SESSIONS.get(clean)
+        if session is None:
+            raise CourseDownloadSessionError("course download session not found")
+        tracking_id = str(session["trackingId"])
+        _SESSIONS.move_to_end(clean)
+    try:
+        return clear_output_tracking(tracking_id)
+    except Exception:
+        # A bounded tracking session may already have been evicted; discard is
+        # best-effort and must not hide the original terminal job state.
+        return 0
+
+
 def mark_course_download_sync_failed(job_id: object, detail: object) -> dict[str, Any]:
     clean = _clean_id(job_id, "job")
     message = " ".join(str(detail or "course output sync failed").split()).strip()[:360]

@@ -3,6 +3,7 @@ from __future__ import annotations
 from http.server import ThreadingHTTPServer
 
 import headless_api_base as _base
+from course_download_coordinator import CourseDownloadCoordinator
 from headless_ai_api import HeadlessAiApi
 from headless_asr_api import HeadlessAsrApi
 from headless_asr_http import HeadlessAsrHttpMixin
@@ -47,7 +48,7 @@ class GalaxyApiRequestHandler(
 
 
 class GalaxyApiServer(ThreadingHTTPServer):
-    """Production Galaxy server with Transfer, Plugin, AI and ASR enabled."""
+    """Production Galaxy server with Transfer, Plugin, AI, ASR and Course coordination enabled."""
 
     daemon_threads = True
     allow_reuse_address = True
@@ -75,14 +76,18 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self._ai_closed = False
         self._owns_asr_api = asr_api is None
         transfer: HeadlessTransferApi | None = None
+        coordinator: CourseDownloadCoordinator | None = None
         self._owns_transfer_api = transfer_api is None
         self._transfer_closed = False
+        self._course_download_coordinator_closed = False
         try:
             asr = asr_api or Qwen3HeadlessAsrApi(runtime.download_root)
             shared_asr_context = getattr(asr, "context", None)
             whisperx = whisperx_api or HeadlessWhisperXApi(runtime.download_root, context=shared_asr_context)
             plugins = plugin_api or HeadlessPluginApi(runtime.download_root)
             transfer = transfer_api or HeadlessTransferApi(runtime.download_root)
+            if learning_api is not None:
+                coordinator = CourseDownloadCoordinator(runtime, learning_api)
             self.runtime = runtime
             self.auth_token = auth_token
             self.bound_host = bound_host
@@ -97,8 +102,11 @@ class GalaxyApiServer(ThreadingHTTPServer):
             self.whisperx_api = whisperx
             self.plugin_api = plugins
             self.transfer_api = transfer
+            self.course_download_coordinator = coordinator
             super().__init__(address, GalaxyApiRequestHandler)
         except Exception:
+            if coordinator is not None:
+                coordinator.close()
             if self._owns_transfer_api and transfer is not None:
                 transfer.shutdown()
             if self._owns_ai_api:
@@ -109,6 +117,10 @@ class GalaxyApiServer(ThreadingHTTPServer):
         try:
             super().server_close()
         finally:
+            coordinator = getattr(self, "course_download_coordinator", None)
+            if coordinator is not None and not self._course_download_coordinator_closed:
+                self._course_download_coordinator_closed = True
+                coordinator.close()
             if self._owns_transfer_api and not self._transfer_closed:
                 self._transfer_closed = True
                 self.transfer_api.shutdown()
