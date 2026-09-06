@@ -20,7 +20,7 @@
     const response = await fetch(path, { ...options, headers: authHeaders(options.headers || {}), cache: 'no-store' })
     if (response.status === 401) throw new Error('Headless API requires a valid Bearer token')
     const payload = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`)
+    if (!response.ok) throw new Error(`Request failed (${response.status})`)
     return payload
   }
 
@@ -72,7 +72,7 @@
     if (state === 'cancelling') return 'Cancelling'
     if (state === 'completed') return 'Downloaded'
     if (state === 'cancelled') return 'Cancelled'
-    if (state === 'failed') return String(job?.error || 'Download failed')
+    if (state === 'failed') return 'Download failed'
     return ''
   }
 
