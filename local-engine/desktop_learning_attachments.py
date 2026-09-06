@@ -63,6 +63,7 @@ def build_attachment_rows(items: list[dict]) -> list[dict[str, Any]]:
 
 
 def attachment_job_status_text(job: dict[str, Any]) -> str:
+    """Render public progress fields only; never surface backend error details."""
     state = str(job.get("state") or "queued").lower()
     labels = {
         "queued": "已加入附件队列",
@@ -85,9 +86,6 @@ def attachment_job_status_text(job: dict[str, Any]) -> str:
         parts.append(f"{format_attachment_size(downloaded)} / {format_attachment_size(total)}")
     elif downloaded > 0:
         parts.append(format_attachment_size(downloaded))
-    error = str(job.get("error") or "").strip()
-    if error:
-        parts.append(error[:180])
     return " · ".join(parts)
 
 
@@ -199,16 +197,16 @@ def build_attachment_tab(notebook, window, api, browser_var) -> None:
         try:
             payload = api.items(course["id"], limit=5000)
             render_rows(build_attachment_rows(payload.get("items") or []))
-        except Exception as exc:  # noqa: BLE001
-            status.set(f"附件读取失败：{exc}")
+        except Exception:  # noqa: BLE001
             render_rows([])
+            status.set("附件读取失败")
 
     def refresh_courses(select_course_id: str = "") -> None:
         previous = select_course_id or str((selected_course() or {}).get("id") or "")
         try:
             courses[:] = api.courses(limit=500).get("courses", [])
-        except Exception as exc:  # noqa: BLE001
-            status.set(f"课程读取失败：{exc}")
+        except Exception:  # noqa: BLE001
+            status.set("课程读取失败")
             return
         course_list.delete(0, "end")
         selected_index = 0
@@ -223,9 +221,6 @@ def build_attachment_tab(notebook, window, api, browser_var) -> None:
 
     def active_job_id() -> str:
         return str(getattr(window, "_learning_attachment_job_id", "") or "")
-
-    def active_attachment_id() -> str:
-        return str(getattr(window, "_learning_attachment_id", "") or "")
 
     def update_controls(job: dict[str, Any] | None = None) -> None:
         row = selected_attachment()
@@ -248,7 +243,8 @@ def build_attachment_tab(notebook, window, api, browser_var) -> None:
         try:
             tab.after_cancel(poll_after_id)
         except tk.TclError:
-            pass
+            poll_after_id = None
+            return
         poll_after_id = None
 
     def schedule_poll(delay: int = 500) -> None:
@@ -281,9 +277,9 @@ def build_attachment_tab(notebook, window, api, browser_var) -> None:
             return
         try:
             job = _attachment_service(window, api.context).status(job_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             window._learning_attachment_job_id = ""
-            status.set(f"附件状态读取失败：{exc}")
+            status.set("附件状态读取失败")
             update_controls()
             return
         apply_job(job)
@@ -297,12 +293,11 @@ def build_attachment_tab(notebook, window, api, browser_var) -> None:
                 row["id"],
                 browser=browser_var.get(),
             )
-        except Exception as exc:  # noqa: BLE001
-            status.set(f"附件下载提交失败：{exc}")
+        except Exception:  # noqa: BLE001
+            status.set("附件下载提交失败")
             update_controls()
             return
         window._learning_attachment_job_id = str(job.get("id") or "")
-        window._learning_attachment_id = row["id"]
         apply_job(job)
 
     def cancel_download() -> None:
@@ -311,8 +306,8 @@ def build_attachment_tab(notebook, window, api, browser_var) -> None:
             return
         try:
             job = _attachment_service(window, api.context).cancel(job_id)
-        except Exception as exc:  # noqa: BLE001
-            status.set(f"附件取消失败：{exc}")
+        except Exception:  # noqa: BLE001
+            status.set("附件取消失败")
             return
         apply_job(job)
 
