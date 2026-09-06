@@ -1,0 +1,53 @@
+name: Course Resume Core
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/course_resume.py'
+      - 'local-engine/headless_learning_resume.py'
+      - 'local-engine/course_workspace.py'
+      - 'local-engine/headless_learning_api.py'
+      - 'local-engine/media_library.py'
+      - 'scripts/test-local-course-resume.py'
+      - '.github/workflows/course-resume-core.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/course_resume.py'
+      - 'local-engine/headless_learning_resume.py'
+      - 'local-engine/course_workspace.py'
+      - 'local-engine/headless_learning_api.py'
+      - 'local-engine/media_library.py'
+      - 'scripts/test-local-course-resume.py'
+      - '.github/workflows/course-resume-core.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Compile contract
+        run: python -m py_compile local-engine/course_resume.py local-engine/headless_learning_resume.py scripts/test-local-course-resume.py
+
+      - name: Run resume self-test
+        run: python scripts/test-local-course-resume.py
