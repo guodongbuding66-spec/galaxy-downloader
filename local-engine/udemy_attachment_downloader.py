@@ -15,7 +15,7 @@ from course_attachment_files import (
     record_course_attachment_file,
 )
 from course_attachments import CourseAttachmentError, attachment_download_context
-from headless_browser_cookies import HeadlessBrowserCookieError, browser_cookie_source
+from headless_browser_cookies import browser_cookie_source
 from url_policy import validated_public_http_url
 from yt_dlp import YoutubeDL
 from yt_dlp.extractor.udemy import UdemyIE
@@ -128,11 +128,8 @@ def download_udemy_attachment(
 ) -> dict[str, Any]:
     try:
         context = attachment_download_context(engine_module, attachment_id)
-    except CourseAttachmentError as exc:
-        raise UdemyAttachmentDownloadError(str(exc)) from exc
-    try:
         browser_id = browser_cookie_source(browser)
-    except HeadlessBrowserCookieError as exc:
+    except CourseAttachmentError as exc:
         raise UdemyAttachmentDownloadError(str(exc)) from exc
 
     if str(context.get("provider") or "").strip().lower() != "udemy":
@@ -152,11 +149,7 @@ def download_udemy_attachment(
     origin = _udemy_origin(source_url)
     file_name = _safe_file_name(context.get("fileName") or context.get("title"), attachment)
 
-    raw_root = Path(engine_module.default_download_dir()).expanduser()
-    if raw_root.exists() and raw_root.is_symlink():
-        raise UdemyAttachmentDownloadError("download root cannot be a symbolic link")
-    root = raw_root.resolve(strict=False)
-    root.mkdir(parents=True, exist_ok=True)
+    root = Path(engine_module.default_download_dir()).expanduser().resolve(strict=False)
     relative = Path("Course Attachments") / str(context["courseItemId"]) / attachment / file_name
     final_path = (root / relative).resolve(strict=False)
     try:
@@ -171,7 +164,6 @@ def download_udemy_attachment(
     )
     cancel = cancel_event or threading.Event()
     progress = progress_hook or (lambda _downloaded, _total, _name: None)
-    downloaded = 0
 
     try:
         if cancel.is_set():
@@ -190,6 +182,7 @@ def download_udemy_attachment(
             response = ydl.urlopen(Request(download_url))
             try:
                 expected = _response_size(response)
+                downloaded = 0
                 progress(downloaded, expected, file_name)
                 with part_path.open("wb") as handle:
                     while True:
@@ -203,6 +196,10 @@ def download_udemy_attachment(
                             raise UdemyAttachmentDownloadError("attachment file exceeds size limit")
                         handle.write(chunk)
                         progress(downloaded, expected, file_name)
+                    if downloaded <= 0:
+                        raise UdemyAttachmentDownloadError("attachment download returned an empty file")
+                    if expected > 0 and downloaded < expected:
+                        raise UdemyAttachmentDownloadError("attachment download was incomplete")
                     handle.flush()
                     os.fsync(handle.fileno())
             finally:

@@ -13,7 +13,6 @@ from headless_browser_cookies import browser_cookie_source
 from headless_service import _safe_detail
 from udemy_attachment_downloader import (
     UdemyAttachmentDownloadCancelled,
-    UdemyAttachmentDownloadError,
     download_udemy_attachment,
 )
 
@@ -99,10 +98,13 @@ class CourseAttachmentDownloadService:
         if not attachment:
             raise CourseAttachmentDownloadServiceError("course attachment not found")
         with self._lock:
-            self._prune_locked()
+            # Reuse an in-flight job before applying queue/job capacity. A repeated
+            # click must not turn into a spurious 429 just because unrelated jobs
+            # filled the queue after this attachment was already accepted.
             for existing in self._jobs.values():
                 if existing.attachment_id == attachment and existing.state not in _TERMINAL_STATES:
                     return existing.public_payload()
+            self._prune_locked()
             if self._queue.full():
                 raise CourseAttachmentDownloadServiceError("attachment download queue is full")
             job = _AttachmentJob(uuid.uuid4().hex, attachment, browser_id)
@@ -140,13 +142,14 @@ class CourseAttachmentDownloadService:
         self._closed.set()
         with self._lock:
             for job in self._jobs.values():
-                if job.state not in _TERMINAL_STATES:
-                    job.cancel_event.set()
-                    if job.state == "queued":
-                        job.state = "cancelled"
-                    elif job.state == "running":
-                        job.state = "cancelling"
-                    job.updated_at = _now()
+                if job.state in _TERMINAL_STATES:
+                    continue
+                job.cancel_event.set()
+                if job.state == "queued":
+                    job.state = "cancelled"
+                else:
+                    job.state = "cancelling"
+                job.updated_at = _now()
         try:
             self._queue.put_nowait(None)
         except queue.Full:
@@ -210,19 +213,12 @@ class CourseAttachmentDownloadService:
                             current.state = "cancelled"
                             current.error = ""
                             current.updated_at = _now()
-                except UdemyAttachmentDownloadError as exc:
+                except Exception as exc:
                     with self._lock:
                         current = self._jobs.get(job_id)
                         if current is not None:
                             current.state = "failed"
                             current.error = _safe_detail(exc, 360)
-                            current.updated_at = _now()
-                except Exception:
-                    with self._lock:
-                        current = self._jobs.get(job_id)
-                        if current is not None:
-                            current.state = "failed"
-                            current.error = "attachment download failed"
                             current.updated_at = _now()
             finally:
                 self._queue.task_done()

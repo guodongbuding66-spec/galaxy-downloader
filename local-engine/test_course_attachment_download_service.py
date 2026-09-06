@@ -91,7 +91,7 @@ class CourseAttachmentDownloadServiceTests(unittest.TestCase):
             self.assertEqual(cancelled["error"], "")
             self.assertNotIn("firefox", str(cancelled))
 
-    def test_duplicate_inflight_submit_reuses_job_and_invalid_browser_is_rejected(self) -> None:
+    def test_duplicate_inflight_submit_reuses_job_before_capacity_rejection(self) -> None:
         attachment_id = "c" * 32
         release = threading.Event()
 
@@ -116,7 +116,8 @@ class CourseAttachmentDownloadServiceTests(unittest.TestCase):
             service = CourseAttachmentDownloadService(object())
             self.addCleanup(service.close)
             first = service.submit(attachment_id, browser="edge")
-            second = service.submit(attachment_id, browser="edge")
+            with patch.object(service._queue, "full", return_value=True):
+                second = service.submit(attachment_id, browser="edge")
             self.assertEqual(first["id"], second["id"])
             with self.assertRaises(Exception):
                 service.submit(attachment_id, browser="../../cookies.txt")

@@ -237,6 +237,47 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
             self.assertIsNone(attachment_file_record(engine, attachment["id"]))
             self.assertFalse(any(path.name.endswith(".part") for path in downloads.rglob("*")))
 
+    def test_truncated_content_length_is_rejected_without_partial_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            engine, downloads, attachment = self._engine_and_attachment(root)
+            response = _FakeResponse([b"abc"], content_length=10)
+
+            class FakeYDL:
+                def __init__(self, _options):
+                    pass
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return None
+
+                def urlopen(self, _request):
+                    return response
+
+            class FakeUdemyIE:
+                def __init__(self, _ydl):
+                    pass
+
+                def _download_json(self, *_args, **_kwargs):
+                    return {"asset": {"download_urls": {"File": [{"file": "https://cdn.example/truncated.zip?sig=PRIVATE"}]}}}
+
+            with patch("udemy_attachment_downloader.YoutubeDL", FakeYDL), patch(
+                "udemy_attachment_downloader.UdemyIE", FakeUdemyIE
+            ), patch(
+                "udemy_attachment_downloader.validated_public_http_url",
+                side_effect=lambda value: str(value),
+            ):
+                with self.assertRaisesRegex(UdemyAttachmentDownloadError, "incomplete") as caught:
+                    download_udemy_attachment(engine, attachment["id"])
+            self.assertNotIn("PRIVATE", str(caught.exception))
+            self.assertTrue(response.closed)
+            self.assertIsNone(attachment_file_record(engine, attachment["id"]))
+            self.assertFalse(any(path.name.endswith(".part") for path in downloads.rglob("*")))
+            saved = [path for path in downloads.rglob("*") if path.is_file() and path.name != "lesson.mp4"]
+            self.assertEqual(saved, [])
+
     def test_precancel_never_resolves_provider_or_creates_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
