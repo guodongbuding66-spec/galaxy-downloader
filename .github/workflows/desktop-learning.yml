@@ -5,11 +5,13 @@ on:
     paths:
       - 'local-engine/desktop_learning.py'
       - 'local-engine/desktop_learning_attachments.py'
+      - 'local-engine/desktop_learning_navigation.py'
       - 'local-engine/desktop_hooks.py'
       - 'local-engine/desktop_course_download.py'
       - 'local-engine/course_attachment_download_service.py'
       - 'local-engine/test_desktop_learning.py'
       - 'local-engine/test_desktop_learning_attachments.py'
+      - 'local-engine/test_desktop_learning_navigation.py'
       - 'local-engine/test_desktop_hooks.py'
       - 'scripts/test-local-desktop-learning.py'
       - '.github/workflows/desktop-learning.yml'
@@ -18,11 +20,13 @@ on:
     paths:
       - 'local-engine/desktop_learning.py'
       - 'local-engine/desktop_learning_attachments.py'
+      - 'local-engine/desktop_learning_navigation.py'
       - 'local-engine/desktop_hooks.py'
       - 'local-engine/desktop_course_download.py'
       - 'local-engine/course_attachment_download_service.py'
       - 'local-engine/test_desktop_learning.py'
       - 'local-engine/test_desktop_learning_attachments.py'
+      - 'local-engine/test_desktop_learning_navigation.py'
       - 'local-engine/test_desktop_hooks.py'
       - 'scripts/test-local-desktop-learning.py'
       - '.github/workflows/desktop-learning.yml'
@@ -45,13 +49,16 @@ jobs:
           local-engine/desktop_hooks.py
           local-engine/desktop_course_download.py
           local-engine/course_attachment_download_service.py
+          local-engine/desktop_learning_navigation.py
           local-engine/desktop_learning_attachments.py
           local-engine/desktop_learning.py
           local-engine/test_desktop_hooks.py
           local-engine/test_desktop_learning.py
           local-engine/test_desktop_learning_attachments.py
+          local-engine/test_desktop_learning_navigation.py
           scripts/test-local-desktop-learning.py
       - run: python local-engine/test_desktop_hooks.py
       - run: python local-engine/test_desktop_learning.py
       - run: python local-engine/test_desktop_learning_attachments.py
+      - run: python local-engine/test_desktop_learning_navigation.py
       - run: python scripts/test-local-desktop-learning.py
