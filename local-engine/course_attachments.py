@@ -216,20 +216,29 @@ def replace_course_item_attachments(
             """,
             (item, clean_provider, course_id, lecture_id),
         )
-        connection.execute("DELETE FROM course_item_attachments WHERE course_item_id=?", (item,))
+
         rendered: list[dict[str, Any]] = []
+        desired_ids: list[str] = []
         for position, entry in enumerate(inventory, start=1):
-            attachment_id = existing.get(entry["providerAttachmentId"]) or uuid.uuid4().hex
+            provider_attachment_id = entry["providerAttachmentId"]
+            desired_ids.append(provider_attachment_id)
+            attachment_id = existing.get(provider_attachment_id) or uuid.uuid4().hex
             connection.execute(
                 """
                 INSERT INTO course_item_attachments(
                     id, course_item_id, provider_attachment_id, title, file_name, asset_type, position
                 ) VALUES(?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(course_item_id, provider_attachment_id) DO UPDATE SET
+                    title=excluded.title,
+                    file_name=excluded.file_name,
+                    asset_type=excluded.asset_type,
+                    position=excluded.position,
+                    updated_at=CURRENT_TIMESTAMP
                 """,
                 (
                     attachment_id,
                     item,
-                    entry["providerAttachmentId"],
+                    provider_attachment_id,
                     entry["title"],
                     entry["fileName"],
                     entry["assetType"],
@@ -244,6 +253,15 @@ def replace_course_item_attachments(
                     "position": position,
                 }
             )
+
+        if desired_ids:
+            placeholders = ",".join("?" for _ in desired_ids)
+            connection.execute(
+                f"DELETE FROM course_item_attachments WHERE course_item_id=? AND provider_attachment_id NOT IN ({placeholders})",
+                [item, *desired_ids],
+            )
+        else:
+            connection.execute("DELETE FROM course_item_attachments WHERE course_item_id=?", (item,))
         connection.commit()
     return {
         "courseItemId": item,
