@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
@@ -221,10 +222,8 @@ def download_udemy_attachment(
                 size_bytes=downloaded,
             )
         except Exception:
-            try:
+            with suppress(OSError):
                 final_path.unlink(missing_ok=True)
-            except OSError:
-                pass
             raise
         progress(downloaded, downloaded, file_name)
         return {
@@ -234,16 +233,12 @@ def download_udemy_attachment(
             "fileName": file_name,
         }
     except UdemyAttachmentDownloadCancelled:
-        try:
+        with suppress(OSError):
             part_path.unlink(missing_ok=True)
-        except OSError:
-            pass
         raise
     except Exception as exc:
-        try:
+        with suppress(OSError):
             part_path.unlink(missing_ok=True)
-        except OSError:
-            pass
         if isinstance(exc, UdemyAttachmentDownloadError):
             raise
         raise UdemyAttachmentDownloadError("authorized attachment download failed") from exc
