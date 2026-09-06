@@ -112,6 +112,7 @@ def _connect(engine_module) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS course_item_attachment_context (
             course_item_id TEXT PRIMARY KEY REFERENCES course_items(id) ON DELETE CASCADE,
             provider TEXT NOT NULL,
+            provider_course_id TEXT NOT NULL,
             provider_lecture_id TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -173,11 +174,13 @@ def replace_course_item_attachments(
     course_item_id: object,
     *,
     provider: object,
+    provider_course_id: object,
     provider_lecture_id: object,
     attachments: object,
 ) -> dict[str, Any]:
     item = _clean_id(course_item_id, "course item")
     clean_provider = _clean_provider(provider)
+    course_id = _clean_provider_id(provider_course_id, "provider course id")
     lecture_id = _clean_provider_id(provider_lecture_id, "provider lecture id")
     inventory = normalize_attachment_inventory(attachments)
 
@@ -191,14 +194,16 @@ def replace_course_item_attachments(
         existing = {str(row["provider_attachment_id"]): str(row["id"]) for row in existing_rows}
         connection.execute(
             """
-            INSERT INTO course_item_attachment_context(course_item_id, provider, provider_lecture_id)
-            VALUES(?, ?, ?)
+            INSERT INTO course_item_attachment_context(
+                course_item_id, provider, provider_course_id, provider_lecture_id
+            ) VALUES(?, ?, ?, ?)
             ON CONFLICT(course_item_id) DO UPDATE SET
                 provider=excluded.provider,
+                provider_course_id=excluded.provider_course_id,
                 provider_lecture_id=excluded.provider_lecture_id,
                 updated_at=CURRENT_TIMESTAMP
             """,
-            (item, clean_provider, lecture_id),
+            (item, clean_provider, course_id, lecture_id),
         )
         connection.execute("DELETE FROM course_item_attachments WHERE course_item_id=?", (item,))
         rendered: list[dict[str, Any]] = []
@@ -286,7 +291,7 @@ def attachment_download_context(engine_module, attachment_id: object) -> dict[st
         row = connection.execute(
             """
             SELECT a.id, a.course_item_id, a.provider_attachment_id, a.title, a.file_name,
-                   a.asset_type, c.provider, c.provider_lecture_id
+                   a.asset_type, c.provider, c.provider_course_id, c.provider_lecture_id
             FROM course_item_attachments a
             JOIN course_item_attachment_context c ON c.course_item_id=a.course_item_id
             WHERE a.id=?
@@ -299,6 +304,7 @@ def attachment_download_context(engine_module, attachment_id: object) -> dict[st
         "id": str(row["id"]),
         "courseItemId": str(row["course_item_id"]),
         "provider": str(row["provider"]),
+        "providerCourseId": str(row["provider_course_id"]),
         "providerLectureId": str(row["provider_lecture_id"]),
         "providerAttachmentId": str(row["provider_attachment_id"]),
         "title": str(row["title"]),
