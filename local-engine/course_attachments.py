@@ -16,6 +16,9 @@ MAX_ATTACHMENT_TYPE_CHARS = 60
 _ID_RE = re.compile(r"^[a-f0-9]{32}$")
 _PROVIDER_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
 _PROVIDER_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
+_UDEMY_COURSE_RE = re.compile(r"^udemy:course:\d{1,40}$")
+_UDEMY_LECTURE_RE = re.compile(r"^udemy:lecture:\d{1,40}$")
+_UDEMY_ASSET_RE = re.compile(r"^udemy:asset:\d{1,40}$")
 
 
 class CourseAttachmentError(RuntimeError):
@@ -33,6 +36,8 @@ def _clean_provider(value: object) -> str:
     clean = str(value or "").strip().lower()
     if not _PROVIDER_RE.fullmatch(clean):
         raise CourseAttachmentError("invalid attachment provider")
+    if clean != "udemy":
+        raise CourseAttachmentError("unsupported attachment provider")
     return clean
 
 
@@ -183,6 +188,12 @@ def replace_course_item_attachments(
     course_id = _clean_provider_id(provider_course_id, "provider course id")
     lecture_id = _clean_provider_id(provider_lecture_id, "provider lecture id")
     inventory = normalize_attachment_inventory(attachments)
+    if not _UDEMY_COURSE_RE.fullmatch(course_id):
+        raise CourseAttachmentError("invalid Udemy provider course id")
+    if not _UDEMY_LECTURE_RE.fullmatch(lecture_id):
+        raise CourseAttachmentError("invalid Udemy provider lecture id")
+    if any(not _UDEMY_ASSET_RE.fullmatch(entry["providerAttachmentId"]) for entry in inventory):
+        raise CourseAttachmentError("invalid Udemy provider attachment id")
 
     with closing(_connect(engine_module)) as connection:
         if connection.execute("SELECT 1 FROM course_items WHERE id=?", (item,)).fetchone() is None:
