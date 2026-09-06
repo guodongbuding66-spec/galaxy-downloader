@@ -20,7 +20,7 @@ class CourseAttachmentDownloadServiceTests(unittest.TestCase):
             if status["state"] in states:
                 return status
             time.sleep(0.01)
-        self.fail(f"job did not reach {states}: {service.status(job_id)}")
+        raise AssertionError(f"job did not reach {states}: {service.status(job_id)}")
 
     def test_submit_progress_completion_and_public_payload_are_safe(self) -> None:
         attachment_id = "a" * 32
