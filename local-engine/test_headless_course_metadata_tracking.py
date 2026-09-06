@@ -59,6 +59,20 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                         "automatic_captions": {
                             "zh-CN": [{"url": "https://cdn.example/auto.vtt?sig=SECRET"}]
                         },
+                        "_galaxyCourseAttachmentInventory": {
+                            "provider": "udemy",
+                            "providerCourseId": "udemy:course:456",
+                            "providerLectureId": "udemy:lecture:12345",
+                            "attachments": [
+                                {
+                                    "providerAttachmentId": "udemy:asset:7001",
+                                    "title": "Starter Files",
+                                    "fileName": "../../starter.zip",
+                                    "assetType": "File",
+                                    "downloadUrl": "https://cdn.example/starter.zip?sig=SECRET",
+                                }
+                            ],
+                        },
                         "description": "SECRET should never be retained",
                     },
                 }
@@ -79,6 +93,18 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                             {"language": "en", "kind": "manual"},
                             {"language": "zh-CN", "kind": "automatic"},
                         ],
+                        "attachmentInventory": {
+                            "providerCourseId": "udemy:course:456",
+                            "providerLectureId": "udemy:lecture:12345",
+                            "attachments": [
+                                {
+                                    "providerAttachmentId": "udemy:asset:7001",
+                                    "title": "Starter Files",
+                                    "fileName": "starter.zip",
+                                    "assetType": "File",
+                                }
+                            ],
+                        },
                     }
                 },
             )
@@ -159,6 +185,7 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
             self.assertEqual(metadata["sectionTitle"], "")
             self.assertEqual(metadata["sectionPosition"], 0)
             self.assertEqual(metadata["subtitleTracks"], [])
+            self.assertNotIn("attachmentInventory", metadata)
 
 
 if __name__ == "__main__":

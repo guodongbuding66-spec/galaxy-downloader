@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import headless_service
+from course_attachments import attachment_download_context, enrich_course_item_attachments
 from course_download_sessions import (
     CourseDownloadSessionError,
     discard_course_download_outputs,
@@ -96,6 +97,8 @@ class CourseMetadataSyncTests(unittest.TestCase):
         chapter: str = "",
         chapter_number: int = 0,
         playlist_index: int = 0,
+        lecture_id: str = "",
+        attachments: list[dict[str, str]] | None = None,
     ) -> None:
         options = headless_service._download_options(
             {"_outputTrackingId": tracking_id},
@@ -106,32 +109,38 @@ class CourseMetadataSyncTests(unittest.TestCase):
         output_hooks = options.get("post_hooks") or []
         self.assertEqual(len(metadata_hooks), 1)
         self.assertEqual(len(output_hooks), 1)
+        info = {
+            "filepath": str(output),
+            "extractor_key": "Udemy",
+            "id": asset_id,
+            "title": title,
+            "chapter": chapter,
+            "chapter_number": chapter_number,
+            "playlist_index": playlist_index,
+            "url": "https://cdn.example/media?sig=PRIVATE",
+            "http_headers": {"Authorization": "PRIVATE"},
+            "subtitles": {"en": [{"url": "https://cdn.example/sub.vtt?sig=PRIVATE"}]},
+            "automatic_captions": {
+                "zh-CN": [{"url": "https://cdn.example/auto.vtt?sig=PRIVATE"}]
+            },
+        }
+        if lecture_id:
+            info["_galaxyCourseAttachmentInventory"] = {
+                "provider": "udemy",
+                "providerCourseId": "udemy:course:456",
+                "providerLectureId": f"udemy:lecture:{lecture_id}",
+                "attachments": list(attachments or []),
+            }
         metadata_hooks[0](
             {
                 "status": "finished",
                 "postprocessor": "MoveFiles",
-                "info_dict": {
-                    "filepath": str(output),
-                    "extractor_key": "Udemy",
-                    "id": asset_id,
-                    "title": title,
-                    "chapter": chapter,
-                    "chapter_number": chapter_number,
-                    "playlist_index": playlist_index,
-                    "url": "https://cdn.example/media?sig=PRIVATE",
-                    "http_headers": {"Authorization": "PRIVATE"},
-                    "subtitles": {
-                        "en": [{"url": "https://cdn.example/sub.vtt?sig=PRIVATE"}]
-                    },
-                    "automatic_captions": {
-                        "zh-CN": [{"url": "https://cdn.example/auto.vtt?sig=PRIVATE"}]
-                    },
-                },
+                "info_dict": info,
             }
         )
         output_hooks[0](str(output))
 
-    def test_two_lessons_sync_into_real_sections_provider_titles_and_safe_subtitles(self) -> None:
+    def test_two_lessons_sync_into_real_sections_subtitles_and_attachment_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             engine, downloads = self._engine(root)
@@ -151,6 +160,14 @@ class CourseMetadataSyncTests(unittest.TestCase):
                 chapter="Getting Started",
                 chapter_number=1,
                 playlist_index=1,
+                lecture_id="1001",
+                attachments=[{
+                    "providerAttachmentId": "udemy:asset:7001",
+                    "title": "Starter Files",
+                    "fileName": "starter.zip",
+                    "assetType": "File",
+                    "downloadUrl": "https://cdn.example/starter.zip?sig=PRIVATE",
+                }],
             )
             self._record_lesson(
                 downloads,
@@ -161,6 +178,8 @@ class CourseMetadataSyncTests(unittest.TestCase):
                 chapter="Python Basics",
                 chapter_number=2,
                 playlist_index=2,
+                lecture_id="1002",
+                attachments=[],
             )
 
             result = sync_course_download_outputs(engine, job_id)
@@ -172,6 +191,7 @@ class CourseMetadataSyncTests(unittest.TestCase):
             self.assertEqual([section["position"] for section in sections], [1, 2])
             items = enrich_course_items(engine, list_course_items(engine, course_id))
             items = enrich_course_item_subtitles(engine, items)
+            items = enrich_course_item_attachments(engine, items)
             self.assertEqual([item["title"] for item in items], ["Welcome to the Course", "Variables and Types"])
             self.assertEqual(items[0]["providerItemId"], "udemy:asset:501")
             self.assertEqual(items[0]["sectionTitle"], "Getting Started")
@@ -184,8 +204,18 @@ class CourseMetadataSyncTests(unittest.TestCase):
                     {"language": "zh-CN", "kind": "automatic"},
                 ],
             )
+            self.assertEqual(len(items[0]["attachments"]), 1)
+            attachment = items[0]["attachments"][0]
+            self.assertEqual(attachment["providerAttachmentId"], "udemy:asset:7001")
+            self.assertEqual(attachment["fileName"], "starter.zip")
+            internal = attachment_download_context(engine, attachment["id"])
+            self.assertEqual(internal["providerCourseId"], "udemy:course:456")
+            self.assertEqual(internal["providerLectureId"], "udemy:lecture:1001")
+            self.assertNotIn("attachments", items[1])
             self.assertNotIn("PRIVATE", str(items))
             self.assertNotIn("url", str(items).lower())
+            self.assertNotIn("providerCourseId", str(items))
+            self.assertNotIn("providerLectureId", str(items))
             self.assertEqual(tracked_output_paths(tracking_id), [])
             self.assertEqual(tracked_course_metadata(tracking_id), {})
 
@@ -211,6 +241,13 @@ class CourseMetadataSyncTests(unittest.TestCase):
                 chapter="Recovery",
                 chapter_number=3,
                 playlist_index=5,
+                lecture_id="2001",
+                attachments=[{
+                    "providerAttachmentId": "udemy:asset:8001",
+                    "title": "Recovery Notes",
+                    "fileName": "recovery.pdf",
+                    "assetType": "File",
+                }],
             )
 
             with patch("course_download_sessions.sync_media_library", side_effect=RuntimeError("temporary media index failure")):
@@ -221,15 +258,22 @@ class CourseMetadataSyncTests(unittest.TestCase):
             retained = tracked_course_metadata(tracking_id)[output.resolve()]
             self.assertEqual(retained["providerItemId"], "udemy:asset:601")
             self.assertEqual(retained["subtitleTracks"][0], {"language": "en", "kind": "manual"})
+            self.assertEqual(retained["attachmentInventory"]["providerCourseId"], "udemy:course:456")
+            self.assertEqual(
+                retained["attachmentInventory"]["attachments"][0]["providerAttachmentId"],
+                "udemy:asset:8001",
+            )
             self.assertNotIn("PRIVATE", str(retained))
 
             recovered = sync_course_download_outputs(engine, job_id)
             self.assertEqual(recovered["syncState"], "synced")
             items = enrich_course_items(engine, list_course_items(engine, course_id))
             items = enrich_course_item_subtitles(engine, items)
+            items = enrich_course_item_attachments(engine, items)
             self.assertEqual(items[0]["title"], "Recoverable Lesson")
             self.assertEqual(items[0]["sectionTitle"], "Recovery")
             self.assertEqual(items[0]["subtitleTracks"][1], {"language": "zh-CN", "kind": "automatic"})
+            self.assertEqual(items[0]["attachments"][0]["title"], "Recovery Notes")
             self.assertEqual(tracked_output_paths(tracking_id), [])
             self.assertEqual(tracked_course_metadata(tracking_id), {})
 
@@ -250,6 +294,8 @@ class CourseMetadataSyncTests(unittest.TestCase):
                 chapter="Partial",
                 chapter_number=1,
                 playlist_index=1,
+                lecture_id="3001",
+                attachments=[],
             )
             self.assertTrue(tracked_output_paths(tracking_id))
             self.assertTrue(tracked_course_metadata(tracking_id))

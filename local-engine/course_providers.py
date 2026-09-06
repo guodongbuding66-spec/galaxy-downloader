@@ -103,9 +103,12 @@ def build_course_provider_plan(
     provider: object = "auto",
     browser: object = "none",
     include_subtitles: object = True,
+    include_attachments: object = True,
 ) -> dict[str, Any]:
     if not isinstance(include_subtitles, bool):
         raise CourseProviderError("includeSubtitles 必须是布尔值")
+    if not isinstance(include_attachments, bool):
+        raise CourseProviderError("includeAttachments 必须是布尔值")
 
     url = _validated_course_url(source_url)
     detected = _detect_provider_from_validated_url(url)
@@ -122,6 +125,7 @@ def build_course_provider_plan(
         "includeAudio": True,
         "includeSubtitle": include_subtitles,
         "subtitleMode": "both" if include_subtitles else "none",
+        "includeCourseAttachments": include_attachments,
         "splitChapters": False,
         "browser": browser_id,
         "collectionMode": "all",

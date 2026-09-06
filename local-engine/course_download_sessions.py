@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from course_attachments import CourseAttachmentError, replace_course_item_attachments
 from course_structure import CourseStructureError, set_course_item_metadata, upsert_course_section
 from course_subtitles import CourseSubtitleError, set_course_item_subtitle_tracks
 from course_workspace import CourseWorkspaceError, add_media_to_course
@@ -294,6 +295,17 @@ def _apply_course_metadata(
     if "subtitleTracks" in metadata:
         set_course_item_subtitle_tracks(engine_module, course_item_id, subtitle_tracks)
 
+    attachment_inventory = metadata.get("attachmentInventory")
+    if isinstance(attachment_inventory, dict):
+        replace_course_item_attachments(
+            engine_module,
+            course_item_id,
+            provider=provider,
+            provider_course_id=attachment_inventory.get("providerCourseId"),
+            provider_lecture_id=attachment_inventory.get("providerLectureId"),
+            attachments=attachment_inventory.get("attachments") or [],
+        )
+
 
 def sync_course_download_outputs(engine_module, job_id: object) -> dict[str, Any]:
     clean = _clean_id(job_id, "job")
@@ -338,7 +350,13 @@ def sync_course_download_outputs(engine_module, job_id: object) -> dict[str, Any
                     provider=provider,
                     metadata=metadata_by_output.get(output),
                 )
-            except (CourseWorkspaceError, CourseStructureError, CourseSubtitleError, ValueError) as exc:
+            except (
+                CourseAttachmentError,
+                CourseWorkspaceError,
+                CourseStructureError,
+                CourseSubtitleError,
+                ValueError,
+            ) as exc:
                 raise CourseDownloadSessionError(str(exc)) from exc
             synced += 1
     except Exception as exc:

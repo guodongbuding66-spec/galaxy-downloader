@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import headless_service as _service
+from course_attachments import CourseAttachmentError, normalize_attachment_inventory
 from course_subtitles import (
     CourseSubtitleError,
     MAX_SUBTITLE_TRACKS_PER_ITEM,
@@ -16,6 +17,8 @@ from headless_output_tracking import MAX_OUTPUTS_PER_SESSION, MAX_TRACKING_SESSI
 
 _TRACKING_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 _PROVIDER_ITEM_RE = re.compile(r"^[A-Za-z0-9._:-]{1,120}$")
+_UDEMY_COURSE_RE = re.compile(r"^udemy:course:\d{1,40}$")
+_UDEMY_LECTURE_RE = re.compile(r"^udemy:lecture:\d{1,40}$")
 _LOCK = threading.RLock()
 _METADATA: OrderedDict[str, OrderedDict[str, dict[str, Any]]] = OrderedDict()
 
@@ -105,6 +108,29 @@ def _safe_subtitle_tracks(info: dict[str, Any]) -> list[dict[str, str]]:
     return tracks
 
 
+def _safe_attachment_inventory(info: dict[str, Any]) -> dict[str, Any] | None:
+    raw = info.get("_galaxyCourseAttachmentInventory")
+    if not isinstance(raw, dict):
+        return None
+    if str(raw.get("provider") or "").strip().lower() != "udemy":
+        return None
+    provider_course_id = str(raw.get("providerCourseId") or "").strip().lower()
+    provider_lecture_id = str(raw.get("providerLectureId") or "").strip().lower()
+    if not _UDEMY_COURSE_RE.fullmatch(provider_course_id):
+        return None
+    if not _UDEMY_LECTURE_RE.fullmatch(provider_lecture_id):
+        return None
+    try:
+        attachments = normalize_attachment_inventory(raw.get("attachments") or [])
+    except CourseAttachmentError:
+        return None
+    return {
+        "providerCourseId": provider_course_id,
+        "providerLectureId": provider_lecture_id,
+        "attachments": attachments,
+    }
+
+
 def _udemy_metadata(info: dict[str, Any]) -> dict[str, Any] | None:
     extractor = str(info.get("extractor_key") or info.get("extractor") or "").strip().lower()
     if extractor != "udemy":
@@ -122,10 +148,11 @@ def _udemy_metadata(info: dict[str, Any]) -> dict[str, Any] | None:
     chapter_number = _bounded_positive_int(info.get("chapter_number"))
     playlist_index = _bounded_positive_int(info.get("playlist_index"))
     subtitle_tracks = _safe_subtitle_tracks(info)
+    attachment_inventory = _safe_attachment_inventory(info)
 
-    if not any((provider_item_id, title, chapter, chapter_number, playlist_index, subtitle_tracks)):
+    if not any((provider_item_id, title, chapter, chapter_number, playlist_index, subtitle_tracks, attachment_inventory)):
         return None
-    return {
+    metadata = {
         "provider": "udemy",
         "providerItemId": provider_item_id,
         "providerTitle": title,
@@ -134,6 +161,9 @@ def _udemy_metadata(info: dict[str, Any]) -> dict[str, Any] | None:
         "sectionPosition": chapter_number,
         "subtitleTracks": subtitle_tracks,
     }
+    if attachment_inventory is not None:
+        metadata["attachmentInventory"] = attachment_inventory
+    return metadata
 
 
 def _ensure_session_locked(tracking_id: str) -> OrderedDict[str, dict[str, Any]]:
