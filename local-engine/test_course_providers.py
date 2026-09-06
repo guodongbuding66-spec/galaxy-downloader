@@ -8,6 +8,7 @@ from course_providers import (
     build_course_provider_plan,
     detect_course_provider,
     list_course_providers,
+    resolve_course_provider,
 )
 
 
@@ -28,6 +29,7 @@ class CourseProviderTests(unittest.TestCase):
         self.assertTrue(udemy["supportsBrowserCookies"])
         self.assertTrue(udemy["supportsAttachments"])
         self.assertTrue(udemy["downloadAvailable"])
+        self.assertEqual(udemy["downloadUnavailableReason"], "")
         self.assertFalse(udemy["drmBypassSupported"])
         self.assertEqual(hotmart["status"], "discovery")
         self.assertTrue(hotmart["requiresAuthorizedSession"])
@@ -35,6 +37,7 @@ class CourseProviderTests(unittest.TestCase):
         self.assertFalse(hotmart["supportsSubtitles"])
         self.assertFalse(hotmart["supportsAttachments"])
         self.assertFalse(hotmart["downloadAvailable"])
+        self.assertIn("授权下载适配器尚未实现", hotmart["downloadUnavailableReason"])
         self.assertFalse(hotmart["drmBypassSupported"])
 
     def test_detects_standard_udemy_course_url(self) -> None:
@@ -77,12 +80,52 @@ class CourseProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(CourseProviderError, "course"):
             detect_course_provider("https://www.udemy.com/home/my-courses/learning/")
 
+    def test_resolve_udemy_returns_safe_capabilities_without_engine_payload(self) -> None:
+        resolution = resolve_course_provider(
+            "https://www.udemy.com/course/python-bootcamp/",
+            provider="auto",
+        )
+        self.assertEqual(resolution["provider"], "udemy")
+        self.assertEqual(resolution["providerName"], "Udemy")
+        self.assertTrue(resolution["downloadAvailable"])
+        self.assertTrue(resolution["supportsBrowserCookies"])
+        self.assertTrue(resolution["supportsSubtitles"])
+        self.assertTrue(resolution["supportsAttachments"])
+        self.assertEqual(resolution["downloadUnavailableReason"], "")
+        self.assertFalse(resolution["drmBypassSupported"])
+        self.assertNotIn("enginePayload", resolution)
+        self.assertNotIn("browser", resolution)
+
+    def test_resolve_hotmart_returns_discovery_capabilities_without_download_plan(self) -> None:
+        resolution = resolve_course_provider(
+            "https://my-course.club.hotmart.com/lesson/abc/start",
+        )
+        self.assertEqual(resolution["provider"], "hotmart")
+        self.assertEqual(resolution["providerName"], "Hotmart")
+        self.assertEqual(resolution["status"], "discovery")
+        self.assertFalse(resolution["downloadAvailable"])
+        self.assertFalse(resolution["supportsBrowserCookies"])
+        self.assertFalse(resolution["supportsSubtitles"])
+        self.assertFalse(resolution["supportsAttachments"])
+        self.assertIn("授权下载适配器尚未实现", resolution["downloadUnavailableReason"])
+        self.assertFalse(resolution["drmBypassSupported"])
+        self.assertNotIn("enginePayload", resolution)
+        self.assertNotIn("browser", resolution)
+
+    def test_resolve_rejects_explicit_provider_mismatch(self) -> None:
+        with self.assertRaises(CourseProviderError):
+            resolve_course_provider(
+                "https://www.udemy.com/course/python-bootcamp/",
+                provider="hotmart",
+            )
+
     def test_builds_engine_payload_with_browser_cookie_source(self) -> None:
         plan = build_course_provider_plan(
             "https://www.udemy.com/course/python-bootcamp/",
             browser="chrome",
         )
         self.assertEqual(plan["provider"], "udemy")
+        self.assertTrue(plan["downloadAvailable"])
         self.assertFalse(plan["drmBypassSupported"])
         self.assertEqual(plan["enginePayload"]["browser"], "chrome")
         self.assertTrue(plan["enginePayload"]["includeSubtitle"])
