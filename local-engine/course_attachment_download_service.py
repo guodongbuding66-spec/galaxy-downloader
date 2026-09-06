@@ -4,6 +4,7 @@ import queue
 import threading
 import uuid
 from collections import OrderedDict
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -151,10 +152,8 @@ class CourseAttachmentDownloadService:
                 else:
                     job.state = "cancelling"
                 job.updated_at = _now()
-        try:
+        with suppress(queue.Full):
             self._queue.put_nowait(None)
-        except queue.Full:
-            pass
         if self._worker.is_alive():
             self._worker.join(timeout=3.0)
 
