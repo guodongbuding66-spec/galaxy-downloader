@@ -85,6 +85,7 @@ class CourseAttachmentTests(unittest.TestCase):
                 engine,
                 item_id,
                 provider="udemy",
+                provider_course_id="udemy:course:456",
                 provider_lecture_id="udemy:lecture:12345",
                 attachments=[
                     {
@@ -108,6 +109,7 @@ class CourseAttachmentTests(unittest.TestCase):
                 engine,
                 item_id,
                 provider="udemy",
+                provider_course_id="udemy:course:456",
                 provider_lecture_id="udemy:lecture:12345",
                 attachments=[{
                     "providerAttachmentId": "udemy:asset:501",
@@ -120,16 +122,20 @@ class CourseAttachmentTests(unittest.TestCase):
             public = list_course_item_attachments(engine, [item_id])[item_id]
             self.assertEqual(len(public), 1)
             self.assertEqual(public[0]["title"], "Starter Files v2")
+            self.assertNotIn("providerCourseId", public[0])
             self.assertNotIn("providerLectureId", public[0])
             self.assertNotIn("url", str(public).lower())
 
             context = attachment_download_context(engine, first_id)
+            self.assertEqual(context["providerCourseId"], "udemy:course:456")
             self.assertEqual(context["providerLectureId"], "udemy:lecture:12345")
             self.assertEqual(context["providerAttachmentId"], "udemy:asset:501")
             self.assertEqual(context["provider"], "udemy")
 
             enriched = enrich_course_item_attachments(engine, [{"id": item_id, "title": "Lesson"}])
             self.assertEqual(enriched[0]["attachments"], public)
+            self.assertNotIn("providerCourseId", str(enriched))
+            self.assertNotIn("providerLectureId", str(enriched))
 
     def test_empty_inventory_clears_stale_rows_but_keeps_authorized_context(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -140,6 +146,7 @@ class CourseAttachmentTests(unittest.TestCase):
                 engine,
                 item_id,
                 provider="udemy",
+                provider_course_id="udemy:course:456",
                 provider_lecture_id="udemy:lecture:99",
                 attachments=[{
                     "providerAttachmentId": "udemy:asset:100",
@@ -153,6 +160,7 @@ class CourseAttachmentTests(unittest.TestCase):
                 engine,
                 item_id,
                 provider="udemy",
+                provider_course_id="udemy:course:456",
                 provider_lecture_id="udemy:lecture:99",
                 attachments=[],
             )
@@ -170,6 +178,7 @@ class CourseAttachmentTests(unittest.TestCase):
                 engine,
                 item_id,
                 provider="udemy",
+                provider_course_id="udemy:course:456",
                 provider_lecture_id="udemy:lecture:88",
                 attachments=[{
                     "providerAttachmentId": "udemy:asset:200",
@@ -194,6 +203,16 @@ class CourseAttachmentTests(unittest.TestCase):
                     engine,
                     item_id,
                     provider="udemy",
+                    provider_course_id="https://udemy.com/course/456?token=SECRET",
+                    provider_lecture_id="udemy:lecture:12",
+                    attachments=[],
+                )
+            with self.assertRaises(CourseAttachmentError):
+                replace_course_item_attachments(
+                    engine,
+                    item_id,
+                    provider="udemy",
+                    provider_course_id="udemy:course:456",
                     provider_lecture_id="https://udemy.com/lecture/12?token=SECRET",
                     attachments=[],
                 )
