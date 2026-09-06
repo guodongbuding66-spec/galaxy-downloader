@@ -188,36 +188,50 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         handler.do_GET()
         self.assertEqual(handler.response, (401, {"ok": False, "error": "unauthorized"}))
 
-    def test_post_resolves_udemy_plan_without_submitting(self) -> None:
+    def test_post_resolves_udemy_provider_without_building_download_plan(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers/resolve"
         handler.payload = {
             "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
             "browser": "chrome",
             "includeSubtitles": True,
+            "cookie": "must-not-pass-through",
         }
         handler.do_POST()
         status, payload = handler.response
         self.assertEqual(status, 200)
-        self.assertEqual(payload["plan"]["provider"], "udemy")
-        self.assertEqual(payload["plan"]["enginePayload"]["browser"], "chrome")
+        resolution = payload["resolution"]
+        self.assertEqual(resolution["provider"], "udemy")
+        self.assertTrue(resolution["downloadAvailable"])
+        self.assertTrue(resolution["supportsBrowserCookies"])
+        self.assertNotIn("plan", payload)
+        self.assertNotIn("enginePayload", resolution)
+        self.assertNotIn("browser", resolution)
         self.assertEqual(handler.coordinator.submissions, [])
         self.assertEqual(handler.learning_api.created, [])
 
-    def test_post_hotmart_resolve_is_typed_discovery_only_error(self) -> None:
+    def test_post_hotmart_resolve_returns_discovery_metadata(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers/resolve"
         handler.payload = {
             "sourceUrl": "https://my-course.club.hotmart.com/lesson/abc/start",
             "provider": "auto",
             "browser": "chrome",
+            "cookieFile": "../../cookies.txt",
         }
         handler.do_POST()
         status, payload = handler.response
-        self.assertEqual(status, 400)
-        self.assertEqual(payload["code"], "LEARNING_COURSE_PROVIDER_INVALID")
-        self.assertIn("Hotmart", payload["error"])
-        self.assertIn("授权下载适配器尚未实现", payload["error"])
+        self.assertEqual(status, 200)
+        resolution = payload["resolution"]
+        self.assertEqual(resolution["provider"], "hotmart")
+        self.assertEqual(resolution["status"], "discovery")
+        self.assertFalse(resolution["downloadAvailable"])
+        self.assertFalse(resolution["supportsBrowserCookies"])
+        self.assertIn("Hotmart", resolution["downloadUnavailableReason"])
+        self.assertIn("授权下载适配器尚未实现", resolution["downloadUnavailableReason"])
+        self.assertNotIn("plan", payload)
+        self.assertNotIn("enginePayload", resolution)
+        self.assertNotIn("browser", resolution)
         self.assertEqual(handler.learning_api.created, [])
         self.assertEqual(handler.coordinator.submissions, [])
 
