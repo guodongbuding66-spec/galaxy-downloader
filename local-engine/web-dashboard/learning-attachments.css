@@ -1,0 +1,18 @@
+.learning-attachment-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.learning-attachment-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+.learning-attachment-head h3 { margin: 0 0 4px; font-size: 15px; }
+.learning-attachment-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.learning-attachment-notice { margin-bottom: 10px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 12px; background: var(--surface-subtle, rgba(127,127,127,.05)); }
+.learning-attachment-list { display: grid; gap: 8px; }
+.learning-attachment-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.learning-attachment-copy { display: grid; gap: 3px; min-width: 0; }
+.learning-attachment-copy strong { font-size: 13px; overflow-wrap: anywhere; }
+.learning-attachment-copy span, .learning-attachment-copy small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.learning-attachment-state { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.learning-attachment-state > span { color: var(--muted); font-size: 12px; max-width: 230px; text-align: right; overflow-wrap: anywhere; }
+.learning-attachment-done { color: inherit !important; font-weight: 600; }
+@media (max-width: 760px) {
+  .learning-attachment-head, .learning-attachment-row, .learning-attachment-state { align-items: flex-start; flex-direction: column; }
+  .learning-attachment-state { width: 100%; }
+  .learning-attachment-state > span { max-width: none; text-align: left; }
+}
