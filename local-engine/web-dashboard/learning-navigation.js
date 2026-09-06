@@ -4,6 +4,7 @@
   const $ = (id) => document.getElementById(id)
   const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]))
   const idPattern = /^[a-f0-9]{32}$/
+  const languagePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/
   const state = {
     courseId: '',
     items: [],
@@ -42,9 +43,9 @@
     const rows = []
     for (const track of tracks) {
       if (!track || typeof track !== 'object') continue
-      const language = String(track.language || '').trim().slice(0, 32)
+      const language = String(track.language || '').trim()
       const kind = String(track.kind || '').trim().toLowerCase()
-      if (!language || !['manual', 'automatic'].includes(kind)) continue
+      if (!languagePattern.test(language) || !['manual', 'automatic'].includes(kind)) continue
       const key = `${language}\u0000${kind}`
       if (seen.has(key)) continue
       seen.add(key)
