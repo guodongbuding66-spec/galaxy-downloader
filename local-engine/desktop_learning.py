@@ -12,6 +12,7 @@ from desktop_hooks import (
     register_after_build_ui_hook,
     register_before_close_hook,
 )
+from desktop_learning_attachments import build_attachment_tab, close_attachment_download_service
 from headless_learning_api import HeadlessLearningApi
 from headless_learning_structure import install_headless_learning_structure
 
@@ -169,6 +170,7 @@ def _course_service(window, engine_module) -> DesktopCourseDownloadService:
 
 
 def _close_learning_service(window) -> None:
+    close_attachment_download_service(window)
     service = getattr(window, "_learning_course_download_service", None)
     window._learning_course_download_service = None
     if service is not None:
@@ -217,6 +219,7 @@ def _show_learning(window, engine_module) -> None:
     browser_var = tk.StringVar(value="none")
     subtitles_var = tk.BooleanVar(value=True)
     status = tk.StringVar(value="就绪")
+    build_attachment_tab(notebook, window, api, browser_var)
 
     source_row = tk.Frame(courses_tab, bg=ui.PANEL)
     source_row.pack(fill="x")
