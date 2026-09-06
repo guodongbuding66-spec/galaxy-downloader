@@ -1,0 +1,23 @@
+.learning-navigation-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
+.learning-navigation-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.learning-navigation-head h3 { margin: 0 0 4px; font-size: 15px; }
+.learning-navigation-head p { margin: 0; color: var(--muted); font-size: 12px; }
+.learning-navigation-notice { padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 12px; }
+.learning-chapter-nav { display: flex; flex-wrap: wrap; gap: 7px; }
+.learning-chapter-button { border: 1px solid var(--border); border-radius: 999px; padding: 7px 10px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.learning-chapter-button:hover:not(:disabled) { background: var(--surface-subtle, rgba(127,127,127,.07)); }
+.learning-chapter-button:disabled { opacity: .45; cursor: default; }
+.learning-lecture-navigator { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.learning-lecture-navigator .field { margin: 0; }
+.learning-navigation-actions { display: flex; gap: 8px; }
+.learning-subtitle-summary { min-height: 48px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.learning-subtitle-summary > span { color: var(--muted); font-size: 12px; }
+.learning-subtitle-summary strong { font-size: 13px; margin-right: auto; }
+.learning-subtitle-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.learning-subtitle-badge { border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; color: var(--muted); font-size: 11px; }
+.learning-subtitle-badge b { color: inherit; font-weight: 650; }
+@media (max-width: 760px) {
+  .learning-navigation-head, .learning-lecture-navigator { grid-template-columns: 1fr; display: grid; }
+  .learning-navigation-actions { width: 100%; }
+  .learning-navigation-actions .button { flex: 1; }
+}
