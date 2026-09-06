@@ -23,11 +23,19 @@ def _enabled(extractor) -> bool:
     return isinstance(params, dict) and bool(params.get("_galaxy_course_attachment_inventory"))
 
 
-def _provider_asset_id(value: object) -> str:
+def _provider_numeric_id(value: object, prefix: str) -> str:
     raw = str(value or "").strip()
     if not raw or not raw.isdigit() or len(raw) > 40:
         return ""
-    return f"udemy:asset:{raw}"
+    return f"udemy:{prefix}:{raw}"
+
+
+def _provider_asset_id(value: object) -> str:
+    return _provider_numeric_id(value, "asset")
+
+
+def _provider_course_id(value: object) -> str:
+    return _provider_numeric_id(value, "course")
 
 
 def _safe_inventory(value: object) -> list[dict[str, str]]:
@@ -71,11 +79,16 @@ def _inventory_by_lecture(response: object) -> dict[str, list[dict[str, str]]]:
     return inventory
 
 
-def _remember_inventory(provider_lecture_id: str, attachments: list[dict[str, str]]) -> str:
+def _remember_inventory(
+    provider_course_id: str,
+    provider_lecture_id: str,
+    attachments: list[dict[str, str]],
+) -> str:
     token = uuid.uuid4().hex
     with _LOCK:
         _PENDING[token] = {
             "provider": "udemy",
+            "providerCourseId": provider_course_id,
             "providerLectureId": provider_lecture_id,
             "attachments": [dict(item) for item in attachments],
         }
@@ -111,10 +124,21 @@ def _attach_inventory_tokens(
         if not lecture_id or lecture_id not in inventory:
             updated_entries.append(entry)
             continue
-        provider_lecture_id = f"udemy:lecture:{lecture_id}"
-        token = _remember_inventory(provider_lecture_id, inventory[lecture_id])
         plain_url, data = unsmuggle_url(rendered_url, {})
         smuggled = dict(data or {})
+        provider_course_id = _provider_course_id(smuggled.get("course_id"))
+        if not provider_course_id:
+            # yt-dlp's UdemyCourseIE normally smuggles the numeric course ID.
+            # Do not create an incomplete attachment context if upstream stops
+            # supplying it; the later downloader needs all three provider IDs.
+            updated_entries.append(entry)
+            continue
+        provider_lecture_id = f"udemy:lecture:{lecture_id}"
+        token = _remember_inventory(
+            provider_course_id,
+            provider_lecture_id,
+            inventory[lecture_id],
+        )
         smuggled["galaxy_attachment_inventory_id"] = token
         enriched = dict(entry)
         enriched["url"] = smuggle_url(plain_url, smuggled)
