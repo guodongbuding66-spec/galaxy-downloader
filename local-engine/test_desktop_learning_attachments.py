@@ -78,6 +78,19 @@ class DesktopLearningAttachmentModelTests(unittest.TestCase):
         self.assertNotIn("private", rendered)
         self.assertNotIn("https://", rendered)
 
+    def test_failed_status_never_surfaces_backend_error_detail(self) -> None:
+        rendered = attachment_job_status_text(
+            {
+                "state": "failed",
+                "progress": 40,
+                "error": "https://cdn.example/private?token=SECRET C:/Users/private/file.zip",
+            }
+        )
+        self.assertEqual(rendered, "附件下载失败")
+        self.assertNotIn("SECRET", rendered)
+        self.assertNotIn("private", rendered.lower())
+        self.assertNotIn("https://", rendered)
+
     def test_size_format_is_bounded_and_readable(self) -> None:
         self.assertEqual(format_attachment_size(0), "—")
         self.assertEqual(format_attachment_size(512), "512 B")
