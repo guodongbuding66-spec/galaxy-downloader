@@ -6,6 +6,7 @@ from typing import Any
 
 import desktop_ui as ui
 from course_attachment_download_service import CourseAttachmentDownloadService
+from desktop_learning_navigation import build_navigation_tab
 
 _TERMINAL_ATTACHMENT_STATES = {"completed", "failed", "cancelled"}
 
@@ -351,3 +352,4 @@ def build_attachment_tab(notebook, window, api, browser_var) -> None:
         schedule_poll(50)
     else:
         update_controls()
+    build_navigation_tab(notebook, api)
