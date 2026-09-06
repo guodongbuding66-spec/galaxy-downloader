@@ -7,6 +7,7 @@ on:
       - 'local-engine/headless_web_dashboard.py'
       - 'local-engine/test_headless_web_dashboard.py'
       - 'local-engine/test_headless_learning_navigation_ui.py'
+      - 'local-engine/test_headless_learning_provider_ui.py'
       - 'local-engine/web-dashboard/**'
       - '.github/workflows/headless-web-dashboard.yml'
   push:
@@ -16,6 +17,7 @@ on:
       - 'local-engine/headless_web_dashboard.py'
       - 'local-engine/test_headless_web_dashboard.py'
       - 'local-engine/test_headless_learning_navigation_ui.py'
+      - 'local-engine/test_headless_learning_provider_ui.py'
       - 'local-engine/web-dashboard/**'
       - '.github/workflows/headless-web-dashboard.yml'
 
@@ -43,7 +45,7 @@ jobs:
           python-version: '3.12'
 
       - name: Compile Dashboard HTTP contract
-        run: python -m py_compile local-engine/headless_web_dashboard.py local-engine/test_headless_web_dashboard.py local-engine/test_headless_learning_navigation_ui.py
+        run: python -m py_compile local-engine/headless_web_dashboard.py local-engine/test_headless_web_dashboard.py local-engine/test_headless_learning_navigation_ui.py local-engine/test_headless_learning_provider_ui.py
 
       - name: Validate Dashboard JavaScript syntax
         run: |
@@ -59,3 +61,4 @@ jobs:
         run: |
           python local-engine/test_headless_web_dashboard.py
           python local-engine/test_headless_learning_navigation_ui.py
+          python local-engine/test_headless_learning_provider_ui.py

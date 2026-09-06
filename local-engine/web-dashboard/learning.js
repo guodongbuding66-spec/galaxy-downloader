@@ -106,7 +106,10 @@
   }
 
   function providerOptions() {
-    const discovered = state.providers.map((provider) => String(provider.id || '').trim().toLowerCase()).filter(Boolean)
+    const discovered = state.providers
+      .filter((provider) => provider && provider.downloadAvailable !== false)
+      .map((provider) => String(provider.id || '').trim().toLowerCase())
+      .filter(Boolean)
     const values = ['auto', ...new Set(discovered)]
     if (!values.includes('udemy')) values.push('udemy')
     $('learningProvider').innerHTML = values.map((value) => `<option value="${esc(value)}">${esc(value === 'auto' ? 'Auto' : value === 'udemy' ? 'Udemy' : value)}</option>`).join('')
