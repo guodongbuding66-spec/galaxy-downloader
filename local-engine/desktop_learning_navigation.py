@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tkinter as tk
 from tkinter import ttk
 from typing import Any
@@ -7,6 +8,24 @@ from typing import Any
 import desktop_ui as ui
 
 _SUBTITLE_KIND_LABELS = {"manual": "人工", "automatic": "自动"}
+_SUBTITLE_LANGUAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+_ITEM_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+
+
+def _safe_index(value: object, fallback: int = 10**9) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if parsed >= 0 else fallback
+
+
+def _safe_progress(value: object) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, parsed)
 
 
 def subtitle_tracks_text(item: dict[str, Any]) -> str:
@@ -19,9 +38,9 @@ def subtitle_tracks_text(item: dict[str, Any]) -> str:
     for track in tracks[:64]:
         if not isinstance(track, dict):
             continue
-        language = str(track.get("language") or "").strip()[:32]
+        language = str(track.get("language") or "").strip()
         kind = str(track.get("kind") or "").strip().lower()
-        if not language or kind not in _SUBTITLE_KIND_LABELS:
+        if not _SUBTITLE_LANGUAGE_RE.fullmatch(language) or kind not in _SUBTITLE_KIND_LABELS:
             continue
         key = (language, kind)
         if key in seen:
@@ -33,14 +52,8 @@ def subtitle_tracks_text(item: dict[str, Any]) -> str:
 
 def section_display_text(section: dict[str, Any], fallback_index: int) -> str:
     title = str(section.get("title") or f"章节 {fallback_index + 1}")
-    try:
-        total = max(0, int(section.get("itemCount") or 0))
-    except (TypeError, ValueError):
-        total = 0
-    try:
-        completed = max(0, min(int(section.get("completedCount") or 0), total))
-    except (TypeError, ValueError):
-        completed = 0
+    total = _safe_index(section.get("itemCount"), 0)
+    completed = min(_safe_index(section.get("completedCount"), 0), total)
     return f"{title} · {completed}/{total}" if total else title
 
 
@@ -49,9 +62,11 @@ def navigation_target(item: dict[str, Any], direction: str) -> str:
     if field is None:
         return ""
     target = str(item.get(field) or "").strip().lower()
-    if len(target) != 32 or any(ch not in "0123456789abcdef" for ch in target):
-        return ""
-    return target
+    return target if _ITEM_ID_RE.fullmatch(target) else ""
+
+
+def _item_sort_key(item: dict[str, Any]) -> tuple[int, str]:
+    return (_safe_index(item.get("courseItemIndex")), str(item.get("id") or ""))
 
 
 def build_navigation_tab(notebook, api) -> None:
@@ -81,12 +96,7 @@ def build_navigation_tab(notebook, api) -> None:
     section_combo = ttk.Combobox(filters, textvariable=section_var, state="readonly", width=38)
     section_combo.pack(side="left", padx=(6, 0), fill="x", expand=True)
 
-    tree = ttk.Treeview(
-        tab,
-        columns=("progress", "subtitles"),
-        show="tree headings",
-        selectmode="browse",
-    )
+    tree = ttk.Treeview(tab, columns=("progress", "subtitles"), show="tree headings", selectmode="browse")
     tree.heading("#0", text="章节 / 课时")
     tree.heading("progress", text="进度")
     tree.heading("subtitles", text="字幕")
@@ -104,45 +114,45 @@ def build_navigation_tab(notebook, api) -> None:
     tree_id_by_item_id: dict[str, str] = {}
 
     def selected_course() -> dict[str, Any] | None:
-        label = course_var.get()
-        course_id = course_labels.get(label, "")
-        for course in courses:
-            if str(course.get("id") or "") == course_id:
-                return course
-        return None
+        course_id = course_labels.get(course_var.get(), "")
+        return next((course for course in courses if str(course.get("id") or "") == course_id), None)
 
     def selected_item() -> dict[str, Any] | None:
         selection = tree.selection()
-        if not selection:
-            return None
-        return item_by_tree_id.get(selection[0])
+        return item_by_tree_id.get(selection[0]) if selection else None
 
     def select_item_id(item_id: str) -> None:
         iid = tree_id_by_item_id.get(item_id, "")
-        if not iid:
-            return
-        tree.selection_set(iid)
-        tree.focus(iid)
-        tree.see(iid)
+        if iid:
+            tree.selection_set(iid)
+            tree.focus(iid)
+            tree.see(iid)
 
     def update_controls(*_args) -> None:
         item = selected_item()
-        if item is None:
-            previous_button.state(["disabled"])
-            next_button.state(["disabled"])
+        previous_button.state(["!disabled"] if item and navigation_target(item, "previous") else ["disabled"])
+        next_button.state(["!disabled"] if item and navigation_target(item, "next") else ["disabled"])
+        selection = tree.selection()
+        if selection:
+            label = section_label_by_key.get(tree.parent(selection[0]), "")
+            if label:
+                section_var.set(label)
+
+    def insert_item(parent: str, item: dict[str, Any]) -> None:
+        item_id = str(item.get("id") or "").strip().lower()
+        if not _ITEM_ID_RE.fullmatch(item_id):
             return
-        if navigation_target(item, "previous"):
-            previous_button.state(["!disabled"])
-        else:
-            previous_button.state(["disabled"])
-        if navigation_target(item, "next"):
-            next_button.state(["!disabled"])
-        else:
-            next_button.state(["disabled"])
-        parent = tree.parent(tree.selection()[0]) if tree.selection() else ""
-        label = section_label_by_key.get(parent, "")
-        if label:
-            section_var.set(label)
+        iid = f"item:{item_id}"
+        progress = "✓ 已完成" if item.get("completed") else f"{_safe_progress(item.get('progressSeconds')):.0f}s"
+        tree.insert(
+            parent,
+            "end",
+            iid=iid,
+            text=str(item.get("title") or item.get("fileName") or "未命名课时"),
+            values=(progress, subtitle_tracks_text(item)),
+        )
+        item_by_tree_id[iid] = item
+        tree_id_by_item_id[item_id] = iid
 
     def render_course(payload: dict[str, Any]) -> None:
         for child in tree.get_children():
@@ -155,41 +165,27 @@ def build_navigation_tab(notebook, api) -> None:
         items = payload.get("items") if isinstance(payload.get("items"), list) else []
         items_by_section: dict[str, list[dict[str, Any]]] = {}
         for item in items:
-            if not isinstance(item, dict):
-                continue
-            items_by_section.setdefault(str(item.get("sectionId") or ""), []).append(item)
+            if isinstance(item, dict):
+                items_by_section.setdefault(str(item.get("sectionId") or ""), []).append(item)
 
         section_labels: list[str] = []
+        valid_section_count = 0
         for index, section in enumerate(sections):
             if not isinstance(section, dict):
                 continue
+            valid_section_count += 1
             section_id = str(section.get("id") or "")
             key = f"section:{section_id or index}"
             label = section_display_text(section, index)
-            choice = f"{index + 1}. {label}"
+            choice = f"{len(section_labels) + 1}. {label}"
             sections_by_label[choice] = key
             section_label_by_key[key] = choice
             section_labels.append(choice)
             tree.insert("", "end", iid=key, text=label, values=("", ""), open=True)
-            rows = items_by_section.pop(section_id, [])
-            rows.sort(key=lambda row: (int(row.get("courseItemIndex") or 10**9), str(row.get("id") or "")))
-            for item in rows:
-                item_id = str(item.get("id") or "").strip().lower()
-                if not item_id:
-                    continue
-                iid = f"item:{item_id}"
-                progress = "✓ 已完成" if item.get("completed") else f"{float(item.get('progressSeconds') or 0):.0f}s"
-                tree.insert(
-                    key,
-                    "end",
-                    iid=iid,
-                    text=str(item.get("title") or item.get("fileName") or "未命名课时"),
-                    values=(progress, subtitle_tracks_text(item)),
-                )
-                item_by_tree_id[iid] = item
-                tree_id_by_item_id[item_id] = iid
+            for item in sorted(items_by_section.pop(section_id, []), key=_item_sort_key):
+                insert_item(key, item)
 
-        remaining = [item for rows in items_by_section.values() for item in rows]
+        remaining = sorted([item for rows in items_by_section.values() for item in rows], key=_item_sort_key)
         if remaining:
             key = "section:unsectioned"
             choice = f"{len(section_labels) + 1}. 未分组课时"
@@ -197,22 +193,8 @@ def build_navigation_tab(notebook, api) -> None:
             section_label_by_key[key] = choice
             section_labels.append(choice)
             tree.insert("", "end", iid=key, text="未分组课时", values=("", ""), open=True)
-            remaining.sort(key=lambda row: (int(row.get("courseItemIndex") or 10**9), str(row.get("id") or "")))
             for item in remaining:
-                item_id = str(item.get("id") or "").strip().lower()
-                if not item_id:
-                    continue
-                iid = f"item:{item_id}"
-                progress = "✓ 已完成" if item.get("completed") else f"{float(item.get('progressSeconds') or 0):.0f}s"
-                tree.insert(
-                    key,
-                    "end",
-                    iid=iid,
-                    text=str(item.get("title") or item.get("fileName") or "未命名课时"),
-                    values=(progress, subtitle_tracks_text(item)),
-                )
-                item_by_tree_id[iid] = item
-                tree_id_by_item_id[item_id] = iid
+                insert_item(key, item)
 
         section_combo["values"] = section_labels
         section_var.set(section_labels[0] if section_labels else "")
@@ -221,7 +203,7 @@ def build_navigation_tab(notebook, api) -> None:
             tree.selection_set(first)
             tree.focus(first)
             tree.see(first)
-        status.set(f"{len(sections)} 个章节 · {len(item_by_tree_id)} 个课时")
+        status.set(f"{valid_section_count} 个章节 · {len(item_by_tree_id)} 个课时")
         update_controls()
 
     def refresh_course(*_args) -> None:
@@ -253,31 +235,23 @@ def build_navigation_tab(notebook, api) -> None:
             if previous_id and course_labels[label] == previous_id:
                 selected_label = label
         course_combo["values"] = values
-        if values:
-            course_var.set(selected_label or values[0])
-        else:
-            course_var.set("")
+        course_var.set(selected_label or values[0] if values else "")
         refresh_course()
 
     def jump_section(*_args) -> None:
         key = sections_by_label.get(section_var.get(), "")
         if not key:
             return
-        tree.selection_set(key)
-        tree.focus(key)
-        tree.see(key)
         children = tree.get_children(key)
-        if children:
-            tree.selection_set(children[0])
-            tree.focus(children[0])
-            tree.see(children[0])
+        target = children[0] if children else key
+        tree.selection_set(target)
+        tree.focus(target)
+        tree.see(target)
         update_controls()
 
     def move(direction: str) -> None:
         item = selected_item()
-        if item is None:
-            return
-        target = navigation_target(item, direction)
+        target = navigation_target(item, direction) if item else ""
         if target:
             select_item_id(target)
             update_controls()
@@ -285,29 +259,11 @@ def build_navigation_tab(notebook, api) -> None:
     actions = tk.Frame(tab, bg=ui.PANEL)
     actions.pack(fill="x", pady=(10, 0))
     ui._label(actions, variable=status, size=8, color=ui.MUTED).pack(side="left", fill="x", expand=True)
-    next_button = ui.ActionButton(
-        actions,
-        text="下一课 →",
-        command=lambda: move("next"),
-        kind="secondary",
-        compact=True,
-    )
+    next_button = ui.ActionButton(actions, text="下一课 →", command=lambda: move("next"), kind="secondary", compact=True)
     next_button.pack(side="right")
-    previous_button = ui.ActionButton(
-        actions,
-        text="← 上一课",
-        command=lambda: move("previous"),
-        kind="ghost",
-        compact=True,
-    )
+    previous_button = ui.ActionButton(actions, text="← 上一课", command=lambda: move("previous"), kind="ghost", compact=True)
     previous_button.pack(side="right", padx=(0, 6))
-    ui.ActionButton(
-        actions,
-        text="刷新",
-        command=refresh_courses,
-        kind="ghost",
-        compact=True,
-    ).pack(side="right", padx=(0, 6))
+    ui.ActionButton(actions, text="刷新", command=refresh_courses, kind="ghost", compact=True).pack(side="right", padx=(0, 6))
 
     course_combo.bind("<<ComboboxSelected>>", refresh_course)
     section_combo.bind("<<ComboboxSelected>>", jump_section)
