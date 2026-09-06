@@ -89,6 +89,8 @@ class HeadlessWebDashboardTest(unittest.TestCase):
         self.assertIn("default-src 'self'", headers.get("Content-Security-Policy", ""))
         self.assertEqual(headers.get("X-Frame-Options"), "DENY")
         self.assertIn(b"Galaxy Dashboard", body)
+        self.assertIn(b"/dashboard/learning-attachments.css", body)
+        self.assertIn(b"/dashboard/learning-attachments.js", body)
 
         for asset, content_type in (
             ("/dashboard/app.js", "text/javascript"),
@@ -101,6 +103,8 @@ class HeadlessWebDashboardTest(unittest.TestCase):
             ("/dashboard/settings.css", "text/css"),
             ("/dashboard/learning.js", "text/javascript"),
             ("/dashboard/learning.css", "text/css"),
+            ("/dashboard/learning-attachments.js", "text/javascript"),
+            ("/dashboard/learning-attachments.css", "text/css"),
         ):
             status, asset_headers, asset_body = self.request("GET", asset)
             self.assertEqual(status, 200)
@@ -175,6 +179,35 @@ class HeadlessWebDashboardTest(unittest.TestCase):
         for private_field in (b"trackingId", b"filePath", b"cookieFile", b"httpHeaders"):
             self.assertNotIn(private_field, script)
         self.assertNotIn(b"https://cdn.", script)
+
+    def test_dashboard_exposes_learning_attachment_download_workflow(self) -> None:
+        status, _, script = self.request("GET", "/dashboard/learning-attachments.js")
+        self.assertEqual(status, 200)
+        for route in (
+            b"/v1/learning/courses/",
+            b"/v1/learning/attachments/download",
+            b"/v1/learning/attachments/downloads/",
+        ):
+            self.assertIn(route, script)
+        for label in (b"Course attachments", b"Download", b"Cancel", b"Downloaded"):
+            self.assertIn(label, script)
+        self.assertIn(b"learningBrowser", script)
+        for private_field in (
+            b"trackingId",
+            b"filePath",
+            b"relativePath",
+            b"providerCourseId",
+            b"providerLectureId",
+            b"cookieFile",
+            b"httpHeaders",
+        ):
+            self.assertNotIn(private_field, script)
+        self.assertNotIn(b"https://cdn.", script)
+
+        status, _, stylesheet = self.request("GET", "/dashboard/learning-attachments.css")
+        self.assertEqual(status, 200)
+        self.assertIn(b".learning-attachment-row", stylesheet)
+        self.assertIn(b"@media (max-width: 760px)", stylesheet)
 
     def test_dashboard_exposes_plugin_marketplace_workflow(self) -> None:
         status, _, html = self.request("GET", "/dashboard/")

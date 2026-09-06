@@ -17,9 +17,13 @@ _DASHBOARD_ASSETS = {
     "/dashboard/settings.css": ("settings.css", "text/css; charset=utf-8"),
     "/dashboard/learning.js": ("learning.js", "text/javascript; charset=utf-8"),
     "/dashboard/learning.css": ("learning.css", "text/css; charset=utf-8"),
+    "/dashboard/learning-attachments.js": ("learning-attachments.js", "text/javascript; charset=utf-8"),
+    "/dashboard/learning-attachments.css": ("learning-attachments.css", "text/css; charset=utf-8"),
 }
 _LEARNING_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning.css">'
 _LEARNING_SCRIPT_TAG = '<script src="/dashboard/learning.js" defer></script>'
+_ATTACHMENT_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning-attachments.css">'
+_ATTACHMENT_SCRIPT_TAG = '<script src="/dashboard/learning-attachments.js" defer></script>'
 
 
 def _with_learning_assets(body: bytes, file_name: str) -> bytes:
@@ -29,10 +33,12 @@ def _with_learning_assets(body: bytes, file_name: str) -> bytes:
         html = body.decode("utf-8")
     except UnicodeDecodeError:
         return body
-    if _LEARNING_STYLE_TAG not in html:
-        html = html.replace("</head>", f"  {_LEARNING_STYLE_TAG}\n</head>", 1)
-    if _LEARNING_SCRIPT_TAG not in html:
-        html = html.replace("</body>", f"  {_LEARNING_SCRIPT_TAG}\n</body>", 1)
+    for style_tag in (_LEARNING_STYLE_TAG, _ATTACHMENT_STYLE_TAG):
+        if style_tag not in html:
+            html = html.replace("</head>", f"  {style_tag}\n</head>", 1)
+    for script_tag in (_LEARNING_SCRIPT_TAG, _ATTACHMENT_SCRIPT_TAG):
+        if script_tag not in html:
+            html = html.replace("</body>", f"  {script_tag}\n</body>", 1)
     return html.encode("utf-8")
 
 
