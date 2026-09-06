@@ -61,6 +61,7 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                         },
                         "_galaxyCourseAttachmentInventory": {
                             "provider": "udemy",
+                            "providerCourseId": "udemy:course:456",
                             "providerLectureId": "udemy:lecture:12345",
                             "attachments": [
                                 {
@@ -93,6 +94,7 @@ class HeadlessCourseMetadataTrackingTests(unittest.TestCase):
                             {"language": "zh-CN", "kind": "automatic"},
                         ],
                         "attachmentInventory": {
+                            "providerCourseId": "udemy:course:456",
                             "providerLectureId": "udemy:lecture:12345",
                             "attachments": [
                                 {
