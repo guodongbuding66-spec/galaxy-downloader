@@ -17,6 +17,7 @@ from headless_output_tracking import MAX_OUTPUTS_PER_SESSION, MAX_TRACKING_SESSI
 
 _TRACKING_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 _PROVIDER_ITEM_RE = re.compile(r"^[A-Za-z0-9._:-]{1,120}$")
+_UDEMY_COURSE_RE = re.compile(r"^udemy:course:\d{1,40}$")
 _UDEMY_LECTURE_RE = re.compile(r"^udemy:lecture:\d{1,40}$")
 _LOCK = threading.RLock()
 _METADATA: OrderedDict[str, OrderedDict[str, dict[str, Any]]] = OrderedDict()
@@ -113,7 +114,10 @@ def _safe_attachment_inventory(info: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if str(raw.get("provider") or "").strip().lower() != "udemy":
         return None
+    provider_course_id = str(raw.get("providerCourseId") or "").strip().lower()
     provider_lecture_id = str(raw.get("providerLectureId") or "").strip().lower()
+    if not _UDEMY_COURSE_RE.fullmatch(provider_course_id):
+        return None
     if not _UDEMY_LECTURE_RE.fullmatch(provider_lecture_id):
         return None
     try:
@@ -121,6 +125,7 @@ def _safe_attachment_inventory(info: dict[str, Any]) -> dict[str, Any] | None:
     except CourseAttachmentError:
         return None
     return {
+        "providerCourseId": provider_course_id,
         "providerLectureId": provider_lecture_id,
         "attachments": attachments,
     }
