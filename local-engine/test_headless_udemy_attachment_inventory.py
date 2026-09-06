@@ -89,6 +89,7 @@ class HeadlessUdemyAttachmentInventoryTests(unittest.TestCase):
             result["_galaxyCourseAttachmentInventory"],
             {
                 "provider": "udemy",
+                "providerCourseId": "udemy:course:456",
                 "providerLectureId": "udemy:lecture:123",
                 "attachments": inventory["123"],
             },
@@ -110,6 +111,10 @@ class HeadlessUdemyAttachmentInventoryTests(unittest.TestCase):
         updated = _attach_inventory_tokens(entries, {"321": []})
         result = _consume_inventory(updated[0]["url"], {"id": "10", "extractor_key": "Udemy"})
         self.assertEqual(result["_galaxyCourseAttachmentInventory"]["attachments"], [])
+        self.assertEqual(
+            result["_galaxyCourseAttachmentInventory"]["providerCourseId"],
+            "udemy:course:654",
+        )
         self.assertEqual(
             result["_galaxyCourseAttachmentInventory"]["providerLectureId"],
             "udemy:lecture:321",
