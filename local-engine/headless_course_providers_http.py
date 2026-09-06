@@ -3,7 +3,7 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from course_download_coordinator import CourseDownloadCoordinatorError
-from course_providers import CourseProviderError, list_course_providers
+from course_providers import CourseProviderError, list_course_providers, resolve_course_provider
 from headless_learning_api import HeadlessLearningApiError
 from headless_service import HeadlessServiceError, _safe_detail
 from managed_course_download import build_managed_course_plan, submit_managed_course_download
@@ -16,6 +16,13 @@ def _provider_plan(payload: dict) -> dict:
         browser=payload.get("browser", "none"),
         include_subtitles=payload.get("includeSubtitles", True),
         include_attachments=payload.get("includeAttachments", True),
+    )
+
+
+def _provider_resolution(payload: dict) -> dict:
+    return resolve_course_provider(
+        payload.get("sourceUrl"),
+        provider=payload.get("provider", "auto"),
     )
 
 
@@ -110,11 +117,12 @@ class HeadlessCourseProvidersHttpMixin:
             return
         try:
             payload = self._read_json()
-            plan = _provider_plan(payload)
             if path == "/v1/learning/providers/resolve":
-                self._json(200, {"ok": True, "plan": plan})
+                resolution = _provider_resolution(payload)
+                self._json(200, {"ok": True, "resolution": resolution})
                 return
 
+            plan = _provider_plan(payload)
             learning_api = getattr(self, "learning_api", None)
             coordinator = _course_download_coordinator(self)
             if learning_api is None or coordinator is None:
