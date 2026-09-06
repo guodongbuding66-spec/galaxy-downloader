@@ -301,6 +301,7 @@ def _apply_course_metadata(
             engine_module,
             course_item_id,
             provider=provider,
+            provider_course_id=attachment_inventory.get("providerCourseId"),
             provider_lecture_id=attachment_inventory.get("providerLectureId"),
             attachments=attachment_inventory.get("attachments") or [],
         )
