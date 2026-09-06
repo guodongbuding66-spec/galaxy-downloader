@@ -13,6 +13,7 @@ from headless_browser_cookies import browser_cookie_source
 from headless_service import _safe_detail
 from udemy_attachment_downloader import (
     UdemyAttachmentDownloadCancelled,
+    UdemyAttachmentDownloadError,
     download_udemy_attachment,
 )
 
@@ -213,12 +214,19 @@ class CourseAttachmentDownloadService:
                             current.state = "cancelled"
                             current.error = ""
                             current.updated_at = _now()
-                except Exception as exc:
+                except UdemyAttachmentDownloadError as exc:
                     with self._lock:
                         current = self._jobs.get(job_id)
                         if current is not None:
                             current.state = "failed"
                             current.error = _safe_detail(exc, 360)
+                            current.updated_at = _now()
+                except Exception:
+                    with self._lock:
+                        current = self._jobs.get(job_id)
+                        if current is not None:
+                            current.state = "failed"
+                            current.error = "attachment download failed"
                             current.updated_at = _now()
             finally:
                 self._queue.task_done()

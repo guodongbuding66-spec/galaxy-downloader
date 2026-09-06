@@ -50,15 +50,17 @@ def _udemy_origin(source_url: object) -> str:
     host = str(parsed.hostname or "").strip().lower().rstrip(".")
     if host != "udemy.com" and not host.endswith(".udemy.com"):
         raise UdemyAttachmentDownloadError("course source is not an Udemy host")
+    if parsed.scheme.lower() != "https":
+        raise UdemyAttachmentDownloadError("Udemy attachment API requires HTTPS")
     if parsed.username is not None or parsed.password is not None:
         raise UdemyAttachmentDownloadError("course source URL is invalid")
-    netloc = host
     try:
-        if parsed.port:
-            netloc = f"{host}:{parsed.port}"
+        port = parsed.port
     except ValueError as exc:
         raise UdemyAttachmentDownloadError("course source URL is invalid") from exc
-    return urlunsplit((parsed.scheme.lower(), netloc, "", "", ""))
+    if port not in {None, 443}:
+        raise UdemyAttachmentDownloadError("Udemy attachment API requires the standard HTTPS port")
+    return urlunsplit(("https", host, "", "", ""))
 
 
 def _select_download_url(value: object) -> str:
@@ -78,7 +80,10 @@ def _select_download_url(value: object) -> str:
             if not raw:
                 continue
             try:
-                return validated_public_http_url(raw)
+                validated = validated_public_http_url(raw)
+                if urlsplit(validated).scheme.lower() != "https":
+                    continue
+                return validated
             except Exception:
                 continue
     raise UdemyAttachmentDownloadError("attachment download URL is unavailable")

@@ -14,6 +14,7 @@ from udemy_attachment_downloader import (
     UdemyAttachmentDownloadCancelled,
     UdemyAttachmentDownloadError,
     _select_download_url,
+    _udemy_origin,
     download_udemy_attachment,
 )
 
@@ -102,12 +103,15 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
         )["attachments"][0]
         return Engine, downloads, attachment
 
-    def test_select_download_url_uses_download_urls_only(self) -> None:
+    def test_select_download_url_uses_https_download_urls_only(self) -> None:
         metadata = {
             "asset": {
                 "external_url": "https://evil.example/?secret=PRIVATE",
                 "download_urls": {
-                    "File": [{"file": "https://cdn.example/starter.zip?sig=PRIVATE"}],
+                    "File": [
+                        {"file": "http://cdn.example/insecure.zip?sig=PRIVATE"},
+                        {"file": "https://cdn.example/starter.zip?sig=PRIVATE"},
+                    ],
                 },
             }
         }
@@ -117,6 +121,24 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
         ):
             selected = _select_download_url(metadata)
         self.assertEqual(selected, "https://cdn.example/starter.zip?sig=PRIVATE")
+
+    def test_udemy_origin_rejects_plain_http_foreign_hosts_and_custom_ports(self) -> None:
+        with patch(
+            "udemy_attachment_downloader.validated_public_http_url",
+            side_effect=lambda value: str(value),
+        ):
+            self.assertEqual(
+                _udemy_origin("https://company.udemy.com/course/python/"),
+                "https://company.udemy.com",
+            )
+            for unsafe in (
+                "http://www.udemy.com/course/python/",
+                "https://example.com/course/python/",
+                "https://www.udemy.com:8443/course/python/",
+            ):
+                with self.subTest(unsafe=unsafe):
+                    with self.assertRaises(UdemyAttachmentDownloadError):
+                        _udemy_origin(unsafe)
 
     def test_authorized_download_is_bounded_private_and_server_controlled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -183,6 +205,7 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
             self.assertNotIn(str(downloads), str(result))
             self.assertEqual(captured["options"]["cookiesfrombrowser"], ("chrome", None, None, None))
             endpoint = str(captured["endpoint"])
+            self.assertTrue(endpoint.startswith("https://www.udemy.com/"))
             self.assertIn("/subscribed-courses/456/lectures/1001/supplementary-assets/7001/", endpoint)
             self.assertEqual(captured["assetId"], "7001")
             self.assertEqual(captured["query"], {"fields[asset]": "download_urls"})
