@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from url_policy import validated_public_http_url
 
 BROWSERS = frozenset({"none", "edge", "chrome", "firefox", "brave"})
-SUPPORTED_PROVIDER_IDS = frozenset({"udemy"})
+SUPPORTED_PROVIDER_IDS = frozenset({"udemy", "hotmart"})
 
 
 class CourseProviderError(RuntimeError):
@@ -20,8 +20,10 @@ class CourseProviderDescriptor:
     name: str
     status: str
     requires_authorized_session: bool
+    supports_browser_cookies: bool
     supports_subtitles: bool
     supports_attachments: bool
+    download_available: bool
     drm_bypass_supported: bool
 
     def public_payload(self) -> dict[str, Any]:
@@ -31,8 +33,10 @@ class CourseProviderDescriptor:
             "name": payload["name"],
             "status": payload["status"],
             "requiresAuthorizedSession": payload["requires_authorized_session"],
+            "supportsBrowserCookies": payload["supports_browser_cookies"],
             "supportsSubtitles": payload["supports_subtitles"],
             "supportsAttachments": payload["supports_attachments"],
+            "downloadAvailable": payload["download_available"],
             "drmBypassSupported": payload["drm_bypass_supported"],
         }
 
@@ -42,19 +46,45 @@ _UDEMY_DESCRIPTOR = CourseProviderDescriptor(
     name="Udemy",
     status="foundation",
     requires_authorized_session=True,
+    supports_browser_cookies=True,
     supports_subtitles=True,
     supports_attachments=True,
+    download_available=True,
+    drm_bypass_supported=False,
+)
+
+_HOTMART_DESCRIPTOR = CourseProviderDescriptor(
+    id="hotmart",
+    name="Hotmart",
+    status="discovery",
+    requires_authorized_session=True,
+    supports_browser_cookies=False,
+    supports_subtitles=False,
+    supports_attachments=False,
+    download_available=False,
     drm_bypass_supported=False,
 )
 
 
 def list_course_providers() -> list[dict[str, Any]]:
-    return [_UDEMY_DESCRIPTOR.public_payload()]
+    return [
+        _UDEMY_DESCRIPTOR.public_payload(),
+        _HOTMART_DESCRIPTOR.public_payload(),
+    ]
 
 
 def _is_udemy_host(host: str) -> bool:
     clean = str(host or "").strip().lower().rstrip(".")
     return clean == "udemy.com" or clean.endswith(".udemy.com")
+
+
+def _is_hotmart_club_host(host: str) -> bool:
+    clean = str(host or "").strip().lower().rstrip(".")
+    suffix = ".club.hotmart.com"
+    if not clean.endswith(suffix):
+        return False
+    club_subdomain = clean[: -len(suffix)].strip(".")
+    return bool(club_subdomain)
 
 
 def _validated_course_url(source_url: object) -> str:
@@ -72,7 +102,11 @@ def _detect_provider_from_validated_url(url: str) -> str:
         if len(parts) < 2 or parts[0].lower() != "course" or not parts[1].strip():
             raise CourseProviderError("Udemy URL 必须指向 /course/<slug>/ 课程页面")
         return "udemy"
-    raise CourseProviderError("暂不支持该课程平台；当前仅支持 Udemy")
+    if _is_hotmart_club_host(host):
+        return "hotmart"
+    if host == "club.hotmart.com":
+        raise CourseProviderError("Hotmart Club URL 必须指向 <club>.club.hotmart.com 成员区")
+    raise CourseProviderError("暂不支持该课程平台")
 
 
 def detect_course_provider(source_url: object) -> str:
@@ -113,11 +147,13 @@ def build_course_provider_plan(
     url = _validated_course_url(source_url)
     detected = _detect_provider_from_validated_url(url)
     provider_id = _clean_provider(provider, detected=detected)
-    browser_id = _clean_browser(browser)
 
+    if provider_id == "hotmart":
+        raise CourseProviderError("Hotmart 目前仅支持课程来源识别；授权下载适配器尚未实现")
     if provider_id != "udemy":
         raise CourseProviderError("课程 Provider 尚未实现")
 
+    browser_id = _clean_browser(browser)
     engine_payload = {
         "sourceUrl": url,
         "videoQuality": "best",
