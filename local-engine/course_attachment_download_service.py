@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from course_attachments import CourseAttachmentError, attachment_download_context
-from headless_browser_cookies import HeadlessBrowserCookieError, browser_cookie_source
+from headless_browser_cookies import browser_cookie_source
 from headless_service import _safe_detail
 from udemy_attachment_downloader import (
     UdemyAttachmentDownloadCancelled,
@@ -100,11 +100,11 @@ class CourseAttachmentDownloadService:
             raise CourseAttachmentDownloadServiceError("course attachment not found")
         with self._lock:
             self._prune_locked()
-            if self._queue.full():
-                raise CourseAttachmentDownloadServiceError("attachment download queue is full")
             for existing in self._jobs.values():
                 if existing.attachment_id == attachment and existing.state not in _TERMINAL_STATES:
                     return existing.public_payload()
+            if self._queue.full():
+                raise CourseAttachmentDownloadServiceError("attachment download queue is full")
             job = _AttachmentJob(uuid.uuid4().hex, attachment, browser_id)
             self._jobs[job.id] = job
             self._queue.put_nowait(job.id)
@@ -142,6 +142,11 @@ class CourseAttachmentDownloadService:
             for job in self._jobs.values():
                 if job.state not in _TERMINAL_STATES:
                     job.cancel_event.set()
+                    if job.state == "queued":
+                        job.state = "cancelled"
+                    elif job.state == "running":
+                        job.state = "cancelling"
+                    job.updated_at = _now()
         try:
             self._queue.put_nowait(None)
         except queue.Full:
@@ -205,12 +210,19 @@ class CourseAttachmentDownloadService:
                             current.state = "cancelled"
                             current.error = ""
                             current.updated_at = _now()
-                except (UdemyAttachmentDownloadError, HeadlessBrowserCookieError, Exception) as exc:
+                except UdemyAttachmentDownloadError as exc:
                     with self._lock:
                         current = self._jobs.get(job_id)
                         if current is not None:
                             current.state = "failed"
                             current.error = _safe_detail(exc, 360)
+                            current.updated_at = _now()
+                except Exception:
+                    with self._lock:
+                        current = self._jobs.get(job_id)
+                        if current is not None:
+                            current.state = "failed"
+                            current.error = "attachment download failed"
                             current.updated_at = _now()
             finally:
                 self._queue.task_done()
