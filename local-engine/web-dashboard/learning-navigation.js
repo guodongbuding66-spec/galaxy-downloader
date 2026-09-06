@@ -92,10 +92,15 @@
     node.classList.toggle('is-hidden', !message)
   }
 
+  function safeOrderIndex(value) {
+    const parsed = Number(value)
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : Number.MAX_SAFE_INTEGER
+  }
+
   function orderedItems(items) {
     return [...items].sort((a, b) => {
-      const ai = Number(a?.courseItemIndex) || Number.MAX_SAFE_INTEGER
-      const bi = Number(b?.courseItemIndex) || Number.MAX_SAFE_INTEGER
+      const ai = safeOrderIndex(a?.courseItemIndex)
+      const bi = safeOrderIndex(b?.courseItemIndex)
       return ai - bi || String(a?.id || '').localeCompare(String(b?.id || ''))
     })
   }
