@@ -115,6 +115,7 @@ class HeadlessLearningStructureTests(unittest.TestCase):
                 context,
                 first_item,
                 provider="udemy",
+                provider_course_id="udemy:course:456",
                 provider_lecture_id="udemy:lecture:1001",
                 attachments=[{
                     "providerAttachmentId": "udemy:asset:7001",
@@ -142,6 +143,7 @@ class HeadlessLearningStructureTests(unittest.TestCase):
             attachment = detail["items"][0]["attachments"][0]
             self.assertEqual(attachment["providerAttachmentId"], "udemy:asset:7001")
             self.assertEqual(attachment["fileName"], "starter.zip")
+            self.assertNotIn("providerCourseId", attachment)
             self.assertNotIn("providerLectureId", attachment)
             self.assertNotIn("url", str(attachment).lower())
             self.assertNotIn("attachments", detail["items"][1])
@@ -164,6 +166,8 @@ class HeadlessLearningStructureTests(unittest.TestCase):
             self.assertEqual(items["items"][1]["providerTitle"], "Variables and Types")
             self.assertEqual(items["items"][0]["nextItemId"], second_item)
             self.assertEqual(items["items"][0]["attachments"][0]["title"], "Starter Files")
+            self.assertNotIn("providerCourseId", str(items))
+            self.assertNotIn("providerLectureId", str(items))
 
     def test_unstructured_course_remains_backward_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
