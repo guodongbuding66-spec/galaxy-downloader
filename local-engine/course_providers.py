@@ -8,6 +8,7 @@ from url_policy import validated_public_http_url
 
 BROWSERS = frozenset({"none", "edge", "chrome", "firefox", "brave"})
 SUPPORTED_PROVIDER_IDS = frozenset({"udemy", "hotmart"})
+_HOTMART_DOWNLOAD_UNAVAILABLE = "Hotmart 目前仅支持课程来源识别；授权下载适配器尚未实现"
 
 
 class CourseProviderError(RuntimeError):
@@ -24,6 +25,7 @@ class CourseProviderDescriptor:
     supports_subtitles: bool
     supports_attachments: bool
     download_available: bool
+    download_unavailable_reason: str
     drm_bypass_supported: bool
 
     def public_payload(self) -> dict[str, Any]:
@@ -37,6 +39,7 @@ class CourseProviderDescriptor:
             "supportsSubtitles": payload["supports_subtitles"],
             "supportsAttachments": payload["supports_attachments"],
             "downloadAvailable": payload["download_available"],
+            "downloadUnavailableReason": payload["download_unavailable_reason"],
             "drmBypassSupported": payload["drm_bypass_supported"],
         }
 
@@ -50,6 +53,7 @@ _UDEMY_DESCRIPTOR = CourseProviderDescriptor(
     supports_subtitles=True,
     supports_attachments=True,
     download_available=True,
+    download_unavailable_reason="",
     drm_bypass_supported=False,
 )
 
@@ -62,8 +66,14 @@ _HOTMART_DESCRIPTOR = CourseProviderDescriptor(
     supports_subtitles=False,
     supports_attachments=False,
     download_available=False,
+    download_unavailable_reason=_HOTMART_DOWNLOAD_UNAVAILABLE,
     drm_bypass_supported=False,
 )
+
+_PROVIDER_DESCRIPTORS = {
+    _UDEMY_DESCRIPTOR.id: _UDEMY_DESCRIPTOR,
+    _HOTMART_DESCRIPTOR.id: _HOTMART_DESCRIPTOR,
+}
 
 
 def list_course_providers() -> list[dict[str, Any]]:
@@ -131,6 +141,34 @@ def _clean_provider(value: object, *, detected: str) -> str:
     return requested
 
 
+def resolve_course_provider(
+    source_url: object,
+    *,
+    provider: object = "auto",
+) -> dict[str, Any]:
+    """Resolve provider identity and safe capabilities without constructing a download plan."""
+    url = _validated_course_url(source_url)
+    detected = _detect_provider_from_validated_url(url)
+    provider_id = _clean_provider(provider, detected=detected)
+    descriptor = _PROVIDER_DESCRIPTORS.get(provider_id)
+    if descriptor is None:
+        raise CourseProviderError("课程 Provider 尚未实现")
+    public = descriptor.public_payload()
+    return {
+        "provider": provider_id,
+        "providerName": public["name"],
+        "sourceUrl": url,
+        "status": public["status"],
+        "requiresAuthorizedSession": public["requiresAuthorizedSession"],
+        "supportsBrowserCookies": public["supportsBrowserCookies"],
+        "supportsSubtitles": public["supportsSubtitles"],
+        "supportsAttachments": public["supportsAttachments"],
+        "downloadAvailable": public["downloadAvailable"],
+        "downloadUnavailableReason": public["downloadUnavailableReason"],
+        "drmBypassSupported": public["drmBypassSupported"],
+    }
+
+
 def build_course_provider_plan(
     source_url: object,
     *,
@@ -144,12 +182,13 @@ def build_course_provider_plan(
     if not isinstance(include_attachments, bool):
         raise CourseProviderError("includeAttachments 必须是布尔值")
 
-    url = _validated_course_url(source_url)
-    detected = _detect_provider_from_validated_url(url)
-    provider_id = _clean_provider(provider, detected=detected)
-
-    if provider_id == "hotmart":
-        raise CourseProviderError("Hotmart 目前仅支持课程来源识别；授权下载适配器尚未实现")
+    resolution = resolve_course_provider(source_url, provider=provider)
+    provider_id = str(resolution["provider"])
+    url = str(resolution["sourceUrl"])
+    if not resolution["downloadAvailable"]:
+        raise CourseProviderError(
+            str(resolution.get("downloadUnavailableReason") or "课程 Provider 尚未实现")
+        )
     if provider_id != "udemy":
         raise CourseProviderError("课程 Provider 尚未实现")
 
@@ -173,10 +212,7 @@ def build_course_provider_plan(
     warnings.append("仅处理账号已获授权访问的课程；不提供 DRM 绕过")
 
     return {
-        "provider": provider_id,
-        "sourceUrl": url,
-        "requiresAuthorizedSession": True,
-        "drmBypassSupported": False,
+        **resolution,
         "enginePayload": engine_payload,
         "warnings": warnings,
     }
