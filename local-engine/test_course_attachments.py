@@ -202,6 +202,24 @@ class CourseAttachmentTests(unittest.TestCase):
                 replace_course_item_attachments(
                     engine,
                     item_id,
+                    provider="hotmart",
+                    provider_course_id="hotmart:course:456",
+                    provider_lecture_id="hotmart:lecture:12",
+                    attachments=[],
+                )
+            with self.assertRaises(CourseAttachmentError):
+                replace_course_item_attachments(
+                    engine,
+                    item_id,
+                    provider="udemy",
+                    provider_course_id="udemy:course:not-numeric",
+                    provider_lecture_id="udemy:lecture:12",
+                    attachments=[],
+                )
+            with self.assertRaises(CourseAttachmentError):
+                replace_course_item_attachments(
+                    engine,
+                    item_id,
                     provider="udemy",
                     provider_course_id="https://udemy.com/course/456?token=SECRET",
                     provider_lecture_id="udemy:lecture:12",
@@ -215,6 +233,20 @@ class CourseAttachmentTests(unittest.TestCase):
                     provider_course_id="udemy:course:456",
                     provider_lecture_id="https://udemy.com/lecture/12?token=SECRET",
                     attachments=[],
+                )
+            with self.assertRaises(CourseAttachmentError):
+                replace_course_item_attachments(
+                    engine,
+                    item_id,
+                    provider="udemy",
+                    provider_course_id="udemy:course:456",
+                    provider_lecture_id="udemy:lecture:12",
+                    attachments=[{
+                        "providerAttachmentId": "udemy:asset:not-numeric",
+                        "title": "Bad",
+                        "fileName": "bad.txt",
+                        "assetType": "File",
+                    }],
                 )
 
 
