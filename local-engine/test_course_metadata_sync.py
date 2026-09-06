@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import headless_service
-from course_attachments import enrich_course_item_attachments
+from course_attachments import attachment_download_context, enrich_course_item_attachments
 from course_download_sessions import (
     CourseDownloadSessionError,
     discard_course_download_outputs,
@@ -127,6 +127,7 @@ class CourseMetadataSyncTests(unittest.TestCase):
         if lecture_id:
             info["_galaxyCourseAttachmentInventory"] = {
                 "provider": "udemy",
+                "providerCourseId": "udemy:course:456",
                 "providerLectureId": f"udemy:lecture:{lecture_id}",
                 "attachments": list(attachments or []),
             }
@@ -204,11 +205,16 @@ class CourseMetadataSyncTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(len(items[0]["attachments"]), 1)
-            self.assertEqual(items[0]["attachments"][0]["providerAttachmentId"], "udemy:asset:7001")
-            self.assertEqual(items[0]["attachments"][0]["fileName"], "starter.zip")
+            attachment = items[0]["attachments"][0]
+            self.assertEqual(attachment["providerAttachmentId"], "udemy:asset:7001")
+            self.assertEqual(attachment["fileName"], "starter.zip")
+            internal = attachment_download_context(engine, attachment["id"])
+            self.assertEqual(internal["providerCourseId"], "udemy:course:456")
+            self.assertEqual(internal["providerLectureId"], "udemy:lecture:1001")
             self.assertNotIn("attachments", items[1])
             self.assertNotIn("PRIVATE", str(items))
             self.assertNotIn("url", str(items).lower())
+            self.assertNotIn("providerCourseId", str(items))
             self.assertNotIn("providerLectureId", str(items))
             self.assertEqual(tracked_output_paths(tracking_id), [])
             self.assertEqual(tracked_course_metadata(tracking_id), {})
@@ -252,6 +258,7 @@ class CourseMetadataSyncTests(unittest.TestCase):
             retained = tracked_course_metadata(tracking_id)[output.resolve()]
             self.assertEqual(retained["providerItemId"], "udemy:asset:601")
             self.assertEqual(retained["subtitleTracks"][0], {"language": "en", "kind": "manual"})
+            self.assertEqual(retained["attachmentInventory"]["providerCourseId"], "udemy:course:456")
             self.assertEqual(
                 retained["attachmentInventory"]["attachments"][0]["providerAttachmentId"],
                 "udemy:asset:8001",
