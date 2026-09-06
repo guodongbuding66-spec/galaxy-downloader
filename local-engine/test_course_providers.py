@@ -20,12 +20,22 @@ class CourseProviderTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_catalog_exposes_udemy_without_drm_bypass(self) -> None:
+    def test_catalog_exposes_download_capability_without_drm_bypass(self) -> None:
         providers = list_course_providers()
-        self.assertEqual([provider["id"] for provider in providers], ["udemy"])
-        self.assertTrue(providers[0]["requiresAuthorizedSession"])
-        self.assertTrue(providers[0]["supportsAttachments"])
-        self.assertFalse(providers[0]["drmBypassSupported"])
+        self.assertEqual([provider["id"] for provider in providers], ["udemy", "hotmart"])
+        udemy, hotmart = providers
+        self.assertTrue(udemy["requiresAuthorizedSession"])
+        self.assertTrue(udemy["supportsBrowserCookies"])
+        self.assertTrue(udemy["supportsAttachments"])
+        self.assertTrue(udemy["downloadAvailable"])
+        self.assertFalse(udemy["drmBypassSupported"])
+        self.assertEqual(hotmart["status"], "discovery")
+        self.assertTrue(hotmart["requiresAuthorizedSession"])
+        self.assertFalse(hotmart["supportsBrowserCookies"])
+        self.assertFalse(hotmart["supportsSubtitles"])
+        self.assertFalse(hotmart["supportsAttachments"])
+        self.assertFalse(hotmart["downloadAvailable"])
+        self.assertFalse(hotmart["drmBypassSupported"])
 
     def test_detects_standard_udemy_course_url(self) -> None:
         self.assertEqual(
@@ -38,6 +48,26 @@ class CourseProviderTests(unittest.TestCase):
             detect_course_provider("https://example.udemy.com/course/internal-training/"),
             "udemy",
         )
+
+    def test_detects_hotmart_club_member_area(self) -> None:
+        self.assertEqual(
+            detect_course_provider(
+                "https://sosmaesexaustas20.club.hotmart.com/lesson/a4Rln5Pa7n/importante-nao-pule-essa-aula-ok"
+            ),
+            "hotmart",
+        )
+        self.assertEqual(
+            detect_course_provider("https://my-course.club.hotmart.com/"),
+            "hotmart",
+        )
+
+    def test_rejects_hotmart_login_host_without_club_subdomain(self) -> None:
+        with self.assertRaisesRegex(CourseProviderError, "Hotmart Club"):
+            detect_course_provider("https://club.hotmart.com/oauth/login?productId=401198")
+
+    def test_rejects_lookalike_hotmart_club_domain(self) -> None:
+        with self.assertRaises(CourseProviderError):
+            detect_course_provider("https://school.club.hotmart.com.evil.example/lesson/test")
 
     def test_rejects_lookalike_udemy_domain(self) -> None:
         with self.assertRaises(CourseProviderError):
@@ -87,6 +117,23 @@ class CourseProviderTests(unittest.TestCase):
             build_course_provider_plan(
                 "https://www.udemy.com/course/python-bootcamp/",
                 provider="hotmart",
+            )
+
+    def test_hotmart_auto_plan_is_discovery_only(self) -> None:
+        with self.assertRaisesRegex(CourseProviderError, "Hotmart.*授权下载适配器尚未实现"):
+            build_course_provider_plan(
+                "https://my-course.club.hotmart.com/lesson/abc/start",
+                browser="chrome",
+            )
+
+    def test_hotmart_explicit_plan_cannot_fall_through_to_generic_downloader(self) -> None:
+        with self.assertRaisesRegex(CourseProviderError, "Hotmart.*授权下载适配器尚未实现"):
+            build_course_provider_plan(
+                "https://my-course.club.hotmart.com/",
+                provider="hotmart",
+                browser="safari",
+                include_subtitles=False,
+                include_attachments=False,
             )
 
     def test_include_flags_must_be_boolean(self) -> None:
