@@ -3,11 +3,13 @@ from __future__ import annotations
 from http.server import ThreadingHTTPServer
 
 import headless_api_base as _base
+from course_attachment_download_service import CourseAttachmentDownloadService
 from course_download_coordinator import CourseDownloadCoordinator
 from headless_ai_api import HeadlessAiApi
 from headless_asr_api import HeadlessAsrApi
 from headless_asr_http import HeadlessAsrHttpMixin
 from headless_browser_cookies import install_headless_browser_cookie_support
+from headless_course_attachments_http import HeadlessCourseAttachmentsHttpMixin
 from headless_course_metadata_tracking import install_headless_course_metadata_tracking
 from headless_course_providers_http import HeadlessCourseProvidersHttpMixin
 from headless_learning_structure import install_headless_learning_structure
@@ -43,6 +45,7 @@ from headless_ai_http import AiGalaxyApiRequestHandler, AiGalaxyApiServer  # noq
 
 class GalaxyApiRequestHandler(
     HeadlessWebDashboardMixin,
+    HeadlessCourseAttachmentsHttpMixin,
     HeadlessCourseProvidersHttpMixin,
     HeadlessSettingsHttpMixin,
     HeadlessTransferHttpMixin,
@@ -51,11 +54,11 @@ class GalaxyApiRequestHandler(
     HeadlessAsrHttpMixin,
     AiGalaxyApiRequestHandler,
 ):
-    """Production request chain: Dashboard -> Course Providers -> Settings -> Transfer -> Plugins -> WhisperX -> ASR -> AI -> Galaxy."""
+    """Production request chain with Dashboard, Learning extensions and bounded service APIs."""
 
 
 class GalaxyApiServer(ThreadingHTTPServer):
-    """Production Galaxy server with Transfer, Plugin, AI, ASR and Course coordination enabled."""
+    """Production Galaxy server with Course coordination and attachment downloads enabled."""
 
     daemon_threads = True
     allow_reuse_address = True
@@ -84,9 +87,11 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self._owns_asr_api = asr_api is None
         transfer: HeadlessTransferApi | None = None
         coordinator: CourseDownloadCoordinator | None = None
+        attachment_downloads: CourseAttachmentDownloadService | None = None
         self._owns_transfer_api = transfer_api is None
         self._transfer_closed = False
         self._course_download_coordinator_closed = False
+        self._course_attachment_download_service_closed = False
         try:
             asr = asr_api or Qwen3HeadlessAsrApi(runtime.download_root)
             shared_asr_context = getattr(asr, "context", None)
@@ -95,6 +100,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
             transfer = transfer_api or HeadlessTransferApi(runtime.download_root)
             if learning_api is not None:
                 coordinator = CourseDownloadCoordinator(runtime, learning_api)
+                attachment_downloads = CourseAttachmentDownloadService(learning_api.context)
             self.runtime = runtime
             self.auth_token = auth_token
             self.bound_host = bound_host
@@ -110,8 +116,11 @@ class GalaxyApiServer(ThreadingHTTPServer):
             self.plugin_api = plugins
             self.transfer_api = transfer
             self.course_download_coordinator = coordinator
+            self.course_attachment_download_service = attachment_downloads
             super().__init__(address, GalaxyApiRequestHandler)
         except Exception:
+            if attachment_downloads is not None:
+                attachment_downloads.close()
             if coordinator is not None:
                 coordinator.close()
             if self._owns_transfer_api and transfer is not None:
@@ -124,6 +133,10 @@ class GalaxyApiServer(ThreadingHTTPServer):
         try:
             super().server_close()
         finally:
+            attachment_downloads = getattr(self, "course_attachment_download_service", None)
+            if attachment_downloads is not None and not self._course_attachment_download_service_closed:
+                self._course_attachment_download_service_closed = True
+                attachment_downloads.close()
             coordinator = getattr(self, "course_download_coordinator", None)
             if coordinator is not None and not self._course_download_coordinator_closed:
                 self._course_download_coordinator_closed = True
