@@ -8,6 +8,7 @@ on:
       - 'local-engine/headless_learning_api.py'
       - 'local-engine/headless_learning_structure.py'
       - 'local-engine/headless_course_providers_http.py'
+      - 'local-engine/headless_course_attachments_http.py'
       - 'local-engine/headless_browser_cookies.py'
       - 'local-engine/headless_output_tracking.py'
       - 'local-engine/headless_course_metadata_tracking.py'
@@ -18,10 +19,13 @@ on:
       - 'local-engine/desktop_course_download.py'
       - 'local-engine/course_download_sessions.py'
       - 'local-engine/course_download_coordinator.py'
+      - 'local-engine/course_attachment_download_service.py'
+      - 'local-engine/course_attachment_files.py'
       - 'local-engine/course_structure.py'
       - 'local-engine/course_subtitles.py'
       - 'local-engine/course_attachments.py'
       - 'local-engine/course_workspace.py'
+      - 'local-engine/udemy_attachment_downloader.py'
       - 'local-engine/spaced_repetition.py'
       - 'local-engine/media_library.py'
       - 'local-engine/test_course_providers.py'
@@ -29,6 +33,8 @@ on:
       - 'local-engine/test_desktop_course_download.py'
       - 'local-engine/test_course_download_sessions.py'
       - 'local-engine/test_course_download_coordinator.py'
+      - 'local-engine/test_course_attachment_download_service.py'
+      - 'local-engine/test_course_attachment_files.py'
       - 'local-engine/test_course_structure.py'
       - 'local-engine/test_course_subtitles.py'
       - 'local-engine/test_course_attachments.py'
@@ -38,8 +44,10 @@ on:
       - 'local-engine/test_headless_course_metadata_tracking.py'
       - 'local-engine/test_headless_udemy_attachment_inventory.py'
       - 'local-engine/test_headless_course_providers_http.py'
+      - 'local-engine/test_headless_course_attachments_http.py'
       - 'local-engine/test_headless_browser_cookies.py'
       - 'local-engine/test_headless_output_tracking.py'
+      - 'local-engine/test_udemy_attachment_downloader.py'
       - 'scripts/test-local-headless-learning-api.py'
       - '.github/workflows/headless-learning-api.yml'
   push:
@@ -50,6 +58,7 @@ on:
       - 'local-engine/headless_learning_api.py'
       - 'local-engine/headless_learning_structure.py'
       - 'local-engine/headless_course_providers_http.py'
+      - 'local-engine/headless_course_attachments_http.py'
       - 'local-engine/headless_browser_cookies.py'
       - 'local-engine/headless_output_tracking.py'
       - 'local-engine/headless_course_metadata_tracking.py'
@@ -60,10 +69,13 @@ on:
       - 'local-engine/desktop_course_download.py'
       - 'local-engine/course_download_sessions.py'
       - 'local-engine/course_download_coordinator.py'
+      - 'local-engine/course_attachment_download_service.py'
+      - 'local-engine/course_attachment_files.py'
       - 'local-engine/course_structure.py'
       - 'local-engine/course_subtitles.py'
       - 'local-engine/course_attachments.py'
       - 'local-engine/course_workspace.py'
+      - 'local-engine/udemy_attachment_downloader.py'
       - 'local-engine/spaced_repetition.py'
       - 'local-engine/media_library.py'
       - 'local-engine/test_course_providers.py'
@@ -71,6 +83,8 @@ on:
       - 'local-engine/test_desktop_course_download.py'
       - 'local-engine/test_course_download_sessions.py'
       - 'local-engine/test_course_download_coordinator.py'
+      - 'local-engine/test_course_attachment_download_service.py'
+      - 'local-engine/test_course_attachment_files.py'
       - 'local-engine/test_course_structure.py'
       - 'local-engine/test_course_subtitles.py'
       - 'local-engine/test_course_attachments.py'
@@ -80,8 +94,10 @@ on:
       - 'local-engine/test_headless_course_metadata_tracking.py'
       - 'local-engine/test_headless_udemy_attachment_inventory.py'
       - 'local-engine/test_headless_course_providers_http.py'
+      - 'local-engine/test_headless_course_attachments_http.py'
       - 'local-engine/test_headless_browser_cookies.py'
       - 'local-engine/test_headless_output_tracking.py'
+      - 'local-engine/test_udemy_attachment_downloader.py'
       - 'scripts/test-local-headless-learning-api.py'
       - '.github/workflows/headless-learning-api.yml'
 
@@ -112,7 +128,7 @@ jobs:
         run: python -m pip install -r local-engine/requirements.txt
 
       - name: Compile contract
-        run: python -m py_compile local-engine/headless_api.py local-engine/headless_learning_api.py local-engine/headless_learning_structure.py local-engine/headless_course_providers_http.py local-engine/headless_browser_cookies.py local-engine/headless_output_tracking.py local-engine/headless_course_metadata_tracking.py local-engine/headless_udemy_attachment_inventory.py local-engine/course_providers.py local-engine/managed_course_download.py local-engine/desktop_course_download.py local-engine/course_download_sessions.py local-engine/course_download_coordinator.py local-engine/course_structure.py local-engine/course_subtitles.py local-engine/course_attachments.py local-engine/course_workspace.py local-engine/test_course_providers.py local-engine/test_managed_course_download.py local-engine/test_desktop_course_download.py local-engine/test_course_download_sessions.py local-engine/test_course_download_coordinator.py local-engine/test_course_structure.py local-engine/test_course_subtitles.py local-engine/test_course_attachments.py local-engine/test_course_metadata_sync.py local-engine/test_course_workspace_url_privacy.py local-engine/test_headless_learning_structure.py local-engine/test_headless_course_metadata_tracking.py local-engine/test_headless_udemy_attachment_inventory.py local-engine/test_headless_course_providers_http.py local-engine/test_headless_browser_cookies.py local-engine/test_headless_output_tracking.py scripts/test-local-headless-learning-api.py
+        run: python -m py_compile local-engine/headless_api.py local-engine/headless_learning_api.py local-engine/headless_learning_structure.py local-engine/headless_course_providers_http.py local-engine/headless_course_attachments_http.py local-engine/headless_browser_cookies.py local-engine/headless_output_tracking.py local-engine/headless_course_metadata_tracking.py local-engine/headless_udemy_attachment_inventory.py local-engine/headless_service.py local-engine/course_providers.py local-engine/managed_course_download.py local-engine/desktop_course_download.py local-engine/course_download_sessions.py local-engine/course_download_coordinator.py local-engine/course_attachment_download_service.py local-engine/course_attachment_files.py local-engine/course_structure.py local-engine/course_subtitles.py local-engine/course_attachments.py local-engine/course_workspace.py local-engine/udemy_attachment_downloader.py local-engine/test_course_providers.py local-engine/test_managed_course_download.py local-engine/test_desktop_course_download.py local-engine/test_course_download_sessions.py local-engine/test_course_download_coordinator.py local-engine/test_course_attachment_download_service.py local-engine/test_course_attachment_files.py local-engine/test_course_structure.py local-engine/test_course_subtitles.py local-engine/test_course_attachments.py local-engine/test_course_metadata_sync.py local-engine/test_course_workspace_url_privacy.py local-engine/test_headless_learning_structure.py local-engine/test_headless_course_metadata_tracking.py local-engine/test_headless_udemy_attachment_inventory.py local-engine/test_headless_course_providers_http.py local-engine/test_headless_course_attachments_http.py local-engine/test_headless_browser_cookies.py local-engine/test_headless_output_tracking.py local-engine/test_udemy_attachment_downloader.py scripts/test-local-headless-learning-api.py
 
       - name: Run course provider unit tests
         run: |
@@ -121,6 +137,8 @@ jobs:
           python local-engine/test_desktop_course_download.py
           python local-engine/test_course_download_sessions.py
           python local-engine/test_course_download_coordinator.py
+          python local-engine/test_course_attachment_download_service.py
+          python local-engine/test_course_attachment_files.py
           python local-engine/test_course_structure.py
           python local-engine/test_course_subtitles.py
           python local-engine/test_course_attachments.py
@@ -130,8 +148,10 @@ jobs:
           python local-engine/test_headless_course_metadata_tracking.py
           python local-engine/test_headless_udemy_attachment_inventory.py
           python local-engine/test_headless_course_providers_http.py
+          python local-engine/test_headless_course_attachments_http.py
           python local-engine/test_headless_browser_cookies.py
           python local-engine/test_headless_output_tracking.py
+          python local-engine/test_udemy_attachment_downloader.py
 
       - name: Run headless Learning API self-test
         run: python scripts/test-local-headless-learning-api.py
