@@ -151,12 +151,18 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_get_catalog(self) -> None:
+    def test_get_catalog_marks_hotmart_discovery_only(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers"
         handler.do_GET()
-        self.assertEqual(handler.response[0], 200)
-        self.assertEqual(handler.response[1]["providers"][0]["id"], "udemy")
+        status, payload = handler.response
+        self.assertEqual(status, 200)
+        providers = {provider["id"]: provider for provider in payload["providers"]}
+        self.assertTrue(providers["udemy"]["downloadAvailable"])
+        self.assertFalse(providers["hotmart"]["downloadAvailable"])
+        self.assertEqual(providers["hotmart"]["status"], "discovery")
+        self.assertFalse(providers["hotmart"]["supportsBrowserCookies"])
+        self.assertFalse(providers["hotmart"]["drmBypassSupported"])
 
     def test_get_download_status(self) -> None:
         handler = _Handler()
@@ -197,6 +203,38 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         self.assertEqual(payload["plan"]["enginePayload"]["browser"], "chrome")
         self.assertEqual(handler.coordinator.submissions, [])
         self.assertEqual(handler.learning_api.created, [])
+
+    def test_post_hotmart_resolve_is_typed_discovery_only_error(self) -> None:
+        handler = _Handler()
+        handler.path = "/v1/learning/providers/resolve"
+        handler.payload = {
+            "sourceUrl": "https://my-course.club.hotmart.com/lesson/abc/start",
+            "provider": "auto",
+            "browser": "chrome",
+        }
+        handler.do_POST()
+        status, payload = handler.response
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["code"], "LEARNING_COURSE_PROVIDER_INVALID")
+        self.assertIn("Hotmart", payload["error"])
+        self.assertIn("授权下载适配器尚未实现", payload["error"])
+        self.assertEqual(handler.learning_api.created, [])
+        self.assertEqual(handler.coordinator.submissions, [])
+
+    def test_post_hotmart_download_cannot_create_course_or_submit(self) -> None:
+        handler = _Handler()
+        handler.path = "/v1/learning/providers/download"
+        handler.payload = {
+            "sourceUrl": "https://my-course.club.hotmart.com/",
+            "provider": "hotmart",
+            "browser": "chrome",
+        }
+        handler.do_POST()
+        status, payload = handler.response
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["code"], "LEARNING_COURSE_PROVIDER_INVALID")
+        self.assertEqual(handler.learning_api.created, [])
+        self.assertEqual(handler.coordinator.submissions, [])
 
     def test_post_download_auto_creates_course_and_submits_safe_plan(self) -> None:
         handler = _Handler()
