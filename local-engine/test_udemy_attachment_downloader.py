@@ -117,7 +117,7 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
         }
         with patch(
             "udemy_attachment_downloader.validated_public_http_url",
-            side_effect=lambda value: str(value),
+            side_effect=str,
         ):
             selected = _select_download_url(metadata)
         self.assertEqual(selected, "https://cdn.example/starter.zip?sig=PRIVATE")
@@ -125,7 +125,7 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
     def test_udemy_origin_rejects_plain_http_foreign_hosts_and_custom_ports(self) -> None:
         with patch(
             "udemy_attachment_downloader.validated_public_http_url",
-            side_effect=lambda value: str(value),
+            side_effect=str,
         ):
             self.assertEqual(
                 _udemy_origin("https://company.udemy.com/course/python/"),
@@ -185,7 +185,7 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
                 "udemy_attachment_downloader.UdemyIE", FakeUdemyIE
             ), patch(
                 "udemy_attachment_downloader.validated_public_http_url",
-                side_effect=lambda value: str(value),
+                side_effect=str,
             ):
                 result = download_udemy_attachment(
                     engine,
@@ -253,7 +253,7 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
                 "udemy_attachment_downloader.UdemyIE", FakeUdemyIE
             ), patch(
                 "udemy_attachment_downloader.validated_public_http_url",
-                side_effect=lambda value: str(value),
+                side_effect=str,
             ):
                 with self.assertRaisesRegex(UdemyAttachmentDownloadError, "size limit"):
                     download_udemy_attachment(engine, attachment["id"])
@@ -290,7 +290,7 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
                 "udemy_attachment_downloader.UdemyIE", FakeUdemyIE
             ), patch(
                 "udemy_attachment_downloader.validated_public_http_url",
-                side_effect=lambda value: str(value),
+                side_effect=str,
             ):
                 with self.assertRaisesRegex(UdemyAttachmentDownloadError, "incomplete") as caught:
                     download_udemy_attachment(engine, attachment["id"])
@@ -314,7 +314,7 @@ class UdemyAttachmentDownloaderTests(unittest.TestCase):
 
             with patch("udemy_attachment_downloader.YoutubeDL", NeverYDL), patch(
                 "udemy_attachment_downloader.validated_public_http_url",
-                side_effect=lambda value: str(value),
+                side_effect=str,
             ):
                 with self.assertRaises(UdemyAttachmentDownloadCancelled):
                     download_udemy_attachment(
