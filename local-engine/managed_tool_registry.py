@@ -73,6 +73,16 @@ DEFAULT_MANAGED_TOOL_SPECS: tuple[ManagedToolSpec, ...] = (
         supports_update_check=True,
         tracks_provenance=True,
     ),
+    ManagedToolSpec(
+        tool="gallery-dl",
+        display_name="gallery-dl",
+        required=False,
+        capabilities=("gallery", "image", "social-media", "metadata"),
+        supports_managed_copy=True,
+        supports_online_install=True,
+        supports_update_check=True,
+        tracks_provenance=True,
+    ),
 )
 
 
@@ -296,7 +306,14 @@ def run_managed_tool_registry_self_test() -> None:
     )
     assert missing.state == "missing"
     assert missing.health == "error"
-    summary = registry_summary((missing,))
+    optional = evaluate_tool_health(
+        DEFAULT_MANAGED_TOOL_SPECS[2],
+        ManagedToolObservation(False, "unavailable", None),
+    )
+    assert optional.state == "missing"
+    assert optional.health == "warning"
+    summary = registry_summary((missing, optional))
     assert summary["dependenciesReady"] is False
+    assert summary["dependencyWarningCount"] == 1
     public = summary["managedToolRegistry"][0]
     assert "path" not in " ".join(public.keys()).lower()
