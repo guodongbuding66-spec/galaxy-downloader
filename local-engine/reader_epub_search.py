@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from reader_epub import EpubDocumentError, _load_model, _parse_chapter
@@ -56,7 +57,7 @@ def epub_search(
     except EpubDocumentError as exc:
         raise EpubSearchError(str(exc)) from exc
 
-    needle = clean_query.casefold()
+    matcher = re.compile(re.escape(clean_query), re.IGNORECASE)
     results: list[dict[str, Any]] = []
     scanned = 0
     truncated = False
@@ -74,19 +75,16 @@ def epub_search(
             text = text[:remaining]
             truncated = True
         scanned += len(text)
-        folded = text.casefold()
-        cursor = 0
-        while cursor <= len(folded):
-            offset = folded.find(needle, cursor)
-            if offset < 0:
-                break
-            snippet, snippet_start = _snippet(text, offset, len(clean_query))
+        for match in matcher.finditer(text):
+            offset = match.start()
+            match_length = max(1, match.end() - match.start())
+            snippet, snippet_start = _snippet(text, offset, match_length)
             results.append(
                 {
                     "chapterId": chapter.chapter_id,
                     "chapterTitle": chapter.title,
                     "offset": offset,
-                    "length": len(clean_query),
+                    "length": match_length,
                     "snippet": snippet,
                     "snippetStart": snippet_start,
                 }
@@ -100,7 +98,6 @@ def epub_search(
                     "scannedChars": scanned,
                     "truncated": True,
                 }
-            cursor = offset + max(1, len(needle))
         if chapter_truncated:
             truncated = True
 
@@ -120,3 +117,5 @@ def run_reader_epub_search_self_test() -> None:
     assert _bounded_limit(9999) == MAX_EPUB_SEARCH_RESULTS
     preview, start = _snippet("0123456789", 4, 2)
     assert preview == "0123456789" and start == 0
+    unicode_match = re.compile(re.escape("istanbul"), re.IGNORECASE).search("İstanbul")
+    assert unicode_match is not None and unicode_match.start() == 0
