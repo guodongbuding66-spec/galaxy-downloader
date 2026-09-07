@@ -9,6 +9,7 @@ from typing import Any
 import desktop_ui as ui
 from desktop_cbz_reader import DesktopCbzReaderError, show_cbz_reader
 from desktop_epub_reader import DesktopEpubReaderError, show_epub_reader
+from desktop_pdf_reader import DesktopPdfReaderError, show_pdf_reader
 from desktop_hooks import register_after_build_ui_hook
 from reader_workspace import (
     ReaderWorkspaceError,
@@ -385,10 +386,13 @@ def _show_reader(window, engine_module) -> None:
         set_widget_enabled(focus_check, bool(book) and caps["focus"])
         set_widget_enabled(reading_mode_combo, caps["readingMode"])
         set_widget_enabled(manga_direction_combo, caps["mangaDirection"])
+        pdf_enabled = bool(book) and format_id == "pdf"
         epub_enabled = bool(book) and format_id == "epub"
         cbz_enabled = bool(book) and format_id == "cbz"
+        set_widget_enabled(open_pdf_button, pdf_enabled)
         set_widget_enabled(open_epub_button, epub_enabled)
         set_widget_enabled(open_cbz_button, cbz_enabled)
+        open_pdf_button.configure(cursor="hand2" if pdf_enabled else "arrow")
         open_epub_button.configure(cursor="hand2" if epub_enabled else "arrow")
         open_cbz_button.configure(cursor="hand2" if cbz_enabled else "arrow")
         if not book:
@@ -400,7 +404,7 @@ def _show_reader(window, engine_module) -> None:
         elif format_id in {"txt", "html", "htm"}:
             settings_hint_var.set("文本阅读：字体、内容宽度、主题和 Focus Mode 会保存到书籍偏好。")
         elif format_id == "pdf":
-            settings_hint_var.set("PDF 当前仅保存 Focus Mode；Zoom/Page 专用阅读器将在后续独立 PR 接入。")
+            settings_hint_var.set("PDF：Zoom、页码、全文搜索、书签、高亮、笔记和 Focus Mode 已接入视觉阅读器。")
         else:
             settings_hint_var.set("当前格式仅保存通用阅读偏好。")
 
@@ -525,6 +529,17 @@ def _show_reader(window, engine_module) -> None:
         except Exception as exc:
             status_var.set(f"失败：{exc}")
 
+    def open_pdf_reader() -> None:
+        book = selected()
+        if not book or str(book.get("format") or "").strip().lower() != "pdf":
+            status_var.set("请先选择 PDF 书籍")
+            return
+        try:
+            show_pdf_reader(engine_module, book, parent=dialog, on_change=refresh_detail)
+            status_var.set("PDF 阅读器已打开")
+        except (DesktopPdfReaderError, ReaderWorkspaceError) as exc:
+            status_var.set(f"PDF 打开失败：{exc}")
+
     def open_epub_reader() -> None:
         book = selected()
         if not book or str(book.get("format") or "").strip().lower() != "epub":
@@ -550,7 +565,9 @@ def _show_reader(window, engine_module) -> None:
     def open_selected_visual_reader() -> None:
         book = selected()
         format_id = str((book or {}).get("format") or "").strip().lower()
-        if format_id == "epub":
+        if format_id == "pdf":
+            open_pdf_reader()
+        elif format_id == "epub":
             open_epub_reader()
         elif format_id == "cbz":
             open_cbz_reader()
@@ -649,6 +666,9 @@ def _show_reader(window, engine_module) -> None:
 
     ui.ActionButton(progress_actions, text="保存进度", command=save_progress, kind="secondary", compact=True).pack(side="left")
     ui.ActionButton(progress_actions, text="添加书签", command=bookmark, kind="ghost", compact=True).pack(side="left", padx=(6, 0))
+    open_pdf_button = ui.ActionButton(progress_actions, text="打开 PDF 阅读器", command=open_pdf_reader, kind="ghost", compact=True)
+    open_pdf_button.pack(side="left", padx=(6, 0))
+    open_pdf_button.configure(state="disabled", cursor="arrow")
     open_epub_button = ui.ActionButton(progress_actions, text="打开 EPUB 阅读器", command=open_epub_reader, kind="ghost", compact=True)
     open_epub_button.pack(side="left", padx=(6, 0))
     open_epub_button.configure(state="disabled", cursor="arrow")
@@ -716,11 +736,13 @@ def install_desktop_reader(engine_module):
 def run_desktop_reader_self_test() -> None:
     assert callable(import_book) and callable(search_reader) and callable(update_reading_position)
     assert callable(update_reader_settings) and callable(add_annotation) and callable(delete_annotation)
-    assert callable(show_cbz_reader) and callable(show_epub_reader)
+    assert callable(show_pdf_reader) and callable(show_cbz_reader) and callable(show_epub_reader)
     epub_caps = _settings_capabilities("epub")
     assert epub_caps["font"] and epub_caps["width"] and epub_caps["theme"] and not epub_caps["readingMode"]
     cbz_caps = _settings_capabilities("cbz")
     assert cbz_caps["readingMode"] and cbz_caps["mangaDirection"] and not cbz_caps["font"]
+    pdf_caps = _settings_capabilities("pdf")
+    assert pdf_caps["focus"] and not pdf_caps["font"] and not pdf_caps["width"] and not pdf_caps["readingMode"]
     settings = _settings_payload(
         font_size=100,
         content_width=1,
