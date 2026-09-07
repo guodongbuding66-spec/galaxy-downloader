@@ -57,7 +57,7 @@ class MusicPlayerUiContractTests(unittest.TestCase):
         for value in required:
             self.assertIn(value, self.js)
         self.assertIn("playbackPathPattern", self.js)
-        self.assertIn("/v1/music/playback/", self.js)
+        self.assertIn(r"\/v1\/music\/playback\/", self.js)
 
     def test_bearer_token_never_enters_playback_url_or_query(self) -> None:
         self.assertIn("sessionStorage.getItem('galaxy.headless.token')", self.js)
