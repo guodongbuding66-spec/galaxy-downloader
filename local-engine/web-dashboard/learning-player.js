@@ -4,6 +4,7 @@
   const $ = (id) => document.getElementById(id)
   const idPattern = /^[a-f0-9]{32}$/
   const playbackPathPattern = /^\/v1\/learning\/playback\/[A-Za-z0-9_-]{32,128}\/[a-f0-9]{32}$/
+  const PROGRESS_INTERVAL_SECONDS = 10
   const state = {
     courseId: '',
     resume: null,
@@ -11,6 +12,12 @@
     observer: null,
     media: null,
     loading: false,
+    activeItemId: '',
+    activeTitle: '',
+    lastSavedSeconds: 0,
+    lastQueuedSeconds: 0,
+    saveChain: Promise.resolve(),
+    suppressProgress: false,
   }
 
   function authHeaders(extra = {}) {
@@ -78,22 +85,6 @@
     $('learningPlayerAction')?.addEventListener('click', () => startPlayback())
   }
 
-  function stopMedia() {
-    const media = state.media
-    state.media = null
-    if (media) {
-      try { media.pause() } catch (_) {}
-      media.removeAttribute('src')
-      try { media.load() } catch (_) {}
-      media.remove()
-    }
-    const stage = $('learningPlayerStage')
-    if (stage) {
-      stage.textContent = ''
-      stage.classList.add('is-hidden')
-    }
-  }
-
   function setStatus(message, tone = '') {
     const node = $('learningPlayerStatus')
     if (!node) return
@@ -106,6 +97,96 @@
     if (!button) return
     button.textContent = label
     button.disabled = !enabled || state.loading
+  }
+
+  function activeProgressSnapshot(completed = false) {
+    const media = state.media
+    const itemId = publicId(state.activeItemId)
+    if (!media || !itemId) return null
+    const seconds = safeSeconds(media.currentTime)
+    return { itemId, seconds, completed: Boolean(completed) }
+  }
+
+  async function writeProgress(snapshot, { keepalive = false } = {}) {
+    const response = await fetch(`/v1/learning/items/${encodeURIComponent(snapshot.itemId)}/progress`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ progressSeconds: snapshot.seconds, completed: snapshot.completed }),
+      cache: 'no-store',
+      keepalive: Boolean(keepalive),
+    })
+    if (response.status === 401) throw new Error('Headless API requires a valid Bearer token')
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.error || `Progress save failed (${response.status})`)
+    return payload
+  }
+
+  function queueProgress(completed = false, { force = false, keepalive = false } = {}) {
+    const snapshot = activeProgressSnapshot(completed)
+    if (!snapshot) return Promise.resolve(false)
+    const distance = Math.abs(snapshot.seconds - state.lastQueuedSeconds)
+    if (!completed && !force && distance < PROGRESS_INTERVAL_SECONDS) return Promise.resolve(false)
+    state.lastQueuedSeconds = snapshot.seconds
+
+    if (keepalive) {
+      return writeProgress(snapshot, { keepalive: true })
+        .then(() => {
+          state.lastSavedSeconds = snapshot.seconds
+          return true
+        })
+        .catch(() => {
+          if (publicId(state.activeItemId) === snapshot.itemId) state.lastQueuedSeconds = state.lastSavedSeconds
+          return false
+        })
+    }
+
+    const task = async () => {
+      try {
+        await writeProgress(snapshot)
+        state.lastSavedSeconds = snapshot.seconds
+        return true
+      } catch (_) {
+        if (publicId(state.activeItemId) === snapshot.itemId) {
+          state.lastQueuedSeconds = state.lastSavedSeconds
+          if (state.media) setStatus('Playback continues, but progress could not be saved.', 'error')
+        }
+        return false
+      }
+    }
+    state.saveChain = state.saveChain.catch(() => false).then(task)
+    return state.saveChain
+  }
+
+  function flushProgressKeepalive() {
+    const snapshot = activeProgressSnapshot(false)
+    if (!snapshot) return
+    state.lastQueuedSeconds = snapshot.seconds
+    void writeProgress(snapshot, { keepalive: true })
+      .then(() => {
+        state.lastSavedSeconds = snapshot.seconds
+      })
+      .catch(() => {})
+  }
+
+  function stopMedia({ save = true } = {}) {
+    if (save) void queueProgress(false, { force: true })
+    const media = state.media
+    state.suppressProgress = true
+    state.media = null
+    state.activeItemId = ''
+    state.activeTitle = ''
+    if (media) {
+      try { media.pause() } catch (_) {}
+      media.removeAttribute('src')
+      try { media.load() } catch (_) {}
+      media.remove()
+    }
+    state.suppressProgress = false
+    const stage = $('learningPlayerStage')
+    if (stage) {
+      stage.textContent = ''
+      stage.classList.add('is-hidden')
+    }
   }
 
   function actionableResume() {
@@ -194,6 +275,22 @@
     return url
   }
 
+  async function completePlayback(media) {
+    if (state.media !== media || state.suppressProgress) return
+    setStatus('Saving lesson completion…')
+    const saved = await queueProgress(true, { force: true })
+    if (state.media !== media) return
+    if (!saved) {
+      setStatus('Lesson ended, but completion could not be saved. Reload or play again to retry.', 'error')
+      setAction('Continue', false)
+      return
+    }
+    setStatus('Lesson completed. Finding the next lesson…', 'success')
+    stopMedia({ save: false })
+    state.resume = null
+    await refreshCurrent()
+  }
+
   function mountMedia(target, playbackUrl) {
     const stage = $('learningPlayerStage')
     if (!stage) throw new Error('Player surface is unavailable')
@@ -204,13 +301,37 @@
     media.preload = 'metadata'
     media.setAttribute('playsinline', '')
     const startSeconds = target.resumeState === 'resume' ? safeSeconds(state.resume?.progressSeconds) : 0
+    state.activeItemId = target.itemId
+    state.activeTitle = String(target.item.title || 'Lecture')
+    state.lastSavedSeconds = startSeconds
+    state.lastQueuedSeconds = startSeconds
     media.addEventListener('loadedmetadata', () => {
       if (!startSeconds || !Number.isFinite(media.duration) || media.duration <= 0) return
       const ceiling = Math.max(0, media.duration - 0.25)
       media.currentTime = Math.min(startSeconds, ceiling)
     }, { once: true })
+    media.addEventListener('play', () => {
+      if (state.media === media) setStatus(`${state.activeTitle || 'Lecture'} · playing locally`, 'success')
+    })
+    media.addEventListener('timeupdate', () => {
+      if (state.media === media && !state.suppressProgress) void queueProgress(false)
+    })
+    media.addEventListener('seeked', () => {
+      if (state.media === media && !state.suppressProgress) void queueProgress(false, { force: true })
+    })
+    media.addEventListener('pause', () => {
+      if (state.media !== media || state.suppressProgress || media.ended) return
+      void queueProgress(false, { force: true }).then((saved) => {
+        if (saved && state.media === media && media.paused && !media.ended) {
+          setStatus(`${state.activeTitle || 'Lecture'} · paused · progress saved`)
+        }
+      })
+    })
+    media.addEventListener('ended', () => {
+      void completePlayback(media)
+    })
     media.addEventListener('error', () => {
-      setStatus('Playback stopped because the local media stream became unavailable.', 'error')
+      if (state.media === media) setStatus('Playback stopped because the local media stream became unavailable.', 'error')
     })
     stage.textContent = ''
     stage.appendChild(media)
@@ -270,15 +391,28 @@
     observeLearning()
   })
 
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushProgressKeepalive()
+  })
+
   document.addEventListener('click', (event) => {
     const target = event.target
     if (!(target instanceof Element)) return
-    if (target.closest('[data-learning-course]')) scheduleRefresh(140)
+    const course = target.closest('[data-learning-course]')
+    if (course) {
+      const nextCourseId = publicId(course.dataset.learningCourse)
+      if (state.media && nextCourseId && nextCourseId !== state.courseId) stopMedia()
+      scheduleRefresh(140)
+      return
+    }
+    const navItem = target.closest('.sidebar .nav-item')
+    if (navItem && !navItem.matches('[data-learning-view]') && state.media) stopMedia()
   })
 
   window.addEventListener('beforeunload', () => {
     window.clearTimeout(state.refreshTimer)
     state.observer?.disconnect()
-    stopMedia()
+    flushProgressKeepalive()
+    stopMedia({ save: false })
   })
 })()
