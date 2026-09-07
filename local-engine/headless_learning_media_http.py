@@ -162,17 +162,25 @@ class HeadlessLearningMediaHttpMixin:
         self._json(exc.status, {"ok": False, "error": str(exc), "code": exc.code})
 
     def _stream_learning_media(self, media_id: str, ticket: str) -> None:
+        if not self._valid_host_header() or not self._browser_origin_allowed():
+            self._json(401, {"ok": False, "error": "unauthorized"})
+            return
         learning_api = getattr(self, "learning_api", None)
         if learning_api is None:
             self._json(503, {"ok": False, "error": "learning api is unavailable"})
             return
         try:
-            clean, source = _playable_source(learning_api, media_id)
+            clean = _clean_media_id(media_id)
         except LearningPlaybackError as exc:
             self._playback_error(exc)
             return
         if not _PLAYBACK_TICKETS.valid(ticket, clean):
             self._json(401, {"ok": False, "error": "invalid or expired playback ticket"})
+            return
+        try:
+            _clean, source = _playable_source(learning_api, clean)
+        except LearningPlaybackError as exc:
+            self._playback_error(exc)
             return
         try:
             size = source.stat().st_size
