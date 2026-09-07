@@ -8,11 +8,7 @@ from email.parser import Parser
 from pathlib import Path
 from typing import Callable
 
-# Import requests explicitly so the frozen Local Engine contains gallery-dl's
-# primary HTTP runtime dependency even though gallery-dl itself is installed
-# later as a managed, user-owned wheel payload.
-import requests  # noqa: F401
-
+from gallery_dl_runtime_dependencies import ensure_gallery_dl_runtime_dependencies
 from gallery_dl_source import ResolvedGalleryDlSource, resolve_gallery_dl_source
 from managed_tool_metadata import (
     MANAGED_TOOL_METADATA_SCHEMA,
@@ -107,6 +103,7 @@ def install_managed_gallery_dl_online(
     workspace = Path(tempfile.mkdtemp(prefix=".gallery-dl-online-", dir=str(parent)))
 
     try:
+        ensure_gallery_dl_runtime_dependencies()
         resolved = resolver()
         artifact = resolved.artifact
         if artifact.tool != "gallery-dl":
