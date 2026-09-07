@@ -1,28 +1,32 @@
-name: Desktop Reader
+name: Desktop PDF Reader
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
-      - 'local-engine/desktop_reader.py'
       - 'local-engine/desktop_pdf_reader.py'
+      - 'local-engine/desktop_reader.py'
       - 'local-engine/reader_pdf.py'
-      - 'scripts/test-local-desktop-reader.py'
+      - 'local-engine/reader_workspace.py'
+      - 'local-engine/requirements.txt'
       - 'scripts/test-local-desktop-pdf-reader.py'
-      - '.github/workflows/desktop-reader.yml'
+      - '.github/workflows/desktop-pdf-reader.yml'
   push:
     branches: [main]
     paths:
-      - 'local-engine/desktop_reader.py'
       - 'local-engine/desktop_pdf_reader.py'
+      - 'local-engine/desktop_reader.py'
       - 'local-engine/reader_pdf.py'
-      - 'scripts/test-local-desktop-reader.py'
+      - 'local-engine/reader_workspace.py'
+      - 'local-engine/requirements.txt'
       - 'scripts/test-local-desktop-pdf-reader.py'
-      - '.github/workflows/desktop-reader.yml'
+      - '.github/workflows/desktop-pdf-reader.yml'
+
 permissions:
   contents: read
+
 jobs:
-  reader:
+  pdf-reader:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 12
@@ -33,8 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
-        with: {python-version: '3.12'}
+        with:
+          python-version: '3.12'
       - run: python -m pip install -r local-engine/requirements.txt
-      - run: python -m py_compile local-engine/desktop_reader.py local-engine/desktop_pdf_reader.py local-engine/reader_pdf.py scripts/test-local-desktop-reader.py scripts/test-local-desktop-pdf-reader.py
-      - run: python scripts/test-local-desktop-reader.py
+      - run: python -m py_compile local-engine/desktop_pdf_reader.py local-engine/desktop_reader.py local-engine/reader_pdf.py scripts/test-local-desktop-pdf-reader.py
       - run: python scripts/test-local-desktop-pdf-reader.py

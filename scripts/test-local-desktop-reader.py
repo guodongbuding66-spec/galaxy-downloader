@@ -93,9 +93,18 @@ def test_annotation_helpers_and_wiring() -> None:
         "add_annotation(",
         "list_annotations(engine_module, book[\"id\"], limit=2000)",
         "delete_annotation(engine_module, item[\"id\"])",
+        "show_pdf_reader(engine_module, book, parent=dialog, on_change=refresh_detail)",
     ):
         assert call in source
-    for label in ("阅读设置", "标注与笔记", "Focus Mode", "阅读模式", "漫画方向"):
+    for label in (
+        "阅读设置",
+        "标注与笔记",
+        "Focus Mode",
+        "阅读模式",
+        "漫画方向",
+        "打开 PDF 阅读器",
+        "Zoom、页码、全文搜索、书签、高亮、笔记",
+    ):
         assert label in source
 
 
