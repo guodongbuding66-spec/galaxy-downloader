@@ -1,0 +1,52 @@
+name: Learning Course Search UI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/web-dashboard/learning-search.js'
+      - 'local-engine/web-dashboard/learning-search.css'
+      - 'local-engine/headless_web_dashboard.py'
+      - 'local-engine/test_headless_learning_search_ui.py'
+      - '.github/workflows/learning-search-ui.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/web-dashboard/learning-search.js'
+      - 'local-engine/web-dashboard/learning-search.css'
+      - 'local-engine/headless_web_dashboard.py'
+      - 'local-engine/test_headless_learning_search_ui.py'
+      - '.github/workflows/learning-search-ui.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Compile search contract
+        run: python -m py_compile local-engine/headless_web_dashboard.py local-engine/test_headless_learning_search_ui.py
+
+      - name: Validate search JavaScript syntax
+        run: node --check local-engine/web-dashboard/learning-search.js
+
+      - name: Run search UI contract
+        run: python local-engine/test_headless_learning_search_ui.py
