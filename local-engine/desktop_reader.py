@@ -8,6 +8,7 @@ from typing import Any
 
 import desktop_ui as ui
 from desktop_cbz_reader import DesktopCbzReaderError, show_cbz_reader
+from desktop_epub_reader import DesktopEpubReaderError, show_epub_reader
 from desktop_hooks import register_after_build_ui_hook
 from reader_workspace import (
     ReaderWorkspaceError,
@@ -384,13 +385,20 @@ def _show_reader(window, engine_module) -> None:
         set_widget_enabled(focus_check, bool(book) and caps["focus"])
         set_widget_enabled(reading_mode_combo, caps["readingMode"])
         set_widget_enabled(manga_direction_combo, caps["mangaDirection"])
-        set_widget_enabled(open_cbz_button, bool(book) and format_id == "cbz")
+        epub_enabled = bool(book) and format_id == "epub"
+        cbz_enabled = bool(book) and format_id == "cbz"
+        set_widget_enabled(open_epub_button, epub_enabled)
+        set_widget_enabled(open_cbz_button, cbz_enabled)
+        open_epub_button.configure(cursor="hand2" if epub_enabled else "arrow")
+        open_cbz_button.configure(cursor="hand2" if cbz_enabled else "arrow")
         if not book:
             settings_hint_var.set("选择一本书后可编辑阅读偏好。")
         elif format_id == "cbz":
             settings_hint_var.set("CBZ：阅读模式、漫画方向和 Focus Mode 会保存到书籍偏好，并直接应用到视觉阅读器。")
-        elif format_id in {"epub", "txt", "html", "htm"}:
-            settings_hint_var.set("文本阅读：字体、内容宽度、主题和 Focus Mode 会保存到书籍偏好；渲染阅读器将在后续独立 PR 接入。")
+        elif format_id == "epub":
+            settings_hint_var.set("EPUB：字体、内容宽度、主题和 Focus Mode 会保存到书籍偏好，并直接应用到视觉阅读器。")
+        elif format_id in {"txt", "html", "htm"}:
+            settings_hint_var.set("文本阅读：字体、内容宽度、主题和 Focus Mode 会保存到书籍偏好。")
         elif format_id == "pdf":
             settings_hint_var.set("PDF 当前仅保存 Focus Mode；Zoom/Page 专用阅读器将在后续独立 PR 接入。")
         else:
@@ -517,6 +525,17 @@ def _show_reader(window, engine_module) -> None:
         except Exception as exc:
             status_var.set(f"失败：{exc}")
 
+    def open_epub_reader() -> None:
+        book = selected()
+        if not book or str(book.get("format") or "").strip().lower() != "epub":
+            status_var.set("请先选择 EPUB 书籍")
+            return
+        try:
+            show_epub_reader(engine_module, book, parent=dialog, on_change=refresh_detail)
+            status_var.set("EPUB 阅读器已打开")
+        except (DesktopEpubReaderError, ReaderWorkspaceError) as exc:
+            status_var.set(f"EPUB 打开失败：{exc}")
+
     def open_cbz_reader() -> None:
         book = selected()
         if not book or str(book.get("format") or "").strip().lower() != "cbz":
@@ -527,6 +546,14 @@ def _show_reader(window, engine_module) -> None:
             status_var.set("CBZ 阅读器已打开")
         except (DesktopCbzReaderError, ReaderWorkspaceError) as exc:
             status_var.set(f"CBZ 打开失败：{exc}")
+
+    def open_selected_visual_reader() -> None:
+        book = selected()
+        format_id = str((book or {}).get("format") or "").strip().lower()
+        if format_id == "epub":
+            open_epub_reader()
+        elif format_id == "cbz":
+            open_cbz_reader()
 
     def save_settings() -> None:
         book = selected()
@@ -622,6 +649,9 @@ def _show_reader(window, engine_module) -> None:
 
     ui.ActionButton(progress_actions, text="保存进度", command=save_progress, kind="secondary", compact=True).pack(side="left")
     ui.ActionButton(progress_actions, text="添加书签", command=bookmark, kind="ghost", compact=True).pack(side="left", padx=(6, 0))
+    open_epub_button = ui.ActionButton(progress_actions, text="打开 EPUB 阅读器", command=open_epub_reader, kind="ghost", compact=True)
+    open_epub_button.pack(side="left", padx=(6, 0))
+    open_epub_button.configure(state="disabled", cursor="arrow")
     open_cbz_button = ui.ActionButton(progress_actions, text="打开 CBZ 阅读器", command=open_cbz_reader, kind="ghost", compact=True)
     open_cbz_button.pack(side="left", padx=(6, 0))
     open_cbz_button.configure(state="disabled", cursor="arrow")
@@ -636,7 +666,7 @@ def _show_reader(window, engine_module) -> None:
     ui.ActionButton(toolbar, text="搜索/刷新", command=refresh, kind="ghost", compact=True).pack(side="right", padx=(8, 0))
 
     query_entry.bind("<Return>", lambda _event: refresh())
-    books_list.bind("<Double-Button-1>", lambda _event: open_cbz_reader())
+    books_list.bind("<Double-Button-1>", lambda _event: open_selected_visual_reader())
     dialog.bind("<Control-s>", lambda _event: save_settings() if notebook.index(notebook.select()) == 1 else save_progress())
 
     def close() -> None:
@@ -686,7 +716,7 @@ def install_desktop_reader(engine_module):
 def run_desktop_reader_self_test() -> None:
     assert callable(import_book) and callable(search_reader) and callable(update_reading_position)
     assert callable(update_reader_settings) and callable(add_annotation) and callable(delete_annotation)
-    assert callable(show_cbz_reader)
+    assert callable(show_cbz_reader) and callable(show_epub_reader)
     epub_caps = _settings_capabilities("epub")
     assert epub_caps["font"] and epub_caps["width"] and epub_caps["theme"] and not epub_caps["readingMode"]
     cbz_caps = _settings_capabilities("cbz")
