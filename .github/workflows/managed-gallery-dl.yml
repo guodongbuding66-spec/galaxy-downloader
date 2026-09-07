@@ -5,6 +5,7 @@ on:
     paths:
       - "local-engine/gallery_dl_source.py"
       - "local-engine/gallery_dl_manager.py"
+      - "local-engine/gallery_dl_runtime_dependencies.py"
       - "local-engine/managed_tool_registry.py"
       - "local-engine/tool_manager.py"
       - "local-engine/requirements.txt"
@@ -16,6 +17,7 @@ on:
     paths:
       - "local-engine/gallery_dl_source.py"
       - "local-engine/gallery_dl_manager.py"
+      - "local-engine/gallery_dl_runtime_dependencies.py"
       - "local-engine/managed_tool_registry.py"
       - "local-engine/tool_manager.py"
       - "local-engine/requirements.txt"
