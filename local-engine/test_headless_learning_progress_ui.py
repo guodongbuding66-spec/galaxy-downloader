@@ -19,16 +19,22 @@ class HeadlessLearningProgressUiTests(unittest.TestCase):
     def test_progress_is_throttled_and_flushes_on_meaningful_events(self) -> None:
         script = _SCRIPT.read_text(encoding="utf-8")
         self.assertIn("PROGRESS_INTERVAL_SECONDS = 10", script)
+        self.assertIn("snapshot.seconds - state.lastQueuedSeconds", script)
         self.assertIn("distance < PROGRESS_INTERVAL_SECONDS", script)
         for event in ("'timeupdate'", "'seeked'", "'pause'", "'ended'"):
             self.assertIn(event, script)
         self.assertIn("queueProgress(false)", script)
         self.assertIn("queueProgress(false, { force: true })", script)
         self.assertIn("queueProgress(true, { force: true })", script)
+        self.assertIn("state.lastSavedSeconds = snapshot.seconds", script)
+        self.assertIn("state.lastQueuedSeconds = state.lastSavedSeconds", script)
 
-    def test_completion_refreshes_shared_resume_contract(self) -> None:
+    def test_completion_refreshes_shared_resume_only_after_successful_save(self) -> None:
         script = _SCRIPT.read_text(encoding="utf-8")
         self.assertIn("async function completePlayback", script)
+        self.assertIn("const saved = await queueProgress(true, { force: true })", script)
+        self.assertIn("if (!saved)", script)
+        self.assertIn("completion could not be saved", script)
         self.assertIn("stopMedia({ save: false })", script)
         self.assertIn("state.resume = null", script)
         self.assertIn("await refreshCurrent()", script)
