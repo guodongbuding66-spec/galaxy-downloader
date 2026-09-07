@@ -12,6 +12,7 @@ from headless_browser_cookies import install_headless_browser_cookie_support
 from headless_course_attachments_http import HeadlessCourseAttachmentsHttpMixin
 from headless_course_metadata_tracking import install_headless_course_metadata_tracking
 from headless_course_providers_http import HeadlessCourseProvidersHttpMixin
+from headless_learning_media_http import HeadlessLearningMediaHttpMixin
 from headless_learning_resume_http import HeadlessLearningResumeHttpMixin
 from headless_learning_structure import install_headless_learning_structure
 from headless_output_tracking import install_headless_output_tracking
@@ -47,6 +48,7 @@ from headless_ai_http import AiGalaxyApiRequestHandler, AiGalaxyApiServer  # noq
 class GalaxyApiRequestHandler(
     HeadlessWebDashboardMixin,
     HeadlessCourseAttachmentsHttpMixin,
+    HeadlessLearningMediaHttpMixin,
     HeadlessLearningResumeHttpMixin,
     HeadlessCourseProvidersHttpMixin,
     HeadlessSettingsHttpMixin,
