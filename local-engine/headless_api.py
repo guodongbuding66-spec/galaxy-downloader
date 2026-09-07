@@ -15,6 +15,7 @@ from headless_course_providers_http import HeadlessCourseProvidersHttpMixin
 from headless_learning_media_http import HeadlessLearningMediaHttpMixin
 from headless_learning_resume_http import HeadlessLearningResumeHttpMixin
 from headless_learning_structure import install_headless_learning_structure
+from headless_music_player_http import HeadlessMusicPlayerHttpMixin
 from headless_output_tracking import install_headless_output_tracking
 from headless_plugin_api import HeadlessPluginApi
 from headless_plugin_http import HeadlessPluginHttpMixin
@@ -51,6 +52,7 @@ class GalaxyApiRequestHandler(
     HeadlessLearningMediaHttpMixin,
     HeadlessLearningResumeHttpMixin,
     HeadlessCourseProvidersHttpMixin,
+    HeadlessMusicPlayerHttpMixin,
     HeadlessSettingsHttpMixin,
     HeadlessTransferHttpMixin,
     HeadlessPluginHttpMixin,
