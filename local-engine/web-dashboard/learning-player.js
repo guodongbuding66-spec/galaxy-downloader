@@ -15,6 +15,7 @@
     activeItemId: '',
     activeTitle: '',
     lastSavedSeconds: 0,
+    lastQueuedSeconds: 0,
     saveChain: Promise.resolve(),
     suppressProgress: false,
   }
@@ -123,21 +124,31 @@
   function queueProgress(completed = false, { force = false, keepalive = false } = {}) {
     const snapshot = activeProgressSnapshot(completed)
     if (!snapshot) return Promise.resolve(false)
-    const distance = Math.abs(snapshot.seconds - state.lastSavedSeconds)
+    const distance = Math.abs(snapshot.seconds - state.lastQueuedSeconds)
     if (!completed && !force && distance < PROGRESS_INTERVAL_SECONDS) return Promise.resolve(false)
-    state.lastSavedSeconds = snapshot.seconds
+    state.lastQueuedSeconds = snapshot.seconds
 
     if (keepalive) {
-      return writeProgress(snapshot, { keepalive: true }).then(() => true).catch(() => false)
+      return writeProgress(snapshot, { keepalive: true })
+        .then(() => {
+          state.lastSavedSeconds = snapshot.seconds
+          return true
+        })
+        .catch(() => {
+          if (publicId(state.activeItemId) === snapshot.itemId) state.lastQueuedSeconds = state.lastSavedSeconds
+          return false
+        })
     }
 
     const task = async () => {
       try {
         await writeProgress(snapshot)
+        state.lastSavedSeconds = snapshot.seconds
         return true
       } catch (_) {
-        if (state.media && publicId(state.activeItemId) === snapshot.itemId) {
-          setStatus('Playback continues, but progress could not be saved.', 'error')
+        if (publicId(state.activeItemId) === snapshot.itemId) {
+          state.lastQueuedSeconds = state.lastSavedSeconds
+          if (state.media) setStatus('Playback continues, but progress could not be saved.', 'error')
         }
         return false
       }
@@ -149,8 +160,12 @@
   function flushProgressKeepalive() {
     const snapshot = activeProgressSnapshot(false)
     if (!snapshot) return
-    state.lastSavedSeconds = snapshot.seconds
-    void writeProgress(snapshot, { keepalive: true }).catch(() => {})
+    state.lastQueuedSeconds = snapshot.seconds
+    void writeProgress(snapshot, { keepalive: true })
+      .then(() => {
+        state.lastSavedSeconds = snapshot.seconds
+      })
+      .catch(() => {})
   }
 
   function stopMedia({ save = true } = {}) {
@@ -263,8 +278,13 @@
   async function completePlayback(media) {
     if (state.media !== media || state.suppressProgress) return
     setStatus('Saving lesson completion…')
-    await queueProgress(true, { force: true })
+    const saved = await queueProgress(true, { force: true })
     if (state.media !== media) return
+    if (!saved) {
+      setStatus('Lesson ended, but completion could not be saved. Reload or play again to retry.', 'error')
+      setAction('Continue', false)
+      return
+    }
     setStatus('Lesson completed. Finding the next lesson…', 'success')
     stopMedia({ save: false })
     state.resume = null
@@ -284,6 +304,7 @@
     state.activeItemId = target.itemId
     state.activeTitle = String(target.item.title || 'Lecture')
     state.lastSavedSeconds = startSeconds
+    state.lastQueuedSeconds = startSeconds
     media.addEventListener('loadedmetadata', () => {
       if (!startSeconds || !Number.isFinite(media.duration) || media.duration <= 0) return
       const ceiling = Math.max(0, media.duration - 0.25)
