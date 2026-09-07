@@ -331,7 +331,7 @@ def _show_music(window, engine_module) -> None:
             status.set("请先选择歌曲")
             return
         try:
-            api.update_song_state(song["id"], {"favorite": not bool(song.get("favorite"))})
+            api.update_song_state(song["mediaId"], {"favorite": not bool(song.get("favorite"))})
             refresh_songs()
             refresh_catalogs()
         except Exception as exc:
@@ -343,7 +343,7 @@ def _show_music(window, engine_module) -> None:
             status.set("请先选择歌曲")
             return
         try:
-            api.enqueue({"mediaIds": [song["id"]]})
+            api.enqueue({"mediaIds": [song["mediaId"]]})
             refresh_queue()
             status.set("已加入队列")
         except Exception as exc:
@@ -381,7 +381,7 @@ def _show_music(window, engine_module) -> None:
             status.set("请先选择歌曲")
             return
         try:
-            payload = api.song_lyrics(song["id"])
+            payload = api.song_lyrics(song["mediaId"])
             text, kind = _render_lyrics_payload(payload)
             lyrics_header.set(f"{song.get('artist') or 'Unknown Artist'} — {song.get('title') or song.get('fileName') or 'Unknown Track'} · {kind}")
             lyrics_text.configure(state="normal")

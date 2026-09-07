@@ -69,6 +69,14 @@ def test_lyrics_renderer() -> None:
     assert "line-5001" not in text
 
 
+def test_public_media_id_actions() -> None:
+    source = (LOCAL_ENGINE / "desktop_music.py").read_text(encoding="utf-8")
+    assert 'song["id"]' not in source
+    assert 'api.update_song_state(song["mediaId"]' in source
+    assert 'api.enqueue({"mediaIds": [song["mediaId"]]})' in source
+    assert 'api.song_lyrics(song["mediaId"])' in source
+
+
 def run_test() -> None:
     install_desktop_music(FakeEngine)
     assert getattr(FakeWindow, "_galaxy_desktop_music_installed", False)
@@ -77,6 +85,7 @@ def run_test() -> None:
     assert registered_after_build_ui_hooks(FakeWindow).count("desktop-music") == 1
     test_formatters()
     test_lyrics_renderer()
+    test_public_media_id_actions()
     run_desktop_music_self_test()
 
 
