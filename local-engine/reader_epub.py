@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
@@ -153,7 +154,7 @@ def _chapter_index(value: object, total: int) -> int:
 def _managed_content_root(engine_module, book_id: object) -> tuple[str, Path]:
     clean = _clean_book_id(book_id)
     try:
-        with sqlite3.connect(reader_database_path(engine_module), timeout=5.0) as connection:
+        with closing(sqlite3.connect(reader_database_path(engine_module), timeout=5.0)) as connection:
             connection.row_factory = sqlite3.Row
             row = connection.execute(
                 "SELECT format, content_root FROM books WHERE id=?",
@@ -201,7 +202,7 @@ def _read_bounded(path: Path, limit: int, *, label: str) -> bytes:
 
 def _parse_xml(path: Path, *, label: str) -> ElementTree.Element:
     payload = _read_bounded(path, MAX_EPUB_XML_BYTES, label=label)
-    upper = payload[: min(len(payload), 256 * 1024)].upper()
+    upper = payload.upper()
     if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
         raise EpubDocumentError(f"{label} contains unsupported XML declarations")
     try:
