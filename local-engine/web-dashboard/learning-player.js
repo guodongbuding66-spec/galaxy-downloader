@@ -81,11 +81,12 @@
   function stopMedia() {
     const media = state.media
     state.media = null
-    if (!media) return
-    try { media.pause() } catch (_) {}
-    media.removeAttribute('src')
-    try { media.load() } catch (_) {}
-    media.remove()
+    if (media) {
+      try { media.pause() } catch (_) {}
+      media.removeAttribute('src')
+      try { media.load() } catch (_) {}
+      media.remove()
+    }
     const stage = $('learningPlayerStage')
     if (stage) {
       stage.textContent = ''
@@ -168,7 +169,7 @@
       if (state.courseId && state.courseId !== courseId) stopMedia()
       state.courseId = courseId
       state.resume = payload?.resume && typeof payload.resume === 'object' ? payload.resume : null
-      renderResume()
+      if (!state.media) renderResume()
     } catch (error) {
       if (courseId !== selectedCourseId()) return
       state.courseId = courseId
@@ -223,7 +224,8 @@
   async function startPlayback() {
     if (state.loading) return
     const target = actionableResume()
-    if (!target) {
+    const launchCourseId = state.courseId
+    if (!target || !launchCourseId) {
       renderResume()
       return
     }
@@ -232,8 +234,10 @@
     setStatus('Preparing a secure local playback stream…')
     try {
       const playbackUrl = await issuePlayback(target.mediaId)
-      if (target !== actionableResume() && target.mediaId !== publicId(state.resume?.item?.mediaId)) return
+      if (launchCourseId !== state.courseId || launchCourseId !== selectedCourseId()) return
+      if (target.mediaId !== publicId(state.resume?.item?.mediaId)) return
       const media = mountMedia(target, playbackUrl)
+      setAction('Playing', false)
       setStatus(`${String(target.item.title || 'Lecture')} · playing locally`, 'success')
       try {
         await media.play()
@@ -244,7 +248,8 @@
       setStatus(error instanceof Error ? error.message : 'Unable to start local playback.', 'error')
     } finally {
       state.loading = false
-      renderResume()
+      if (state.media) setAction('Playing', false)
+      else renderResume()
     }
   }
 
