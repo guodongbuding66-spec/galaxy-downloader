@@ -25,6 +25,8 @@ _DASHBOARD_ASSETS = {
     "/dashboard/learning-player.css": ("learning-player.css", "text/css; charset=utf-8"),
     "/dashboard/learning-notes.js": ("learning-notes.js", "text/javascript; charset=utf-8"),
     "/dashboard/learning-notes.css": ("learning-notes.css", "text/css; charset=utf-8"),
+    "/dashboard/learning-search.js": ("learning-search.js", "text/javascript; charset=utf-8"),
+    "/dashboard/learning-search.css": ("learning-search.css", "text/css; charset=utf-8"),
 }
 _LEARNING_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning.css">'
 _LEARNING_SCRIPT_TAG = '<script src="/dashboard/learning.js" defer></script>'
@@ -36,6 +38,8 @@ _PLAYER_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning-player.css
 _PLAYER_SCRIPT_TAG = '<script src="/dashboard/learning-player.js" defer></script>'
 _NOTES_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning-notes.css">'
 _NOTES_SCRIPT_TAG = '<script src="/dashboard/learning-notes.js" defer></script>'
+_SEARCH_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning-search.css">'
+_SEARCH_SCRIPT_TAG = '<script src="/dashboard/learning-search.js" defer></script>'
 
 
 def _with_learning_assets(body: bytes, file_name: str) -> bytes:
@@ -45,10 +49,10 @@ def _with_learning_assets(body: bytes, file_name: str) -> bytes:
         html = body.decode("utf-8")
     except UnicodeDecodeError:
         return body
-    for style_tag in (_LEARNING_STYLE_TAG, _ATTACHMENT_STYLE_TAG, _NAVIGATION_STYLE_TAG, _PLAYER_STYLE_TAG, _NOTES_STYLE_TAG):
+    for style_tag in (_LEARNING_STYLE_TAG, _ATTACHMENT_STYLE_TAG, _NAVIGATION_STYLE_TAG, _PLAYER_STYLE_TAG, _NOTES_STYLE_TAG, _SEARCH_STYLE_TAG):
         if style_tag not in html:
             html = html.replace("</head>", f"  {style_tag}\n</head>", 1)
-    for script_tag in (_LEARNING_SCRIPT_TAG, _ATTACHMENT_SCRIPT_TAG, _NAVIGATION_SCRIPT_TAG, _PLAYER_SCRIPT_TAG, _NOTES_SCRIPT_TAG):
+    for script_tag in (_LEARNING_SCRIPT_TAG, _ATTACHMENT_SCRIPT_TAG, _NAVIGATION_SCRIPT_TAG, _PLAYER_SCRIPT_TAG, _NOTES_SCRIPT_TAG, _SEARCH_SCRIPT_TAG):
         if script_tag not in html:
             html = html.replace("</body>", f"  {script_tag}\n</body>", 1)
     return html.encode("utf-8")
