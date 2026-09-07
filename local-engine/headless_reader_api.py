@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import math
 import re
 from dataclasses import dataclass
@@ -8,6 +9,14 @@ from typing import Any, Mapping
 
 from platform_paths import resolve_platform_paths
 from reader_epub import EpubDocumentError, epub_chapter, epub_document
+from reader_pdf import (
+    ReaderPdfError,
+    pdf_document,
+    pdf_page,
+    pdf_search,
+    pdf_text_in_rect,
+    render_pdf_page,
+)
 from reader_workspace import (
     ReaderWorkspaceError,
     add_annotation,
@@ -26,6 +35,7 @@ from reader_workspace import (
 _BOOK_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 _OBJECT_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 _MAX_BOOKS = 5_000
+_MAX_PDF_PNG_BYTES = 32 * 1024 * 1024
 
 
 class HeadlessReaderApiError(RuntimeError):
@@ -85,6 +95,18 @@ class HeadlessReaderContext:
         return self.state_path
 
 
+@dataclass(frozen=True)
+class HeadlessPdfRender:
+    body: bytes
+    book_id: str
+    page_id: str
+    page_number: int
+    page_count: int
+    pixel_width: int
+    pixel_height: int
+    scale: float
+
+
 def build_headless_reader_context(
     *,
     program_dir: Path | None = None,
@@ -123,6 +145,12 @@ class HeadlessReaderApi:
             if len(rows) < 500:
                 break
         raise HeadlessReaderApiError("book not found")
+
+    def _pdf_book(self, book_id: object) -> dict[str, Any]:
+        book = self._book(book_id)
+        if str(book.get("format") or "").strip().lower() != "pdf":
+            raise HeadlessReaderApiError("book is not PDF")
+        return book
 
     def books(self, *, limit: object = 100, offset: object = 0) -> dict[str, Any]:
         safe_limit = _bounded_int(limit, 100, 1, 500)
@@ -191,6 +219,87 @@ class HeadlessReaderApi:
             return epub_chapter(self.context, book["id"], chapter_id)
         except (EpubDocumentError, ReaderWorkspaceError) as exc:
             raise HeadlessReaderApiError(str(exc)) from exc
+
+    def pdf_document(self, book_id: object) -> dict[str, Any]:
+        book = self._pdf_book(book_id)
+        try:
+            return pdf_document(self.context, book["id"])
+        except (ReaderPdfError, ReaderWorkspaceError) as exc:
+            raise HeadlessReaderApiError(str(exc)) from exc
+
+    def pdf_page(self, book_id: object, page_id: object) -> dict[str, Any]:
+        book = self._pdf_book(book_id)
+        try:
+            return pdf_page(self.context, book["id"], page_id)
+        except (ReaderPdfError, ReaderWorkspaceError) as exc:
+            raise HeadlessReaderApiError(str(exc)) from exc
+
+    def pdf_search(
+        self,
+        book_id: object,
+        query: object,
+        *,
+        start_page: object = 1,
+        start_char: object = 0,
+        max_pages: object = 100,
+        limit: object = 200,
+    ) -> dict[str, Any]:
+        book = self._pdf_book(book_id)
+        try:
+            return pdf_search(
+                self.context,
+                book["id"],
+                query,
+                start_page=start_page,
+                start_char=start_char,
+                max_pages=max_pages,
+                limit=limit,
+            )
+        except (ReaderPdfError, ReaderWorkspaceError) as exc:
+            raise HeadlessReaderApiError(str(exc)) from exc
+
+    def pdf_selection(self, book_id: object, page_id: object, payload: Mapping[str, Any]) -> dict[str, Any]:
+        book = self._pdf_book(book_id)
+        required = ("left", "bottom", "right", "top")
+        if any(name not in payload for name in required):
+            raise HeadlessReaderApiError("PDF selection rectangle is incomplete")
+        try:
+            return pdf_text_in_rect(
+                self.context,
+                book["id"],
+                page_id,
+                left=payload.get("left"),
+                bottom=payload.get("bottom"),
+                right=payload.get("right"),
+                top=payload.get("top"),
+            )
+        except (ReaderPdfError, ReaderWorkspaceError) as exc:
+            raise HeadlessReaderApiError(str(exc)) from exc
+
+    def pdf_render_png(self, book_id: object, page_id: object, *, scale: object = 1.0) -> HeadlessPdfRender:
+        book = self._pdf_book(book_id)
+        try:
+            rendered = render_pdf_page(self.context, book["id"], page_id, scale=scale)
+        except (ReaderPdfError, ReaderWorkspaceError) as exc:
+            raise HeadlessReaderApiError(str(exc)) from exc
+        buffer = io.BytesIO()
+        try:
+            rendered.image.save(buffer, format="PNG", optimize=False)
+        except Exception as exc:
+            raise HeadlessReaderApiError("PDF render encoding failed") from exc
+        body = buffer.getvalue()
+        if not body or len(body) > _MAX_PDF_PNG_BYTES:
+            raise HeadlessReaderApiError("PDF render payload exceeds safe size limit")
+        return HeadlessPdfRender(
+            body=body,
+            book_id=rendered.book_id,
+            page_id=rendered.page_id,
+            page_number=rendered.page_number,
+            page_count=rendered.page_count,
+            pixel_width=rendered.image.width,
+            pixel_height=rendered.image.height,
+            scale=rendered.scale,
+        )
 
     def set_progress(self, book_id: object, payload: Mapping[str, Any]) -> dict[str, Any]:
         book = self._book(book_id)
