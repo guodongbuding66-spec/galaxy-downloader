@@ -3,6 +3,7 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from headless_music_api import HeadlessMusicApiError
+from headless_service import HeadlessServiceError
 from music_player_navigation import MusicPlayerNavigationError, navigate, seek
 
 
@@ -48,6 +49,15 @@ class HeadlessMusicPlayerHttpMixin:
             self._json(200, {"ok": True, **result})
         except (MusicPlayerNavigationError, HeadlessMusicApiError) as exc:
             self._music_player_error(exc)
+        except HeadlessServiceError:
+            self._json(
+                400,
+                {
+                    "ok": False,
+                    "error": "invalid music player request",
+                    "code": "MUSIC_PLAYER_INVALID_REQUEST",
+                },
+            )
         except Exception:
             # Do not serialize implementation details, local paths or arbitrary
             # downstream exception text across the headless boundary.
