@@ -20,7 +20,8 @@ from reader_workspace import (
 )
 
 MAX_CBZ_PAGE_BYTES = 256 * 1024 * 1024
-MAX_CBZ_PAGE_PIXELS = 100_000_000
+MAX_CBZ_SOURCE_PIXELS = 50_000_000
+MAX_CBZ_RENDER_PIXELS = 12_000_000
 VERTICAL_WINDOW_PAGES = 6
 _SUPPORTED_MODES = ("vertical", "single", "double", "fit-width")
 _SUPPORTED_DIRECTIONS = ("ltr", "rtl")
@@ -76,13 +77,12 @@ def _visible_page_indices(
         return []
     start = _clamp_page_index(safe_total, index)
     clean_mode = _normalize_mode(mode)
-    clean_direction = _normalize_direction(direction)
     if clean_mode == "double":
         start = (start // 2) * 2
-        values = list(range(start, min(safe_total, start + 2)))
-        if clean_direction == "rtl":
-            values.reverse()
-        return values
+        result = list(range(start, min(safe_total, start + 2)))
+        if _normalize_direction(direction) == "rtl":
+            result.reverse()
+        return result
     if clean_mode == "vertical":
         count = max(1, min(int(vertical_window), 12))
         return list(range(start, min(safe_total, start + count)))
@@ -90,12 +90,18 @@ def _visible_page_indices(
 
 
 def _navigation_step(mode: object) -> int:
-    clean_mode = _normalize_mode(mode)
-    if clean_mode == "double":
-        return 2
-    if clean_mode == "vertical":
-        return VERTICAL_WINDOW_PAGES
-    return 1
+    clean = _normalize_mode(mode)
+    return 2 if clean == "double" else (VERTICAL_WINDOW_PAGES if clean == "vertical" else 1)
+
+
+def _bounded_render_dimensions(width: int, height: int) -> tuple[int, int]:
+    safe_width = max(1, int(width))
+    safe_height = max(1, int(height))
+    pixels = safe_width * safe_height
+    if pixels <= MAX_CBZ_RENDER_PIXELS:
+        return safe_width, safe_height
+    factor = math.sqrt(MAX_CBZ_RENDER_PIXELS / pixels)
+    return max(1, int(safe_width * factor)), max(1, int(safe_height * factor))
 
 
 def _fit_dimensions(
@@ -110,23 +116,15 @@ def _fit_dimensions(
     view_width = max(120, int(viewport_width))
     view_height = max(120, int(viewport_height))
     clean_mode = _normalize_mode(mode)
-
     if clean_mode == "double":
-        max_width = max(80, (view_width - 54) // 2)
-        max_height = max(80, view_height - 50)
-        scale = min(max_width / width, max_height / height, 1.0)
+        scale = min(max(80, (view_width - 54) // 2) / width, max(80, view_height - 50) / height, 1.0)
     elif clean_mode == "single":
-        max_width = max(100, view_width - 40)
-        max_height = max(100, view_height - 40)
-        scale = min(max_width / width, max_height / height, 1.0)
+        scale = min(max(100, view_width - 40) / width, max(100, view_height - 40) / height, 1.0)
     elif clean_mode == "fit-width":
-        max_width = max(100, view_width - 46)
-        scale = max_width / width
+        scale = max(100, view_width - 46) / width
     else:
-        max_width = max(100, view_width - 46)
-        scale = min(max_width / width, 1.0)
-
-    return max(1, int(round(width * scale))), max(1, int(round(height * scale)))
+        scale = min(max(100, view_width - 46) / width, 1.0)
+    return _bounded_render_dimensions(max(1, round(width * scale)), max(1, round(height * scale)))
 
 
 def _opaque_locator(page_index: object) -> str:
@@ -158,27 +156,28 @@ class _CbzArchiveStore:
         self._allowed = frozenset(str(page).replace("\\", "/") for page in pages)
         self._archive: zipfile.ZipFile | None = None
         self._members: dict[str, zipfile.ZipInfo] = {}
+        archive: zipfile.ZipFile | None = None
         try:
             archive = zipfile.ZipFile(book_file_path(engine_module, book_id), "r")
             members: dict[str, zipfile.ZipInfo] = {}
             for info in archive.infolist():
-                normalized = info.filename.replace("\\", "/")
-                if normalized not in self._allowed:
+                name = info.filename.replace("\\", "/")
+                if name not in self._allowed:
                     continue
-                if normalized in members:
+                if name in members:
                     raise DesktopCbzReaderError("CBZ page member is ambiguous")
                 if info.is_dir() or info.flag_bits & 0x1:
                     raise DesktopCbzReaderError("CBZ page member is unavailable")
                 if info.file_size <= 0 or info.file_size > MAX_CBZ_PAGE_BYTES:
                     raise DesktopCbzReaderError("CBZ page exceeds the safe size limit")
-                members[normalized] = info
+                members[name] = info
             if set(members) != set(self._allowed):
                 raise DesktopCbzReaderError("CBZ page member is missing")
             self._archive = archive
             self._members = members
         except Exception:
-            with suppress(Exception):
-                if "archive" in locals():
+            if archive is not None:
+                with suppress(Exception):
                     archive.close()
             raise
 
@@ -213,7 +212,10 @@ def _read_cbz_page_bytes(engine_module, book_id: object, page_name: object) -> b
     pages = cbz_pages(engine_module, book_id, limit=5000)
     if requested not in pages:
         raise DesktopCbzReaderError("CBZ page is outside the managed page list")
-    store = _CbzArchiveStore(engine_module, book_id, pages)
+    try:
+        store = _CbzArchiveStore(engine_module, book_id, pages)
+    except (ReaderWorkspaceError, OSError, zipfile.BadZipFile, DesktopCbzReaderError) as exc:
+        raise DesktopCbzReaderError("CBZ archive is unavailable") from exc
     try:
         return store.read(requested)
     finally:
@@ -224,14 +226,14 @@ def _decode_page(payload: bytes) -> Image.Image:
     try:
         with Image.open(io.BytesIO(payload)) as source:
             width, height = source.size
-            if width <= 0 or height <= 0 or width * height > MAX_CBZ_PAGE_PIXELS:
+            if width <= 0 or height <= 0 or width * height > MAX_CBZ_SOURCE_PIXELS:
                 raise DesktopCbzReaderError("CBZ page dimensions exceed the safe limit")
             image = ImageOps.exif_transpose(source).convert("RGB")
             image.load()
             return image
     except DesktopCbzReaderError:
         raise
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError) as exc:
         raise DesktopCbzReaderError("CBZ page image cannot be decoded") from exc
 
 
@@ -270,12 +272,16 @@ def show_cbz_reader(
         "render_after": None,
     }
 
-    dialog = tk.Toplevel(parent)
-    dialog.title(f"{str(book.get('title') or 'CBZ')} · CBZ Reader")
-    dialog.geometry("1120x800")
-    dialog.minsize(760, 560)
-    dialog.configure(bg=ui.BG)
-    dialog.transient(parent)
+    try:
+        dialog = tk.Toplevel(parent)
+        dialog.title(f"{str(book.get('title') or 'CBZ')} · CBZ Reader")
+        dialog.geometry("1120x800")
+        dialog.minsize(760, 560)
+        dialog.configure(bg=ui.BG)
+        dialog.transient(parent)
+    except Exception:
+        page_store.close()
+        raise
 
     shell = tk.Frame(dialog, bg=ui.BG, padx=14, pady=12)
     shell.pack(fill="both", expand=True)
@@ -335,15 +341,15 @@ def show_cbz_reader(
     def persist_position() -> None:
         index = _clamp_page_index(len(pages), state["index"])
         visible = _visible_page_indices(len(pages), index, mode_var.get(), direction_var.get())
-        logical_last = max(visible) if visible else index
-        progress = round(((logical_last + 1) / len(pages)) * 100.0, 3)
+        last = max(visible) if visible else index
+        progress = round(((last + 1) / len(pages)) * 100.0, 3)
         locator = _opaque_locator(index)
         update_reading_position(engine_module, book_id, progress, locator)
         book["progressPercent"] = progress
         book["locator"] = locator
 
     def persist_settings() -> None:
-        saved = update_reader_settings(
+        book["settings"] = update_reader_settings(
             engine_module,
             book_id,
             {
@@ -352,7 +358,6 @@ def show_cbz_reader(
                 "focusMode": bool(focus_var.get()),
             },
         )
-        book["settings"] = saved
 
     def load_photo(page_index: int, view_width: int, view_height: int, clean_mode: str) -> ImageTk.PhotoImage:
         image = _decode_page(page_store.read(pages[page_index]))
@@ -369,7 +374,6 @@ def show_cbz_reader(
             state["render_after"] = None
         canvas.delete("all")
         state["photos"] = []
-        canvas.configure(scrollregion=(0, 0, 1, 1))
         status_var.set("正在加载页面…")
         dialog.update_idletasks()
 
@@ -384,10 +388,10 @@ def show_cbz_reader(
         indices = _visible_page_indices(total, state["index"], clean_mode, clean_direction)
         view_width = max(360, canvas.winfo_width())
         view_height = max(320, canvas.winfo_height())
-
         try:
-            photos = [load_photo(page_index, view_width, view_height, clean_mode) for page_index in indices]
+            photos = [load_photo(index, view_width, view_height, clean_mode) for index in indices]
         except (DesktopCbzReaderError, ReaderWorkspaceError) as exc:
+            canvas.configure(scrollregion=(0, 0, view_width, view_height))
             status_var.set(f"页面加载失败：{exc}")
             page_var.set(f"{state['index'] + 1} / {total}")
             return
@@ -395,8 +399,7 @@ def show_cbz_reader(
 
         gap = 14
         if clean_mode == "double":
-            widths = [photo.width() for photo in photos]
-            total_width = sum(widths) + gap * max(0, len(photos) - 1)
+            total_width = sum(photo.width() for photo in photos) + gap * max(0, len(photos) - 1)
             x = max(18, (view_width - total_width) // 2)
             max_height = 1
             for photo in photos:
@@ -419,12 +422,11 @@ def show_cbz_reader(
         canvas.yview_moveto(0)
 
         shown = sorted(indices)
-        if shown:
-            page_var.set(f"{shown[0] + 1}–{shown[-1] + 1} / {total}" if len(shown) > 1 else f"{shown[0] + 1} / {total}")
-        else:
-            page_var.set(f"0 / {total}")
-        previous_button.configure(state="normal" if state["index"] > 0 else "disabled")
-        next_button.configure(state="normal" if state["index"] < _max_start_index(total, clean_mode) else "disabled")
+        page_var.set(
+            f"{shown[0] + 1}–{shown[-1] + 1} / {total}" if len(shown) > 1 else f"{shown[0] + 1} / {total}"
+        )
+        previous_button.state(["!disabled"] if state["index"] > 0 else ["disabled"])
+        next_button.state(["!disabled"] if state["index"] < _max_start_index(total, clean_mode) else ["disabled"])
         status_var.set(f"{clean_mode} · {clean_direction} · {len(shown)} 页已显示")
         try:
             persist_position()
@@ -438,14 +440,11 @@ def show_cbz_reader(
                 dialog.after_cancel(pending)
         state["render_after"] = dialog.after(120, render)
 
-    def navigate(direction_delta: int) -> None:
+    def navigate(delta: int) -> None:
         clean_mode = _normalize_mode(mode_var.get())
-        step = _navigation_step(clean_mode)
-        target = state["index"] + (step * (1 if direction_delta > 0 else -1))
+        target = state["index"] + _navigation_step(clean_mode) * (1 if delta > 0 else -1)
         target = min(_clamp_page_index(len(pages), target), _max_start_index(len(pages), clean_mode))
-        if clean_mode == "double":
-            target = (target // 2) * 2
-        state["index"] = target
+        state["index"] = (target // 2) * 2 if clean_mode == "double" else target
         render()
 
     def go_home() -> None:
@@ -457,21 +456,14 @@ def show_cbz_reader(
         render()
 
     def mode_changed(_event=None) -> None:
-        state["index"] = min(
-            _clamp_page_index(len(pages), state["index"]),
-            _max_start_index(len(pages), mode_var.get()),
-        )
-        try:
+        state["index"] = min(_clamp_page_index(len(pages), state["index"]), _max_start_index(len(pages), mode_var.get()))
+        with suppress(Exception):
             persist_settings()
-        except Exception:
-            status_var.set("阅读模式已切换 · 设置暂未保存")
         render()
 
     def direction_changed(_event=None) -> None:
-        try:
+        with suppress(Exception):
             persist_settings()
-        except Exception:
-            status_var.set("漫画方向已切换 · 设置暂未保存")
         render()
 
     def apply_focus(persist: bool) -> None:
@@ -485,10 +477,8 @@ def show_cbz_reader(
         if not enabled:
             status_bar.pack(fill="x", pady=(8, 0))
         if persist:
-            try:
+            with suppress(Exception):
                 persist_settings()
-            except Exception:
-                pass
         schedule_render()
 
     def toggle_focus() -> None:
@@ -497,7 +487,7 @@ def show_cbz_reader(
 
     def key_press(event) -> str | None:
         key = str(getattr(event, "keysym", ""))
-        clean_direction = _normalize_direction(direction_var.get())
+        direction = _normalize_direction(direction_var.get())
         if key == "Page_Up":
             navigate(-1)
         elif key == "Page_Down":
@@ -507,9 +497,9 @@ def show_cbz_reader(
         elif key == "End":
             go_end()
         elif key == "Left":
-            navigate(1 if clean_direction == "rtl" else -1)
+            navigate(1 if direction == "rtl" else -1)
         elif key == "Right":
-            navigate(-1 if clean_direction == "rtl" else 1)
+            navigate(-1 if direction == "rtl" else 1)
         elif key.lower() == "f":
             toggle_focus()
         elif key == "Escape":
@@ -525,30 +515,29 @@ def show_cbz_reader(
     def mouse_wheel(event) -> str | None:
         if _normalize_mode(mode_var.get()) != "vertical":
             return None
-        delta = 0
         if getattr(event, "num", None) == 4:
             delta = -3
         elif getattr(event, "num", None) == 5:
             delta = 3
         elif getattr(event, "delta", 0):
             delta = -int(event.delta / 120) * 3
-        if delta:
-            canvas.yview_scroll(delta, "units")
-            dialog.update_idletasks()
-            top, bottom = canvas.yview()
-            if bottom >= 0.995 and state["index"] < _max_start_index(len(pages), "vertical") and delta > 0:
-                navigate(1)
-            elif top <= 0.005 and state["index"] > 0 and delta < 0:
-                navigate(-1)
-            return "break"
-        return None
+        else:
+            delta = 0
+        if not delta:
+            return None
+        canvas.yview_scroll(delta, "units")
+        dialog.update_idletasks()
+        top, bottom = canvas.yview()
+        if bottom >= 0.995 and state["index"] < _max_start_index(len(pages), "vertical") and delta > 0:
+            navigate(1)
+        elif top <= 0.005 and state["index"] > 0 and delta < 0:
+            navigate(-1)
+        return "break"
 
     def close() -> None:
-        try:
+        with suppress(Exception):
             persist_position()
             persist_settings()
-        except Exception:
-            pass
         page_store.close()
         if on_change is not None:
             with suppress(Exception):
@@ -563,7 +552,6 @@ def show_cbz_reader(
     canvas.bind("<Button-5>", mouse_wheel)
     dialog.bind("<KeyPress>", key_press)
     dialog.protocol("WM_DELETE_WINDOW", close)
-
     if focus_var.get():
         apply_focus(False)
     else:
@@ -580,9 +568,8 @@ def run_desktop_cbz_reader_self_test() -> None:
     assert _visible_page_indices(5, 0, "double", "ltr") == [0, 1]
     assert _visible_page_indices(5, 0, "double", "rtl") == [1, 0]
     assert _visible_page_indices(8, 2, "vertical", "ltr", vertical_window=3) == [2, 3, 4]
-    assert _navigation_step("double") == 2
-    assert _navigation_step("single") == 1
-    assert _opaque_locator(2) == "cbz-page:3"
-    assert _locator_page_index("cbz-page:3", 10) == 2
+    assert _navigation_step("double") == 2 and _navigation_step("single") == 1
+    assert _opaque_locator(2) == "cbz-page:3" and _locator_page_index("cbz-page:3", 10) == 2
     assert _fit_dimensions(2000, 1000, 1000, 800, "fit-width") == (954, 477)
-    assert _fit_dimensions(500, 1000, 1000, 800, "fit-width") == (954, 1908)
+    tall = _fit_dimensions(1000, 50000, 1000, 800, "fit-width")
+    assert tall[0] * tall[1] <= MAX_CBZ_RENDER_PIXELS
