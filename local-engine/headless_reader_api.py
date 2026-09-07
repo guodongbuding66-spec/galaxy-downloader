@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from platform_paths import resolve_platform_paths
+from reader_epub import EpubDocumentError, epub_chapter, epub_document
 from reader_workspace import (
     ReaderWorkspaceError,
     add_annotation,
@@ -172,6 +173,24 @@ class HeadlessReaderApi:
         except ReaderWorkspaceError as exc:
             raise HeadlessReaderApiError(str(exc)) from exc
         return {"bookId": book["id"], "pages": rows, "limit": safe_limit}
+
+    def epub_document(self, book_id: object) -> dict[str, Any]:
+        book = self._book(book_id)
+        if str(book.get("format") or "").strip().lower() != "epub":
+            raise HeadlessReaderApiError("book is not EPUB")
+        try:
+            return epub_document(self.context, book["id"])
+        except (EpubDocumentError, ReaderWorkspaceError) as exc:
+            raise HeadlessReaderApiError(str(exc)) from exc
+
+    def epub_chapter(self, book_id: object, chapter_id: object) -> dict[str, Any]:
+        book = self._book(book_id)
+        if str(book.get("format") or "").strip().lower() != "epub":
+            raise HeadlessReaderApiError("book is not EPUB")
+        try:
+            return epub_chapter(self.context, book["id"], chapter_id)
+        except (EpubDocumentError, ReaderWorkspaceError) as exc:
+            raise HeadlessReaderApiError(str(exc)) from exc
 
     def set_progress(self, book_id: object, payload: Mapping[str, Any]) -> dict[str, Any]:
         book = self._book(book_id)
