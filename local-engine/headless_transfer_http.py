@@ -3,11 +3,33 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from headless_service import HeadlessServiceError, _safe_detail
+from headless_torrent_upload import MAX_TORRENT_UPLOAD_BYTES, download_uploaded_torrent
 from headless_transfer_api import HeadlessTransferApi, HeadlessTransferApiError
+
+_ALLOWED_TORRENT_CONTENT_TYPES = frozenset({"application/x-bittorrent", "application/octet-stream"})
 
 
 def _path_parts(path: str) -> list[str]:
     return [part for part in path.split("/") if part]
+
+
+def _read_torrent_upload(handler) -> bytes:  # noqa: ANN001
+    encoding = str(handler.headers.get("Content-Encoding") or "").strip().lower()
+    if encoding not in {"", "identity"}:
+        raise HeadlessServiceError("compressed torrent uploads are not supported")
+    content_type = str(handler.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    if content_type not in _ALLOWED_TORRENT_CONTENT_TYPES:
+        raise HeadlessServiceError("torrent upload Content-Type must be application/x-bittorrent")
+    try:
+        length = int(handler.headers.get("Content-Length") or 0)
+    except ValueError as exc:
+        raise HeadlessServiceError("invalid Content-Length") from exc
+    if length <= 0 or length > MAX_TORRENT_UPLOAD_BYTES:
+        raise HeadlessServiceError("torrent upload is empty or exceeds 10 MB")
+    raw = handler.rfile.read(length)
+    if len(raw) != length:
+        raise HeadlessServiceError("torrent upload body is incomplete")
+    return raw
 
 
 class HeadlessTransferHttpMixin:
@@ -64,8 +86,8 @@ class HeadlessTransferHttpMixin:
                 400,
                 {"ok": False, "error": _safe_detail(exc), "code": "TRANSFER_INVALID_REQUEST"},
             )
-        except Exception as exc:
-            self._json(502, {"ok": False, "error": _safe_detail(exc)})  # type: ignore[attr-defined]
+        except Exception:
+            self._json(502, {"ok": False, "error": "transfer request failed"})  # type: ignore[attr-defined]
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path  # type: ignore[attr-defined]
@@ -99,6 +121,11 @@ class HeadlessTransferHttpMixin:
                 result = self.transfer_api.download_magnet(self._read_json())  # type: ignore[union-attr,attr-defined]
                 self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
                 return
+            if parts == ["v1", "transfers", "torrent"]:
+                raw = _read_torrent_upload(self)
+                result = download_uploaded_torrent(self.transfer_api, raw)  # type: ignore[arg-type]
+                self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
+                return
             self._json(404, {"ok": False, "error": "not found"})  # type: ignore[attr-defined]
         except HeadlessTransferApiError as exc:
             self._transfer_error(exc)
@@ -112,5 +139,5 @@ class HeadlessTransferHttpMixin:
                 400,
                 {"ok": False, "error": _safe_detail(exc), "code": "TRANSFER_INVALID_REQUEST"},
             )
-        except Exception as exc:
-            self._json(502, {"ok": False, "error": _safe_detail(exc)})  # type: ignore[attr-defined]
+        except Exception:
+            self._json(502, {"ok": False, "error": "transfer request failed"})  # type: ignore[attr-defined]
