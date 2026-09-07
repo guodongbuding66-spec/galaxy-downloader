@@ -1,0 +1,66 @@
+name: Managed gallery-dl
+
+on:
+  pull_request:
+    paths:
+      - "local-engine/gallery_dl_source.py"
+      - "local-engine/gallery_dl_manager.py"
+      - "local-engine/gallery_dl_runtime_dependencies.py"
+      - "local-engine/managed_tool_registry.py"
+      - "local-engine/tool_manager.py"
+      - "local-engine/requirements.txt"
+      - "scripts/test-local-managed-gallery-dl.py"
+      - "scripts/test-local-gallery-dl-provider-live.py"
+      - ".github/workflows/managed-gallery-dl.yml"
+  push:
+    branches: [main]
+    paths:
+      - "local-engine/gallery_dl_source.py"
+      - "local-engine/gallery_dl_manager.py"
+      - "local-engine/gallery_dl_runtime_dependencies.py"
+      - "local-engine/managed_tool_registry.py"
+      - "local-engine/tool_manager.py"
+      - "local-engine/requirements.txt"
+      - "scripts/test-local-managed-gallery-dl.py"
+      - "scripts/test-local-gallery-dl-provider-live.py"
+      - ".github/workflows/managed-gallery-dl.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  managed-gallery-dl:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+      - name: Test managed gallery-dl lifecycle
+        run: python scripts/test-local-managed-gallery-dl.py
+      - name: Verify current trusted PyPI gallery-dl release
+        if: runner.os == 'Linux'
+        run: python scripts/test-local-gallery-dl-provider-live.py
+      - name: Regress managed tool registry and manager
+        shell: bash
+        if: runner.os != 'Windows'
+        run: |
+          PYTHONPATH=local-engine python - <<'PY'
+          from managed_tool_registry import run_managed_tool_registry_self_test
+          from tool_manager import run_tool_manager_self_test
+          run_managed_tool_registry_self_test()
+          run_tool_manager_self_test()
+          PY
+      - name: Regress managed tool registry and manager on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = 'local-engine'
+          python -c "from managed_tool_registry import run_managed_tool_registry_self_test; from tool_manager import run_tool_manager_self_test; run_managed_tool_registry_self_test(); run_tool_manager_self_test()"

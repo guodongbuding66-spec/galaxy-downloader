@@ -10,6 +10,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 import external_ytdlp
+from gallery_dl_manager import (
+    existing_managed_gallery_dl,
+    gallery_dl_version,
+    install_managed_gallery_dl_online,
+    remove_managed_gallery_dl,
+)
 from managed_tool_registry import (
     DEFAULT_MANAGED_TOOL_SPECS,
     ManagedToolObservation,
@@ -143,6 +149,8 @@ def _managed_registry_payload(
     ffmpeg_directory: Path | None,
     ffmpeg_source: str,
     ffmpeg_version: str | None,
+    gallery_dl_root: Path | None,
+    gallery_dl_version_value: str | None,
 ) -> dict[str, object]:
     specs = {item.tool: item for item in DEFAULT_MANAGED_TOOL_SPECS}
     ytdlp_root = managed_ytdlp.parent if managed_ytdlp is not None else None
@@ -166,6 +174,15 @@ def _managed_registry_payload(
                 managed_root=ffmpeg_root,
             ),
         ),
+        evaluate_tool_health(
+            specs["gallery-dl"],
+            ManagedToolObservation(
+                ready=gallery_dl_root is not None,
+                source="managed" if gallery_dl_root is not None else "unavailable",
+                version=gallery_dl_version_value,
+                managed_root=gallery_dl_root,
+            ),
+        ),
     )
     return registry_summary(statuses)
 
@@ -181,8 +198,10 @@ def tool_inventory(engine_module, *, refresh: bool = False) -> dict[str, Any]:
     executable, ytdlp_source = resolve_ytdlp(engine_module)
     ffmpeg_directory, ffmpeg_source = _ffmpeg_info(engine_module)
     managed = existing_managed_ytdlp(engine_module)
+    managed_gallery = existing_managed_gallery_dl(engine_module)
     ytdlp_version = external_ytdlp.external_version(executable) if executable is not None else None
     ffmpeg_version = _ffmpeg_version(ffmpeg_directory)
+    gallery_version = gallery_dl_version(managed_gallery)
     payload = {
         "ytDlpReady": executable is not None,
         "ytDlpSource": ytdlp_source,
@@ -191,6 +210,9 @@ def tool_inventory(engine_module, *, refresh: bool = False) -> dict[str, Any]:
         "ffmpegReady": ffmpeg_directory is not None,
         "ffmpegSource": ffmpeg_source,
         "ffmpegVersion": ffmpeg_version,
+        "galleryDlReady": managed_gallery is not None,
+        "galleryDlSource": "managed" if managed_gallery is not None else "unavailable",
+        "galleryDlVersion": gallery_version,
     }
     payload.update(
         _managed_registry_payload(
@@ -201,6 +223,8 @@ def tool_inventory(engine_module, *, refresh: bool = False) -> dict[str, Any]:
             ffmpeg_directory=ffmpeg_directory,
             ffmpeg_source=ffmpeg_source,
             ffmpeg_version=ffmpeg_version,
+            gallery_dl_root=managed_gallery,
+            gallery_dl_version_value=gallery_version,
         )
     )
     with _TOOL_CACHE_LOCK:
@@ -323,9 +347,12 @@ def install_tool_manager(engine_module):
         return executable
 
     engine_module.external_ytdlp_path = ytdlp_executable
+    engine_module.invalidate_tool_inventory = lambda: invalidate_tool_inventory(engine_module)
     engine_module.tool_inventory = lambda refresh=False: tool_inventory(engine_module, refresh=bool(refresh))
     engine_module.update_managed_ytdlp = lambda channel="stable": update_managed_ytdlp(engine_module, channel=channel)
     engine_module.reset_managed_ytdlp = lambda: reset_managed_ytdlp(engine_module)
+    engine_module.install_managed_gallery_dl = lambda: install_managed_gallery_dl_online(engine_module)
+    engine_module.remove_managed_gallery_dl = lambda: remove_managed_gallery_dl(engine_module)
 
     original_bridge_status = window_cls.bridge_status
 
@@ -395,12 +422,15 @@ def run_tool_manager_self_test() -> None:
             assert status["ytDlpSource"] == "managed"
             assert status["ytDlpVersion"] == "2026.08.19"
             assert status["ffmpegSource"] == "unavailable"
+            assert status["galleryDlSource"] == "unavailable"
+            assert status["galleryDlReady"] is False
             assert status["dependenciesReady"] is False
-            assert status["dependencyWarningCount"] == 0
+            assert status["dependencyWarningCount"] == 1
             assert status["dependencyErrorCount"] == 1
-            assert len(status["managedToolRegistry"]) == 2
+            assert len(status["managedToolRegistry"]) == 3
             ytdlp_status = next(item for item in status["managedToolRegistry"] if item["tool"] == "yt-dlp")
             ffmpeg_status = next(item for item in status["managedToolRegistry"] if item["tool"] == "ffmpeg")
+            gallery_status = next(item for item in status["managedToolRegistry"] if item["tool"] == "gallery-dl")
             assert ytdlp_status["state"] == "managed"
             assert ytdlp_status["metadataState"] == "not-required"
             assert ytdlp_status["tracksProvenance"] is False
@@ -408,6 +438,9 @@ def run_tool_manager_self_test() -> None:
             assert ffmpeg_status["state"] == "missing"
             assert ffmpeg_status["tracksProvenance"] is True
             assert ffmpeg_status["ready"] is False
+            assert gallery_status["state"] == "missing"
+            assert gallery_status["health"] == "warning"
+            assert gallery_status["required"] is False
             assert all("path" not in " ".join(item.keys()).lower() for item in status["managedToolRegistry"])
             assert "path" not in " ".join(status.keys()).lower()
 

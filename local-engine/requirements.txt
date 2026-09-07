@@ -4,4 +4,6 @@ websocket-client>=1.8,<2
 pystray>=0.19.5,<0.20
 Pillow>=10,<13
 pypdfium2==5.13.0
+requests>=2.32,<3
+urllib3>=2.2,<3
 dbus-fast>=5.0.22,<6; platform_system == "Linux"
