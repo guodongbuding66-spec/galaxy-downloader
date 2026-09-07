@@ -350,7 +350,8 @@ def show_epub_reader(
 
     def current_offset() -> int:
         try:
-            return max(0, int(reader_text.count("1.0", "insert", "chars")[0]))
+            visible_top = reader_text.index("@0,0")
+            return max(0, int(reader_text.count("1.0", visible_top, "chars")[0]))
         except Exception:
             return 0
 
@@ -375,10 +376,13 @@ def show_epub_reader(
             theme = "system"
             theme_var.set(theme)
         try:
-            system_bg = str(ttk.Style(window).lookup("TFrame", "background") or "#ffffff")
+            style = ttk.Style(window)
+            system_bg = str(style.lookup("TFrame", "background") or "#ffffff")
+            system_fg = str(style.lookup("TLabel", "foreground") or "#202124")
         except Exception:
             system_bg = "#ffffff"
-        bg, fg, highlight_bg, search_bg = _theme_palette(theme, system_bg, "#202124")
+            system_fg = "#202124"
+        bg, fg, highlight_bg, search_bg = _theme_palette(theme, system_bg, system_fg)
         reader_text.configure(
             font=("TkDefaultFont", font_size),
             width=_text_columns(width, font_size),
