@@ -1,0 +1,52 @@
+name: Reader EPUB Search
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/reader_epub.py'
+      - 'local-engine/reader_epub_search.py'
+      - 'local-engine/reader_workspace.py'
+      - 'scripts/test-local-reader-epub-search.py'
+      - '.github/workflows/reader-epub-search.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/reader_epub.py'
+      - 'local-engine/reader_epub_search.py'
+      - 'local-engine/reader_workspace.py'
+      - 'scripts/test-local-reader-epub-search.py'
+      - '.github/workflows/reader-epub-search.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install local engine requirements
+        run: python -m pip install -r local-engine/requirements.txt
+
+      - name: Compile EPUB search contract
+        run: python -m py_compile local-engine/reader_epub.py local-engine/reader_epub_search.py scripts/test-local-reader-epub-search.py
+
+      - name: Run EPUB search tests
+        run: python scripts/test-local-reader-epub-search.py
