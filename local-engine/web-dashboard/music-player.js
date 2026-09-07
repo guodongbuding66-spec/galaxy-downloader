@@ -3,8 +3,11 @@
 
   const $ = (id) => document.getElementById(id)
   const idPattern = /^[a-f0-9]{16,64}$/
+  const queueIdPattern = /^[a-f0-9]{32}$/
   const playbackPathPattern = /^\/v1\/music\/playback\/[A-Za-z0-9_-]{32,128}\/[a-f0-9]{16,64}$/
   const PROGRESS_INTERVAL_SECONDS = 10
+  const MAX_LYRICS_ROWS = 5000
+
   const state = {
     songs: [],
     queue: [],
@@ -18,6 +21,7 @@
     lastQueuedSeconds: 0,
     saveChain: Promise.resolve(),
     volumeTimer: 0,
+    recoveryAttempts: 0,
   }
 
   const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]))
@@ -165,7 +169,6 @@
     const anchor = $('aiView') || $('subscriptionsView')
     if (anchor?.parentNode === main) main.insertBefore(view, anchor)
     else main.appendChild(view)
-
     state.audio = $('musicAudio')
     bindSurfaceEvents()
   }
@@ -229,7 +232,7 @@
     if (!container) return
     $('musicQueueCount').textContent = String(state.queue.length)
     $('musicQueueMeta').textContent = `${state.queue.length} track${state.queue.length === 1 ? '' : 's'}`
-    $('musicClearQueue').disabled = state.queue.length === 0
+    $('musicClearQueue').disabled = state.queue.length === 0 || state.loading
     $('musicPrevious').disabled = state.queue.length === 0 || state.loading
     $('musicNext').disabled = state.queue.length === 0 || state.loading
     if (!state.queue.length) {
@@ -240,9 +243,10 @@
       const id = mediaId(row?.track?.mediaId)
       if (!id) return ''
       const current = id === mediaId(state.player.currentMediaId)
+      const queueId = queueIdPattern.test(String(row?.id || '')) ? row.id : ''
       return `<article class="music-queue-row${current ? ' is-current' : ''}">
         <button class="music-queue-main" data-music-queue-play="${esc(id)}" type="button"><span class="numeric">${esc(row.position || '')}</span><span><strong>${esc(row.track.title || 'Unknown Track')}</strong><small>${esc(row.track.artist || 'Unknown Artist')}</small></span></button>
-        <button class="action" data-music-queue-remove="${esc(row.id || '')}" type="button" aria-label="Remove ${esc(row.track.title || 'track')} from queue">Remove</button>
+        ${queueId ? `<button class="action" data-music-queue-remove="${esc(queueId)}" type="button" aria-label="Remove ${esc(row.track.title || 'track')} from queue">Remove</button>` : ''}
       </article>`
     }).join('')
   }
@@ -281,7 +285,7 @@
       node.textContent = 'No lyrics available.'
       return
     }
-    const synced = Array.isArray(lyrics.synced) ? lyrics.synced.slice(0, 5000) : []
+    const synced = Array.isArray(lyrics.synced) ? lyrics.synced.slice(0, MAX_LYRICS_ROWS) : []
     if (synced.length) {
       node.textContent = synced.map((row) => `${formatDuration(row.time)}  ${String(row.text || '').trim()}`).filter((line) => line.trim()).join('\n') || 'No lyrics available.'
       return
@@ -323,7 +327,9 @@
       renderPlayer()
       showError('')
       setStatus(`${state.songs.length} tracks loaded.`, 'success')
-      if (prepareCurrent && state.currentSong && (!state.audio?.src || mediaId(state.currentSong.mediaId) !== mediaId(state.audio?.dataset.mediaId))) {
+      const currentId = mediaId(state.currentSong?.mediaId)
+      const mountedId = mediaId(state.audio?.dataset.mediaId)
+      if (prepareCurrent && currentId && currentId !== mountedId) {
         await prepareSong(state.currentSong, { autoplay: false, incrementPlay: false, resume: true, updatePlayer: false })
       }
     } catch (error) {
@@ -348,111 +354,11 @@
     state.queue = Array.isArray(payload.queue) ? payload.queue : state.queue
   }
 
-  function stopAudio({ save = true } = {}) {
-    if (save) void queueProgress({ force: true })
-    const audio = state.audio
-    if (!audio) return
-    try { audio.pause() } catch (_) {}
-    audio.removeAttribute('src')
-    audio.removeAttribute('data-media-id')
-    try { audio.load() } catch (_) {}
-  }
-
-  async function prepareSong(song, { autoplay = true, incrementPlay = true, resume = true, updatePlayer = true } = {}) {
-    const id = mediaId(song?.mediaId)
-    if (!id || state.loading) return
-    state.loading = true
-    renderQueue()
-    setStatus('Preparing secure local audio…')
-    try {
-      if (updatePlayer) {
-        const playerPayload = await postJson('/v1/music/player', { currentMediaId: id })
-        state.player = playerPayload.player || state.player
-      }
-      if (incrementPlay) {
-        const statePayload = await postJson(`/v1/music/songs/${encodeURIComponent(id)}/state`, { incrementPlay: true })
-        if (statePayload.song) song = statePayload.song
-      }
-      const url = await issuePlayback(id)
-      state.currentSong = song
-      state.player.currentMediaId = id
-      const audio = state.audio
-      if (!audio) throw new Error('Music player surface is unavailable')
-      stopAudio({ save: true })
-      const startSeconds = resume ? Math.max(0, Number(song.lastPosition) || 0) : 0
-      state.lastSavedSeconds = startSeconds
-      state.lastQueuedSeconds = startSeconds
-      audio.dataset.mediaId = id
-      audio.src = url
-      audio.preload = 'metadata'
-      const desiredVolume = Math.max(0, Math.min(Number(state.player.volume ?? 1), 1))
-      audio.volume = desiredVolume
-      audio.addEventListener('loadedmetadata', () => {
-        if (mediaId(audio.dataset.mediaId) !== id || !startSeconds || !Number.isFinite(audio.duration) || audio.duration <= 0) return
-        audio.currentTime = Math.min(startSeconds, Math.max(0, audio.duration - 0.25))
-      }, { once: true })
-      audio.load()
-      renderPlayer()
-      void loadLyrics(song)
-      if (autoplay) {
-        try {
-          await audio.play()
-          setStatus(`${song.title || 'Track'} · playing locally`, 'success')
-        } catch {
-          setStatus('Player is ready. Press play to begin.')
-        }
-      } else {
-        setStatus(`${song.title || 'Track'} · ready at ${formatDuration(startSeconds)}`)
-      }
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Unable to start music playback', 'error')
-      showError(error instanceof Error ? error.message : 'Unable to start music playback')
-    } finally {
-      state.loading = false
-      renderQueue()
-    }
-  }
-
-  async function playFromLibrary(id) {
-    const song = state.songs.find((item) => mediaId(item.mediaId) === id)
-    if (!song) return
-    try {
-      await ensureQueued(id)
-      await prepareSong(song, { autoplay: true, incrementPlay: true, resume: true, updatePlayer: true })
-      renderQueue()
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Unable to queue track', 'error')
-    }
-  }
-
-  async function navigate(direction) {
-    if (state.loading || !['previous', 'next'].includes(direction)) return
-    state.loading = true
-    renderQueue()
-    try {
-      await queueProgress({ force: true })
-      const payload = await postJson(`/v1/music/player/${direction}`, {})
-      state.player = payload.player || state.player
-      const song = payload.song
-      if (!payload.moved && payload.boundary) {
-        setStatus(direction === 'next' ? 'End of queue.' : 'Start of queue.')
-        return
-      }
-      if (song) await prepareSong(song, { autoplay: true, incrementPlay: true, resume: true, updatePlayer: false })
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Navigation failed', 'error')
-    } finally {
-      state.loading = false
-      renderQueue()
-    }
-  }
-
   function progressSnapshot() {
     const audio = state.audio
     const id = mediaId(state.player.currentMediaId)
     if (!audio || !id || mediaId(audio.dataset.mediaId) !== id) return null
-    const seconds = Math.max(0, Number(audio.currentTime) || 0)
-    return { id, seconds }
+    return { id, seconds: Math.max(0, Number(audio.currentTime) || 0) }
   }
 
   function queueProgress({ force = false, keepalive = false } = {}) {
@@ -486,12 +392,116 @@
     return state.saveChain
   }
 
+  function clearAudioSource() {
+    const audio = state.audio
+    if (!audio) return
+    try { audio.pause() } catch (_) {}
+    audio.removeAttribute('src')
+    audio.removeAttribute('data-media-id')
+    try { audio.load() } catch (_) {}
+  }
+
+  async function prepareSong(song, { autoplay = true, incrementPlay = true, resume = true, updatePlayer = true } = {}) {
+    const id = mediaId(song?.mediaId)
+    if (!id || state.loading) return false
+    state.loading = true
+    renderQueue()
+    setStatus('Preparing secure local audio…')
+    try {
+      await queueProgress({ force: true })
+      if (updatePlayer) {
+        const playerPayload = await postJson('/v1/music/player', { currentMediaId: id })
+        state.player = playerPayload.player || state.player
+      }
+      if (incrementPlay) {
+        const statePayload = await postJson(`/v1/music/songs/${encodeURIComponent(id)}/state`, { incrementPlay: true })
+        if (statePayload.song) song = statePayload.song
+      }
+      const url = await issuePlayback(id)
+      clearAudioSource()
+      state.currentSong = song
+      state.player.currentMediaId = id
+      const audio = state.audio
+      if (!audio) throw new Error('Music player surface is unavailable')
+      const startSeconds = resume ? Math.max(0, Number(song.lastPosition) || 0) : 0
+      state.lastSavedSeconds = startSeconds
+      state.lastQueuedSeconds = startSeconds
+      state.recoveryAttempts = 0
+      audio.dataset.mediaId = id
+      audio.src = url
+      audio.preload = 'metadata'
+      audio.volume = Math.max(0, Math.min(Number(state.player.volume ?? 1), 1))
+      audio.addEventListener('loadedmetadata', () => {
+        if (mediaId(audio.dataset.mediaId) !== id || !startSeconds || !Number.isFinite(audio.duration) || audio.duration <= 0) return
+        audio.currentTime = Math.min(startSeconds, Math.max(0, audio.duration - 0.25))
+      }, { once: true })
+      audio.load()
+      renderPlayer()
+      void loadLyrics(song)
+      if (!autoplay) {
+        setStatus(`${song.title || 'Track'} · ready at ${formatDuration(startSeconds)}`)
+        return true
+      }
+      try {
+        await audio.play()
+        setStatus(`${song.title || 'Track'} · playing locally`, 'success')
+      } catch {
+        setStatus('Player is ready. Press play to begin.')
+      }
+      return true
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to start music playback', 'error')
+      showError(error instanceof Error ? error.message : 'Unable to start music playback')
+      return false
+    } finally {
+      state.loading = false
+      renderQueue()
+    }
+  }
+
+  async function playFromLibrary(id) {
+    const song = state.songs.find((item) => mediaId(item.mediaId) === id)
+    if (!song || state.loading) return
+    try {
+      await ensureQueued(id)
+      await prepareSong(song, { autoplay: true, incrementPlay: true, resume: true, updatePlayer: true })
+      renderQueue()
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to queue track', 'error')
+    }
+  }
+
+  async function navigate(direction) {
+    if (state.loading || !['previous', 'next'].includes(direction)) return
+    state.loading = true
+    renderQueue()
+    let song = null
+    try {
+      await queueProgress({ force: true })
+      const payload = await postJson(`/v1/music/player/${direction}`, {})
+      state.player = payload.player || state.player
+      song = payload.song || null
+      if (!payload.moved && payload.boundary) {
+        setStatus(direction === 'next' ? 'End of queue.' : 'Start of queue.')
+        return
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Navigation failed', 'error')
+      return
+    } finally {
+      state.loading = false
+      renderQueue()
+    }
+    if (song) await prepareSong(song, { autoplay: true, incrementPlay: true, resume: true, updatePlayer: false })
+  }
+
   async function updateFavorite(id) {
     const song = state.songs.find((item) => mediaId(item.mediaId) === id)
     if (!song) return
     try {
       const payload = await postJson(`/v1/music/songs/${encodeURIComponent(id)}/state`, { favorite: !Boolean(song.favorite) })
       if (payload.song) Object.assign(song, payload.song)
+      if (state.favoritesOnly && !song.favorite) state.songs = state.songs.filter((item) => mediaId(item.mediaId) !== id)
       renderSongs()
       setStatus(song.favorite ? 'Added to favorites.' : 'Removed from favorites.', 'success')
     } catch (error) {
@@ -500,6 +510,7 @@
   }
 
   async function enqueueSong(id) {
+    if (!id) return
     try {
       const payload = await postJson('/v1/music/queue', { mediaIds: [id] })
       state.queue = Array.isArray(payload.queue) ? payload.queue : state.queue
@@ -511,7 +522,7 @@
   }
 
   async function removeQueueItem(queueId) {
-    if (!/^[a-f0-9]{32}$/.test(String(queueId || ''))) return
+    if (!queueIdPattern.test(String(queueId || ''))) return
     try {
       await postJson(`/v1/music/queue/${encodeURIComponent(queueId)}/delete`, {})
       state.queue = state.queue.filter((row) => row.id !== queueId)
@@ -523,6 +534,7 @@
   }
 
   async function clearQueue() {
+    if (state.loading) return
     try {
       const payload = await postJson('/v1/music/queue/clear', {})
       state.queue = Array.isArray(payload.queue) ? payload.queue : []
@@ -557,6 +569,33 @@
     }
   }
 
+  async function recoverPlayback() {
+    const audio = state.audio
+    const id = mediaId(state.currentSong?.mediaId)
+    if (!audio || !id || state.recoveryAttempts >= 1) {
+      setStatus('Playback stopped because the local audio stream became unavailable.', 'error')
+      return
+    }
+    state.recoveryAttempts += 1
+    const position = Math.max(0, Number(audio.currentTime) || state.lastSavedSeconds || 0)
+    const shouldResume = !audio.paused
+    try {
+      const url = await issuePlayback(id)
+      audio.src = url
+      audio.dataset.mediaId = id
+      audio.addEventListener('loadedmetadata', () => {
+        if (Number.isFinite(audio.duration) && audio.duration > 0) audio.currentTime = Math.min(position, Math.max(0, audio.duration - 0.25))
+      }, { once: true })
+      audio.load()
+      if (shouldResume) {
+        try { await audio.play() } catch (_) {}
+      }
+      setStatus('Playback stream refreshed.', 'success')
+    } catch {
+      setStatus('Playback stopped because the local audio stream became unavailable.', 'error')
+    }
+  }
+
   function bindSurfaceEvents() {
     $('musicSearchForm')?.addEventListener('submit', (event) => {
       event.preventDefault()
@@ -588,6 +627,7 @@
     const audio = state.audio
     if (audio) {
       audio.addEventListener('play', () => {
+        state.recoveryAttempts = 0
         $('musicPlayerState').textContent = 'Playing'
         setStatus(`${state.currentSong?.title || 'Track'} · playing locally`, 'success')
       })
@@ -606,12 +646,13 @@
           audio.currentTime = 0
           state.lastSavedSeconds = 0
           state.lastQueuedSeconds = 0
+          await postJson('/v1/music/player/seek', { positionSeconds: 0 }).catch(() => null)
           try { await audio.play() } catch (_) {}
           return
         }
         void navigate('next')
       })
-      audio.addEventListener('error', () => setStatus('Playback stopped because the local audio stream became unavailable.', 'error'))
+      audio.addEventListener('error', () => void recoverPlayback())
     }
   }
 
@@ -644,11 +685,9 @@
   $('refreshButton')?.addEventListener('click', () => {
     if (!$('musicView')?.classList.contains('is-hidden')) void loadMusic({ prepareCurrent: false })
   })
-
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') void queueProgress({ force: true, keepalive: true })
   })
-
   window.addEventListener('beforeunload', () => {
     window.clearTimeout(state.volumeTimer)
     void queueProgress({ force: true, keepalive: true })
