@@ -21,6 +21,7 @@ from headless_output_tracking import install_headless_output_tracking
 from headless_plugin_api import HeadlessPluginApi
 from headless_plugin_http import HeadlessPluginHttpMixin
 from headless_qwen3_asr_api import Qwen3HeadlessAsrApi
+from headless_reader_epub_http import HeadlessReaderEpubHttpMixin
 from headless_settings_http import HeadlessSettingsHttpMixin
 from headless_transfer_api import HeadlessTransferApi
 from headless_transfer_http import HeadlessTransferHttpMixin
@@ -55,6 +56,7 @@ class GalaxyApiRequestHandler(
     HeadlessCourseProvidersHttpMixin,
     HeadlessMusicMediaHttpMixin,
     HeadlessMusicPlayerHttpMixin,
+    HeadlessReaderEpubHttpMixin,
     HeadlessSettingsHttpMixin,
     HeadlessTransferHttpMixin,
     HeadlessPluginHttpMixin,
