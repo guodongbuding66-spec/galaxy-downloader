@@ -1,0 +1,16 @@
+.learning-player-panel { margin-top: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; display: grid; gap: 12px; background: var(--surface-subtle, rgba(127,127,127,.035)); }
+.learning-player-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.learning-player-head h3 { margin: 0 0 4px; font-size: 15px; }
+.learning-player-head p { margin: 0; max-width: 640px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.learning-player-status { min-height: 18px; color: var(--muted); font-size: 12px; }
+.learning-player-status[data-tone="success"] { color: var(--text); }
+.learning-player-status[data-tone="error"] { color: var(--danger, #b42318); }
+.learning-player-stage { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: #090b10; }
+.learning-player-media { display: block; width: 100%; max-height: min(66vh, 680px); background: #090b10; }
+audio.learning-player-media { min-height: 54px; }
+@media (max-width: 760px) {
+  .learning-player-head { display: grid; grid-template-columns: 1fr; }
+  .learning-player-head .button { width: 100%; }
+  .learning-player-panel { padding: 12px; }
+  .learning-player-media { max-height: 54vh; }
+}
