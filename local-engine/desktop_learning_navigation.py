@@ -6,6 +6,7 @@ from tkinter import ttk
 from typing import Any
 
 import desktop_ui as ui
+from desktop_course_resume import launch_desktop_course_resume
 
 _SUBTITLE_KIND_LABELS = {"manual": "人工", "automatic": "自动"}
 _SUBTITLE_LANGUAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
@@ -67,6 +68,23 @@ def navigation_target(item: dict[str, Any], direction: str) -> str:
 
 def _item_sort_key(item: dict[str, Any]) -> tuple[int, str]:
     return (_safe_index(item.get("courseItemIndex")), str(item.get("id") or ""))
+
+
+def resume_action_text(result: dict[str, Any]) -> str:
+    """Render a path-safe Desktop status from the shared Resume contract."""
+    resume = result.get("resume") if isinstance(result.get("resume"), dict) else {}
+    state = str(resume.get("state") or "empty")
+    item = resume.get("item") if isinstance(resume.get("item"), dict) else {}
+    title = str(item.get("title") or "课时").strip()[:160] or "课时"
+    if result.get("opened"):
+        if state == "resume":
+            return f"已从 {_safe_progress(resume.get('progressSeconds')):.0f}s 继续：{title}"
+        return f"已开始：{title}"
+    if state == "completed":
+        return "课程已完成"
+    if state == "empty":
+        return "没有可播放的本地课时"
+    return "未能打开课程播放器"
 
 
 def build_navigation_tab(notebook, api) -> None:
@@ -132,6 +150,7 @@ def build_navigation_tab(notebook, api) -> None:
         item = selected_item()
         previous_button.state(["!disabled"] if item and navigation_target(item, "previous") else ["disabled"])
         next_button.state(["!disabled"] if item and navigation_target(item, "next") else ["disabled"])
+        resume_button.state(["!disabled"] if selected_course() else ["disabled"])
         selection = tree.selection()
         if selection:
             label = section_label_by_key.get(tree.parent(selection[0]), "")
@@ -256,11 +275,26 @@ def build_navigation_tab(notebook, api) -> None:
             select_item_id(target)
             update_controls()
 
+    def resume_course() -> None:
+        course = selected_course()
+        if course is None:
+            status.set("请选择课程")
+            return
+        try:
+            result = launch_desktop_course_resume(api, course["id"])
+        except Exception:  # noqa: BLE001
+            status.set("续播失败")
+            return
+        status.set(resume_action_text(result))
+        refresh_course()
+
     actions = tk.Frame(tab, bg=ui.PANEL)
     actions.pack(fill="x", pady=(10, 0))
     ui._label(actions, variable=status, size=8, color=ui.MUTED).pack(side="left", fill="x", expand=True)
-    next_button = ui.ActionButton(actions, text="下一课 →", command=lambda: move("next"), kind="secondary", compact=True)
-    next_button.pack(side="right")
+    resume_button = ui.ActionButton(actions, text="继续学习", command=resume_course, kind="secondary", compact=True)
+    resume_button.pack(side="right")
+    next_button = ui.ActionButton(actions, text="下一课 →", command=lambda: move("next"), kind="ghost", compact=True)
+    next_button.pack(side="right", padx=(0, 6))
     previous_button = ui.ActionButton(actions, text="← 上一课", command=lambda: move("previous"), kind="ghost", compact=True)
     previous_button.pack(side="right", padx=(0, 6))
     ui.ActionButton(actions, text="刷新", command=refresh_courses, kind="ghost", compact=True).pack(side="right", padx=(0, 6))
