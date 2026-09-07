@@ -31,7 +31,7 @@ class MusicPlayerUiContractTests(unittest.TestCase):
 
     def test_music_view_is_a_real_product_entry(self) -> None:
         for contract in (
-            "data.musicView = 'music'",
+            "button.dataset.musicView = 'music'",
             "Music Library",
             "Now Playing",
             "Favorites only",
@@ -99,13 +99,16 @@ class MusicPlayerUiContractTests(unittest.TestCase):
     def test_ticket_recovery_is_bounded(self) -> None:
         self.assertIn("state.recoveryAttempts >= 1", self.js)
         self.assertIn("state.recoveryAttempts += 1", self.js)
+        self.assertIn("state.recoveryAttempts = 0", self.js)
         self.assertIn("Playback stream refreshed.", self.js)
 
     def test_accessibility_and_responsive_contract(self) -> None:
-        for value in (
+        js_contracts = (
             'aria-live="polite"',
             'aria-label="Playback controls"',
             'aria-pressed="${song.favorite ? \'true\' : \'false\'}"',
+        )
+        css_contracts = (
             ":focus-visible",
             "min-height:44px",
             "@media(max-width:900px)",
@@ -113,8 +116,11 @@ class MusicPlayerUiContractTests(unittest.TestCase):
             "@media(max-width:380px)",
             "@media(hover:hover)",
             "@media(prefers-color-scheme:dark)",
-        ):
-            self.assertIn(value, self.js if value.startswith("aria-") else self.css)
+        )
+        for value in js_contracts:
+            self.assertIn(value, self.js)
+        for value in css_contracts:
+            self.assertIn(value, self.css)
 
     def test_assets_do_not_widen_dashboard_csp(self) -> None:
         self.assertIn("default-src 'self'", self.server)
