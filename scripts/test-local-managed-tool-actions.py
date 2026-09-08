@@ -29,10 +29,18 @@ class ManagedToolActionTests(unittest.TestCase):
             ("check", "install", "update", "seed", "reset"),
         )
         self.assertEqual(supported_managed_tool_actions("yt-dlp"), ("seed", "update", "reset"))
+        self.assertEqual(
+            supported_managed_tool_actions("gallery-dl"),
+            ("check", "install", "update", "remove"),
+        )
         self.assertEqual(supported_managed_tool_actions("unknown"), ())
         self.assertTrue(managed_tool_action_policy("ffmpeg", "check")["network"])
         self.assertFalse(managed_tool_action_policy("ffmpeg", "seed")["network"])
         self.assertTrue(managed_tool_action_policy("ffmpeg", "seed")["mutating"])
+        self.assertTrue(managed_tool_action_policy("gallery-dl", "check")["network"])
+        self.assertTrue(managed_tool_action_policy("gallery-dl", "install")["mutating"])
+        self.assertFalse(managed_tool_action_policy("gallery-dl", "remove")["network"])
+        self.assertTrue(managed_tool_action_policy("gallery-dl", "remove")["mutating"])
 
     def test_user_initiation_is_required_before_adapter_invocation(self) -> None:
         called = []
@@ -49,10 +57,13 @@ class ManagedToolActionTests(unittest.TestCase):
             ytdlp_seed=forbidden,
             ytdlp_update=forbidden,
             ytdlp_reset=forbidden,
+            gallery_dl_check=forbidden,
+            gallery_dl_install=forbidden,
+            gallery_dl_remove=forbidden,
         )
         result = perform_managed_tool_action(
             object(),
-            ManagedToolActionRequest("ffmpeg", "update", False),
+            ManagedToolActionRequest("gallery-dl", "install", False),
             adapters=adapters,
         )
         self.assertFalse(result.ok)
@@ -69,6 +80,10 @@ class ManagedToolActionTests(unittest.TestCase):
             object(), ManagedToolActionRequest("yt-dlp", "check", True)
         )
         self.assertEqual(unsupported_action.state, "unsupported-action")
+        unsupported_gallery_reset = perform_managed_tool_action(
+            object(), ManagedToolActionRequest("gallery-dl", "reset", True)
+        )
+        self.assertEqual(unsupported_gallery_reset.state, "unsupported-action")
 
     def test_ffmpeg_check_normalizes_update_status(self) -> None:
         native = SimpleNamespace(
@@ -90,6 +105,31 @@ class ManagedToolActionTests(unittest.TestCase):
         self.assertEqual(result.state, "update_available")
         self.assertEqual(result.source, "managed")
         self.assertEqual(result.available_version, "N-200000-gabc")
+        self.assertTrue(result.update_available)
+        self.assertTrue(result.network_action)
+
+    def test_gallery_check_normalizes_update_status(self) -> None:
+        native = SimpleNamespace(
+            ok=True,
+            state="update_available",
+            current_source="managed",
+            current_version="1.32.10",
+            available_version="1.32.11",
+            available_release_tag="1.32.11",
+            update_available=True,
+            message="gallery update available",
+        )
+        result = perform_managed_tool_action(
+            object(),
+            ManagedToolActionRequest("gallery-dl", "check", True),
+            adapters=ManagedToolActionAdapters(gallery_dl_check=lambda _engine: native),
+        )
+        self.assertTrue(result.ok)
+        self.assertFalse(result.changed)
+        self.assertEqual(result.state, "update_available")
+        self.assertEqual(result.source, "managed")
+        self.assertEqual(result.version, "1.32.10")
+        self.assertEqual(result.available_version, "1.32.11")
         self.assertTrue(result.update_available)
         self.assertTrue(result.network_action)
 
@@ -118,6 +158,52 @@ class ManagedToolActionTests(unittest.TestCase):
                 self.assertTrue(result.network_action)
         self.assertEqual(calls, ["install", "install"])
 
+    def test_gallery_install_and_update_share_verified_online_adapter(self) -> None:
+        calls = []
+
+        def install(_engine):
+            calls.append("install")
+            return SimpleNamespace(
+                ok=True,
+                changed=True,
+                version="1.32.11",
+                source="managed",
+                message="installed",
+            )
+
+        adapters = ManagedToolActionAdapters(gallery_dl_install=install)
+        for action in ("install", "update"):
+            with self.subTest(action=action):
+                result = perform_managed_tool_action(
+                    object(),
+                    ManagedToolActionRequest("gallery-dl", action, True),
+                    adapters=adapters,
+                )
+                self.assertTrue(result.ok)
+                self.assertTrue(result.changed)
+                self.assertEqual(result.state, "completed")
+                self.assertEqual(result.version, "1.32.11")
+                self.assertTrue(result.network_action)
+        self.assertEqual(calls, ["install", "install"])
+
+    def test_gallery_remove_is_mutating_but_offline(self) -> None:
+        native = SimpleNamespace(
+            ok=True,
+            changed=True,
+            version=None,
+            source="unavailable",
+            message="removed",
+        )
+        result = perform_managed_tool_action(
+            object(),
+            ManagedToolActionRequest("gallery-dl", "remove", True),
+            adapters=ManagedToolActionAdapters(gallery_dl_remove=lambda _engine: native),
+        )
+        self.assertTrue(result.ok)
+        self.assertTrue(result.changed)
+        self.assertEqual(result.source, "unavailable")
+        self.assertFalse(result.network_action)
+
     def test_ytdlp_update_forwards_only_valid_channel_field(self) -> None:
         channels = []
 
@@ -143,7 +229,7 @@ class ManagedToolActionTests(unittest.TestCase):
 
         invalid = perform_managed_tool_action(
             object(),
-            ManagedToolActionRequest("ffmpeg", "seed", True, channel="nightly"),
+            ManagedToolActionRequest("gallery-dl", "update", True, channel="nightly"),
             adapters=adapters,
         )
         self.assertFalse(invalid.ok)
@@ -179,8 +265,8 @@ class ManagedToolActionTests(unittest.TestCase):
 
         result = perform_managed_tool_action(
             object(),
-            ManagedToolActionRequest("ffmpeg", "check", True),
-            adapters=ManagedToolActionAdapters(ffmpeg_check=fail),
+            ManagedToolActionRequest("gallery-dl", "check", True),
+            adapters=ManagedToolActionAdapters(gallery_dl_check=fail),
         )
         self.assertFalse(result.ok)
         self.assertEqual(result.state, "error")
@@ -191,14 +277,14 @@ class ManagedToolActionTests(unittest.TestCase):
         native = SimpleNamespace(
             ok=True,
             changed=True,
-            version="v1",
-            source="managed",
-            message="done",
+            version=None,
+            source="unavailable",
+            message="removed",
         )
         result = perform_managed_tool_action(
             object(),
-            ManagedToolActionRequest("ffmpeg", "seed", True),
-            adapters=ManagedToolActionAdapters(ffmpeg_seed=lambda _engine: native),
+            ManagedToolActionRequest("gallery-dl", "remove", True),
+            adapters=ManagedToolActionAdapters(gallery_dl_remove=lambda _engine: native),
         )
         payload = public_managed_tool_action_result(result)
         json.dumps(payload)
