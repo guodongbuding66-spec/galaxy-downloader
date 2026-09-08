@@ -6,19 +6,25 @@ from typing import Callable
 from ffmpeg_manager import reset_managed_ffmpeg, seed_managed_ffmpeg
 from ffmpeg_online_installer import install_managed_ffmpeg_online
 from ffmpeg_update_status import check_ffmpeg_update
+from gallery_dl_manager import install_managed_gallery_dl_online, remove_managed_gallery_dl
+from gallery_dl_update_status import check_gallery_dl_update
 from managed_tool_registry import registered_tool_specs
 from tool_manager import reset_managed_ytdlp, seed_managed_ytdlp, update_managed_ytdlp
 
-MANAGED_TOOL_ACTIONS = {"check", "install", "update", "seed", "reset"}
+MANAGED_TOOL_ACTIONS = {"check", "install", "update", "seed", "reset", "remove"}
 _TOOL_ACTIONS: dict[str, tuple[str, ...]] = {
     "ffmpeg": ("check", "install", "update", "seed", "reset"),
     "yt-dlp": ("seed", "update", "reset"),
+    "gallery-dl": ("check", "install", "update", "remove"),
 }
 _NETWORK_ACTIONS = {
     ("ffmpeg", "check"),
     ("ffmpeg", "install"),
     ("ffmpeg", "update"),
     ("yt-dlp", "update"),
+    ("gallery-dl", "check"),
+    ("gallery-dl", "install"),
+    ("gallery-dl", "update"),
 }
 _MUTATING_ACTIONS = {
     ("ffmpeg", "install"),
@@ -28,6 +34,9 @@ _MUTATING_ACTIONS = {
     ("yt-dlp", "seed"),
     ("yt-dlp", "update"),
     ("yt-dlp", "reset"),
+    ("gallery-dl", "install"),
+    ("gallery-dl", "update"),
+    ("gallery-dl", "remove"),
 }
 
 
@@ -64,6 +73,9 @@ class ManagedToolActionAdapters:
     ytdlp_seed: Callable[..., object] = seed_managed_ytdlp
     ytdlp_update: Callable[..., object] = update_managed_ytdlp
     ytdlp_reset: Callable[..., object] = reset_managed_ytdlp
+    gallery_dl_check: Callable[..., object] = check_gallery_dl_update
+    gallery_dl_install: Callable[..., object] = install_managed_gallery_dl_online
+    gallery_dl_remove: Callable[..., object] = remove_managed_gallery_dl
 
 
 def _known_tools() -> frozenset[str]:
@@ -113,7 +125,12 @@ def _result(
     )
 
 
-def _normalize_update_status(request: ManagedToolActionRequest, native: object, *, network: bool) -> ManagedToolActionResult:
+def _normalize_update_status(
+    request: ManagedToolActionRequest,
+    native: object,
+    *,
+    network: bool,
+) -> ManagedToolActionResult:
     return _result(
         request,
         ok=bool(getattr(native, "ok", False)),
@@ -129,7 +146,12 @@ def _normalize_update_status(request: ManagedToolActionRequest, native: object, 
     )
 
 
-def _normalize_action_result(request: ManagedToolActionRequest, native: object, *, network: bool) -> ManagedToolActionResult:
+def _normalize_action_result(
+    request: ManagedToolActionRequest,
+    native: object,
+    *,
+    network: bool,
+) -> ManagedToolActionResult:
     ok = bool(getattr(native, "ok", False))
     return _result(
         request,
@@ -160,14 +182,34 @@ def perform_managed_tool_action(
     """
     tool = str(request.tool or "").strip().lower()
     action = str(request.action or "").strip().lower()
-    normalized = ManagedToolActionRequest(tool=tool, action=action, user_initiated=bool(request.user_initiated), channel=request.channel)
+    normalized = ManagedToolActionRequest(
+        tool=tool,
+        action=action,
+        user_initiated=bool(request.user_initiated),
+        channel=request.channel,
+    )
 
     if tool not in _known_tools():
-        return _result(normalized, ok=False, state="unsupported-tool", message=f"Unsupported managed tool: {tool or '<empty>'}")
+        return _result(
+            normalized,
+            ok=False,
+            state="unsupported-tool",
+            message=f"Unsupported managed tool: {tool or '<empty>'}",
+        )
     if action not in MANAGED_TOOL_ACTIONS:
-        return _result(normalized, ok=False, state="unsupported-action", message=f"Unsupported managed tool action: {action or '<empty>'}")
+        return _result(
+            normalized,
+            ok=False,
+            state="unsupported-action",
+            message=f"Unsupported managed tool action: {action or '<empty>'}",
+        )
     if action not in supported_managed_tool_actions(tool):
-        return _result(normalized, ok=False, state="unsupported-action", message=f"{tool} does not support the {action} action.")
+        return _result(
+            normalized,
+            ok=False,
+            state="unsupported-action",
+            message=f"{tool} does not support the {action} action.",
+        )
     if not normalized.user_initiated:
         return _result(
             normalized,
@@ -176,7 +218,12 @@ def perform_managed_tool_action(
             message=f"The {tool}/{action} action requires an explicit user initiation signal.",
         )
     if normalized.channel is not None and not (tool == "yt-dlp" and action == "update"):
-        return _result(normalized, ok=False, state="invalid-request", message="An update channel is only valid for yt-dlp update actions.")
+        return _result(
+            normalized,
+            ok=False,
+            state="invalid-request",
+            message="An update channel is only valid for yt-dlp update actions.",
+        )
 
     selected = adapters or ManagedToolActionAdapters()
     network = (tool, action) in _NETWORK_ACTIONS
@@ -203,6 +250,26 @@ def perform_managed_tool_action(
                 )
             if action == "reset":
                 return _normalize_action_result(normalized, selected.ytdlp_reset(engine_module), network=network)
+
+        if tool == "gallery-dl":
+            if action == "check":
+                return _normalize_update_status(
+                    normalized,
+                    selected.gallery_dl_check(engine_module),
+                    network=network,
+                )
+            if action in {"install", "update"}:
+                return _normalize_action_result(
+                    normalized,
+                    selected.gallery_dl_install(engine_module),
+                    network=network,
+                )
+            if action == "remove":
+                return _normalize_action_result(
+                    normalized,
+                    selected.gallery_dl_remove(engine_module),
+                    network=network,
+                )
     except Exception as exc:
         return _result(
             normalized,
@@ -212,7 +279,12 @@ def perform_managed_tool_action(
             message=f"Managed tool action failed before a normalized result was returned: {exc}",
         )
 
-    return _result(normalized, ok=False, state="unsupported-action", message=f"No adapter is registered for {tool}/{action}.")
+    return _result(
+        normalized,
+        ok=False,
+        state="unsupported-action",
+        message=f"No adapter is registered for {tool}/{action}.",
+    )
 
 
 def public_managed_tool_action_result(result: ManagedToolActionResult) -> dict[str, object]:
@@ -248,10 +320,13 @@ def run_managed_tool_actions_self_test() -> None:
         ytdlp_seed=forbidden,
         ytdlp_update=forbidden,
         ytdlp_reset=forbidden,
+        gallery_dl_check=forbidden,
+        gallery_dl_install=forbidden,
+        gallery_dl_remove=forbidden,
     )
     rejected = perform_managed_tool_action(
         object(),
-        ManagedToolActionRequest("ffmpeg", "check", False),
+        ManagedToolActionRequest("gallery-dl", "check", False),
         adapters=adapters,
     )
     assert rejected.state == "user-initiation-required"
