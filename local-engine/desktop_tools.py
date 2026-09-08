@@ -35,6 +35,14 @@ def _version_label(value: object) -> str:
     return text if text else "—"
 
 
+def _gallery_action_from_inventory(inventory: dict[str, object]) -> str:
+    return "update" if bool(inventory.get("galleryDlReady")) else "install"
+
+
+def _gallery_action_label(inventory: dict[str, object]) -> str:
+    return "更新 gallery-dl" if _gallery_action_from_inventory(inventory) == "update" else "安装 gallery-dl"
+
+
 def _show_tools(window, engine_module) -> None:
     existing = getattr(window, "_tools_window", None)
     if _window_exists(existing):
@@ -45,8 +53,8 @@ def _show_tools(window, engine_module) -> None:
     dialog = tk.Toplevel(window)
     window._tools_window = dialog
     dialog.title("工具管理 · Galaxy Local Engine")
-    dialog.geometry("800x650")
-    dialog.minsize(720, 590)
+    dialog.geometry("840x760")
+    dialog.minsize(760, 650)
     dialog.configure(bg=ui.BG)
     dialog.transient(window)
 
@@ -55,11 +63,11 @@ def _show_tools(window, engine_module) -> None:
     ui._label(shell, "工具管理", size=16, weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
         shell,
-        "普通启动、刷新和下载不会联网检查工具。只有你主动点击“检查更新”或“在线安装 / 更新”时，Galaxy 才访问经过审核的工具源；托管版本都位于 runtime/tools，可独立恢复到发行包基线。",
+        "普通启动、刷新和下载不会联网检查工具。只有你主动点击检查或安装/更新时，Galaxy 才访问经过审核的工具源。yt-dlp / FFmpeg 可恢复发行包基线；gallery-dl 是可选托管工具，可随时移除回未安装状态。",
         size=8,
         color=ui.MUTED,
         bg=ui.BG,
-        wraplength=740,
+        wraplength=790,
         justify="left",
     ).pack(anchor="w", pady=(4, 12))
 
@@ -71,6 +79,9 @@ def _show_tools(window, engine_module) -> None:
     ffmpeg_source_var = tk.StringVar(value="—")
     ffmpeg_version_var = tk.StringVar(value="—")
     ffmpeg_update_var = tk.StringVar(value="尚未检查在线 FFmpeg 更新。")
+    gallery_source_var = tk.StringVar(value="—")
+    gallery_version_var = tk.StringVar(value="—")
+    gallery_update_var = tk.StringVar(value="尚未检查 gallery-dl 更新。")
     operation_var = tk.StringVar(value="")
 
     def tool_row(title: str, source_var: tk.StringVar, version_var: tk.StringVar) -> None:
@@ -79,7 +90,14 @@ def _show_tools(window, engine_module) -> None:
         left = tk.Frame(row, bg=ui.PANEL)
         left.pack(side="left", fill="x", expand=True)
         ui._label(left, title, size=10, weight="bold").pack(anchor="w")
-        ui._label(left, variable=version_var, size=8, color=ui.SUBTLE, wraplength=520, justify="left").pack(anchor="w", pady=(3, 0))
+        ui._label(
+            left,
+            variable=version_var,
+            size=8,
+            color=ui.SUBTLE,
+            wraplength=560,
+            justify="left",
+        ).pack(anchor="w", pady=(3, 0))
         badge = tk.Label(
             row,
             textvariable=source_var,
@@ -113,7 +131,7 @@ def _show_tools(window, engine_module) -> None:
         size=8,
         weight="bold",
         color=ui.CYAN,
-        wraplength=730,
+        wraplength=780,
         justify="left",
     ).pack(anchor="w", pady=(2, 7))
     ui._label(
@@ -121,7 +139,7 @@ def _show_tools(window, engine_module) -> None:
         "检查更新只读取可信 provider 的发布元数据，不下载 FFmpeg。在线安装才下载构建，并在 staging 内校验来源、SHA-256、归档布局、资源上限、ffmpeg/ffprobe 可执行性与本地来源元数据，全部通过后才原子替换。",
         size=7,
         color=ui.SUBTLE,
-        wraplength=730,
+        wraplength=780,
         justify="left",
     ).pack(anchor="w", pady=(0, 3))
     ui._label(
@@ -129,20 +147,56 @@ def _show_tools(window, engine_module) -> None:
         "离线兜底：不联网，只把发行包内已验证的 FFmpeg 复制到 runtime/tools。随包种子没有在线 release identity，因此检查更新时会明确显示“无法精确比较”，不会猜测版本顺序。",
         size=7,
         color=ui.SUBTLE,
-        wraplength=730,
+        wraplength=780,
+        justify="left",
+    ).pack(anchor="w", pady=(0, 9))
+
+    ui._divider(card).pack(fill="x", pady=(2, 10))
+    tool_row("gallery-dl", gallery_source_var, gallery_version_var)
+    gallery_actions = tk.Frame(card, bg=ui.PANEL)
+    gallery_actions.pack(fill="x", pady=(0, 7))
+    gallery_check_button = ui.ActionButton(gallery_actions, text="检查 gallery-dl 更新", kind="secondary", compact=True)
+    gallery_online_button = ui.ActionButton(gallery_actions, text="安装 gallery-dl", kind="primary", compact=True)
+    gallery_remove_button = ui.ActionButton(gallery_actions, text="移除 gallery-dl", kind="ghost", compact=True)
+    gallery_check_button.pack(side="left")
+    gallery_online_button.pack(side="left", padx=(7, 0))
+    gallery_remove_button.pack(side="left", padx=(7, 0))
+    ui._label(
+        card,
+        variable=gallery_update_var,
+        size=8,
+        weight="bold",
+        color=ui.CYAN,
+        wraplength=780,
+        justify="left",
+    ).pack(anchor="w", pady=(2, 7))
+    ui._label(
+        card,
+        "gallery-dl 只从固定 PyPI 项目元数据解析稳定版通用 wheel。安装/更新会校验 PyPI SHA-256、包元数据、解压预算与 Galaxy provenance 后再原子替换；移除只删除 runtime/tools 下的托管副本。",
+        size=7,
+        color=ui.SUBTLE,
+        wraplength=780,
         justify="left",
     ).pack(anchor="w", pady=(0, 9))
 
     ui._divider(card).pack(fill="x", pady=(2, 10))
     ui._label(
         card,
-        "yt-dlp 更新会先创建用户目录托管副本，再调用 yt-dlp 官方自更新机制。所有工具动作都由用户显式触发，并统一经过 Managed Tool Action Contract；Galaxy 不在后台自动检查或替换二进制。",
+        "yt-dlp 更新会先创建用户目录托管副本，再调用 yt-dlp 官方自更新机制。所有工具动作都由用户显式触发，并统一经过 Managed Tool Action Contract；Galaxy 不在后台自动检查或替换工具。",
         size=7,
         color=ui.SUBTLE,
-        wraplength=730,
+        wraplength=780,
         justify="left",
     ).pack(anchor="w")
-    ui._label(card, variable=operation_var, size=8, weight="bold", color=ui.CYAN, wraplength=730, justify="left").pack(anchor="w", pady=(10, 0))
+    ui._label(
+        card,
+        variable=operation_var,
+        size=8,
+        weight="bold",
+        color=ui.CYAN,
+        wraplength=780,
+        justify="left",
+    ).pack(anchor="w", pady=(10, 0))
 
     footer = tk.Frame(shell, bg=ui.BG)
     footer.pack(fill="x", pady=(12, 0))
@@ -159,6 +213,10 @@ def _show_tools(window, engine_module) -> None:
         ytdlp_version_var.set(_version_label(inventory.get("ytDlpVersion")))
         ffmpeg_source_var.set(_source_label(inventory.get("ffmpegSource")))
         ffmpeg_version_var.set(_version_label(inventory.get("ffmpegVersion")))
+        gallery_source_var.set(_source_label(inventory.get("galleryDlSource")))
+        gallery_version_var.set(_version_label(inventory.get("galleryDlVersion")))
+        gallery_online_button.configure(text=_gallery_action_label(inventory))
+
         if inventory.get("managedYtDlpReady"):
             reset_button.state(["!disabled"])
         else:
@@ -180,6 +238,13 @@ def _show_tools(window, engine_module) -> None:
             ffmpeg_online_button.state(["disabled"])
             ffmpeg_update_var.set("当前平台尚未配置经过审核的 FFmpeg 在线构建源。")
 
+        gallery_check_button.state(["!disabled"])
+        gallery_online_button.state(["!disabled"])
+        if inventory.get("galleryDlReady"):
+            gallery_remove_button.state(["!disabled"])
+        else:
+            gallery_remove_button.state(["disabled"])
+
     def set_busy(busy: bool) -> None:
         buttons = (
             update_button,
@@ -189,6 +254,9 @@ def _show_tools(window, engine_module) -> None:
             ffmpeg_online_button,
             ffmpeg_seed_button,
             ffmpeg_reset_button,
+            gallery_check_button,
+            gallery_online_button,
+            gallery_remove_button,
         )
         if busy:
             for button in buttons:
@@ -205,12 +273,15 @@ def _show_tools(window, engine_module) -> None:
         set_busy(False)
         operation_var.set(result.message)
 
-        if result.tool == "ffmpeg" and result.action == "check":
-            ffmpeg_update_var.set(result.message)
+        if result.action == "check" and result.tool in {"ffmpeg", "gallery-dl"}:
+            if result.tool == "ffmpeg":
+                ffmpeg_update_var.set(result.message)
+            else:
+                gallery_update_var.set(result.message)
             details = (
                 f"当前来源：{_source_label(result.source)}\n"
                 f"当前版本：{_version_label(result.version)}\n\n"
-                f"在线构建：{_version_label(result.available_version)}\n"
+                f"在线版本：{_version_label(result.available_version)}\n"
                 f"在线发布：{_version_label(result.available_release_tag)}\n\n"
                 f"{result.message}"
             )
@@ -222,6 +293,8 @@ def _show_tools(window, engine_module) -> None:
 
         if result.tool == "ffmpeg" and result.changed:
             ffmpeg_update_var.set("本地 FFmpeg 状态已变化；可再次点击“检查 FFmpeg 更新”确认在线发布身份。")
+        if result.tool == "gallery-dl" and result.changed:
+            gallery_update_var.set("本地 gallery-dl 状态已变化；可再次点击“检查 gallery-dl 更新”确认可信 PyPI 发布身份。")
         if result.ok:
             messagebox.showinfo(
                 engine_module.APP_NAME,
@@ -229,7 +302,11 @@ def _show_tools(window, engine_module) -> None:
                 parent=dialog,
             )
         else:
-            messagebox.showwarning(engine_module.APP_NAME, f"{action_label}未完成。\n\n{result.message}", parent=dialog)
+            messagebox.showwarning(
+                engine_module.APP_NAME,
+                f"{action_label}未完成。\n\n{result.message}",
+                parent=dialog,
+            )
 
     def run_managed_action(
         tool: str,
@@ -240,8 +317,10 @@ def _show_tools(window, engine_module) -> None:
         channel: str | None = None,
     ) -> None:
         operation_var.set(status_text)
-        if tool == "ffmpeg" and action == "check":
+        if action == "check" and tool == "ffmpeg":
             ffmpeg_update_var.set("正在检查更新…")
+        if action == "check" and tool == "gallery-dl":
+            gallery_update_var.set("正在检查更新…")
         set_busy(True)
 
         request = ManagedToolActionRequest(
@@ -330,12 +409,54 @@ def _show_tools(window, engine_module) -> None:
             "正在恢复随包 FFmpeg…",
         )
 
+    def check_gallery_dl() -> None:
+        run_managed_action(
+            "gallery-dl",
+            "check",
+            "检查 gallery-dl 更新",
+            "正在读取可信 PyPI gallery-dl 发布元数据…",
+        )
+
+    def install_or_update_gallery_dl() -> None:
+        inventory = tool_inventory(engine_module, refresh=True)
+        action = _gallery_action_from_inventory(inventory)
+        label = _gallery_action_label(inventory)
+        if not messagebox.askyesno(
+            engine_module.APP_NAME,
+            f"{label}？\n\nGalaxy 只从固定 PyPI gallery-dl 项目元数据解析稳定版通用 wheel，并在替换前校验 SHA-256、包元数据、解压预算和 provenance。",
+            parent=dialog,
+        ):
+            return
+        run_managed_action(
+            "gallery-dl",
+            action,
+            label,
+            "正在解析可信 PyPI 发布、下载并验证 gallery-dl…",
+        )
+
+    def remove_gallery_dl() -> None:
+        if not messagebox.askyesno(
+            engine_module.APP_NAME,
+            "移除托管 gallery-dl？\n\n只会删除 runtime/tools 中的 gallery-dl 托管副本，不会删除任何已下载文件、历史记录或设置。",
+            parent=dialog,
+        ):
+            return
+        run_managed_action(
+            "gallery-dl",
+            "remove",
+            "移除 gallery-dl",
+            "正在移除托管 gallery-dl…",
+        )
+
     update_button.configure(command=update_ytdlp)
     reset_button.configure(command=reset_ytdlp)
     ffmpeg_check_button.configure(command=check_ffmpeg)
     ffmpeg_online_button.configure(command=install_ffmpeg_online)
     ffmpeg_seed_button.configure(command=seed_ffmpeg)
     ffmpeg_reset_button.configure(command=reset_ffmpeg)
+    gallery_check_button.configure(command=check_gallery_dl)
+    gallery_online_button.configure(command=install_or_update_gallery_dl)
+    gallery_remove_button.configure(command=remove_gallery_dl)
     refresh_button.configure(command=lambda: refresh(force=True))
 
     def close() -> None:
