@@ -270,11 +270,13 @@ def install_desktop_download_workbench(engine_module):
 
     # Runtime engines already have the complete Job and queue contract here.
     # Keep the light hook-registry unit fixture compatible by installing the
-    # protocol preview layer only when those capabilities are present.
+    # protocol preview and gallery-dl layers only when those capabilities are present.
     if hasattr(engine_module, "Job") and hasattr(window_cls, "submit_bridge_job"):
+        from desktop_gallery_dl import install_desktop_gallery_dl
         from desktop_preview_handoff import install_desktop_preview_handoff
 
         install_desktop_preview_handoff(engine_module)
+        install_desktop_gallery_dl(engine_module)
 
     from desktop_platform_features import install_desktop_platform_features
 
