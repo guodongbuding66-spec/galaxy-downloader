@@ -23,7 +23,8 @@ def _window_exists(window: tk.Misc | None) -> bool:
 
 
 def _submit_gallery_fallback(window, engine_module) -> None:
-    source = str(getattr(window, "_quick_url_var", tk.StringVar()).get() or "").strip()
+    source_var = getattr(window, "_quick_url_var", None)
+    source = str(source_var.get() if source_var is not None else "").strip()
     state_var = getattr(window, "_quick_state_var", None)
     button = getattr(window, "_gallery_dl_fallback_button", None)
     if not source:
