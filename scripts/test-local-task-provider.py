@@ -74,9 +74,12 @@ class LocalTaskProviderTests(unittest.TestCase):
             registry.register("demo", label="Other", snapshot=snapshot)
         with self.assertRaises(LocalTaskProviderError):
             registry.register("../escape", label="Bad", snapshot=snapshot)
-        with self.assertRaises(LocalTaskProviderError):
-            registry.register("ok", label="OK", snapshot=lambda: [LocalTaskSnapshot("../bad", "active", "x", "OK")])
-            registry.rows()
+        registry.register(
+            "ok",
+            label="OK",
+            snapshot=lambda: [LocalTaskSnapshot("../bad", "active", "x", "OK")],
+        )
+        self.assertEqual(registry.rows(), [])
 
     def test_invalid_provider_snapshot_fails_closed_without_breaking_other_providers(self) -> None:
         registry = LocalTaskProviderRegistry()
@@ -194,10 +197,17 @@ class LocalTaskProviderTests(unittest.TestCase):
             provider,
             label="Global",
             snapshot=lambda: [LocalTaskSnapshot("job-1", "failed", "Failed", "Global", actions=("retry",))],
-            action=lambda task_id, action: LocalTaskActionResult(task_id == "job-1" and action == "retry", True, "retried"),
+            action=lambda task_id, action: LocalTaskActionResult(
+                task_id == "job-1" and action == "retry",
+                True,
+                "retried",
+            ),
         )
         try:
-            self.assertEqual(len([row for row in local_task_rows() if row.get("providerName") == provider]), 1)
+            self.assertEqual(
+                len([row for row in local_task_rows() if row.get("providerName") == provider]),
+                1,
+            )
             result = perform_local_task_action(provider, "job-1", "retry")
             self.assertTrue(result.ok)
             self.assertEqual(result.message, "retried")
