@@ -6,11 +6,15 @@ on:
       - "local-engine/gallery_dl_source.py"
       - "local-engine/gallery_dl_manager.py"
       - "local-engine/gallery_dl_runtime_dependencies.py"
+      - "local-engine/gallery_dl_update_status.py"
+      - "local-engine/managed_tool_actions.py"
       - "local-engine/managed_tool_registry.py"
       - "local-engine/tool_manager.py"
       - "local-engine/requirements.txt"
       - "scripts/test-local-managed-gallery-dl.py"
       - "scripts/test-local-gallery-dl-provider-live.py"
+      - "scripts/test-local-gallery-dl-update-status.py"
+      - "scripts/test-local-managed-tool-actions.py"
       - ".github/workflows/managed-gallery-dl.yml"
   push:
     branches: [main]
@@ -18,11 +22,15 @@ on:
       - "local-engine/gallery_dl_source.py"
       - "local-engine/gallery_dl_manager.py"
       - "local-engine/gallery_dl_runtime_dependencies.py"
+      - "local-engine/gallery_dl_update_status.py"
+      - "local-engine/managed_tool_actions.py"
       - "local-engine/managed_tool_registry.py"
       - "local-engine/tool_manager.py"
       - "local-engine/requirements.txt"
       - "scripts/test-local-managed-gallery-dl.py"
       - "scripts/test-local-gallery-dl-provider-live.py"
+      - "scripts/test-local-gallery-dl-update-status.py"
+      - "scripts/test-local-managed-tool-actions.py"
       - ".github/workflows/managed-gallery-dl.yml"
 
 permissions:
@@ -43,8 +51,22 @@ jobs:
           python-version: "3.12"
       - name: Install Local Engine dependencies
         run: python -m pip install -r local-engine/requirements.txt
+      - name: Compile gallery-dl managed action modules
+        run: >-
+          python -m py_compile
+          local-engine/gallery_dl_source.py
+          local-engine/gallery_dl_manager.py
+          local-engine/gallery_dl_update_status.py
+          local-engine/managed_tool_actions.py
+          scripts/test-local-managed-gallery-dl.py
+          scripts/test-local-gallery-dl-update-status.py
+          scripts/test-local-managed-tool-actions.py
       - name: Test managed gallery-dl lifecycle
         run: python scripts/test-local-managed-gallery-dl.py
+      - name: Test gallery-dl update identity
+        run: python scripts/test-local-gallery-dl-update-status.py
+      - name: Test managed tool action contract
+        run: python scripts/test-local-managed-tool-actions.py
       - name: Verify current trusted PyPI gallery-dl release
         if: runner.os == 'Linux'
         run: python scripts/test-local-gallery-dl-provider-live.py
