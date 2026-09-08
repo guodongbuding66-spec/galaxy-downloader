@@ -5,8 +5,13 @@ on:
     paths:
       - "local-engine/gallery_dl_executor.py"
       - "local-engine/gallery_dl_runtime.py"
+      - "local-engine/desktop_gallery_dl.py"
+      - "local-engine/desktop_download_workbench.py"
       - "local-engine/local_task_provider.py"
+      - "local-engine/task_center.py"
+      - "local-engine/managed_tool_actions.py"
       - "scripts/test-local-gallery-dl-executor.py"
+      - "scripts/test-local-gallery-dl-product.py"
       - ".github/workflows/gallery-dl-executor.yml"
   workflow_dispatch:
 
@@ -28,11 +33,19 @@ jobs:
           python-version: "3.12"
       - name: Install Local Engine dependencies
         run: python -m pip install -r local-engine/requirements.txt
-      - name: Compile gallery-dl executor
+      - name: Compile gallery-dl product path
         run: >-
           python -m py_compile
           local-engine/gallery_dl_runtime.py
           local-engine/gallery_dl_executor.py
+          local-engine/desktop_gallery_dl.py
+          local-engine/desktop_download_workbench.py
+          local-engine/local_task_provider.py
+          local-engine/task_center.py
+          local-engine/managed_tool_actions.py
           scripts/test-local-gallery-dl-executor.py
+          scripts/test-local-gallery-dl-product.py
       - name: Test gallery-dl executor contract
         run: python scripts/test-local-gallery-dl-executor.py
+      - name: Test gallery-dl product contract
+        run: python scripts/test-local-gallery-dl-product.py
