@@ -10,7 +10,12 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from gallery_dl_runtime import GalleryDlRuntimeError, managed_gallery_dl_modules
-from local_task_provider import LocalTaskActionResult, LocalTaskSnapshot, register_local_task_provider
+from local_task_provider import (
+    LocalTaskActionResult,
+    LocalTaskSnapshot,
+    install_local_task_provider_bridge,
+    register_local_task_provider,
+)
 from url_policy import validated_public_http_url
 
 MAX_GALLERY_DL_FILES = 500
@@ -142,12 +147,6 @@ class _RunController:
             raise GalleryDlExecutorError("gallery-dl 生成了无效输出路径。") from exc
         if not _is_within(self.root, candidate):
             raise GalleryDlExecutorError("gallery-dl 生成的路径越过了任务输出边界。")
-        try:
-            cursor = candidate.parent.resolve()
-        except OSError as exc:
-            raise GalleryDlExecutorError("gallery-dl 输出目录不可用。") from exc
-        if not _is_within(self.root, cursor):
-            raise GalleryDlExecutorError("gallery-dl 输出目录越过了任务边界。")
 
     def after_resource(self, pathfmt: object) -> None:
         path_value = getattr(pathfmt, "path", "") if pathfmt is not None else ""
@@ -476,6 +475,7 @@ def install_gallery_dl_executor(engine_module) -> GalleryDlExecutor:
         snapshot=executor.snapshots,
         action=executor.action,
     )
+    install_local_task_provider_bridge(engine_module)
     engine_module._galaxy_gallery_dl_executor = executor
     engine_module._galaxy_gallery_dl_executor_installed = True
 
