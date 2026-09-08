@@ -1,0 +1,46 @@
+name: Local Task Provider
+
+on:
+  pull_request:
+    paths:
+      - "local-engine/local_task_provider.py"
+      - "local-engine/task_center.py"
+      - "local-engine/desktop_hooks.py"
+      - "scripts/test-local-task-provider.py"
+      - ".github/workflows/local-task-provider.yml"
+  push:
+    branches: [main]
+    paths:
+      - "local-engine/local_task_provider.py"
+      - "local-engine/task_center.py"
+      - "local-engine/desktop_hooks.py"
+      - "scripts/test-local-task-provider.py"
+      - ".github/workflows/local-task-provider.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  local-task-provider:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+      - name: Compile local task provider contract
+        run: >-
+          python -m py_compile
+          local-engine/local_task_provider.py
+          local-engine/task_center.py
+          local-engine/desktop_hooks.py
+          scripts/test-local-task-provider.py
+      - name: Test local task provider contract
+        run: python scripts/test-local-task-provider.py
