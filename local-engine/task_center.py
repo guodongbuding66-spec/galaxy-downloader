@@ -14,6 +14,7 @@ import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook, register_desktop_presenter, register_history_button_hook
 from failure_policy import smart_retry_payload
 from job_history import _redacted_source_url, load_history
+from local_task_provider import perform_local_task_action
 
 FILTERS = {
     "全部": "",
@@ -314,7 +315,7 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
     ui._label(heading_left, "任务中心", size=17, weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
         heading_left,
-        "当前下载、等待队列、可恢复任务和本机历史放在一个工作区；暂停/异常退出后不会自动偷偷重新下载。",
+        "当前下载、等待队列、可恢复任务、本机 Provider 和历史放在一个工作区；暂停/异常退出后不会自动偷偷重新下载。",
         size=8,
         color=ui.MUTED,
         bg=ui.BG,
@@ -390,9 +391,9 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
     headings = {
         "state": ("状态", 72),
         "source": ("来源", 135),
-        "quality": ("画质", 72),
+        "quality": ("类型 / 画质", 88),
         "when": ("进度 / 时间", 145),
-        "task": ("任务 / 文件", 430),
+        "task": ("任务 / 文件", 414),
         "recovery": ("恢复判断", 150),
     }
     for key, (title, width) in headings.items():
@@ -446,6 +447,12 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
             return None
         return rows[0]
 
+    def selected_provider() -> dict[str, Any] | None:
+        rows = selected_rows()
+        if len(rows) != 1 or rows[0].get("kind") != "provider":
+            return None
+        return rows[0]
+
     def selected_queue_ids() -> list[str]:
         rows = selected_rows()
         if not rows or any(row.get("kind") != "queued" for row in rows):
@@ -457,11 +464,22 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
         one = rows[0] if len(rows) == 1 else None
         item = selected_history()
         resume = selected_resume()
+        provider = selected_provider()
+        provider_actions = tuple(provider.get("providerActions") or ()) if provider else ()
         queue_ids = selected_queue_ids()
 
-        for button in (top_button, remove_button):
-            if button is not None:
-                button.state(["!disabled"] if queue_ids else ["disabled"])
+        if top_button is not None:
+            top_button.state(["!disabled"] if queue_ids else ["disabled"])
+        if remove_button is not None:
+            if queue_ids:
+                remove_button.configure(text="移除等待")
+                remove_button.state(["!disabled"])
+            elif provider and "cancel" in provider_actions:
+                remove_button.configure(text="取消任务")
+                remove_button.state(["!disabled"])
+            else:
+                remove_button.configure(text="移除等待")
+                remove_button.state(["disabled"])
         for button in (up_button, down_button):
             if button is not None:
                 button.state(["!disabled"] if len(queue_ids) == 1 else ["disabled"])
@@ -487,7 +505,12 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
             if reveal_button is not None:
                 reveal_button.state(["!disabled"] if enabled else ["disabled"])
         if retry_button is not None:
-            retry_button.state(["!disabled"] if item and item.get("retryable") else ["disabled"])
+            if provider and "retry" in provider_actions:
+                retry_button.configure(text="重试任务")
+                retry_button.state(["!disabled"])
+            else:
+                retry_button.configure(text="原参数重试")
+                retry_button.state(["!disabled"] if item and item.get("retryable") else ["disabled"])
         if smart_button is not None:
             smart_button.state(["!disabled"] if item and item.get("smartRetryable") else ["disabled"])
 
@@ -505,12 +528,11 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
     def refresh(force: bool = False) -> None:
         nonlocal last_signature
         rows = _task_rows(window, engine_module)
-        history = [row for row in rows if row.get("kind") == "history"]
         active_count = sum(1 for row in rows if row.get("state") == "active")
         queued_count = sum(1 for row in rows if row.get("state") == "queued")
         recoverable_count = sum(1 for row in rows if row.get("kind") == "resume")
-        completed_count = sum(1 for row in history if row.get("state") == "completed")
-        failed_count = sum(1 for row in history if row.get("state") == "failed")
+        completed_count = sum(1 for row in rows if row.get("state") == "completed")
+        failed_count = sum(1 for row in rows if row.get("state") == "failed")
         summary_var.set(f"当前 {active_count} · 等待 {queued_count} · 可恢复 {recoverable_count} · 完成 {completed_count} · 失败 {failed_count}")
         if pause_button is not None:
             pause_button.configure(text="继续队列" if bool(getattr(window, "queue_paused", False)) else "完成后暂停")
@@ -519,7 +541,7 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
         filter_key = FILTERS.get(filter_var.get(), "")
         visible = [row for row in rows if _matches_filter(row, filter_key, query)]
         signature = tuple(
-            f"{row.get('key')}:{row.get('state')}:{row.get('when')}:{row.get('label')}:{row.get('failureLabel')}"
+            f"{row.get('key')}:{row.get('state')}:{row.get('when')}:{row.get('label')}:{row.get('failureLabel')}:{row.get('providerActions')}"
             for row in visible
         )
         if not force and signature == last_signature:
@@ -612,7 +634,28 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
             mover(ids[0], direction)
             refresh(force=True)
 
-    def remove_queue() -> None:
+    def run_provider_action(action: str) -> None:
+        row = selected_provider()
+        if row is None or action not in tuple(row.get("providerActions") or ()):
+            return
+        provider_name = str(row.get("providerName") or "")
+        task_id = str(row.get("providerTaskId") or "")
+        if not provider_name or not task_id:
+            return
+        result = perform_local_task_action(provider_name, task_id, action)
+        if result.ok:
+            setter = getattr(window, "set_status", None)
+            if callable(setter):
+                setter(window.status_var.get(), result.message)
+        else:
+            messagebox.showwarning(engine_module.APP_NAME, result.message or "本机任务操作失败。", parent=dialog)
+        refresh(force=True)
+
+    def remove_or_cancel() -> None:
+        provider = selected_provider()
+        if provider is not None and "cancel" in tuple(provider.get("providerActions") or ()):
+            run_provider_action("cancel")
+            return
         ids = selected_queue_ids()
         remover = getattr(window, "remove_queued_jobs", None)
         if callable(remover) and ids:
@@ -648,6 +691,11 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
             messagebox.showerror(engine_module.APP_NAME, f"无法打开文件：\n{exc}", parent=dialog)
 
     def retry_selected(smart: bool = False) -> None:
+        if not smart:
+            provider = selected_provider()
+            if provider is not None and "retry" in tuple(provider.get("providerActions") or ()):
+                run_provider_action("retry")
+                return
         item = selected_history()
         if not item:
             return
@@ -666,7 +714,7 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
     up_button.pack(side="left", padx=(6, 0))
     down_button = ui.ActionButton(footer, text="下移", command=lambda: nudge_queue(1), kind="ghost", compact=True)
     down_button.pack(side="left", padx=(6, 0))
-    remove_button = ui.ActionButton(footer, text="移除等待", command=remove_queue, kind="danger", compact=True)
+    remove_button = ui.ActionButton(footer, text="移除等待", command=remove_or_cancel, kind="danger", compact=True)
     remove_button.pack(side="left", padx=(6, 0))
 
     resume_button = ui.ActionButton(footer, text="继续任务", command=resume_selected, kind="primary", compact=True)
@@ -690,6 +738,7 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
         button.state(["disabled"])
 
     tree.bind("<<TreeviewSelect>>", update_actions)
+
     def activate_selected(_event=None) -> None:
         rows = selected_rows()
         if len(rows) != 1:
@@ -770,3 +819,11 @@ def run_task_center_self_test() -> None:
     resume = {"state": "paused", "sourceHost": "video.example", "failureLabel": "断点续传"}
     assert _matches_filter(resume, "paused", "") is True
     assert "断点续传" in _row_search_text(resume)
+    provider = {
+        "kind": "provider",
+        "state": "cancelled",
+        "sourceHost": "gallery-dl",
+        "label": "Gallery · example.com",
+        "providerActions": ("retry",),
+    }
+    assert _matches_filter(provider, "cancelled", "gallery") is True

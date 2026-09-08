@@ -7,6 +7,7 @@ from ffmpeg_manager import reset_managed_ffmpeg, seed_managed_ffmpeg
 from ffmpeg_online_installer import install_managed_ffmpeg_online
 from ffmpeg_update_status import check_ffmpeg_update
 from gallery_dl_manager import install_managed_gallery_dl_online, remove_managed_gallery_dl
+from gallery_dl_runtime import gallery_dl_runtime_busy
 from gallery_dl_update_status import check_gallery_dl_update
 from managed_tool_registry import registered_tool_specs
 from tool_manager import reset_managed_ytdlp, seed_managed_ytdlp, update_managed_ytdlp
@@ -38,6 +39,7 @@ _MUTATING_ACTIONS = {
     ("gallery-dl", "update"),
     ("gallery-dl", "remove"),
 }
+_GALLERY_DL_RUNTIME_MUTATIONS = frozenset({"install", "update", "remove"})
 
 
 @dataclass(frozen=True)
@@ -223,6 +225,17 @@ def perform_managed_tool_action(
             ok=False,
             state="invalid-request",
             message="An update channel is only valid for yt-dlp update actions.",
+        )
+    if tool == "gallery-dl" and action in _GALLERY_DL_RUNTIME_MUTATIONS and gallery_dl_runtime_busy():
+        return _result(
+            normalized,
+            ok=False,
+            state="runtime-busy",
+            network_action=False,
+            message=(
+                "gallery-dl 正在执行本机任务。请等待任务完成，或先在任务中心请求取消并等待其停止，"
+                "再安装、更新或移除托管 gallery-dl。"
+            ),
         )
 
     selected = adapters or ManagedToolActionAdapters()
