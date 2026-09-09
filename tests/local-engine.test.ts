@@ -136,4 +136,43 @@ describe('local media engine capabilities', () => {
     expect(both.searchParams.get('cover')).toBe('1')
     expect(both.searchParams.get('cover_sidecar')).toBe('1')
   })
+
+  it('keeps NFO protocol opt-in explicit and independent from cover sidecars', () => {
+    const defaults = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://example.com/video',
+    }))
+    expect(defaults.searchParams.get('nfo')).toBe('0')
+    expect(defaults.searchParams.get('cover')).toBe('0')
+    expect(defaults.searchParams.get('cover_sidecar')).toBe('0')
+
+    const nfoOnly = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://example.com/video',
+      includeNfo: true,
+      includeCover: false,
+      keepCoverSidecar: false,
+    }))
+    expect(nfoOnly.searchParams.get('nfo')).toBe('1')
+    expect(nfoOnly.searchParams.get('cover')).toBe('0')
+    expect(nfoOnly.searchParams.get('cover_sidecar')).toBe('0')
+
+    const coversWithoutNfo = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://example.com/video',
+      includeNfo: false,
+      includeCover: true,
+      keepCoverSidecar: true,
+    }))
+    expect(coversWithoutNfo.searchParams.get('nfo')).toBe('0')
+    expect(coversWithoutNfo.searchParams.get('cover')).toBe('1')
+    expect(coversWithoutNfo.searchParams.get('cover_sidecar')).toBe('1')
+
+    const allSidecars = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://example.com/video',
+      includeNfo: true,
+      includeCover: true,
+      keepCoverSidecar: true,
+    }))
+    expect(allSidecars.searchParams.get('nfo')).toBe('1')
+    expect(allSidecars.searchParams.get('cover')).toBe('1')
+    expect(allSidecars.searchParams.get('cover_sidecar')).toBe('1')
+  })
 })
