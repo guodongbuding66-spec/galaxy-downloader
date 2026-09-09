@@ -8,7 +8,8 @@ from typing import Callable
 from urllib.parse import urlparse
 
 DANMAKU_LANGUAGE = "danmaku"
-DANMAKU_TIMEOUT_SECONDS = 60
+SINGLE_DANMAKU_TIMEOUT_SECONDS = 60
+COLLECTION_DANMAKU_TIMEOUT_SECONDS = 900
 COLLECTION_MODES = {"single", "all", "selected"}
 
 
@@ -125,16 +126,21 @@ def _run_once(
     command: list[str],
     *,
     cancelled: Callable[[], bool],
+    timeout_seconds: int,
 ) -> None:
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=_creation_flags(),
-    )
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=_creation_flags(),
+        )
+    except OSError as exc:
+        raise BilibiliDanmakuError(f"Could not start yt-dlp danmaku sidecar: {exc}") from exc
+
     started = time.monotonic()
     output = ""
     while True:
@@ -145,7 +151,7 @@ def _run_once(
             output, _ = process.communicate(timeout=0.2)
             break
         except subprocess.TimeoutExpired:
-            if time.monotonic() - started >= DANMAKU_TIMEOUT_SECONDS:
+            if time.monotonic() - started >= timeout_seconds:
                 _terminate(process)
                 raise BilibiliDanmakuError("Bilibili danmaku sidecar timed out")
 
@@ -174,6 +180,13 @@ def download_danmaku_sidecar(
     attempted. A sidecar error is reported to the caller but never deletes or
     rewrites an already completed media file.
     """
+    mode = _normalized_collection_mode(collection_mode, playlist)
+    timeout_seconds = (
+        SINGLE_DANMAKU_TIMEOUT_SECONDS
+        if mode == "single"
+        else COLLECTION_DANMAKU_TIMEOUT_SECONDS
+    )
+
     on_status("[Galaxy] 正在保存 Bilibili 弹幕 XML…")
     public_command = build_danmaku_command(
         executable,
@@ -185,7 +198,7 @@ def download_danmaku_sidecar(
         browser="none",
     )
     try:
-        _run_once(public_command, cancelled=cancelled)
+        _run_once(public_command, cancelled=cancelled, timeout_seconds=timeout_seconds)
     except BilibiliDanmakuError as public_error:
         if cancelled() or not browser or browser == "none":
             raise
@@ -200,7 +213,7 @@ def download_danmaku_sidecar(
             browser=browser,
         )
         try:
-            _run_once(cookie_command, cancelled=cancelled)
+            _run_once(cookie_command, cancelled=cancelled, timeout_seconds=timeout_seconds)
         except BilibiliDanmakuError as cookie_error:
             raise BilibiliDanmakuError(str(cookie_error) or str(public_error)) from cookie_error
     on_status("[Galaxy] Bilibili 弹幕 XML 已保存。")
