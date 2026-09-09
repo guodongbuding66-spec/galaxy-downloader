@@ -139,6 +139,7 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     )
     status = api.status()
     assert status["available"] is True
+    assert status["acceptingJobs"] is True
     assert status["version"] == "1.32.0-test"
     assert status["maxFilesPerJob"] == 500 and status["maxTrackedJobs"] == 200
     assert status["managedOnly"] is True
@@ -187,6 +188,31 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     return api
 
 
+def _test_close_lifecycle(root: Path) -> None:
+    executor = FakeExecutor()
+    api = HeadlessGalleryDlApi(
+        root / "downloads-close",
+        tools_root=root / "tools",
+        executor=executor,  # type: ignore[arg-type]
+        tool_probe=lambda: (True, "1.32.0-test"),
+    )
+    first = api.submit({"sourceUrl": "https://1.1.1.1/gallery-a"})["job"]["id"]
+    second = api.submit({"sourceUrl": "https://1.1.1.1/gallery-b"})["job"]["id"]
+    executor.tasks[str(second)]["state"] = "active"
+
+    api.close()
+    assert api.status()["acceptingJobs"] is False
+    assert executor.tasks[str(first)]["state"] == "cancelled"
+    assert executor.tasks[str(second)]["state"] == "cancelled"
+    api.close()
+    _expect_error(
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery-c"}),
+        503,
+        "GALLERY_DL_API_CLOSED",
+    )
+    _expect_error(lambda: api.action(first, "retry"), 503, "GALLERY_DL_API_CLOSED")
+
+
 def _test_http(api: HeadlessGalleryDlApi, root: Path) -> None:
     assert HeadlessGalleryDlHttpMixin in GalaxyApiRequestHandler.__mro__
     token = "gallery-dl-headless-test-token-123456"
@@ -201,6 +227,7 @@ def _test_http(api: HeadlessGalleryDlApi, root: Path) -> None:
         assert code == 401 and body["error"] == "unauthorized"
         code, body = _request(port, "GET", "/v1/gallery-dl/status", token=token)
         assert code == 200 and body["ok"] is True and body["available"] is True
+        assert body["acceptingJobs"] is True
 
         code, body = _request(
             port,
@@ -261,6 +288,7 @@ def run_test() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         _test_http(_test_api(root), root)
+        _test_close_lifecycle(root)
 
 
 if __name__ == "__main__":
