@@ -12,6 +12,8 @@ from headless_browser_cookies import install_headless_browser_cookie_support
 from headless_course_attachments_http import HeadlessCourseAttachmentsHttpMixin
 from headless_course_metadata_tracking import install_headless_course_metadata_tracking
 from headless_course_providers_http import HeadlessCourseProvidersHttpMixin
+from headless_gallery_dl_api import HeadlessGalleryDlApi
+from headless_gallery_dl_http import HeadlessGalleryDlHttpMixin
 from headless_learning_media_http import HeadlessLearningMediaHttpMixin
 from headless_learning_resume_http import HeadlessLearningResumeHttpMixin
 from headless_learning_structure import install_headless_learning_structure
@@ -51,6 +53,7 @@ from headless_ai_http import AiGalaxyApiRequestHandler, AiGalaxyApiServer  # noq
 
 class GalaxyApiRequestHandler(
     HeadlessWebDashboardMixin,
+    HeadlessGalleryDlHttpMixin,
     HeadlessCourseAttachmentsHttpMixin,
     HeadlessLearningMediaHttpMixin,
     HeadlessLearningResumeHttpMixin,
@@ -70,7 +73,7 @@ class GalaxyApiRequestHandler(
 
 
 class GalaxyApiServer(ThreadingHTTPServer):
-    """Production Galaxy server with Course coordination and attachment downloads enabled."""
+    """Production Galaxy server with Course coordination and bounded service APIs enabled."""
 
     daemon_threads = True
     allow_reuse_address = True
@@ -92,6 +95,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         whisperx_api: HeadlessWhisperXApi | None = None,
         plugin_api: HeadlessPluginApi | None = None,
         transfer_api: HeadlessTransferApi | None = None,
+        gallery_dl_api: HeadlessGalleryDlApi | None = None,
     ) -> None:
         ai = ai_api or HeadlessAiApi(runtime.download_root)
         self._owns_ai_api = ai_api is None
@@ -110,6 +114,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
             whisperx = whisperx_api or HeadlessWhisperXApi(runtime.download_root, context=shared_asr_context)
             plugins = plugin_api or HeadlessPluginApi(runtime.download_root)
             transfer = transfer_api or HeadlessTransferApi(runtime.download_root)
+            gallery = gallery_dl_api or HeadlessGalleryDlApi(runtime.download_root)
             if learning_api is not None:
                 coordinator = CourseDownloadCoordinator(runtime, learning_api)
                 attachment_downloads = CourseAttachmentDownloadService(learning_api.context)
@@ -127,6 +132,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
             self.whisperx_api = whisperx
             self.plugin_api = plugins
             self.transfer_api = transfer
+            self.gallery_dl_api = gallery
             self.course_download_coordinator = coordinator
             self.course_attachment_download_service = attachment_downloads
             super().__init__(address, GalaxyApiRequestHandler)
