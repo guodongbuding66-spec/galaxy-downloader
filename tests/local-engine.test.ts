@@ -5,8 +5,10 @@ import {
   LOCAL_ENGINE_RELEASE_TAG,
   LOCAL_ENGINE_RELEASE_URL,
   LOCAL_ENGINE_REQUIRED_VERSION,
+  buildLocalDesktopEngineUri,
   canProcessMediaLocally,
   detectLocalProcessingCapabilities,
+  normalizeLocalEngineDanmakuFormats,
   shouldUseFileBackedInputs,
 } from '../src/lib/local-engine'
 
@@ -74,5 +76,32 @@ describe('local media engine capabilities', () => {
     expect(LOCAL_ENGINE_RELEASE_URL).toContain(`version=${expectedRelease}`)
     expect(LOCAL_ENGINE_GITHUB_URL).toContain(`/releases/download/local-engine-v${expectedRelease}/`)
     expect(LOCAL_ENGINE_GITHUB_URL).not.toContain('/releases/latest/')
+  })
+
+  it('normalizes danmaku formats and carries them through the desktop protocol only when enabled', () => {
+    expect(normalizeLocalEngineDanmakuFormats(['ASS', 'json', 'ass', 'srt'])).toEqual(['ass', 'json'])
+    expect(normalizeLocalEngineDanmakuFormats([])).toEqual(['xml'])
+
+    const enabled = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://www.bilibili.com/video/BV1demo',
+      includeDanmaku: true,
+      danmakuFormats: ['ass', 'json'],
+    }))
+    expect(enabled.searchParams.get('danmaku')).toBe('1')
+    expect(enabled.searchParams.get('danmaku_formats')).toBe('ass,json')
+
+    const defaultFormats = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://www.bilibili.com/video/BV1demo',
+      includeDanmaku: true,
+    }))
+    expect(defaultFormats.searchParams.get('danmaku_formats')).toBe('xml')
+
+    const disabled = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://www.bilibili.com/video/BV1demo',
+      includeDanmaku: false,
+      danmakuFormats: ['ass', 'json'],
+    }))
+    expect(disabled.searchParams.get('danmaku')).toBe('0')
+    expect(disabled.searchParams.get('danmaku_formats')).toBeNull()
   })
 })

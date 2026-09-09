@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createDefaultLocalEngineAdvancedOptions,
   resolveLocalEngineAdvancedJobOptions,
+  type LocalEngineDanmakuFormat,
 } from '../src/lib/local-engine'
 import { normalizeLocalEngineBridgeStatusPayload } from '../src/lib/local-engine-bridge'
 
@@ -23,15 +24,18 @@ describe('shared Local Engine advanced media options', () => {
       sponsorBlockCategories: [],
       useAria2c: false,
       includeDanmaku: false,
+      danmakuFormats: ['xml'],
     })
 
     first.subtitleLanguages.push('en')
     first.audioLanguages.push('ja')
     first.sponsorBlockCategories.push('sponsor')
+    first.danmakuFormats?.push('ass')
     expect(second.subtitleLanguages).toEqual([])
     expect(second.audioLanguages).toEqual([])
     expect(second.sponsorBlockCategories).toEqual([])
     expect(second.includeDanmaku).toBe(false)
+    expect(second.danmakuFormats).toEqual(['xml'])
   })
 
   it('gates aria2c on the Local Engine capability without mutating other UI state', () => {
@@ -45,6 +49,7 @@ describe('shared Local Engine advanced media options', () => {
       sponsorBlockCategories: ['sponsor', 'intro'] as const,
       useAria2c: true,
       includeDanmaku: true,
+      danmakuFormats: ['ass', 'json'] as LocalEngineDanmakuFormat[],
     }
 
     const unavailable = resolveLocalEngineAdvancedJobOptions({
@@ -66,6 +71,9 @@ describe('shared Local Engine advanced media options', () => {
     expect(ready.sponsorBlockCategories).toEqual(['sponsor', 'intro'])
     expect(ready.includeDanmaku).toBe(true)
     expect(unavailable.includeDanmaku).toBe(true)
+    expect(ready.danmakuFormats).toEqual(['ass', 'json'])
+    expect(unavailable.danmakuFormats).toEqual(['ass', 'json'])
+    expect(ready.danmakuFormats).not.toBe(source.danmakuFormats)
     expect(source.useAria2c).toBe(true)
     expect(source.includeDanmaku).toBe(true)
   })
