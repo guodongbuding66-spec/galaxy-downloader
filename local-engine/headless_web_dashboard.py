@@ -15,6 +15,8 @@ _DASHBOARD_ASSETS = {
     "/dashboard/plugins.css": ("plugins.css", "text/css; charset=utf-8"),
     "/dashboard/settings.js": ("settings.js", "text/javascript; charset=utf-8"),
     "/dashboard/settings.css": ("settings.css", "text/css; charset=utf-8"),
+    "/dashboard/gallery-dl.js": ("gallery-dl.js", "text/javascript; charset=utf-8"),
+    "/dashboard/gallery-dl.css": ("gallery-dl.css", "text/css; charset=utf-8"),
     "/dashboard/learning.js": ("learning.js", "text/javascript; charset=utf-8"),
     "/dashboard/learning.css": ("learning.css", "text/css; charset=utf-8"),
     "/dashboard/learning-attachments.js": ("learning-attachments.js", "text/javascript; charset=utf-8"),
@@ -44,6 +46,8 @@ _SEARCH_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning-search.css
 _SEARCH_SCRIPT_TAG = '<script src="/dashboard/learning-search.js" defer></script>'
 _MUSIC_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/music-player.css">'
 _MUSIC_SCRIPT_TAG = '<script src="/dashboard/music-player.js" defer></script>'
+_GALLERY_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/gallery-dl.css">'
+_GALLERY_SCRIPT_TAG = '<script src="/dashboard/gallery-dl.js" defer></script>'
 
 
 def _with_learning_assets(body: bytes, file_name: str) -> bytes:
@@ -61,6 +65,7 @@ def _with_learning_assets(body: bytes, file_name: str) -> bytes:
         _NOTES_STYLE_TAG,
         _SEARCH_STYLE_TAG,
         _MUSIC_STYLE_TAG,
+        _GALLERY_STYLE_TAG,
     ):
         if style_tag not in html:
             html = html.replace("</head>", f"  {style_tag}\n</head>", 1)
@@ -72,6 +77,7 @@ def _with_learning_assets(body: bytes, file_name: str) -> bytes:
         _NOTES_SCRIPT_TAG,
         _SEARCH_SCRIPT_TAG,
         _MUSIC_SCRIPT_TAG,
+        _GALLERY_SCRIPT_TAG,
     ):
         if script_tag not in html:
             html = html.replace("</body>", f"  {script_tag}\n</body>", 1)
