@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -51,9 +52,9 @@ def _selected_item_spec(selected_items: tuple[int, ...] | list[int] | None) -> s
 
 
 def _creation_flags() -> int:
-    if subprocess.mswindows:  # type: ignore[attr-defined]
-        return getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return 0
+    if os.name != "nt":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def build_danmaku_command(
