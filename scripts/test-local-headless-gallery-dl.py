@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENGINE = ROOT / "local-engine"
@@ -188,6 +190,23 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     return api
 
 
+def _test_invalid_tool_path_isolated(root: Path) -> None:
+    environment = dict(os.environ)
+    environment["GALAXY_PORTABLE"] = "not-a-valid-mode"
+    with patch.dict(os.environ, environment, clear=True):
+        api = HeadlessGalleryDlApi(
+            root / "downloads-invalid-env",
+            executor=FakeExecutor(),  # type: ignore[arg-type]
+        )
+        assert api.status()["available"] is False
+        assert api.status()["acceptingJobs"] is True
+        _expect_error(
+            lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery"}),
+            503,
+            "GALLERY_DL_UNAVAILABLE",
+        )
+
+
 def _test_close_lifecycle(root: Path) -> None:
     executor = FakeExecutor()
     api = HeadlessGalleryDlApi(
@@ -288,6 +307,7 @@ def run_test() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         _test_http(_test_api(root), root)
+        _test_invalid_tool_path_isolated(root)
         _test_close_lifecycle(root)
 
 
