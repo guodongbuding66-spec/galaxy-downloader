@@ -55,6 +55,7 @@ class NfoSidecarTests(unittest.TestCase):
         self.assertIn("<tag>test</tag>", rendered)
         self.assertIn("<thumb>https://i.example.test/cover.jpg?x=1&amp;y=2</thumb>", rendered)
         self.assertEqual(rendered, nfo.render_nfo(self.sample()))
+        self.assertEqual(nfo._bounded_list({"beta", "alpha", "beta"}), ("alpha", "beta"))
 
     def test_render_nfo_rejects_missing_title_and_unsafe_thumbnail(self) -> None:
         with self.assertRaises(nfo.NfoSidecarError):
