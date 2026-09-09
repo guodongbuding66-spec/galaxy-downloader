@@ -35,6 +35,8 @@ class MediaFormatOption:
     language: str | None
     audio_channels: int | None
     sample_rate: int | None
+    format_note: str | None
+    feature_tags: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,87 @@ def _format_note(item: dict[str, Any]) -> str | None:
     return _text(item.get("format_note") or item.get("format"))
 
 
+def _feature_text(item: dict[str, Any]) -> str:
+    values = (
+        item.get("format_note"),
+        item.get("format"),
+        item.get("format_id"),
+        item.get("dynamic_range"),
+        item.get("vcodec"),
+        item.get("acodec"),
+        item.get("resolution"),
+    )
+    return " ".join(str(value) for value in values if value is not None).strip().lower()
+
+
+def _feature_tags(item: dict[str, Any], *, media_kind: str) -> tuple[str, ...]:
+    """Derive only capabilities that are evidenced by extractor metadata.
+
+    Bilibili exposes premium variants through height/dynamic-range/format-note
+    metadata. The same conservative rules are useful for other yt-dlp sources,
+    so the format catalog stays platform-neutral: a capability is advertised
+    only when the returned format itself contains evidence for it. Codec names
+    such as E-AC-3 alone are intentionally not treated as Atmos, and generic
+    high sample rates are intentionally not treated as Hi-Res.
+    """
+    text = _feature_text(item)
+    result: list[str] = []
+
+    def add(tag: str) -> None:
+        if tag not in result:
+            result.append(tag)
+
+    if media_kind == "video":
+        height = _int(item.get("height")) or 0
+        if height >= 4320:
+            add("8k")
+        elif height >= 2160:
+            add("4k")
+
+        dynamic_range = str(item.get("dynamic_range") or "").strip().lower()
+        dolby_vision = any(
+            marker in text
+            for marker in (
+                "dolby vision",
+                "dolbyvision",
+                "杜比视界",
+                "dvhe",
+                "dvh1",
+            )
+        ) or dynamic_range in {"dv", "dovi", "dolby vision"}
+        hdr = dolby_vision or any(
+            marker in text
+            for marker in (
+                "hdr",
+                "hdr10",
+                "hlg",
+                "hdr 真彩",
+                "hdr真彩",
+            )
+        )
+        if dolby_vision:
+            add("dolby-vision")
+        if hdr:
+            add("hdr")
+
+    if media_kind == "audio":
+        if any(
+            marker in text
+            for marker in (
+                "hi-res",
+                "hi res",
+                "hires",
+                "hi‐res",
+                "高解析",
+            )
+        ):
+            add("hi-res")
+        if any(marker in text for marker in ("dolby atmos", "atmos", "杜比全景声")):
+            add("dolby-atmos")
+
+    return tuple(result)
+
+
 def _video_label(item: dict[str, Any], format_id: str) -> str:
     parts: list[str] = []
     height = _int(item.get("height"))
@@ -127,9 +210,16 @@ def _video_label(item: dict[str, Any], format_id: str) -> str:
         rounded = int(round(fps)) if abs(fps - round(fps)) < 0.01 else round(fps, 2)
         parts.append(f"{rounded}fps")
 
-    dynamic_range = _text(item.get("dynamic_range"))
-    if dynamic_range and dynamic_range.lower() not in {"sdr", "unknown"}:
-        parts.append(dynamic_range.upper())
+    feature_tags = _feature_tags(item, media_kind="video")
+    if "8k" in feature_tags:
+        parts.append("8K")
+    elif "4k" in feature_tags:
+        parts.append("4K")
+    if "dolby-vision" in feature_tags:
+        parts.append("DOLBY VISION")
+    elif "hdr" in feature_tags:
+        dynamic_range = _text(item.get("dynamic_range"))
+        parts.append(dynamic_range.upper() if dynamic_range else "HDR")
 
     vcodec = _codec(item.get("vcodec"))
     if vcodec:
@@ -151,6 +241,12 @@ def _audio_label(item: dict[str, Any], format_id: str) -> str:
         parts.append(f"{int(round(abr))} kbps")
     else:
         parts.append(format_id)
+
+    feature_tags = _feature_tags(item, media_kind="audio")
+    if "hi-res" in feature_tags:
+        parts.append("HI-RES")
+    if "dolby-atmos" in feature_tags:
+        parts.append("DOLBY ATMOS")
 
     acodec = _codec(item.get("acodec"))
     if acodec:
@@ -190,6 +286,8 @@ def _option(item: dict[str, Any], *, media_kind: str) -> MediaFormatOption:
         language=_text(item.get("language")),
         audio_channels=_int(item.get("audio_channels")),
         sample_rate=_int(item.get("asr")),
+        format_note=_format_note(item),
+        feature_tags=_feature_tags(item, media_kind=media_kind),
     )
 
 
@@ -300,6 +398,8 @@ def public_media_format_option(option: MediaFormatOption) -> dict[str, object]:
         "language": payload["language"],
         "audioChannels": payload["audio_channels"],
         "sampleRate": payload["sample_rate"],
+        "formatNote": payload["format_note"],
+        "featureTags": list(payload["feature_tags"]),
     }
 
 
@@ -340,3 +440,26 @@ def run_media_format_catalog_self_test() -> None:
     assert exact_format_selector(video_format_id="137", audio_format_id="251") == "137+251"
     public = public_media_format_catalog(catalog)
     assert "downloadUrl" not in str(public)
+
+    premium = build_media_format_catalog(
+        [
+            {
+                "format_id": "bili-8k-dv",
+                "url": "https://media.example/8k",
+                "vcodec": "hev1",
+                "acodec": "none",
+                "height": 4320,
+                "dynamic_range": "DV",
+                "format_note": "8K 超高清 杜比视界",
+            },
+            {
+                "format_id": "bili-hires",
+                "url": "https://media.example/hires",
+                "vcodec": "none",
+                "acodec": "flac",
+                "format_note": "Hi-Res无损",
+            },
+        ]
+    )
+    assert premium.video_options[0].feature_tags == ("8k", "dolby-vision", "hdr")
+    assert premium.audio_options[0].feature_tags == ("hi-res",)
