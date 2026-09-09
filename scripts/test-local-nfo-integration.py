@@ -224,10 +224,10 @@ class NfoIntegrationUnitTests(unittest.TestCase):
 
         def parse_job(raw: str):
             query = parse_qs(urlparse(raw).query)
-            return BaseJob(query.get("url", ["https://example.com/v"])[0])
+            return engine.Job(query.get("url", ["https://example.com/v"])[0])
 
         def job_from_payload(payload):
-            return BaseJob(str(payload.get("sourceUrl") or "https://example.com/v"))
+            return engine.Job(str(payload.get("sourceUrl") or "https://example.com/v"))
 
         def job_to_payload(job):
             return {"sourceUrl": job.source_url}
@@ -272,7 +272,7 @@ class NfoIntegrationUnitTests(unittest.TestCase):
                     )
                 self._bridge["state"] = "cancelled" if mode == "cancelled" else "completed"
 
-        return SimpleNamespace(
+        engine = SimpleNamespace(
             Job=BaseJob,
             EngineWindow=Window,
             parse_job=parse_job,
@@ -285,6 +285,7 @@ class NfoIntegrationUnitTests(unittest.TestCase):
             ),
             default_download_dir=lambda: root,
         )
+        return engine
 
 
 if __name__ == "__main__":
