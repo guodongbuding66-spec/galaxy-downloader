@@ -14,7 +14,9 @@ import {
 
 import {
   createDefaultLocalEngineAdvancedOptions,
+  normalizeLocalEngineDanmakuFormats,
   type LocalEngineAdvancedOptions,
+  type LocalEngineDanmakuFormat,
   type LocalEngineSubtitleMode,
   type SponsorBlockCategory,
 } from '@/lib/local-engine';
@@ -42,6 +44,10 @@ type Copy = {
   audioHint: string;
   danmaku: string;
   danmakuHint: string;
+  danmakuFormats: string;
+  danmakuXml: string;
+  danmakuAss: string;
+  danmakuJson: string;
   sponsorBlock: string;
   sponsor: string;
   selfPromo: string;
@@ -90,8 +96,12 @@ const COPY: Record<string, Copy> = {
     autoShort: '自动',
     audioLanguages: '音轨语言',
     audioHint: '多音轨用逗号分隔，例如 zh,en,ja。留空由 yt-dlp 自动选择。',
-    danmaku: 'Bilibili 弹幕 XML',
-    danmakuHint: '另存原生 XML 弹幕；不会转换或嵌入视频。默认关闭。',
+    danmaku: 'Bilibili 弹幕',
+    danmakuHint: '先保存原生 XML；ASS / JSON 由本地引擎离线转换，不会嵌入视频。默认关闭。',
+    danmakuFormats: '保存格式',
+    danmakuXml: 'XML 原始',
+    danmakuAss: 'ASS 字幕',
+    danmakuJson: 'JSON 数据',
     sponsorBlock: 'SponsorBlock（默认关闭）',
     sponsor: '赞助内容',
     selfPromo: '自我推广',
@@ -102,19 +112,19 @@ const COPY: Record<string, Copy> = {
     offByDefault: '这些功能均为可选项，不会改变默认下载行为。',
   },
   'zh-tw': {
-    title: '進階本機下載', summary: '片段、章節、字幕/音軌、Bilibili 彈幕、SponsorBlock、aria2c', segment: '影片片段', start: '開始', end: '結束', segmentHint: '例如 01:20 → 03:45；兩項留空則下載完整影片。', splitChapters: '依章節拆分檔案', subtitleMode: '字幕來源', manual: '人工字幕', auto: '自動字幕', both: '人工 + 自動', subtitleLanguages: '字幕語言', detected: '已偵測', manualShort: '人工', autoShort: '自動', audioLanguages: '音軌語言', audioHint: '多音軌以逗號分隔，例如 zh,en,ja。留空由 yt-dlp 自動選擇。', danmaku: 'Bilibili 彈幕 XML', danmakuHint: '另存原生 XML 彈幕；不會轉換或嵌入影片。預設關閉。', sponsorBlock: 'SponsorBlock（預設關閉）', sponsor: '贊助內容', selfPromo: '自我推廣', interaction: '互動提醒', aria2: 'aria2c 高速下載', aria2Ready: '已偵測 aria2c；yt-dlp 仍負責解析與調度。', aria2Missing: '本機未偵測到 aria2c，安裝後重新連線即可啟用。', offByDefault: '這些功能皆為選用，不會改變預設下載行為。',
+    title: '進階本機下載', summary: '片段、章節、字幕/音軌、Bilibili 彈幕、SponsorBlock、aria2c', segment: '影片片段', start: '開始', end: '結束', segmentHint: '例如 01:20 → 03:45；兩項留空則下載完整影片。', splitChapters: '依章節拆分檔案', subtitleMode: '字幕來源', manual: '人工字幕', auto: '自動字幕', both: '人工 + 自動', subtitleLanguages: '字幕語言', detected: '已偵測', manualShort: '人工', autoShort: '自動', audioLanguages: '音軌語言', audioHint: '多音軌以逗號分隔，例如 zh,en,ja。留空由 yt-dlp 自動選擇。', danmaku: 'Bilibili 彈幕', danmakuHint: '先儲存原生 XML；ASS / JSON 由本機引擎離線轉換，不會嵌入影片。預設關閉。', danmakuFormats: '儲存格式', danmakuXml: 'XML 原始', danmakuAss: 'ASS 字幕', danmakuJson: 'JSON 資料', sponsorBlock: 'SponsorBlock（預設關閉）', sponsor: '贊助內容', selfPromo: '自我推廣', interaction: '互動提醒', aria2: 'aria2c 高速下載', aria2Ready: '已偵測 aria2c；yt-dlp 仍負責解析與調度。', aria2Missing: '本機未偵測到 aria2c，安裝後重新連線即可啟用。', offByDefault: '這些功能皆為選用，不會改變預設下載行為。',
   },
   en: {
-    title: 'Advanced local download', summary: 'Clips, chapters, tracks, Bilibili danmaku, SponsorBlock and aria2c', segment: 'Video segment', start: 'Start', end: 'End', segmentHint: 'Example 01:20 → 03:45. Leave both empty for the full video.', splitChapters: 'Split into chapter files', subtitleMode: 'Subtitle source', manual: 'Manual', auto: 'Auto-generated', both: 'Manual + auto', subtitleLanguages: 'Subtitle languages', detected: 'Detected', manualShort: 'manual', autoShort: 'auto', audioLanguages: 'Audio languages', audioHint: 'Comma-separated for multiple audio tracks, e.g. zh,en,ja. Empty lets yt-dlp choose.', danmaku: 'Bilibili danmaku XML', danmakuHint: 'Save native XML danmaku as a sidecar. It is not converted or embedded. Off by default.', sponsorBlock: 'SponsorBlock (off by default)', sponsor: 'Sponsor', selfPromo: 'Self-promotion', interaction: 'Interaction reminder', aria2: 'aria2c acceleration', aria2Ready: 'aria2c detected. yt-dlp still handles extraction and orchestration.', aria2Missing: 'aria2c was not detected locally. Install it and reconnect to enable acceleration.', offByDefault: 'All advanced features are optional and do not change the default download behavior.',
+    title: 'Advanced local download', summary: 'Clips, chapters, tracks, Bilibili danmaku, SponsorBlock and aria2c', segment: 'Video segment', start: 'Start', end: 'End', segmentHint: 'Example 01:20 → 03:45. Leave both empty for the full video.', splitChapters: 'Split into chapter files', subtitleMode: 'Subtitle source', manual: 'Manual', auto: 'Auto-generated', both: 'Manual + auto', subtitleLanguages: 'Subtitle languages', detected: 'Detected', manualShort: 'manual', autoShort: 'auto', audioLanguages: 'Audio languages', audioHint: 'Comma-separated for multiple audio tracks, e.g. zh,en,ja. Empty lets yt-dlp choose.', danmaku: 'Bilibili danmaku', danmakuHint: 'Native XML is saved first. ASS / JSON are converted locally and never embedded into the video. Off by default.', danmakuFormats: 'Save formats', danmakuXml: 'Native XML', danmakuAss: 'ASS subtitle', danmakuJson: 'JSON data', sponsorBlock: 'SponsorBlock (off by default)', sponsor: 'Sponsor', selfPromo: 'Self-promotion', interaction: 'Interaction reminder', aria2: 'aria2c acceleration', aria2Ready: 'aria2c detected. yt-dlp still handles extraction and orchestration.', aria2Missing: 'aria2c was not detected locally. Install it and reconnect to enable acceleration.', offByDefault: 'All advanced features are optional and do not change the default download behavior.',
   },
   ja: {
-    title: '高度なローカル保存', summary: '区間・チャプター・字幕/音声・Bilibili 弾幕・SponsorBlock・aria2c', segment: '動画区間', start: '開始', end: '終了', segmentHint: '例 01:20 → 03:45。空欄なら全編を保存します。', splitChapters: 'チャプターごとに分割', subtitleMode: '字幕ソース', manual: '手動字幕', auto: '自動字幕', both: '手動 + 自動', subtitleLanguages: '字幕言語', detected: '検出', manualShort: '手動', autoShort: '自動', audioLanguages: '音声言語', audioHint: '複数音声は zh,en,ja のようにカンマ区切り。空欄は自動選択。', danmaku: 'Bilibili 弾幕 XML', danmakuHint: '元の XML 弾幕を別ファイルで保存します。変換や動画への埋め込みは行いません。既定オフ。', sponsorBlock: 'SponsorBlock（既定オフ）', sponsor: 'スポンサー', selfPromo: '自己宣伝', interaction: '操作案内', aria2: 'aria2c 高速化', aria2Ready: 'aria2c を検出。解析と制御は引き続き yt-dlp が担当します。', aria2Missing: 'aria2c が見つかりません。インストール後に再接続してください。', offByDefault: '高度な機能はすべて任意で、既定の保存動作は変わりません。',
+    title: '高度なローカル保存', summary: '区間・チャプター・字幕/音声・Bilibili 弾幕・SponsorBlock・aria2c', segment: '動画区間', start: '開始', end: '終了', segmentHint: '例 01:20 → 03:45。空欄なら全編を保存します。', splitChapters: 'チャプターごとに分割', subtitleMode: '字幕ソース', manual: '手動字幕', auto: '自動字幕', both: '手動 + 自動', subtitleLanguages: '字幕言語', detected: '検出', manualShort: '手動', autoShort: '自動', audioLanguages: '音声言語', audioHint: '複数音声は zh,en,ja のようにカンマ区切り。空欄は自動選択。', danmaku: 'Bilibili 弾幕', danmakuHint: '元の XML を先に保存し、ASS / JSON はローカルで変換します。動画には埋め込みません。既定オフ。', danmakuFormats: '保存形式', danmakuXml: '元の XML', danmakuAss: 'ASS 字幕', danmakuJson: 'JSON データ', sponsorBlock: 'SponsorBlock（既定オフ）', sponsor: 'スポンサー', selfPromo: '自己宣伝', interaction: '操作案内', aria2: 'aria2c 高速化', aria2Ready: 'aria2c を検出。解析と制御は引き続き yt-dlp が担当します。', aria2Missing: 'aria2c が見つかりません。インストール後に再接続してください。', offByDefault: '高度な機能はすべて任意で、既定の保存動作は変わりません。',
   },
   es: {
-    title: 'Descarga local avanzada', summary: 'Fragmentos, capítulos, pistas, danmaku de Bilibili, SponsorBlock y aria2c', segment: 'Fragmento', start: 'Inicio', end: 'Fin', segmentHint: 'Ejemplo 01:20 → 03:45. Déjalo vacío para descargar el vídeo completo.', splitChapters: 'Separar por capítulos', subtitleMode: 'Origen de subtítulos', manual: 'Manuales', auto: 'Automáticos', both: 'Manuales + automáticos', subtitleLanguages: 'Idiomas de subtítulos', detected: 'Detectados', manualShort: 'manual', autoShort: 'auto', audioLanguages: 'Idiomas de audio', audioHint: 'Separa varias pistas con comas, p. ej. zh,en,ja. Vacío = selección automática.', danmaku: 'Danmaku XML de Bilibili', danmakuHint: 'Guarda el XML nativo como archivo adicional; no se convierte ni se incrusta. Desactivado por defecto.', sponsorBlock: 'SponsorBlock (apagado por defecto)', sponsor: 'Patrocinio', selfPromo: 'Autopromoción', interaction: 'Interacción', aria2: 'Aceleración aria2c', aria2Ready: 'aria2c detectado; yt-dlp sigue controlando la extracción.', aria2Missing: 'aria2c no está instalado o no fue detectado.', offByDefault: 'Todas estas opciones son voluntarias y no cambian la descarga predeterminada.',
+    title: 'Descarga local avanzada', summary: 'Fragmentos, capítulos, pistas, danmaku de Bilibili, SponsorBlock y aria2c', segment: 'Fragmento', start: 'Inicio', end: 'Fin', segmentHint: 'Ejemplo 01:20 → 03:45. Déjalo vacío para descargar el vídeo completo.', splitChapters: 'Separar por capítulos', subtitleMode: 'Origen de subtítulos', manual: 'Manuales', auto: 'Automáticos', both: 'Manuales + automáticos', subtitleLanguages: 'Idiomas de subtítulos', detected: 'Detectados', manualShort: 'manual', autoShort: 'auto', audioLanguages: 'Idiomas de audio', audioHint: 'Separa varias pistas con comas, p. ej. zh,en,ja. Vacío = selección automática.', danmaku: 'Danmaku de Bilibili', danmakuHint: 'Primero se guarda el XML nativo. ASS / JSON se convierten localmente y no se incrustan en el vídeo. Desactivado por defecto.', danmakuFormats: 'Formatos', danmakuXml: 'XML nativo', danmakuAss: 'Subtítulo ASS', danmakuJson: 'Datos JSON', sponsorBlock: 'SponsorBlock (apagado por defecto)', sponsor: 'Patrocinio', selfPromo: 'Autopromoción', interaction: 'Interacción', aria2: 'Aceleración aria2c', aria2Ready: 'aria2c detectado; yt-dlp sigue controlando la extracción.', aria2Missing: 'aria2c no está instalado o no fue detectado.', offByDefault: 'Todas estas opciones son voluntarias y no cambian la descarga predeterminada.',
   },
   ru: {
-    title: 'Расширенная локальная загрузка', summary: 'Фрагменты, главы, дорожки, данмаку Bilibili, SponsorBlock и aria2c', segment: 'Фрагмент видео', start: 'Начало', end: 'Конец', segmentHint: 'Например 01:20 → 03:45. Оставьте поля пустыми для полного видео.', splitChapters: 'Разделять по главам', subtitleMode: 'Источник субтитров', manual: 'Ручные', auto: 'Автоматические', both: 'Ручные + авто', subtitleLanguages: 'Языки субтитров', detected: 'Найдено', manualShort: 'ручные', autoShort: 'авто', audioLanguages: 'Языки аудио', audioHint: 'Несколько дорожек через запятую, например zh,en,ja. Пусто = авто.', danmaku: 'Bilibili danmaku XML', danmakuHint: 'Сохранить исходный XML отдельным файлом без конвертации и встраивания. По умолчанию выключено.', sponsorBlock: 'SponsorBlock (по умолчанию выключен)', sponsor: 'Реклама', selfPromo: 'Самореклама', interaction: 'Призывы', aria2: 'Ускорение aria2c', aria2Ready: 'aria2c обнаружен; yt-dlp по-прежнему управляет загрузкой.', aria2Missing: 'aria2c не обнаружен. Установите его и переподключите движок.', offByDefault: 'Все расширенные функции необязательны и не меняют поведение по умолчанию.',
+    title: 'Расширенная локальная загрузка', summary: 'Фрагменты, главы, дорожки, данмаку Bilibili, SponsorBlock и aria2c', segment: 'Фрагмент видео', start: 'Начало', end: 'Конец', segmentHint: 'Например 01:20 → 03:45. Оставьте поля пустыми для полного видео.', splitChapters: 'Разделять по главам', subtitleMode: 'Источник субтитров', manual: 'Ручные', auto: 'Автоматические', both: 'Ручные + авто', subtitleLanguages: 'Языки субтитров', detected: 'Найдено', manualShort: 'ручные', autoShort: 'авто', audioLanguages: 'Языки аудио', audioHint: 'Несколько дорожек через запятую, например zh,en,ja. Пусто = авто.', danmaku: 'Данмаку Bilibili', danmakuHint: 'Сначала сохраняется исходный XML. ASS / JSON конвертируются локально и не встраиваются в видео. По умолчанию выключено.', danmakuFormats: 'Форматы', danmakuXml: 'Исходный XML', danmakuAss: 'Субтитры ASS', danmakuJson: 'Данные JSON', sponsorBlock: 'SponsorBlock (по умолчанию выключен)', sponsor: 'Реклама', selfPromo: 'Самореклама', interaction: 'Призывы', aria2: 'Ускорение aria2c', aria2Ready: 'aria2c обнаружен; yt-dlp по-прежнему управляет загрузкой.', aria2Missing: 'aria2c не обнаружен. Установите его и переподключите движок.', offByDefault: 'Все расширенные функции необязательны и не меняют поведение по умолчанию.',
   },
 };
 
@@ -180,6 +190,10 @@ export function LocalEngineAdvancedControls({
   const copy = COPY[language] || COPY.en;
   const extra = EXTRA[language] || EXTRA.en;
   const hasDanmakuTrack = useMemo(() => subtitles.some(isNativeDanmakuTrack), [subtitles]);
+  const selectedDanmakuFormats = useMemo(
+    () => normalizeLocalEngineDanmakuFormats(value.danmakuFormats),
+    [value.danmakuFormats],
+  );
   const detectedSubtitles = useMemo(() => {
     const unique = new Map<string, SubtitleTrack>();
     for (const track of subtitles) {
@@ -235,6 +249,16 @@ export function LocalEngineAdvancedControls({
     });
   };
 
+  const toggleDanmakuFormat = (format: LocalEngineDanmakuFormat) => {
+    const selected = selectedDanmakuFormats.includes(format);
+    if (selected && selectedDanmakuFormats.length === 1) return;
+    update({
+      danmakuFormats: selected
+        ? selectedDanmakuFormats.filter((item) => item !== format)
+        : [...selectedDanmakuFormats, format],
+    });
+  };
+
   const sponsorOptions: Array<[SponsorBlockCategory, string]> = [
     ['sponsor', copy.sponsor],
     ['selfpromo', copy.selfPromo],
@@ -244,6 +268,12 @@ export function LocalEngineAdvancedControls({
     ['preview', extra.preview],
     ['music_offtopic', extra.musicOfftopic],
     ['filler', extra.filler],
+  ];
+
+  const danmakuFormatOptions: Array<[LocalEngineDanmakuFormat, string]> = [
+    ['xml', copy.danmakuXml],
+    ['ass', copy.danmakuAss],
+    ['json', copy.danmakuJson],
   ];
 
   const presetOptions: Array<{
@@ -406,19 +436,47 @@ export function LocalEngineAdvancedControls({
                 </div>
               ) : null}
               {hasDanmakuTrack ? (
-                <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-md border bg-card/40 p-2 text-[10px]">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(value.includeDanmaku)}
-                    disabled={disabled}
-                    onChange={(event) => update({ includeDanmaku: event.target.checked })}
-                    className="mt-0.5 h-3.5 w-3.5 accent-foreground"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-[11px] font-medium text-foreground">{copy.danmaku}</span>
-                    <span className="mt-0.5 block leading-4 text-muted-foreground">{copy.danmakuHint}</span>
-                  </span>
-                </label>
+                <div className="mt-2 rounded-md border bg-card/40 p-2 text-[10px]">
+                  <label className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(value.includeDanmaku)}
+                      disabled={disabled}
+                      onChange={(event) => update({
+                        includeDanmaku: event.target.checked,
+                        ...(event.target.checked ? { danmakuFormats: selectedDanmakuFormats } : {}),
+                      })}
+                      className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-[11px] font-medium text-foreground">{copy.danmaku}</span>
+                      <span className="mt-0.5 block leading-4 text-muted-foreground">{copy.danmakuHint}</span>
+                    </span>
+                  </label>
+                  {value.includeDanmaku ? (
+                    <div className="mt-2 border-t pt-2">
+                      <div className="mb-1 text-[9px] font-medium text-muted-foreground">{copy.danmakuFormats}</div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {danmakuFormatOptions.map(([format, label]) => {
+                          const selected = selectedDanmakuFormats.includes(format);
+                          const onlySelected = selected && selectedDanmakuFormats.length === 1;
+                          return (
+                            <button
+                              key={format}
+                              type="button"
+                              aria-pressed={selected}
+                              disabled={disabled || onlySelected}
+                              onClick={() => toggleDanmakuFormat(format)}
+                              className={`min-h-7 rounded-md border px-1.5 text-[9px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'} ${onlySelected ? 'opacity-80' : ''}`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
               <label className="mt-2 block space-y-1 text-[10px] text-muted-foreground">
                 <span>{copy.audioLanguages}</span>
