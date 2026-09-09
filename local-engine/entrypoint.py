@@ -39,6 +39,8 @@ from document_policy import (
 from dynamic_document import parse_dynamic_web_document
 from exact_format_policy import install_exact_format_policy, run_exact_format_policy_self_test
 from failure_policy import run_failure_policy_self_test
+from gallery_dl_bridge import GalleryDlLocalBridge, install_gallery_dl_bridge, run_gallery_dl_bridge_self_test
+from gallery_dl_executor import install_gallery_dl_executor, run_gallery_dl_executor_self_test
 from image_archive_policy import install_image_archive_policy
 from image_bridge import ImageBridge
 from image_download import (
@@ -180,6 +182,11 @@ install_batch_identity_policy(engine)
 install_pause_resume_policy(engine)
 install_job_queue_policy(engine)
 install_resume_bridge(engine)
+# gallery-dl remains an explicit execution mode. Install its bounded executor
+# before the bridge layer so EngineWindow exposes the trusted submit callback
+# when the loopback bridge is constructed; no yt-dlp fallback is introduced.
+install_gallery_dl_executor(engine)
+install_gallery_dl_bridge(engine)
 install_queue_controls(engine)
 install_history_policy(engine)
 install_runtime_health(engine)
@@ -345,12 +352,16 @@ def _run_image_self_test() -> None:
     assert getattr(engine, "_galaxy_batch_identity_installed", False) is True
     assert getattr(engine, "_galaxy_pause_resume_installed", False) is True
     assert getattr(engine, "_galaxy_resume_bridge_installed", False) is True
+    assert getattr(engine, "_galaxy_gallery_dl_executor_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_gallery_dl_executor_installed", False) is True
+    assert getattr(engine, "_galaxy_gallery_dl_bridge_installed", False) is True
     assert getattr(engine, "_galaxy_runtime_health_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine, "_galaxy_task_center_installed", False) is True
     assert getattr(image_download, "_galaxy_image_archive_policy_installed", False) is True
     assert issubclass(PauseResumeLocalBridge, StructuredLocalBridge)
-    assert engine.LocalBridge is PauseResumeLocalBridge
+    assert issubclass(GalleryDlLocalBridge, PauseResumeLocalBridge)
+    assert engine.LocalBridge is GalleryDlLocalBridge
     assert engine.post_job_to_running_engine is _single_instance_protocol_handoff
     run_media_cleanup_self_test()
     run_media_cleanup_workbench_self_test()
@@ -364,6 +375,8 @@ def _run_image_self_test() -> None:
     run_recovery_self_test()
     run_pause_resume_self_test()
     run_resume_bridge_self_test()
+    run_gallery_dl_executor_self_test()
+    run_gallery_dl_bridge_self_test()
     run_recovery_display_self_test()
     run_history_self_test()
     run_workspace_self_test()
