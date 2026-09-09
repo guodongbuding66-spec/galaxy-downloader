@@ -106,6 +106,7 @@ export interface LocalEngineAdvancedOptions {
   useAria2c: boolean
   includeDanmaku?: boolean
   danmakuFormats?: LocalEngineDanmakuFormat[]
+  keepCoverSidecar?: boolean
 }
 
 export function createDefaultLocalEngineAdvancedOptions(): LocalEngineAdvancedOptions {
@@ -120,6 +121,7 @@ export function createDefaultLocalEngineAdvancedOptions(): LocalEngineAdvancedOp
     useAria2c: false,
     includeDanmaku: false,
     danmakuFormats: ['xml'],
+    keepCoverSidecar: false,
   }
 }
 
@@ -151,6 +153,7 @@ export interface LocalDesktopJobOptions {
   includeSubtitle?: boolean
   subtitleLanguage?: string | null
   includeCover?: boolean
+  keepCoverSidecar?: boolean
   skipPreviouslyDownloaded?: boolean
   browser?: LocalEngineBrowser
   collectionMode?: LocalEngineCollectionMode
@@ -273,6 +276,7 @@ export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): str
   params.set('subtitle', options.includeSubtitle ? '1' : '0')
   if (options.subtitleLanguage) params.set('subtitle_lang', options.subtitleLanguage)
   params.set('cover', options.includeCover ? '1' : '0')
+  params.set('cover_sidecar', options.keepCoverSidecar ? '1' : '0')
   params.set('archive', options.skipPreviouslyDownloaded ? '1' : '0')
   params.set('browser', options.browser || 'none')
   params.set('collection', collectionMode)
