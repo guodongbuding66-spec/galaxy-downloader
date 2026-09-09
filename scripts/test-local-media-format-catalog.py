@@ -108,6 +108,8 @@ class MediaFormatCatalogTests(unittest.TestCase):
         self.assertEqual(video["videoBitrate"], 2800.0)
         self.assertEqual(video["dynamicRange"], "SDR")
         self.assertEqual(video["filesizeApprox"], 101_000_000)
+        self.assertEqual(video["featureTags"], [])
+        self.assertIsNone(video["formatNote"])
 
         audio = public_media_format_catalog(catalog)["audioOptions"][0]
         self.assertEqual(audio["formatId"], "251")
@@ -116,6 +118,87 @@ class MediaFormatCatalogTests(unittest.TestCase):
         self.assertEqual(audio["audioChannels"], 2)
         self.assertEqual(audio["sampleRate"], 48000)
         self.assertEqual(audio["language"], "en")
+        self.assertEqual(audio["featureTags"], [])
+
+    def test_bilibili_premium_video_capabilities_are_metadata_driven(self) -> None:
+        catalog = build_media_format_catalog(
+            [
+                {
+                    "format_id": "bili-8k-dv",
+                    "url": "https://cdn.example/bili-8k-dv",
+                    "vcodec": "hev1.08.09",
+                    "acodec": "none",
+                    "width": 7680,
+                    "height": 4320,
+                    "fps": 60,
+                    "dynamic_range": "DV",
+                    "format_note": "8K 超高清 杜比视界",
+                    "ext": "mp4",
+                },
+                {
+                    "format_id": "bili-4k-hdr",
+                    "url": "https://cdn.example/bili-4k-hdr",
+                    "vcodec": "hev1",
+                    "acodec": "none",
+                    "width": 3840,
+                    "height": 2160,
+                    "dynamic_range": "HDR10",
+                    "format_note": "4K 超清 HDR 真彩",
+                    "ext": "mp4",
+                },
+            ]
+        )
+        public = public_media_format_catalog(catalog)
+        eight_k = public["videoOptions"][0]
+        four_k = public["videoOptions"][1]
+        self.assertEqual(eight_k["featureTags"], ["8k", "dolby-vision", "hdr"])
+        self.assertEqual(eight_k["formatNote"], "8K 超高清 杜比视界")
+        self.assertIn("8K", eight_k["label"])
+        self.assertIn("DOLBY VISION", eight_k["label"])
+        self.assertEqual(four_k["featureTags"], ["4k", "hdr"])
+        self.assertIn("HDR10", four_k["label"])
+
+    def test_bilibili_premium_audio_requires_explicit_metadata(self) -> None:
+        catalog = build_media_format_catalog(
+            [
+                {
+                    "format_id": "bili-hires",
+                    "url": "https://cdn.example/bili-hires",
+                    "vcodec": "none",
+                    "acodec": "flac",
+                    "abr": 1500,
+                    "asr": 96000,
+                    "format_note": "Hi-Res无损",
+                    "ext": "flac",
+                },
+                {
+                    "format_id": "bili-atmos",
+                    "url": "https://cdn.example/bili-atmos",
+                    "vcodec": "none",
+                    "acodec": "ec-3",
+                    "abr": 768,
+                    "format_note": "杜比全景声 Dolby Atmos",
+                    "ext": "m4a",
+                },
+                {
+                    "format_id": "generic-eac3",
+                    "url": "https://cdn.example/generic-eac3",
+                    "vcodec": "none",
+                    "acodec": "ec-3",
+                    "abr": 640,
+                    "asr": 96000,
+                    "ext": "m4a",
+                },
+            ]
+        )
+        public = public_media_format_catalog(catalog)
+        by_id = {item["formatId"]: item for item in public["audioOptions"]}
+        self.assertEqual(by_id["bili-hires"]["featureTags"], ["hi-res"])
+        self.assertIn("HI-RES", by_id["bili-hires"]["label"])
+        self.assertEqual(by_id["bili-atmos"]["featureTags"], ["dolby-atmos"])
+        self.assertIn("DOLBY ATMOS", by_id["bili-atmos"]["label"])
+        # High sample-rate/E-AC-3 alone is not enough evidence for either flag.
+        self.assertEqual(by_id["generic-eac3"]["featureTags"], [])
 
     def test_deduplicates_format_ids_after_sorting(self) -> None:
         formats = self.formats()
