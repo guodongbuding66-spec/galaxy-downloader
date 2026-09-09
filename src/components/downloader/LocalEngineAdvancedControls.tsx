@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
   ChevronDown,
@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 
+import { getBilibiliDanmakuFormatCapability } from '@/lib/bilibili-danmaku-capability';
 import {
   createDefaultLocalEngineAdvancedOptions,
   normalizeLocalEngineDanmakuFormats,
@@ -190,10 +191,33 @@ export function LocalEngineAdvancedControls({
   const copy = COPY[language] || COPY.en;
   const extra = EXTRA[language] || EXTRA.en;
   const hasDanmakuTrack = useMemo(() => subtitles.some(isNativeDanmakuTrack), [subtitles]);
+  const [availableDanmakuFormats, setAvailableDanmakuFormats] = useState<LocalEngineDanmakuFormat[]>(['xml']);
   const selectedDanmakuFormats = useMemo(
     () => normalizeLocalEngineDanmakuFormats(value.danmakuFormats),
     [value.danmakuFormats],
   );
+
+  useEffect(() => {
+    if (!hasDanmakuTrack) return undefined;
+    let cancelled = false;
+    void getBilibiliDanmakuFormatCapability().then((formats) => {
+      if (!cancelled) setAvailableDanmakuFormats(formats);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasDanmakuTrack]);
+
+  useEffect(() => {
+    if (!value.includeDanmaku) return;
+    const allowed = selectedDanmakuFormats.filter((format) => availableDanmakuFormats.includes(format));
+    const safeFormats = allowed.length ? allowed : ['xml'] as LocalEngineDanmakuFormat[];
+    const unchanged = safeFormats.length === selectedDanmakuFormats.length
+      && safeFormats.every((format, index) => format === selectedDanmakuFormats[index]);
+    if (unchanged) return;
+    onChange({ ...value, danmakuFormats: safeFormats });
+  }, [availableDanmakuFormats, onChange, selectedDanmakuFormats, value]);
+
   const detectedSubtitles = useMemo(() => {
     const unique = new Map<string, SubtitleTrack>();
     for (const track of subtitles) {
@@ -250,6 +274,7 @@ export function LocalEngineAdvancedControls({
   };
 
   const toggleDanmakuFormat = (format: LocalEngineDanmakuFormat) => {
+    if (!availableDanmakuFormats.includes(format)) return;
     const selected = selectedDanmakuFormats.includes(format);
     if (selected && selectedDanmakuFormats.length === 1) return;
     update({
@@ -442,10 +467,13 @@ export function LocalEngineAdvancedControls({
                       type="checkbox"
                       checked={Boolean(value.includeDanmaku)}
                       disabled={disabled}
-                      onChange={(event) => update({
-                        includeDanmaku: event.target.checked,
-                        ...(event.target.checked ? { danmakuFormats: selectedDanmakuFormats } : {}),
-                      })}
+                      onChange={(event) => {
+                        const allowed = selectedDanmakuFormats.filter((format) => availableDanmakuFormats.includes(format));
+                        update({
+                          includeDanmaku: event.target.checked,
+                          ...(event.target.checked ? { danmakuFormats: allowed.length ? allowed : ['xml'] } : {}),
+                        });
+                      }}
                       className="mt-0.5 h-3.5 w-3.5 accent-foreground"
                     />
                     <span className="min-w-0">
@@ -457,22 +485,24 @@ export function LocalEngineAdvancedControls({
                     <div className="mt-2 border-t pt-2">
                       <div className="mb-1 text-[9px] font-medium text-muted-foreground">{copy.danmakuFormats}</div>
                       <div className="grid grid-cols-3 gap-1">
-                        {danmakuFormatOptions.map(([format, label]) => {
-                          const selected = selectedDanmakuFormats.includes(format);
-                          const onlySelected = selected && selectedDanmakuFormats.length === 1;
-                          return (
-                            <button
-                              key={format}
-                              type="button"
-                              aria-pressed={selected}
-                              disabled={disabled || onlySelected}
-                              onClick={() => toggleDanmakuFormat(format)}
-                              className={`min-h-7 rounded-md border px-1.5 text-[9px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'} ${onlySelected ? 'opacity-80' : ''}`}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
+                        {danmakuFormatOptions
+                          .filter(([format]) => availableDanmakuFormats.includes(format))
+                          .map(([format, label]) => {
+                            const selected = selectedDanmakuFormats.includes(format);
+                            const onlySelected = selected && selectedDanmakuFormats.length === 1;
+                            return (
+                              <button
+                                key={format}
+                                type="button"
+                                aria-pressed={selected}
+                                disabled={disabled || onlySelected}
+                                onClick={() => toggleDanmakuFormat(format)}
+                                className={`min-h-7 rounded-md border px-1.5 text-[9px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'} ${onlySelected ? 'opacity-80' : ''}`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
                       </div>
                     </div>
                   ) : null}
