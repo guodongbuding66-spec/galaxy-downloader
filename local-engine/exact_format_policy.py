@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from bilibili_policy import is_bilibili_url
 from media_format_catalog import MediaFormatError, exact_format_selector, validate_format_id
 
 _BILIBILI_QUALITY_HEIGHTS = {
@@ -22,24 +23,8 @@ def _optional_format_id(value: object) -> str | None:
         raise ValueError(str(exc)) from exc
 
 
-def _is_bilibili_url(value: object) -> bool:
-    try:
-        parsed = urlparse(str(value or "").strip())
-    except ValueError:
-        return False
-    if parsed.scheme.lower() not in {"http", "https"}:
-        return False
-    hostname = (parsed.hostname or "").lower().rstrip(".")
-    return (
-        hostname == "bilibili.com"
-        or hostname.endswith(".bilibili.com")
-        or hostname == "b23.tv"
-        or hostname.endswith(".b23.tv")
-    )
-
-
 def _bilibili_quality_height(job: object) -> int | None:
-    if not _is_bilibili_url(getattr(job, "source_url", "")):
+    if not is_bilibili_url(getattr(job, "source_url", "")):
         return None
     quality = str(getattr(job, "video_quality", "") or "").strip().lower()
     return _BILIBILI_QUALITY_HEIGHTS.get(quality)
@@ -145,11 +130,11 @@ def run_exact_format_policy_self_test() -> None:
     assert _optional_format_id("137") == "137"
     assert _optional_format_id("audio-251") == "audio-251"
     assert _optional_format_id("") is None
-    assert _is_bilibili_url("https://www.bilibili.com/video/BV1demo")
-    assert _is_bilibili_url("https://m.bilibili.com/video/BV1demo")
-    assert _is_bilibili_url("https://b23.tv/demo")
-    assert not _is_bilibili_url("https://bilibili.com.evil.example/video/BV1demo")
-    assert not _is_bilibili_url("file:///bilibili.com/video/BV1demo")
+    assert is_bilibili_url("https://www.bilibili.com/video/BV1demo")
+    assert is_bilibili_url("https://m.bilibili.com/video/BV1demo")
+    assert is_bilibili_url("https://b23.tv/demo")
+    assert not is_bilibili_url("https://bilibili.com.evil.example/video/BV1demo")
+    assert not is_bilibili_url("file:///bilibili.com/video/BV1demo")
     try:
         _optional_format_id("137+bestaudio")
     except ValueError:
