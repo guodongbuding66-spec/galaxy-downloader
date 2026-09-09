@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildLocalDesktopEngineUri,
+  createDefaultLocalEngineAdvancedOptions,
   detectLocalProcessingCapabilities,
   resolveLocalDesktopVideoQuality,
   resolveLocalEngineCollectionMode,
@@ -64,6 +65,7 @@ describe('desktop yt-dlp protocol', () => {
       browser: 'edge',
       collectionMode: 'selected',
       selectedItems: [2, 4, 4],
+      includeDanmaku: true,
     });
 
     const parsed = new URL(uri);
@@ -79,6 +81,7 @@ describe('desktop yt-dlp protocol', () => {
     expect(parsed.searchParams.get('browser')).toBe('edge');
     expect(parsed.searchParams.get('collection')).toBe('selected');
     expect(parsed.searchParams.get('items')).toBe('2,4');
+    expect(parsed.searchParams.get('danmaku')).toBe('1');
     expect(parsed.searchParams.get('playlist')).toBe('0');
   });
 
@@ -91,7 +94,12 @@ describe('desktop yt-dlp protocol', () => {
     expect(parsed.searchParams.get('cover')).toBe('0');
     expect(parsed.searchParams.get('browser')).toBe('none');
     expect(parsed.searchParams.get('collection')).toBe('single');
+    expect(parsed.searchParams.get('danmaku')).toBe('0');
     expect(parsed.searchParams.get('playlist')).toBe('0');
+  });
+
+  it('keeps danmaku disabled in advanced defaults', () => {
+    expect(createDefaultLocalEngineAdvancedOptions().includeDanmaku).toBe(false);
   });
 
   it('supports entire collections while keeping the legacy playlist marker', () => {

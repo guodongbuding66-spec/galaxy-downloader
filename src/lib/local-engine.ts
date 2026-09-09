@@ -89,6 +89,7 @@ export interface LocalEngineAdvancedOptions {
   audioLanguages: string[]
   sponsorBlockCategories: SponsorBlockCategory[]
   useAria2c: boolean
+  includeDanmaku?: boolean
 }
 
 export function createDefaultLocalEngineAdvancedOptions(): LocalEngineAdvancedOptions {
@@ -101,6 +102,7 @@ export function createDefaultLocalEngineAdvancedOptions(): LocalEngineAdvancedOp
     audioLanguages: [],
     sponsorBlockCategories: [],
     useAria2c: false,
+    includeDanmaku: false,
   }
 }
 
@@ -143,6 +145,7 @@ export interface LocalDesktopJobOptions {
   audioLanguages?: string[]
   sponsorBlockCategories?: SponsorBlockCategory[]
   useAria2c?: boolean
+  includeDanmaku?: boolean
   /** @deprecated Use collectionMode. Kept for older call sites/releases. */
   playlist?: boolean
 }
@@ -268,6 +271,7 @@ export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): str
     params.set('sponsorblock', options.sponsorBlockCategories.join(','))
   }
   params.set('aria2', options.useAria2c ? '1' : '0')
+  params.set('danmaku', options.includeDanmaku ? '1' : '0')
 
   // Preserve the legacy field so a protocol URL is still understandable by
   // pre-0.5 engines, while new engines use the explicit collection policy.

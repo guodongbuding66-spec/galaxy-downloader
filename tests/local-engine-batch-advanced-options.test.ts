@@ -22,6 +22,7 @@ describe('shared Local Engine advanced media options', () => {
       audioLanguages: [],
       sponsorBlockCategories: [],
       useAria2c: false,
+      includeDanmaku: false,
     })
 
     first.subtitleLanguages.push('en')
@@ -30,9 +31,10 @@ describe('shared Local Engine advanced media options', () => {
     expect(second.subtitleLanguages).toEqual([])
     expect(second.audioLanguages).toEqual([])
     expect(second.sponsorBlockCategories).toEqual([])
+    expect(second.includeDanmaku).toBe(false)
   })
 
-  it('gates aria2c on the Local Engine capability without mutating UI state', () => {
+  it('gates aria2c on the Local Engine capability without mutating other UI state', () => {
     const source = {
       ...createDefaultLocalEngineAdvancedOptions(),
       segmentStart: '01:20',
@@ -42,6 +44,7 @@ describe('shared Local Engine advanced media options', () => {
       audioLanguages: ['zh', 'en'],
       sponsorBlockCategories: ['sponsor', 'intro'] as const,
       useAria2c: true,
+      includeDanmaku: true,
     }
 
     const unavailable = resolveLocalEngineAdvancedJobOptions({
@@ -61,7 +64,10 @@ describe('shared Local Engine advanced media options', () => {
     expect(ready.subtitleLanguages).toEqual(['zh-Hans', 'en'])
     expect(ready.audioLanguages).toEqual(['zh', 'en'])
     expect(ready.sponsorBlockCategories).toEqual(['sponsor', 'intro'])
+    expect(ready.includeDanmaku).toBe(true)
+    expect(unavailable.includeDanmaku).toBe(true)
     expect(source.useAria2c).toBe(true)
+    expect(source.includeDanmaku).toBe(true)
   })
 
   it('normalizes advanced media capabilities from bridge status', () => {
