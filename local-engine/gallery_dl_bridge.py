@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -10,6 +11,7 @@ from url_policy import PublicUrlError, validated_public_http_url
 GALLERY_DL_BRIDGE_PROTOCOL_VERSION = 6
 GALLERY_DL_DOWNLOAD_PATH = "/gallery-dl/download"
 _ALLOWED_GALLERY_DL_FIELDS = frozenset({"sourceUrl", "maxFiles"})
+_GALLERY_DL_TASK_ID_RE = re.compile(r"^gdl-[0-9a-f]{16}$")
 
 
 @dataclass(frozen=True)
@@ -70,7 +72,7 @@ def handle_gallery_dl_download_request(
     except (GalleryDlExecutorError, PublicUrlError, ValueError):
         return _error(400, "GALLERY_DL_REJECTED", "The gallery-dl task was rejected by the local engine")
 
-    if not task_id or len(task_id) > 96:
+    if _GALLERY_DL_TASK_ID_RE.fullmatch(task_id) is None:
         return _error(500, "INVALID_TASK_ID", "The local gallery-dl executor returned an invalid task id")
 
     return GalleryDlBridgeResult(
@@ -157,6 +159,16 @@ def run_gallery_dl_bridge_self_test() -> None:
     assert handle_gallery_dl_download_request(
         {"sourceUrl": "https://1.1.1.1/gallery"}, None
     ).payload["code"] == "GALLERY_DL_UNAVAILABLE"
+
+    def invalid_submit(_source_url: str, *, max_files: int) -> str:
+        assert max_files == MAX_GALLERY_DL_FILES
+        return "bad\nvalue"
+
+    invalid = handle_gallery_dl_download_request(
+        {"sourceUrl": "https://1.1.1.1/gallery"}, invalid_submit
+    )
+    assert invalid.status == 500
+    assert invalid.payload["code"] == "INVALID_TASK_ID"
 
     class Owner:
         def status(self) -> dict[str, Any]:
