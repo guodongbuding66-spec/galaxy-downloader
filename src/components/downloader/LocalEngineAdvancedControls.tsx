@@ -12,8 +12,10 @@ import {
   Zap,
 } from 'lucide-react';
 
+import { NfoSidecarControl } from '@/components/downloader/NfoSidecarControl';
 import { getBilibiliDanmakuFormatCapability } from '@/lib/bilibili-danmaku-capability';
 import { getCoverSidecarCapability } from '@/lib/cover-sidecar-capability';
+import { getNfoSidecarCapability } from '@/lib/nfo-sidecar-capability';
 import {
   createDefaultLocalEngineAdvancedOptions,
   normalizeLocalEngineDanmakuFormats,
@@ -241,6 +243,7 @@ export function LocalEngineAdvancedControls({
   const hasDanmakuTrack = useMemo(() => subtitles.some(isNativeDanmakuTrack), [subtitles]);
   const [availableDanmakuFormats, setAvailableDanmakuFormats] = useState<LocalEngineDanmakuFormat[]>(['xml']);
   const [coverSidecarCapability, setCoverSidecarCapability] = useState<boolean | null>(null);
+  const [nfoSidecarCapability, setNfoSidecarCapability] = useState<boolean | null>(null);
   const selectedDanmakuFormats = useMemo(
     () => normalizeLocalEngineDanmakuFormats(value.danmakuFormats),
     [value.danmakuFormats],
@@ -268,9 +271,25 @@ export function LocalEngineAdvancedControls({
   }, []);
 
   useEffect(() => {
-    if (coverSidecarCapability !== false || !value.keepCoverSidecar) return;
-    onChange({ ...value, keepCoverSidecar: false });
-  }, [coverSidecarCapability, onChange, value]);
+    let cancelled = false;
+    void getNfoSidecarCapability().then((ready) => {
+      if (!cancelled) setNfoSidecarCapability(ready);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const clearCoverSidecar = coverSidecarCapability === false && Boolean(value.keepCoverSidecar);
+    const clearNfoSidecar = nfoSidecarCapability === false && Boolean(value.includeNfo);
+    if (!clearCoverSidecar && !clearNfoSidecar) return;
+    onChange({
+      ...value,
+      ...(clearCoverSidecar ? { keepCoverSidecar: false } : {}),
+      ...(clearNfoSidecar ? { includeNfo: false } : {}),
+    });
+  }, [coverSidecarCapability, nfoSidecarCapability, onChange, value]);
 
   useEffect(() => {
     if (!value.includeDanmaku) return;
@@ -304,6 +323,7 @@ export function LocalEngineAdvancedControls({
     if (value.useAria2c) count += 1;
     if (value.includeDanmaku) count += 1;
     if (value.keepCoverSidecar) count += 1;
+    if (value.includeNfo) count += 1;
     return count;
   }, [value]);
 
@@ -629,6 +649,13 @@ export function LocalEngineAdvancedControls({
                 </span>
               </label>
             </section>
+
+            <NfoSidecarControl
+              value={value}
+              onChange={onChange}
+              capability={nfoSidecarCapability}
+              disabled={disabled}
+            />
 
             <section className="rounded-lg border bg-background/60 p-2.5">
               <label className={`flex items-start gap-2 text-[10px] ${aria2Ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
