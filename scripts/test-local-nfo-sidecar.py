@@ -28,6 +28,25 @@ class NfoSidecarTests(unittest.TestCase):
             "thumbnail": "https://i.example.test/cover.jpg?x=1&y=2",
         }
 
+    def bangumi_sample(self) -> dict[str, object]:
+        return {
+            "id": "267851",
+            "extractor_key": "BiliBiliBangumi",
+            "title": "1 残酷",
+            "description": "少年踏上旅程",
+            "series": "鬼灭之刃",
+            "series_id": "4358",
+            "season": "立志篇",
+            "season_id": "26801",
+            "season_number": 1,
+            "episode": "残酷",
+            "episode_id": "267851",
+            "episode_number": 1,
+            "upload_date": "20190406",
+            "duration": 1425.256,
+            "thumbnail": "https://i.example.test/bangumi.jpg",
+        }
+
     def test_parse_info_json_requires_bounded_utf8_object(self) -> None:
         parsed = nfo.parse_info_json(json.dumps(self.sample()).encode("utf-8"))
         self.assertEqual(parsed["id"], "BV1demo")
@@ -56,6 +75,43 @@ class NfoSidecarTests(unittest.TestCase):
         self.assertIn("<thumb>https://i.example.test/cover.jpg?x=1&amp;y=2</thumb>", rendered)
         self.assertEqual(rendered, nfo.render_nfo(self.sample()))
         self.assertEqual(nfo._bounded_list({"beta", "alpha", "beta"}), ("alpha", "beta"))
+
+    def test_bilibili_bangumi_renders_episode_details(self) -> None:
+        rendered = nfo.render_nfo(self.bangumi_sample())
+        self.assertTrue(rendered.startswith('<?xml version="1.0" encoding="UTF-8"?>\n<episodedetails>'))
+        self.assertIn("<title>残酷</title>", rendered)
+        self.assertNotIn("<title>1 残酷</title>", rendered)
+        self.assertIn("<showtitle>鬼灭之刃</showtitle>", rendered)
+        self.assertIn("<season>1</season>", rendered)
+        self.assertIn("<episode>1</episode>", rendered)
+        self.assertIn("<aired>2019-04-06</aired>", rendered)
+        self.assertNotIn("<premiered>", rendered)
+        self.assertIn("<runtime>24</runtime>", rendered)
+        self.assertIn('<uniqueid type="bilibili" default="true">267851</uniqueid>', rendered)
+        self.assertTrue(rendered.rstrip().endswith("</episodedetails>"))
+
+    def test_episode_detection_is_fail_closed_and_numbers_are_bounded(self) -> None:
+        series_only = self.sample() | {"series": "A collection"}
+        rendered = nfo.render_nfo(series_only)
+        self.assertIn("<movie>", rendered)
+        self.assertNotIn("<episodedetails>", rendered)
+        self.assertNotIn("<showtitle>", rendered)
+
+        invalid_numbers = self.bangumi_sample() | {
+            "season_number": -1,
+            "episode_number": 1.5,
+        }
+        rendered_episode = nfo.render_nfo(invalid_numbers)
+        self.assertIn("<episodedetails>", rendered_episode)
+        self.assertNotIn("<season>", rendered_episode)
+        self.assertNotIn("<episode>1.5</episode>", rendered_episode)
+        self.assertNotIn("<episode>", rendered_episode)
+
+        self.assertEqual(nfo._bounded_nonnegative_integer(0, 10), "0")
+        self.assertEqual(nfo._bounded_nonnegative_integer("10", 10), "10")
+        self.assertEqual(nfo._bounded_nonnegative_integer(True, 10), "")
+        self.assertEqual(nfo._bounded_nonnegative_integer(1.25, 10), "")
+        self.assertEqual(nfo._bounded_nonnegative_integer(11, 10), "")
 
     def test_render_nfo_rejects_missing_title_and_unsafe_thumbnail(self) -> None:
         with self.assertRaises(nfo.NfoSidecarError):
