@@ -19,6 +19,7 @@ from desktop_download_workbench import (
     run_desktop_download_workbench_self_test,
 )
 from desktop_extras import install_desktop_extras
+from desktop_gallery_dl import install_desktop_gallery_dl, run_desktop_gallery_dl_self_test
 from desktop_learning import install_desktop_learning, run_desktop_learning_self_test
 from desktop_manager import install_desktop_manager
 from desktop_marketplace import install_desktop_marketplace, run_desktop_marketplace_self_test
@@ -195,6 +196,10 @@ install_desktop_ui(engine)
 install_desktop_quick_download(engine)
 install_desktop_download_workbench(engine)
 install_desktop_extras(engine)
+# Expose the already-implemented, explicit gallery-dl fallback in the production
+# desktop workbench. Its UI hook runs after Quick Download (order 47 vs 40), so
+# the quick panel exists before the fallback card is attached.
+install_desktop_gallery_dl(engine)
 install_desktop_manager(engine)
 install_desktop_runtime(engine)
 install_desktop_tools(engine)
@@ -325,6 +330,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_quick_download_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_download_workbench_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_extras_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_gallery_dl_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_runtime_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_tools_installed", False) is True
@@ -388,6 +394,7 @@ def _run_image_self_test() -> None:
     run_exact_format_policy_self_test()
     run_desktop_quick_download_self_test()
     run_desktop_download_workbench_self_test()
+    run_desktop_gallery_dl_self_test()
     run_desktop_platform_features_self_test()
     run_desktop_ai_self_test()
     run_desktop_asr_self_test()
