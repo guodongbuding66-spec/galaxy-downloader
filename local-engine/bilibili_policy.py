@@ -59,6 +59,42 @@ def _creation_flags() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+def _danmaku_output_directory(output_template: str) -> Path:
+    return Path(str(output_template or ".")).expanduser().parent
+
+
+def _snapshot_danmaku_sidecars(output_template: str) -> dict[Path, tuple[int, int]]:
+    """Return bounded metadata for native danmaku XML files in this job directory.
+
+    The media policy uses the before/after delta to identify only XML files that
+    this synchronous yt-dlp sidecar pass actually created or changed. Symlinks
+    are ignored so later local conversion never follows an unexpected target.
+    """
+    directory = _danmaku_output_directory(output_template)
+    result: dict[Path, tuple[int, int]] = {}
+    try:
+        candidates = tuple(directory.glob("*.danmaku.xml"))
+    except OSError:
+        return result
+    for path in candidates:
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            stat = path.stat()
+        except OSError:
+            continue
+        result[path.resolve(strict=False)] = (stat.st_mtime_ns, stat.st_size)
+    return result
+
+
+def _changed_danmaku_sidecars(
+    output_template: str,
+    before: dict[Path, tuple[int, int]],
+) -> tuple[Path, ...]:
+    after = _snapshot_danmaku_sidecars(output_template)
+    return tuple(sorted((path for path, signature in after.items() if before.get(path) != signature), key=str))
+
+
 def build_danmaku_command(
     executable: Path,
     source_url: str,
@@ -173,13 +209,15 @@ def download_danmaku_sidecar(
     selected_items: tuple[int, ...] | list[int] | None,
     cancelled: Callable[[], bool],
     on_status: Callable[[str], None],
-) -> None:
+) -> tuple[Path, ...]:
     """Save Bilibili's native XML danmaku without touching normal subtitle flags.
 
     The public path is attempted first to avoid locked Chromium cookie databases.
     If it fails and the user selected a browser, a single cookie-backed retry is
-    attempted. A sidecar error is reported to the caller but never deletes or
-    rewrites an already completed media file.
+    attempted. The return value contains only native XML files created or changed
+    by the successful attempt, allowing later offline conversion to avoid guessing
+    filenames or touching unrelated XML files. A sidecar error is reported to the
+    caller but never deletes or rewrites an already completed media file.
     """
     mode = _normalized_collection_mode(collection_mode, playlist)
     timeout_seconds = (
@@ -198,8 +236,10 @@ def download_danmaku_sidecar(
         selected_items=selected_items,
         browser="none",
     )
+    public_before = _snapshot_danmaku_sidecars(output_template)
     try:
         _run_once(public_command, cancelled=cancelled, timeout_seconds=timeout_seconds)
+        changed = _changed_danmaku_sidecars(output_template, public_before)
     except BilibiliDanmakuError as public_error:
         if cancelled() or not browser or browser == "none":
             raise
@@ -213,11 +253,14 @@ def download_danmaku_sidecar(
             selected_items=selected_items,
             browser=browser,
         )
+        cookie_before = _snapshot_danmaku_sidecars(output_template)
         try:
             _run_once(cookie_command, cancelled=cancelled, timeout_seconds=timeout_seconds)
+            changed = _changed_danmaku_sidecars(output_template, cookie_before)
         except BilibiliDanmakuError as cookie_error:
             raise BilibiliDanmakuError(str(cookie_error) or str(public_error)) from cookie_error
     on_status("[Galaxy] Bilibili 弹幕 XML 已保存。")
+    return changed
 
 
 def run_bilibili_policy_self_test() -> None:
