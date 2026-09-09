@@ -101,13 +101,16 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self._owns_ai_api = ai_api is None
         self._ai_closed = False
         self._owns_asr_api = asr_api is None
-        transfer: HeadlessTransferApi | None = None
-        coordinator: CourseDownloadCoordinator | None = None
-        attachment_downloads: CourseAttachmentDownloadService | None = None
         self._owns_transfer_api = transfer_api is None
         self._transfer_closed = False
+        self._owns_gallery_dl_api = gallery_dl_api is None
+        self._gallery_dl_closed = False
         self._course_download_coordinator_closed = False
         self._course_attachment_download_service_closed = False
+        transfer: HeadlessTransferApi | None = None
+        gallery: HeadlessGalleryDlApi | None = None
+        coordinator: CourseDownloadCoordinator | None = None
+        attachment_downloads: CourseAttachmentDownloadService | None = None
         try:
             asr = asr_api or Qwen3HeadlessAsrApi(runtime.download_root)
             shared_asr_context = getattr(asr, "context", None)
@@ -141,6 +144,8 @@ class GalaxyApiServer(ThreadingHTTPServer):
                 attachment_downloads.close()
             if coordinator is not None:
                 coordinator.close()
+            if self._owns_gallery_dl_api and gallery is not None:
+                gallery.close()
             if self._owns_transfer_api and transfer is not None:
                 transfer.shutdown()
             if self._owns_ai_api:
@@ -159,6 +164,10 @@ class GalaxyApiServer(ThreadingHTTPServer):
             if coordinator is not None and not self._course_download_coordinator_closed:
                 self._course_download_coordinator_closed = True
                 coordinator.close()
+            gallery = getattr(self, "gallery_dl_api", None)
+            if self._owns_gallery_dl_api and gallery is not None and not self._gallery_dl_closed:
+                self._gallery_dl_closed = True
+                gallery.close()
             if self._owns_transfer_api and not self._transfer_closed:
                 self._transfer_closed = True
                 self.transfer_api.shutdown()
