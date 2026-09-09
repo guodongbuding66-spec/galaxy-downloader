@@ -10,15 +10,25 @@ sys.path.insert(0, str(ROOT / "local-engine"))
 
 import bilibili_policy  # noqa: E402
 import media_policy  # noqa: E402
+from bilibili_danmaku_convert import BilibiliDanmakuConversionError  # noqa: E402
 
+
+SAMPLE_DANMAKU_XML = (
+    '<i><d p="1.25,1,25,16711680,1700000000,0,user,row">Hello &amp; world</d>'
+    '<d p="2.5,5,30,255">Top</d></i>'
+)
 
 assert media_policy._parse_time("01:20") == 80
 assert media_policy._parse_time("1:02:03") == 3723
 assert media_policy._parse_time("bad") is None
 assert media_policy._validated_languages("zh-Hans,en,en,../bad") == ("zh-Hans", "en")
 assert media_policy._validated_sponsor_categories("sponsor,selfpromo,unknown") == ("sponsor", "selfpromo")
+assert media_policy._validated_danmaku_formats("xml,ass,json,ass,srt") == ("xml", "ass", "json")
+assert media_policy._validated_danmaku_formats("srt,unknown") == ("xml",)
 assert media_policy._clean_preferences({})["includeDanmaku"] is False
+assert media_policy._clean_preferences({})["danmakuFormats"] == ["xml"]
 assert media_policy._clean_preferences({"includeDanmaku": True})["includeDanmaku"] is True
+assert media_policy._clean_preferences({"danmakuFormats": ["ass", "json"]})["danmakuFormats"] == ["ass", "json"]
 
 bilibili_policy.run_bilibili_policy_self_test()
 assert bilibili_policy.is_bilibili_url("https://www.bilibili.com/video/BV1demo")
@@ -82,6 +92,73 @@ except bilibili_policy.BilibiliDanmakuError:
     pass
 else:
     raise AssertionError("spoofed Bilibili host was accepted for danmaku sidecar")
+
+with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary)
+    preexisting = root / "existing.danmaku.xml"
+    preexisting.write_text(SAMPLE_DANMAKU_XML, encoding="utf-8")
+    produced = root / "fresh.danmaku.xml"
+    original_run_once = bilibili_policy._run_once
+
+    def fake_run_once(command, *, cancelled, timeout_seconds):
+        assert not cancelled()
+        assert timeout_seconds > 0
+        produced.write_text(SAMPLE_DANMAKU_XML, encoding="utf-8")
+
+    bilibili_policy._run_once = fake_run_once
+    try:
+        changed = bilibili_policy.download_danmaku_sidecar(
+            root / "yt-dlp",
+            "https://www.bilibili.com/video/BV1demo",
+            output_template=str(root / "%(title)s [%(id)s].%(ext)s"),
+            browser="none",
+            playlist=False,
+            collection_mode="single",
+            selected_items=None,
+            cancelled=lambda: False,
+            on_status=lambda _message: None,
+        )
+    finally:
+        bilibili_policy._run_once = original_run_once
+    assert changed == (produced.resolve(),)
+    assert preexisting.resolve() not in changed
+
+with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary)
+    xml = root / "video.danmaku.xml"
+    xml.write_text(SAMPLE_DANMAKU_XML, encoding="utf-8")
+    saved = media_policy._convert_danmaku_sidecars((xml,), ("xml", "ass", "json"))
+    assert saved == ("xml", "ass", "json")
+    assert xml.exists()
+    assert (root / "video.danmaku.ass").exists()
+    assert (root / "video.danmaku.json").exists()
+
+    ass_only_xml = root / "ass-only.danmaku.xml"
+    ass_only_xml.write_text(SAMPLE_DANMAKU_XML, encoding="utf-8")
+    saved = media_policy._convert_danmaku_sidecars((ass_only_xml,), ("ass",))
+    assert saved == ("ass",)
+    assert not ass_only_xml.exists()
+    assert (root / "ass-only.danmaku.ass").exists()
+    assert not (root / "ass-only.danmaku.json").exists()
+
+    failed_xml = root / "failed.danmaku.xml"
+    failed_xml.write_text(SAMPLE_DANMAKU_XML, encoding="utf-8")
+    original_convert = media_policy.convert_danmaku_file
+
+    def fail_convert(*_args, **_kwargs):
+        raise BilibiliDanmakuConversionError("synthetic conversion failure")
+
+    media_policy.convert_danmaku_file = fail_convert
+    try:
+        try:
+            media_policy._convert_danmaku_sidecars((failed_xml,), ("ass", "json"))
+        except BilibiliDanmakuConversionError:
+            pass
+        else:
+            raise AssertionError("synthetic danmaku conversion failure was swallowed")
+    finally:
+        media_policy.convert_danmaku_file = original_convert
+    assert failed_xml.exists()
 
 with tempfile.TemporaryDirectory() as temporary:
     root = Path(temporary)
