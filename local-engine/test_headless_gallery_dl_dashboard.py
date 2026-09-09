@@ -123,13 +123,19 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         for marker in (
             b"function hasLiveJobs()",
             b"Boolean(tool.mutationBlocked) || hasLiveJobs()",
-            b"const [result, tool] = await Promise.all([",
             b"api('/v1/gallery-dl/jobs?limit=100')",
-            b"api('/v1/gallery-dl/tool')",
-            b"state.tool = tool",
+            b"state.jobs = Array.isArray(result.jobs) ? result.jobs : []",
+            b"state.tool = await api('/v1/gallery-dl/tool')",
             b"renderTool()",
         ):
             self.assertIn(marker, script)
+
+        load_jobs = script.split(b"async function loadJobs()", 1)[1].split(b"async function loadGallery()", 1)[0]
+        jobs_fetch = load_jobs.index(b"api('/v1/gallery-dl/jobs?limit=100')")
+        jobs_state = load_jobs.index(b"state.jobs = Array.isArray(result.jobs) ? result.jobs : []")
+        tool_fetch = load_jobs.index(b"state.tool = await api('/v1/gallery-dl/tool')")
+        self.assertLess(jobs_fetch, jobs_state)
+        self.assertLess(jobs_state, tool_fetch)
 
     def test_gallery_workspace_has_native_limits_and_responsive_styles(self) -> None:
         status, _, script = self.request("/dashboard/gallery-dl.js")
