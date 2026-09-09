@@ -85,7 +85,7 @@ class BilibiliDanmakuConvertTests(unittest.TestCase):
         self.assertIn(r"\an8\pos(640,30)", ass)
         self.assertIn(r"\an2\pos(640,692)", ass)
         self.assertIn("&H000000FF", ass)  # RGB red becomes ASS BGR red
-        self.assertIn(r"Top \{brace\}\\path", ass.replace(r"\\{", r"\{").replace(r"\\}", r"\}"))
+        self.assertIn(r"Top \{brace\}\\path", ass)
 
         dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
         self.assertEqual(len(dialogue_lines), 4)
