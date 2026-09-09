@@ -62,6 +62,7 @@ from media_cleanup_workbench_v2 import (
     run_media_cleanup_workbench_v2_self_test,
 )
 from media_policy import install_media_policy
+from nfo_integration_policy import install_nfo_sidecar_policy, run_nfo_integration_self_test
 from pause_resume_policy import install_pause_resume_policy, run_pause_resume_self_test
 from resume_bridge import PauseResumeLocalBridge, install_resume_bridge, run_resume_bridge_self_test
 from queue_controls import install_queue_controls, run_queue_controls_self_test
@@ -157,18 +158,21 @@ bridge.parse_with_bundled_ytdlp = _hybrid_parse
 import engine  # noqa: E402  import after bridge/document policy installation
 
 engine._validated_source_url = validated_public_http_url
-# Policy order matters: archive/media fields extend Job first. Exact format
-# selection is installed after generic media preferences so an explicit user
-# format_id wins over height/bitrate/language fallbacks. Workspace owns
-# persistent output/transport defaults; recovery then adds optional per-job
-# transport overrides without mutating those defaults. The queue captures that
-# final Job type; queue/history/runtime policies wrap execution; presentation is
-# installed last before the first Tk instance exists. Runtime paths are installed
-# first so every later policy can resolve mutable storage without assuming Windows.
+# Policy order matters: archive/media fields extend Job first. NFO then wraps
+# those media behaviors so metadata uses the exact same source/cookies/collection
+# request while its temporary JSON remains isolated. Exact format selection is
+# installed after both so an explicit format_id still wins over generic media
+# preferences. Workspace owns persistent output/transport defaults; recovery then
+# adds optional per-job transport overrides without mutating those defaults. The
+# queue captures that final Job type; queue/history/runtime policies wrap
+# execution; presentation is installed last before the first Tk instance exists.
+# Runtime paths are installed first so every later policy can resolve mutable
+# storage without assuming Windows.
 install_runtime_paths_policy(engine)
 install_tool_manager(engine)
 install_archive_policy(engine)
 install_media_policy(engine)
+install_nfo_sidecar_policy(engine)
 install_exact_format_policy(engine)
 install_workspace_policy(engine)
 install_recovery_policy(engine)
@@ -334,6 +338,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_runtime_paths_policy_installed", False) is True
     assert getattr(engine, "_galaxy_archive_policy_installed", False) is True
     assert getattr(engine, "_galaxy_media_policy_installed", False) is True
+    assert getattr(engine, "_galaxy_nfo_sidecar_policy_installed", False) is True
     assert getattr(engine, "_galaxy_exact_format_policy_installed", False) is True
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True
@@ -366,6 +371,7 @@ def _run_image_self_test() -> None:
     run_runtime_paths_policy_self_test()
     run_runtime_storage_self_test()
     run_tool_manager_self_test()
+    run_nfo_integration_self_test()
     run_exact_format_policy_self_test()
     run_desktop_quick_download_self_test()
     run_desktop_download_workbench_self_test()

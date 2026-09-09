@@ -57,6 +57,7 @@ jobs:
             local-engine/media_policy.py \
             local-engine/bilibili_danmaku_convert.py \
             local-engine/nfo_sidecar.py \
+            local-engine/nfo_integration_policy.py \
             local-engine/media_format_catalog.py \
             local-engine/exact_format_policy.py \
             local-engine/workspace_policy.py \
@@ -124,6 +125,7 @@ jobs:
           python3 scripts/test-local-media-policy.py
           python3 scripts/test-local-bilibili-danmaku-convert.py
           python3 scripts/test-local-nfo-sidecar.py
+          python3 scripts/test-local-nfo-integration.py
           python3 scripts/test-local-media-format-catalog.py
           python3 scripts/test-local-exact-format-policy.py
           python3 scripts/test-local-desktop-quick-download.py
