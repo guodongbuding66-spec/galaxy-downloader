@@ -112,4 +112,17 @@ describe('shared Local Engine advanced media options', () => {
     expect(source).toContain('setSubmissionResult(null)')
     expect(source).toContain('setSubmissionError(\'\')')
   })
+
+  it('keeps the shared advanced controls fail-closed for cover sidecars', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/components/downloader/LocalEngineAdvancedControls.tsx'),
+      'utf8',
+    )
+
+    expect(source).toContain("getCoverSidecarCapability")
+    expect(source).toContain("coverSidecarCapability !== false || !value.keepCoverSidecar")
+    expect(source).toContain("keepCoverSidecar: false")
+    expect(source).toContain("disabled={disabled || !coverSidecarReady}")
+    expect(source).toContain("checked={coverSidecarReady && Boolean(value.keepCoverSidecar)}")
+  })
 })

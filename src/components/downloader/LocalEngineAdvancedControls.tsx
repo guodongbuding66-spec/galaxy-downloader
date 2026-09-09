@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import { getBilibiliDanmakuFormatCapability } from '@/lib/bilibili-danmaku-capability';
+import { getCoverSidecarCapability } from '@/lib/cover-sidecar-capability';
 import {
   createDefaultLocalEngineAdvancedOptions,
   normalizeLocalEngineDanmakuFormats,
@@ -76,6 +77,13 @@ type ExtraCopy = {
   courseHint: string;
   cleanHint: string;
   fastHint: string;
+};
+
+type CoverCopy = {
+  label: string;
+  ready: string;
+  checking: string;
+  missing: string;
 };
 
 const COPY: Record<string, Copy> = {
@@ -150,6 +158,45 @@ const EXTRA: Record<string, ExtraCopy> = {
   },
 };
 
+const COVER_COPY: Record<string, CoverCopy> = {
+  zh: {
+    label: '保留独立封面文件',
+    ready: '在视频旁保留独立 JPG / WebP 封面；与“嵌入封面”互不绑定。默认关闭。',
+    checking: '正在确认本地引擎是否支持独立封面…',
+    missing: '当前本地引擎未声明独立封面能力，请升级并保持本地引擎运行。',
+  },
+  'zh-tw': {
+    label: '保留獨立封面檔',
+    ready: '在影片旁保留獨立 JPG / WebP 封面；與「嵌入封面」互不綁定。預設關閉。',
+    checking: '正在確認本機引擎是否支援獨立封面…',
+    missing: '目前本機引擎未宣告獨立封面能力，請升級並保持本機引擎執行。',
+  },
+  en: {
+    label: 'Keep cover sidecar',
+    ready: 'Keep a separate JPG / WebP cover beside the media. This is independent from embedding the cover. Off by default.',
+    checking: 'Checking Local Engine cover-sidecar support…',
+    missing: 'The current Local Engine does not advertise cover-sidecar support. Upgrade it and keep it running.',
+  },
+  ja: {
+    label: 'カバー画像を別ファイルで保存',
+    ready: 'JPG / WebP のカバー画像を動画の横に保存します。カバー埋め込みとは独立した設定です。既定オフ。',
+    checking: 'ローカルエンジンのカバー保存対応を確認中…',
+    missing: '現在のローカルエンジンはカバー別保存に対応していません。更新して起動してください。',
+  },
+  es: {
+    label: 'Conservar portada aparte',
+    ready: 'Guarda una portada JPG / WebP junto al vídeo. Es independiente de incrustar la portada. Desactivado por defecto.',
+    checking: 'Comprobando si el motor local admite portadas separadas…',
+    missing: 'El motor local actual no anuncia soporte para portadas separadas. Actualízalo y mantenlo en ejecución.',
+  },
+  ru: {
+    label: 'Сохранять обложку отдельно',
+    ready: 'Сохранять отдельный JPG / WebP рядом с видео. Это не зависит от встраивания обложки. По умолчанию выключено.',
+    checking: 'Проверяем поддержку отдельной обложки локальным движком…',
+    missing: 'Текущий локальный движок не заявляет поддержку отдельной обложки. Обновите и запустите его.',
+  },
+};
+
 function locale(pathname: string | null): string {
   return pathname?.split('/').filter(Boolean)[0] || 'en';
 }
@@ -190,8 +237,10 @@ export function LocalEngineAdvancedControls({
   const language = locale(pathname);
   const copy = COPY[language] || COPY.en;
   const extra = EXTRA[language] || EXTRA.en;
+  const coverCopy = COVER_COPY[language] || COVER_COPY.en;
   const hasDanmakuTrack = useMemo(() => subtitles.some(isNativeDanmakuTrack), [subtitles]);
   const [availableDanmakuFormats, setAvailableDanmakuFormats] = useState<LocalEngineDanmakuFormat[]>(['xml']);
+  const [coverSidecarCapability, setCoverSidecarCapability] = useState<boolean | null>(null);
   const selectedDanmakuFormats = useMemo(
     () => normalizeLocalEngineDanmakuFormats(value.danmakuFormats),
     [value.danmakuFormats],
@@ -207,6 +256,21 @@ export function LocalEngineAdvancedControls({
       cancelled = true;
     };
   }, [hasDanmakuTrack]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getCoverSidecarCapability().then((ready) => {
+      if (!cancelled) setCoverSidecarCapability(ready);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (coverSidecarCapability !== false || !value.keepCoverSidecar) return;
+    onChange({ ...value, keepCoverSidecar: false });
+  }, [coverSidecarCapability, onChange, value]);
 
   useEffect(() => {
     if (!value.includeDanmaku) return;
@@ -239,6 +303,7 @@ export function LocalEngineAdvancedControls({
     if (value.sponsorBlockCategories.length) count += 1;
     if (value.useAria2c) count += 1;
     if (value.includeDanmaku) count += 1;
+    if (value.keepCoverSidecar) count += 1;
     return count;
   }, [value]);
 
@@ -312,6 +377,13 @@ export function LocalEngineAdvancedControls({
     { id: 'clean', label: extra.clean, hint: extra.cleanHint },
     { id: 'fast', label: extra.fast, hint: extra.fastHint, disabled: !aria2Ready },
   ];
+
+  const coverSidecarReady = coverSidecarCapability === true;
+  const coverSidecarHint = coverSidecarCapability === null
+    ? coverCopy.checking
+    : coverSidecarReady
+      ? coverCopy.ready
+      : coverCopy.missing;
 
   return (
     <details className="group mt-2 overflow-hidden rounded-xl border bg-card/40">
@@ -540,6 +612,22 @@ export function LocalEngineAdvancedControls({
                   </label>
                 ))}
               </div>
+            </section>
+
+            <section className="rounded-lg border bg-background/60 p-2.5">
+              <label className={`flex items-start gap-2 text-[10px] ${coverSidecarReady ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                <input
+                  type="checkbox"
+                  checked={coverSidecarReady && Boolean(value.keepCoverSidecar)}
+                  disabled={disabled || !coverSidecarReady}
+                  onChange={(event) => update({ keepCoverSidecar: event.target.checked })}
+                  className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+                />
+                <span>
+                  <span className="block text-[11px] font-medium text-foreground">{coverCopy.label}</span>
+                  <span className="mt-0.5 block leading-4 text-muted-foreground">{coverSidecarHint}</span>
+                </span>
+              </label>
             </section>
 
             <section className="rounded-lg border bg-background/60 p-2.5">
