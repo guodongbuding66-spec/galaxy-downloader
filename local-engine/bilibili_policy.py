@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -115,11 +116,11 @@ def _terminate(process: subprocess.Popen[str]) -> None:
     try:
         process.terminate()
         process.wait(timeout=5)
-    except Exception:
-        try:
+    except (OSError, subprocess.SubprocessError):
+        with suppress(OSError):
             process.kill()
-        except Exception:
-            pass
+        with suppress(OSError, subprocess.SubprocessError):
+            process.wait(timeout=1)
 
 
 def _run_once(
