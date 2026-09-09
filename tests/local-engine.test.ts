@@ -104,4 +104,36 @@ describe('local media engine capabilities', () => {
     expect(disabled.searchParams.get('danmaku')).toBe('0')
     expect(disabled.searchParams.get('danmaku_formats')).toBeNull()
   })
+
+  it('keeps cover embedding and cover sidecar protocol options independent', () => {
+    const defaults = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://example.com/video',
+    }))
+    expect(defaults.searchParams.get('cover')).toBe('0')
+    expect(defaults.searchParams.get('cover_sidecar')).toBe('0')
+
+    const sidecarOnly = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://example.com/video',
+      includeCover: false,
+      keepCoverSidecar: true,
+    }))
+    expect(sidecarOnly.searchParams.get('cover')).toBe('0')
+    expect(sidecarOnly.searchParams.get('cover_sidecar')).toBe('1')
+
+    const embedOnly = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://example.com/video',
+      includeCover: true,
+      keepCoverSidecar: false,
+    }))
+    expect(embedOnly.searchParams.get('cover')).toBe('1')
+    expect(embedOnly.searchParams.get('cover_sidecar')).toBe('0')
+
+    const both = new URL(buildLocalDesktopEngineUri({
+      sourceUrl: 'https://example.com/video',
+      includeCover: true,
+      keepCoverSidecar: true,
+    }))
+    expect(both.searchParams.get('cover')).toBe('1')
+    expect(both.searchParams.get('cover_sidecar')).toBe('1')
+  })
 })
