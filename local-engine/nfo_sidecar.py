@@ -18,6 +18,8 @@ MAX_ID_CHARS = 200
 MAX_LIST_ITEMS = 64
 MAX_LIST_ITEM_CHARS = 160
 MAX_THUMBNAIL_URL_CHARS = 2_000
+MAX_SEASON_NUMBER = 9_999
+MAX_EPISODE_NUMBER = 999_999
 EXTRACTOR_TYPE_RE = re.compile(r"[^a-z0-9_-]+")
 
 
@@ -77,6 +79,35 @@ def _runtime_minutes(value: object) -> str:
     return str(max(1, int(round(seconds / 60))))
 
 
+def _bounded_nonnegative_integer(value: object, maximum: int) -> str:
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            return ""
+        number = int(value)
+    else:
+        text = _bounded_text(value, 16)
+        if not re.fullmatch(r"\d+", text):
+            return ""
+        number = int(text)
+    if number < 0 or number > maximum:
+        return ""
+    return str(number)
+
+
+def _episode_metadata(info: dict[str, Any]) -> tuple[bool, str, str, str, str, str]:
+    series = _bounded_text(info.get("series"), MAX_TITLE_CHARS)
+    episode_title = _bounded_text(info.get("episode"), MAX_TITLE_CHARS)
+    episode_id = _bounded_text(info.get("episode_id"), MAX_ID_CHARS)
+    season_number = _bounded_nonnegative_integer(info.get("season_number"), MAX_SEASON_NUMBER)
+    episode_number = _bounded_nonnegative_integer(info.get("episode_number"), MAX_EPISODE_NUMBER)
+    is_episode = bool(series and (episode_title or episode_id or episode_number))
+    return is_episode, series, episode_title, episode_id, season_number, episode_number
+
+
 def _extractor_id_type(info: dict[str, Any]) -> str:
     raw = _bounded_text(info.get("extractor_key") or info.get("extractor"), 80).lower()
     if "bilibili" in raw:
@@ -115,12 +146,24 @@ def _append_text(parent: ET.Element, tag: str, text: str, **attributes: str) -> 
 
 
 def render_nfo(info: dict[str, Any]) -> str:
-    root = ET.Element("movie")
+    is_episode, series, episode_title, episode_id, season_number, episode_number = _episode_metadata(info)
+    root = ET.Element("episodedetails" if is_episode else "movie")
 
-    title = _bounded_text(info.get("title") or info.get("fulltitle") or info.get("id"), MAX_TITLE_CHARS)
+    title = _bounded_text(
+        (episode_title if is_episode else None)
+        or info.get("title")
+        or info.get("fulltitle")
+        or info.get("id"),
+        MAX_TITLE_CHARS,
+    )
     if not title:
         raise NfoSidecarError("metadata does not contain a usable title")
     _append_text(root, "title", title)
+
+    if is_episode:
+        _append_text(root, "showtitle", series)
+        _append_text(root, "season", season_number)
+        _append_text(root, "episode", episode_number)
 
     description = _bounded_text(info.get("description"), MAX_DESCRIPTION_CHARS)
     _append_text(root, "plot", description)
@@ -131,13 +174,13 @@ def render_nfo(info: dict[str, Any]) -> str:
     )
     _append_text(root, "studio", studio)
 
-    premiered = _normalized_date(info.get("release_date") or info.get("upload_date"))
-    _append_text(root, "premiered", premiered)
+    release_date = _normalized_date(info.get("release_date") or info.get("upload_date"))
+    _append_text(root, "aired" if is_episode else "premiered", release_date)
 
     runtime = _runtime_minutes(info.get("duration"))
     _append_text(root, "runtime", runtime)
 
-    media_id = _bounded_text(info.get("id"), MAX_ID_CHARS)
+    media_id = episode_id if is_episode and episode_id else _bounded_text(info.get("id"), MAX_ID_CHARS)
     if media_id:
         _append_text(
             root,
@@ -228,8 +271,33 @@ def run_nfo_sidecar_self_test() -> None:
         "thumbnail": "https://i.example.test/cover.jpg",
     }
     rendered = render_nfo(info)
+    assert rendered.startswith('<?xml version="1.0" encoding="UTF-8"?>\n<movie>')
     assert "<title>Demo &amp; &lt;video&gt;</title>" in rendered
     assert '<uniqueid type="bilibili" default="true">BV1demo</uniqueid>' in rendered
     assert "<premiered>2026-09-09</premiered>" in rendered
     assert "<runtime>2</runtime>" in rendered
     assert rendered.count("<tag>demo</tag>") == 1
+
+    episode = {
+        "id": "267851",
+        "extractor_key": "BiliBiliBangumi",
+        "title": "1 残酷",
+        "series": "鬼灭之刃",
+        "series_id": "4358",
+        "season": "立志篇",
+        "season_id": "26801",
+        "season_number": 1,
+        "episode": "残酷",
+        "episode_id": "267851",
+        "episode_number": 1,
+        "upload_date": "20190406",
+        "duration": 1425.256,
+    }
+    rendered_episode = render_nfo(episode)
+    assert rendered_episode.startswith('<?xml version="1.0" encoding="UTF-8"?>\n<episodedetails>')
+    assert "<title>残酷</title>" in rendered_episode
+    assert "<showtitle>鬼灭之刃</showtitle>" in rendered_episode
+    assert "<season>1</season>" in rendered_episode
+    assert "<episode>1</episode>" in rendered_episode
+    assert "<aired>2019-04-06</aired>" in rendered_episode
+    assert '<uniqueid type="bilibili" default="true">267851</uniqueid>' in rendered_episode
