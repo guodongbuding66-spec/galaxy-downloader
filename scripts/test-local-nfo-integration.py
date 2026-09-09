@@ -7,6 +7,7 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -116,7 +117,7 @@ class NfoIntegrationUnitTests(unittest.TestCase):
             root = Path(temporary)
             (root / "b.info.json").write_text("{}", encoding="utf-8")
             (root / "A.info.json").write_text("{}", encoding="utf-8")
-            with unittest.mock.patch.object(policy, "MAX_NFO_SIDECARS_PER_JOB", 1):
+            with patch.object(policy, "MAX_NFO_SIDECARS_PER_JOB", 1):
                 files, truncated = policy._discover_info_json_files(root)
             self.assertEqual([path.name for path in files], ["A.info.json"])
             self.assertTrue(truncated)
@@ -134,7 +135,10 @@ class NfoIntegrationUnitTests(unittest.TestCase):
                 self.assertIsInstance(parsed, Job)
                 self.assertTrue(parsed.include_nfo)
                 self.assertTrue(
-                    engine.job_from_payload({"sourceUrl": "https://example.com/v", "includeNfo": True}).include_nfo
+                    engine.job_from_payload({
+                        "sourceUrl": "https://example.com/v",
+                        "includeNfo": True,
+                    }).include_nfo
                 )
                 self.assertTrue(engine.job_to_payload(parsed)["includeNfo"])
 
@@ -158,7 +162,10 @@ class NfoIntegrationUnitTests(unittest.TestCase):
             original_builder = external_ytdlp.build_external_command
             try:
                 policy.install_nfo_sidecar_policy(engine)
-                job = engine.job_from_payload({"sourceUrl": "https://example.com/v", "includeNfo": True})
+                job = engine.job_from_payload({
+                    "sourceUrl": "https://example.com/v",
+                    "includeNfo": True,
+                })
                 window = engine.EngineWindow(job)
                 window._run_job()
                 self.assertEqual(window._bridge["state"], "completed")
@@ -176,7 +183,10 @@ class NfoIntegrationUnitTests(unittest.TestCase):
             original_builder = external_ytdlp.build_external_command
             try:
                 policy.install_nfo_sidecar_policy(engine)
-                job = engine.job_from_payload({"sourceUrl": "https://example.com/v", "includeNfo": True})
+                job = engine.job_from_payload({
+                    "sourceUrl": "https://example.com/v",
+                    "includeNfo": True,
+                })
                 window = engine.EngineWindow(job)
                 window._run_job()
                 self.assertEqual(window._bridge["state"], "completed")
@@ -193,7 +203,10 @@ class NfoIntegrationUnitTests(unittest.TestCase):
             original_builder = external_ytdlp.build_external_command
             try:
                 policy.install_nfo_sidecar_policy(engine)
-                job = engine.job_from_payload({"sourceUrl": "https://example.com/v", "includeNfo": True})
+                job = engine.job_from_payload({
+                    "sourceUrl": "https://example.com/v",
+                    "includeNfo": True,
+                })
                 window = engine.EngineWindow(job)
                 window._run_job()
                 self.assertEqual(window._bridge["state"], "cancelled")
@@ -231,7 +244,10 @@ class NfoIntegrationUnitTests(unittest.TestCase):
                 return dict(self._bridge)
 
             def build_options(self):
-                return {"outtmpl": str(root / "%(title)s.%(ext)s"), "writeinfojson": False}
+                return {
+                    "outtmpl": str(root / "%(title)s.%(ext)s"),
+                    "writeinfojson": False,
+                }
 
             def _run_external_job(self, _executable):
                 return False
@@ -262,7 +278,11 @@ class NfoIntegrationUnitTests(unittest.TestCase):
             parse_job=parse_job,
             job_from_payload=job_from_payload,
             job_to_payload=job_to_payload,
-            _bool=lambda value, default=False: default if value is None else str(value).lower() in {"1", "true", "yes", "on"},
+            _bool=lambda value, default=False: (
+                default
+                if value is None
+                else str(value).lower() in {"1", "true", "yes", "on"}
+            ),
             default_download_dir=lambda: root,
         )
 
