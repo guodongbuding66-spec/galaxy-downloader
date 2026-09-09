@@ -9,10 +9,13 @@ on:
       - "local-engine/gallery_dl_executor.py"
       - "local-engine/gallery_dl_runtime.py"
       - "local-engine/gallery_dl_manager.py"
+      - "local-engine/gallery_dl_update_status.py"
+      - "local-engine/managed_tool_actions.py"
       - "local-engine/local_task_provider.py"
       - "local-engine/platform_paths.py"
       - "local-engine/url_policy.py"
       - "scripts/test-local-headless-gallery-dl.py"
+      - "scripts/test-local-headless-gallery-dl-tools.py"
       - ".github/workflows/headless-gallery-dl.yml"
   workflow_dispatch:
 
@@ -43,7 +46,12 @@ jobs:
           local-engine/gallery_dl_executor.py
           local-engine/gallery_dl_runtime.py
           local-engine/gallery_dl_manager.py
+          local-engine/gallery_dl_update_status.py
+          local-engine/managed_tool_actions.py
           local-engine/local_task_provider.py
           scripts/test-local-headless-gallery-dl.py
+          scripts/test-local-headless-gallery-dl-tools.py
       - name: Test Headless gallery-dl contract
         run: python scripts/test-local-headless-gallery-dl.py
+      - name: Test Headless gallery-dl tool manager
+        run: python scripts/test-local-headless-gallery-dl-tools.py
