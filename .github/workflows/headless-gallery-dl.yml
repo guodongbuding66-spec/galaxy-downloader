@@ -1,0 +1,49 @@
+name: Headless gallery-dl API
+
+on:
+  pull_request:
+    paths:
+      - "local-engine/headless_api.py"
+      - "local-engine/headless_gallery_dl_api.py"
+      - "local-engine/headless_gallery_dl_http.py"
+      - "local-engine/gallery_dl_executor.py"
+      - "local-engine/gallery_dl_runtime.py"
+      - "local-engine/gallery_dl_manager.py"
+      - "local-engine/local_task_provider.py"
+      - "local-engine/platform_paths.py"
+      - "local-engine/url_policy.py"
+      - "scripts/test-local-headless-gallery-dl.py"
+      - ".github/workflows/headless-gallery-dl.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  headless-gallery-dl:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+      - name: Compile Headless gallery-dl path
+        run: >-
+          python -m py_compile
+          local-engine/headless_gallery_dl_api.py
+          local-engine/headless_gallery_dl_http.py
+          local-engine/headless_api.py
+          local-engine/gallery_dl_executor.py
+          local-engine/gallery_dl_runtime.py
+          local-engine/gallery_dl_manager.py
+          local-engine/local_task_provider.py
+          scripts/test-local-headless-gallery-dl.py
+      - name: Test Headless gallery-dl contract
+        run: python scripts/test-local-headless-gallery-dl.py
