@@ -70,6 +70,7 @@ export function shouldUseFileBackedInputs(
 export type LocalEngineBrowser = 'none' | 'edge' | 'chrome' | 'firefox'
 export type LocalEngineCollectionMode = 'single' | 'all' | 'selected'
 export type LocalEngineSubtitleMode = 'manual' | 'auto' | 'both'
+export type LocalEngineDanmakuFormat = 'xml' | 'ass' | 'json'
 export type SponsorBlockCategory =
   | 'sponsor'
   | 'selfpromo'
@@ -79,6 +80,20 @@ export type SponsorBlockCategory =
   | 'preview'
   | 'music_offtopic'
   | 'filler'
+
+const LOCAL_ENGINE_DANMAKU_FORMATS: readonly LocalEngineDanmakuFormat[] = ['xml', 'ass', 'json']
+
+export function normalizeLocalEngineDanmakuFormats(
+  values?: readonly string[] | null,
+): LocalEngineDanmakuFormat[] {
+  const normalized: LocalEngineDanmakuFormat[] = []
+  for (const raw of values || []) {
+    const value = String(raw || '').trim().toLowerCase() as LocalEngineDanmakuFormat
+    if (!LOCAL_ENGINE_DANMAKU_FORMATS.includes(value) || normalized.includes(value)) continue
+    normalized.push(value)
+  }
+  return normalized.length ? normalized : ['xml']
+}
 
 export interface LocalEngineAdvancedOptions {
   segmentStart: string
@@ -90,6 +105,7 @@ export interface LocalEngineAdvancedOptions {
   sponsorBlockCategories: SponsorBlockCategory[]
   useAria2c: boolean
   includeDanmaku?: boolean
+  danmakuFormats?: LocalEngineDanmakuFormat[]
 }
 
 export function createDefaultLocalEngineAdvancedOptions(): LocalEngineAdvancedOptions {
@@ -103,6 +119,7 @@ export function createDefaultLocalEngineAdvancedOptions(): LocalEngineAdvancedOp
     sponsorBlockCategories: [],
     useAria2c: false,
     includeDanmaku: false,
+    danmakuFormats: ['xml'],
   }
 }
 
@@ -116,6 +133,7 @@ export function resolveLocalEngineAdvancedJobOptions(
     audioLanguages: [...value.audioLanguages],
     sponsorBlockCategories: [...value.sponsorBlockCategories],
     useAria2c: Boolean(aria2Ready && value.useAria2c),
+    danmakuFormats: normalizeLocalEngineDanmakuFormats(value.danmakuFormats),
   }
 }
 
@@ -146,6 +164,7 @@ export interface LocalDesktopJobOptions {
   sponsorBlockCategories?: SponsorBlockCategory[]
   useAria2c?: boolean
   includeDanmaku?: boolean
+  danmakuFormats?: LocalEngineDanmakuFormat[]
   /** @deprecated Use collectionMode. Kept for older call sites/releases. */
   playlist?: boolean
 }
@@ -272,6 +291,9 @@ export function buildLocalDesktopEngineUri(options: LocalDesktopJobOptions): str
   }
   params.set('aria2', options.useAria2c ? '1' : '0')
   params.set('danmaku', options.includeDanmaku ? '1' : '0')
+  if (options.includeDanmaku) {
+    params.set('danmaku_formats', normalizeLocalEngineDanmakuFormats(options.danmakuFormats).join(','))
+  }
 
   // Preserve the legacy field so a protocol URL is still understandable by
   // pre-0.5 engines, while new engines use the explicit collection policy.
