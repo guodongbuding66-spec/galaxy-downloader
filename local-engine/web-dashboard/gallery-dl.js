@@ -286,12 +286,9 @@
   }
 
   async function loadJobs() {
-    const [result, tool] = await Promise.all([
-      api('/v1/gallery-dl/jobs?limit=100'),
-      api('/v1/gallery-dl/tool'),
-    ])
+    const result = await api('/v1/gallery-dl/jobs?limit=100')
     state.jobs = Array.isArray(result.jobs) ? result.jobs : []
-    state.tool = tool
+    state.tool = await api('/v1/gallery-dl/tool')
     renderTool()
     renderJobs()
   }
@@ -299,14 +296,13 @@
   async function loadGallery() {
     stopPolling()
     try {
-      const [engine, tool, jobs] = await Promise.all([
+      const [engine, jobs] = await Promise.all([
         api('/v1/gallery-dl/status'),
-        api('/v1/gallery-dl/tool'),
         api('/v1/gallery-dl/jobs?limit=100'),
       ])
       state.engine = engine
-      state.tool = tool
       state.jobs = Array.isArray(jobs.jobs) ? jobs.jobs : []
+      state.tool = await api('/v1/gallery-dl/tool')
       renderTool()
       renderJobs()
       showError('')
