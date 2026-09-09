@@ -25,6 +25,7 @@ describe('shared Local Engine advanced media options', () => {
       useAria2c: false,
       includeDanmaku: false,
       danmakuFormats: ['xml'],
+      keepCoverSidecar: false,
     })
 
     first.subtitleLanguages.push('en')
@@ -36,6 +37,7 @@ describe('shared Local Engine advanced media options', () => {
     expect(second.sponsorBlockCategories).toEqual([])
     expect(second.includeDanmaku).toBe(false)
     expect(second.danmakuFormats).toEqual(['xml'])
+    expect(second.keepCoverSidecar).toBe(false)
   })
 
   it('gates aria2c on the Local Engine capability without mutating other UI state', () => {
@@ -50,6 +52,7 @@ describe('shared Local Engine advanced media options', () => {
       useAria2c: true,
       includeDanmaku: true,
       danmakuFormats: ['ass', 'json'] as LocalEngineDanmakuFormat[],
+      keepCoverSidecar: true,
     }
 
     const unavailable = resolveLocalEngineAdvancedJobOptions({
@@ -74,8 +77,11 @@ describe('shared Local Engine advanced media options', () => {
     expect(ready.danmakuFormats).toEqual(['ass', 'json'])
     expect(unavailable.danmakuFormats).toEqual(['ass', 'json'])
     expect(ready.danmakuFormats).not.toBe(source.danmakuFormats)
+    expect(ready.keepCoverSidecar).toBe(true)
+    expect(unavailable.keepCoverSidecar).toBe(true)
     expect(source.useAria2c).toBe(true)
     expect(source.includeDanmaku).toBe(true)
+    expect(source.keepCoverSidecar).toBe(true)
   })
 
   it('normalizes advanced media capabilities from bridge status', () => {
