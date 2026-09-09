@@ -13,7 +13,7 @@ from gallery_dl_executor import (
 )
 from gallery_dl_manager import existing_managed_gallery_dl, gallery_dl_version
 from local_task_provider import LocalTaskProviderRegistry
-from platform_paths import resolve_platform_paths
+from platform_paths import PlatformPathError, resolve_platform_paths
 from url_policy import PublicUrlError, validated_public_http_url
 
 _ALLOWED_SUBMIT_FIELDS = frozenset({"sourceUrl", "maxFiles"})
@@ -48,6 +48,18 @@ def _default_tools_root() -> Path:
     return resolve_platform_paths(program_dir=_program_dir()).tools_dir
 
 
+def _resolved_tools_root(explicit: Path | None) -> tuple[Path, bool]:
+    if explicit is not None:
+        return Path(explicit).resolve(strict=False), True
+    try:
+        return _default_tools_root(), True
+    except PlatformPathError:
+        # gallery-dl is optional. A malformed portable/install-mode setting must
+        # not prevent the rest of Headless from starting; fail this capability
+        # closed instead of letting the optional tool path poison the server.
+        return _program_dir(), False
+
+
 def _public_task(row: dict[str, object]) -> dict[str, object]:
     return {
         "id": str(row.get("providerTaskId") or ""),
@@ -75,7 +87,8 @@ class HeadlessGalleryDlApi:
         tool_probe: ToolProbe | None = None,
     ) -> None:
         self.download_root = Path(download_root).resolve(strict=False)
-        self._engine = _HeadlessGalleryDlEngine(tools_root or _default_tools_root())
+        resolved_tools, self._tool_root_ready = _resolved_tools_root(tools_root)
+        self._engine = _HeadlessGalleryDlEngine(resolved_tools)
         self.executor = executor or GalleryDlExecutor(self._engine)
         self._tool_probe = tool_probe or self._managed_tool_status
         self._registry = LocalTaskProviderRegistry()
@@ -88,6 +101,8 @@ class HeadlessGalleryDlApi:
         )
 
     def _managed_tool_status(self) -> tuple[bool, str | None]:
+        if not self._tool_root_ready:
+            return False, None
         root = existing_managed_gallery_dl(self._engine)
         return root is not None, gallery_dl_version(root)
 
