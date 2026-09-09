@@ -44,6 +44,18 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
         self._discard_resume_job = getattr(owner, "discard_resume_job", None)
         self._submit_batch_jobs = getattr(owner, "submit_batch_jobs_from_bridge", None)
 
+    def _bridge_protocol_version(self) -> int:
+        """Return the protocol advertised by this concrete bridge layer."""
+        return RESUME_BRIDGE_PROTOCOL_VERSION
+
+    def _extra_status_payload(self) -> dict[str, Any]:
+        """Allow later bridge layers to advertise capabilities without replacing status."""
+        return {}
+
+    def _handle_extension_post(self, _handler: Any) -> bool:
+        """Handle a later bridge layer's POST route, returning True when consumed."""
+        return False
+
     def _invoke_owner(self, callback, *args: object) -> tuple[bool, int, str, str]:
         if not callable(callback) or self._control_owner is None:
             return False, 501, "RESUME_CONTROL_UNAVAILABLE", "This local engine does not expose pause/resume controls"
@@ -139,7 +151,7 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
         local_bridge = self
 
         class Handler(BaseHTTPRequestHandler):
-            server_version = "GalaxyLocalBridge/5"
+            server_version = f"GalaxyLocalBridge/{local_bridge._bridge_protocol_version()}"
 
             def log_message(self, _format: str, *_args: object) -> None:
                 return
@@ -187,7 +199,16 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
                     self._json(404, {"ok": False, "code": "NOT_FOUND", "error": "Not found"})
                     return
                 payload = local_bridge._status_provider()
-                self._json(200, {"ok": True, "bridgeProtocol": RESUME_BRIDGE_PROTOCOL_VERSION, **payload, "batchDownloadReady": callable(local_bridge._submit_batch_jobs)})
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "bridgeProtocol": local_bridge._bridge_protocol_version(),
+                        **payload,
+                        "batchDownloadReady": callable(local_bridge._submit_batch_jobs),
+                        **local_bridge._extra_status_payload(),
+                    },
+                )
 
             def _read_json(
                 self,
@@ -318,6 +339,8 @@ class PauseResumeLocalBridge(StructuredLocalBridge):
                     local_bridge._open_folder()
                     self._json(200, {"ok": True})
                     return
+                if local_bridge._handle_extension_post(self):
+                    return
                 self._json(404, {"ok": False, "code": "NOT_FOUND", "error": "Not found"})
 
         self._server = ThreadingHTTPServer((base_bridge.BRIDGE_HOST, base_bridge.BRIDGE_PORT), Handler)
@@ -385,6 +408,9 @@ def run_resume_bridge_self_test() -> None:
         cancel_job=lambda: None,
         open_folder=lambda: None,
     )
+    assert bridge._bridge_protocol_version() == RESUME_BRIDGE_PROTOCOL_VERSION
+    assert bridge._extra_status_payload() == {}
+    assert bridge._handle_extension_post(object()) is False
     paused = bridge._pause_result()
     assert paused[:3] == (True, 202, "PAUSE_REQUESTED")
     resumed = bridge._resume_result("abc123")
