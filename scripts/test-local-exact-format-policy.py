@@ -82,6 +82,68 @@ class ExactFormatPolicyTests(unittest.TestCase):
         job = engine.job_from_payload({"sourceUrl": "https://example.test/v", "videoQuality": "1080p", "audioQuality": "192"})
         self.assertEqual(engine.format_selector(job), "legacy:1080p:192:1")
 
+    def test_bilibili_4k_alias_reuses_existing_height_fallback(self):
+        engine = fake_engine()
+        install_exact_format_policy(engine)
+        for source_url in (
+            "https://www.bilibili.com/video/BV1demo",
+            "https://m.bilibili.com/video/BV1demo",
+            "https://b23.tv/demo",
+        ):
+            with self.subTest(source_url=source_url):
+                job = engine.job_from_payload(
+                    {
+                        "sourceUrl": source_url,
+                        "videoQuality": "4K",
+                        "audioQuality": "192",
+                    }
+                )
+                self.assertEqual(engine.format_selector(job), "legacy:2160p:192:1")
+
+    def test_bilibili_8k_alias_reuses_existing_height_fallback(self):
+        engine = fake_engine()
+        install_exact_format_policy(engine)
+        job = engine.job_from_payload(
+            {
+                "sourceUrl": "https://www.bilibili.com/video/BV1demo",
+                "videoQuality": "8k",
+                "audioQuality": "best",
+            }
+        )
+        self.assertEqual(engine.format_selector(job), "legacy:4320p:best:1")
+
+    def test_bilibili_alias_does_not_match_spoofed_or_other_hosts(self):
+        engine = fake_engine()
+        install_exact_format_policy(engine)
+        for source_url in (
+            "https://bilibili.com.evil.example/video/BV1demo",
+            "https://example.test/bilibili.com/video/BV1demo",
+            "https://youtube.com/watch?v=demo",
+        ):
+            with self.subTest(source_url=source_url):
+                job = engine.job_from_payload(
+                    {
+                        "sourceUrl": source_url,
+                        "videoQuality": "4k",
+                        "audioQuality": "best",
+                    }
+                )
+                self.assertEqual(engine.format_selector(job), "legacy:4k:best:1")
+
+    def test_exact_format_id_still_overrides_bilibili_alias(self):
+        engine = fake_engine()
+        install_exact_format_policy(engine)
+        job = engine.job_from_payload(
+            {
+                "sourceUrl": "https://www.bilibili.com/video/BV1demo",
+                "videoQuality": "8k",
+                "videoFormatId": "120",
+                "audioFormatId": "30280",
+                "selectedVideoHasAudio": False,
+            }
+        )
+        self.assertEqual(engine.format_selector(job), "120+30280")
+
     def test_video_only_plus_audio_uses_exact_ids(self):
         engine = fake_engine()
         install_exact_format_policy(engine)
@@ -169,7 +231,9 @@ class ExactFormatPolicyTests(unittest.TestCase):
     def test_bridge_capability_is_exposed(self):
         engine = fake_engine()
         install_exact_format_policy(engine)
-        self.assertTrue(engine.EngineWindow().bridge_status()["exactFormatSelection"])
+        status = engine.EngineWindow().bridge_status()
+        self.assertTrue(status["exactFormatSelection"])
+        self.assertEqual(status["bilibiliQualityAliases"], ["4k", "8k"])
 
 
 if __name__ == "__main__":

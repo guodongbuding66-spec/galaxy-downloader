@@ -86,6 +86,8 @@ class BridgeFormatCatalogTests(unittest.TestCase):
         self.assertEqual(catalog["videoOptions"][0]["formatId"], "399")
         self.assertEqual(catalog["videoOptions"][0]["height"], 1080)
         self.assertEqual(catalog["videoOptions"][0]["dynamicRange"], "HDR10")
+        self.assertEqual(catalog["videoOptions"][0]["featureTags"], ["hdr"])
+        self.assertIn("formatNote", catalog["videoOptions"][0])
         self.assertEqual(catalog["audioOptions"][0]["formatId"], "251")
 
         self.assertIn("qualityOptions", data)
@@ -94,6 +96,56 @@ class BridgeFormatCatalogTests(unittest.TestCase):
         self.assertIn("downloadAudioUrl", data)
         self.assertTrue(str(data["downloadVideoUrl"]).startswith("https://signed.example/"))
 
+        rendered_catalog = json.dumps(catalog)
+        self.assertNotIn("signed.example", rendered_catalog)
+        self.assertNotIn("downloadUrl", rendered_catalog)
+
+    def test_bilibili_premium_capabilities_flow_through_bridge_catalog(self) -> None:
+        result = _success_payload(
+            self.completed(
+                {
+                    "id": "BV1premium",
+                    "title": "Bilibili premium",
+                    "extractor_key": "Bilibili",
+                    "formats": [
+                        {
+                            "format_id": "bili-8k-dv",
+                            "url": "https://signed.example/bili-video",
+                            "vcodec": "hev1",
+                            "acodec": "none",
+                            "width": 7680,
+                            "height": 4320,
+                            "fps": 60,
+                            "dynamic_range": "DV",
+                            "format_note": "8K 超高清 杜比视界",
+                            "ext": "mp4",
+                        },
+                        {
+                            "format_id": "bili-hires",
+                            "url": "https://signed.example/bili-audio",
+                            "vcodec": "none",
+                            "acodec": "flac",
+                            "abr": 1500,
+                            "asr": 96000,
+                            "format_note": "Hi-Res无损",
+                            "ext": "flac",
+                        },
+                    ],
+                }
+            ),
+            "https://www.bilibili.com/video/BV1premium",
+            "none",
+        )
+        self.assertTrue(result["success"])
+        data = result["data"]
+        self.assertEqual(data["platform"], "bilibili")
+        catalog = data["formatCatalog"]
+        self.assertEqual(
+            catalog["videoOptions"][0]["featureTags"],
+            ["8k", "dolby-vision", "hdr"],
+        )
+        self.assertEqual(catalog["videoOptions"][0]["formatNote"], "8K 超高清 杜比视界")
+        self.assertEqual(catalog["audioOptions"][0]["featureTags"], ["hi-res"])
         rendered_catalog = json.dumps(catalog)
         self.assertNotIn("signed.example", rendered_catalog)
         self.assertNotIn("downloadUrl", rendered_catalog)
@@ -131,6 +183,7 @@ class BridgeFormatCatalogTests(unittest.TestCase):
         self.assertEqual(data["pages"][1]["formatCatalog"]["defaultAudioId"], "audio:p2-251")
         for page in data["pages"]:
             self.assertIn("qualityOptions", page)
+            self.assertEqual(page["formatCatalog"]["videoOptions"][0]["featureTags"], ["hdr"])
             catalog_text = json.dumps(page["formatCatalog"])
             self.assertNotIn("signed.example", catalog_text)
             self.assertNotIn("downloadUrl", catalog_text)
