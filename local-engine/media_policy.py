@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import external_ytdlp
+from bilibili_danmaku_convert import BilibiliDanmakuConversionError, convert_danmaku_file
 from bilibili_policy import (
     BilibiliDanmakuError,
     DANMAKU_LANGUAGE,
@@ -21,6 +22,7 @@ from bilibili_policy import (
 
 PREFERENCES_FILENAME = "media-options.json"
 SUBTITLE_MODES = {"manual", "auto", "both"}
+DANMAKU_OUTPUT_FORMATS = ("xml", "ass", "json")
 SPONSORBLOCK_CATEGORIES = {
     "sponsor",
     "selfpromo",
@@ -44,6 +46,7 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "sponsorBlockCategories": [],
     "useAria2c": False,
     "includeDanmaku": False,
+    "danmakuFormats": ["xml"],
 }
 
 
@@ -68,6 +71,7 @@ def _clean_preferences(value: object) -> dict[str, Any]:
         "sponsorBlockCategories": list(_validated_sponsor_categories(raw.get("sponsorBlockCategories"))),
         "useAria2c": bool(raw.get("useAria2c", False)),
         "includeDanmaku": bool(raw.get("includeDanmaku", False)),
+        "danmakuFormats": list(_validated_danmaku_formats(raw.get("danmakuFormats"))),
     }
 
 
@@ -161,6 +165,21 @@ def _validated_sponsor_categories(value: object) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _validated_danmaku_formats(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        raw_values = re.split(r"[,\s]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        raw_values = list(value)
+    else:
+        raw_values = []
+    result: list[str] = []
+    for raw in raw_values:
+        output_format = str(raw or "").strip().lower()
+        if output_format in DANMAKU_OUTPUT_FORMATS and output_format not in result:
+            result.append(output_format)
+    return tuple(result or ("xml",))
+
+
 def _valid_segment(start: float | None, end: float | None) -> tuple[float | None, float | None]:
     if start is None and end is None:
         return None, None
@@ -223,6 +242,32 @@ def _embedded_danmaku_only(job: Any) -> bool:
     return _bilibili_danmaku_requested(job) and not bool(getattr(job, "include_subtitle", False))
 
 
+def _convert_danmaku_sidecars(
+    xml_paths: tuple[Path, ...] | list[Path],
+    requested_formats: object,
+) -> tuple[str, ...]:
+    selected = _validated_danmaku_formats(requested_formats)
+    conversion_formats = tuple(value for value in selected if value != "xml")
+    if not conversion_formats:
+        return selected
+    paths = tuple(Path(path) for path in xml_paths)
+    if not paths:
+        raise BilibiliDanmakuConversionError(
+            "yt-dlp completed but no newly written Bilibili danmaku XML could be identified for conversion"
+        )
+    for path in paths:
+        convert_danmaku_file(path, formats=conversion_formats)
+    if "xml" not in selected:
+        for path in paths:
+            try:
+                path.unlink()
+            except OSError as exc:
+                raise BilibiliDanmakuConversionError(
+                    f"converted danmaku but could not remove intermediate XML: {exc}"
+                ) from exc
+    return selected
+
+
 def _apply_external_command(job: Any, command: list[str], executable: Path) -> list[str]:
     if job is None:
         return command
@@ -280,9 +325,9 @@ def install_media_policy(engine_module):
 
     The website can send these fields per job. When it does not, the desktop UI
     preferences are used. Every advanced behavior is disabled by default. The
-    bundled yt-dlp remains the orchestrator; Bilibili danmaku is saved in a
-    separate XML-only sidecar pass so normal subtitle conversion/embed behavior
-    remains unchanged.
+    bundled yt-dlp remains the orchestrator; Bilibili danmaku is downloaded as
+    native XML in a separate sidecar pass, then optional ASS/JSON outputs are
+    generated offline so normal subtitle conversion/embed behavior is unchanged.
     """
     if getattr(engine_module, "_galaxy_media_policy_installed", False):
         return engine_module.Job
@@ -300,6 +345,7 @@ def install_media_policy(engine_module):
         sponsorblock_categories: tuple[str, ...] = ()
         use_aria2c: bool = False
         include_danmaku: bool = False
+        danmaku_formats: tuple[str, ...] = ("xml",)
 
     MediaJob.__name__ = "Job"
     MediaJob.__qualname__ = "Job"
@@ -342,6 +388,9 @@ def install_media_policy(engine_module):
             include_danmaku=engine_module._bool(
                 query.get("danmaku", ["1" if preferences["includeDanmaku"] else "0"])[0]
             ),
+            danmaku_formats=_validated_danmaku_formats(
+                query.get("danmaku_formats", [",".join(preferences["danmakuFormats"])])[0]
+            ),
         )
 
     def job_from_payload(payload: dict[str, Any]):
@@ -364,6 +413,7 @@ def install_media_policy(engine_module):
             sponsorblock_categories=_validated_sponsor_categories(merged.get("sponsorBlockCategories")),
             use_aria2c=bool(merged.get("useAria2c", False)),
             include_danmaku=bool(merged.get("includeDanmaku", False)),
+            danmaku_formats=_validated_danmaku_formats(merged.get("danmakuFormats")),
         )
 
     def job_to_payload(job) -> dict[str, Any]:
@@ -378,6 +428,7 @@ def install_media_policy(engine_module):
             sponsorBlockCategories=list(getattr(job, "sponsorblock_categories", ()) or ()),
             useAria2c=bool(getattr(job, "use_aria2c", False)),
             includeDanmaku=bool(getattr(job, "include_danmaku", False)),
+            danmakuFormats=list(_validated_danmaku_formats(getattr(job, "danmaku_formats", ("xml",)))),
         )
         return payload
 
@@ -449,23 +500,35 @@ def install_media_policy(engine_module):
             completed = original_run_external_job(window, executable)
             job = window.job
             if not completed or not _bilibili_danmaku_requested(job):
-                if (
-                    not completed
-                    and _bilibili_danmaku_requested(job)
-                    and bool(getattr(job, "include_subtitle", False))
-                ):
-                    window._update_bridge(
-                        bilibiliDanmakuStatus="deferred",
-                        bilibiliDanmakuWarning=(
-                            "Bundled yt-dlp was unavailable; embedded fallback keeps normal subtitles "
-                            "but cannot safely combine them with native danmaku XML in one pass."
-                        ),
+                if not completed and _bilibili_danmaku_requested(job):
+                    requested_formats = _validated_danmaku_formats(
+                        getattr(job, "danmaku_formats", ("xml",))
                     )
+                    needs_external_sidecar = bool(getattr(job, "include_subtitle", False)) or any(
+                        value != "xml" for value in requested_formats
+                    )
+                    if needs_external_sidecar:
+                        window._update_bridge(
+                            bilibiliDanmakuStatus="deferred",
+                            bilibiliDanmakuWarning=(
+                                "Bundled yt-dlp was unavailable; embedded fallback can keep native XML "
+                                "only when it does not conflict with normal subtitle conversion. ASS/JSON "
+                                "danmaku conversion is deferred for this job."
+                            ),
+                            bilibiliDanmakuSavedFormats=[],
+                        )
                 return completed
 
-            window._update_bridge(bilibiliDanmakuStatus="saving", bilibiliDanmakuWarning=None)
+            requested_formats = _validated_danmaku_formats(
+                getattr(job, "danmaku_formats", ("xml",))
+            )
+            window._update_bridge(
+                bilibiliDanmakuStatus="saving",
+                bilibiliDanmakuWarning=None,
+                bilibiliDanmakuSavedFormats=[],
+            )
             try:
-                download_danmaku_sidecar(
+                xml_paths = download_danmaku_sidecar(
                     Path(executable),
                     str(job.source_url),
                     output_template=str(
@@ -478,12 +541,37 @@ def install_media_policy(engine_module):
                     cancelled=window.cancel_event.is_set,
                     on_status=window.external_status_hook,
                 )
-                window._update_bridge(bilibiliDanmakuStatus="saved", bilibiliDanmakuWarning=None)
+                try:
+                    saved_formats = _convert_danmaku_sidecars(xml_paths, requested_formats)
+                except BilibiliDanmakuConversionError as exc:
+                    warning = str(exc).strip()[:500] or "Bilibili danmaku conversion failed"
+                    window._update_bridge(
+                        bilibiliDanmakuStatus="partial",
+                        bilibiliDanmakuWarning=warning,
+                        bilibiliDanmakuSavedFormats=["xml"] if xml_paths else [],
+                    )
+                    window.external_status_hook(
+                        f"[Galaxy] Bilibili 弹幕格式转换失败，已保留 XML：{warning[:180]}"
+                    )
+                else:
+                    window._update_bridge(
+                        bilibiliDanmakuStatus="saved",
+                        bilibiliDanmakuWarning=None,
+                        bilibiliDanmakuSavedFormats=list(saved_formats),
+                    )
+                    if any(value != "xml" for value in saved_formats):
+                        window.external_status_hook(
+                            f"[Galaxy] Bilibili 弹幕已保存为 {', '.join(value.upper() for value in saved_formats)}。"
+                        )
             except BilibiliDanmakuError as exc:
                 if window.cancel_event.is_set():
                     raise engine_module.DownloadCancelled("Cancelled by user") from exc
                 warning = str(exc).strip()[:500] or "Bilibili danmaku XML could not be saved"
-                window._update_bridge(bilibiliDanmakuStatus="failed", bilibiliDanmakuWarning=warning)
+                window._update_bridge(
+                    bilibiliDanmakuStatus="failed",
+                    bilibiliDanmakuWarning=warning,
+                    bilibiliDanmakuSavedFormats=[],
+                )
                 window.external_status_hook(f"[Galaxy] Bilibili 弹幕 XML 保存失败：{warning[:180]}")
             return completed
         finally:
@@ -498,6 +586,7 @@ def install_media_policy(engine_module):
         payload["aria2Ready"] = aria2c_available(engine_module)
         payload["advancedMedia"] = True
         payload["bilibiliDanmakuXml"] = True
+        payload["bilibiliDanmakuFormats"] = list(DANMAKU_OUTPUT_FORMATS)
         payload["bilibiliDanmakuDefault"] = False
         return payload
 
