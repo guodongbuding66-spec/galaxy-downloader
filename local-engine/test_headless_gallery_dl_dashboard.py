@@ -117,6 +117,20 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, script)
 
+    def test_gallery_task_refresh_keeps_tool_mutation_state_fresh(self) -> None:
+        status, _, script = self.request("/dashboard/gallery-dl.js")
+        self.assertEqual(status, 200)
+        for marker in (
+            b"function hasLiveJobs()",
+            b"Boolean(tool.mutationBlocked) || hasLiveJobs()",
+            b"const [result, tool] = await Promise.all([",
+            b"api('/v1/gallery-dl/jobs?limit=100')",
+            b"api('/v1/gallery-dl/tool')",
+            b"state.tool = tool",
+            b"renderTool()",
+        ):
+            self.assertIn(marker, script)
+
     def test_gallery_workspace_has_native_limits_and_responsive_styles(self) -> None:
         status, _, script = self.request("/dashboard/gallery-dl.js")
         self.assertEqual(status, 200)
