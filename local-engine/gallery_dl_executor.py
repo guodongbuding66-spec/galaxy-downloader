@@ -127,7 +127,20 @@ def _managed_archive_path(state_root: Path) -> Path:
         raise GalleryDlExecutorError("无法创建 gallery-dl Archive 状态目录。") from exc
     if resolved_root not in resolved_gallery_root.parents:
         raise GalleryDlExecutorError("gallery-dl Archive 目录越过了状态边界。")
-    return resolved_gallery_root / "archive.sqlite3"
+
+    archive_path = resolved_gallery_root / "archive.sqlite3"
+    try:
+        # Checking only the parent directory is insufficient: a pre-created
+        # archive.sqlite3 symlink would make SQLite follow writes outside the
+        # managed state root. Reject the leaf itself before handing it to
+        # gallery-dl. An existing archive must also be a regular file.
+        if archive_path.is_symlink():
+            raise GalleryDlExecutorError("gallery-dl Archive 文件不能是符号链接。")
+        if archive_path.exists() and not archive_path.is_file():
+            raise GalleryDlExecutorError("gallery-dl Archive 路径必须是普通文件。")
+    except OSError as exc:
+        raise GalleryDlExecutorError("无法验证 gallery-dl Archive 文件。") from exc
+    return archive_path
 
 
 class _RunController:
