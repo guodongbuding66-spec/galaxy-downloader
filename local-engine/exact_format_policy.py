@@ -6,6 +6,11 @@ from urllib.parse import parse_qs, urlparse
 
 from media_format_catalog import MediaFormatError, exact_format_selector, validate_format_id
 
+_BILIBILI_QUALITY_HEIGHTS = {
+    "4k": 2160,
+    "8k": 4320,
+}
+
 
 def _optional_format_id(value: object) -> str | None:
     text = str(value or "").strip()
@@ -17,13 +22,38 @@ def _optional_format_id(value: object) -> str | None:
         raise ValueError(str(exc)) from exc
 
 
+def _is_bilibili_url(value: object) -> bool:
+    try:
+        parsed = urlparse(str(value or "").strip())
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return False
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    return (
+        hostname == "bilibili.com"
+        or hostname.endswith(".bilibili.com")
+        or hostname == "b23.tv"
+        or hostname.endswith(".b23.tv")
+    )
+
+
+def _bilibili_quality_height(job: object) -> int | None:
+    if not _is_bilibili_url(getattr(job, "source_url", "")):
+        return None
+    quality = str(getattr(job, "video_quality", "") or "").strip().lower()
+    return _BILIBILI_QUALITY_HEIGHTS.get(quality)
+
+
 def install_exact_format_policy(engine_module):
-    """Add explicit yt-dlp format identities to Galaxy jobs.
+    """Add explicit yt-dlp format identities and safe Bilibili quality aliases.
 
     This policy is intentionally installed *after* the generic media policy. An
     explicit format id is a stronger user choice than height/bitrate/language
     preferences; jobs without exact ids still fall through to the existing
-    selector unchanged.
+    selector unchanged. Bilibili 4K/8K aliases are normalized to the existing
+    height selector so yt-dlp can gracefully choose the best available stream at
+    or below that ceiling when the requested premium tier is unavailable.
     """
     if getattr(engine_module, "_galaxy_exact_format_policy_installed", False):
         return engine_module.Job
@@ -80,6 +110,9 @@ def install_exact_format_policy(engine_module):
         video_format_id = getattr(job, "video_format_id", None)
         audio_format_id = getattr(job, "audio_format_id", None)
         if video_format_id is None and audio_format_id is None:
+            height = _bilibili_quality_height(job)
+            if height is not None:
+                return original_format_selector(replace(job, video_quality=f"{height}p"))
             return original_format_selector(job)
         try:
             return exact_format_selector(
@@ -96,6 +129,7 @@ def install_exact_format_policy(engine_module):
     def bridge_status(window) -> dict[str, Any]:
         payload = original_bridge_status(window)
         payload["exactFormatSelection"] = True
+        payload["bilibiliQualityAliases"] = ["4k", "8k"]
         return payload
 
     engine_module.parse_job = parse_job
@@ -111,6 +145,11 @@ def run_exact_format_policy_self_test() -> None:
     assert _optional_format_id("137") == "137"
     assert _optional_format_id("audio-251") == "audio-251"
     assert _optional_format_id("") is None
+    assert _is_bilibili_url("https://www.bilibili.com/video/BV1demo")
+    assert _is_bilibili_url("https://m.bilibili.com/video/BV1demo")
+    assert _is_bilibili_url("https://b23.tv/demo")
+    assert not _is_bilibili_url("https://bilibili.com.evil.example/video/BV1demo")
+    assert not _is_bilibili_url("file:///bilibili.com/video/BV1demo")
     try:
         _optional_format_id("137+bestaudio")
     except ValueError:
