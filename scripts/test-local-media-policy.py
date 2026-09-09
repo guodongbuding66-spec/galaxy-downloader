@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "local-engine"))
 
 import bilibili_policy  # noqa: E402
+import external_ytdlp  # noqa: E402
 import media_policy  # noqa: E402
 from bilibili_danmaku_convert import BilibiliDanmakuConversionError  # noqa: E402
 
@@ -27,8 +28,10 @@ assert media_policy._validated_danmaku_formats("xml,ass,json,ass,srt") == ("xml"
 assert media_policy._validated_danmaku_formats("srt,unknown") == ("xml",)
 assert media_policy._clean_preferences({})["includeDanmaku"] is False
 assert media_policy._clean_preferences({})["danmakuFormats"] == ["xml"]
+assert media_policy._clean_preferences({})["keepCoverSidecar"] is False
 assert media_policy._clean_preferences({"includeDanmaku": True})["includeDanmaku"] is True
 assert media_policy._clean_preferences({"danmakuFormats": ["ass", "json"]})["danmakuFormats"] == ["ass", "json"]
+assert media_policy._clean_preferences({"keepCoverSidecar": True})["keepCoverSidecar"] is True
 
 bilibili_policy.run_bilibili_policy_self_test()
 assert bilibili_policy.is_bilibili_url("https://www.bilibili.com/video/BV1demo")
@@ -172,6 +175,7 @@ with tempfile.TemporaryDirectory() as temporary:
         split_chapters=True,
         include_subtitle=True,
         include_danmaku=False,
+        keep_cover_sidecar=False,
         subtitle_mode="manual",
         subtitle_languages=("zh-Hans", "en"),
         audio_languages=("zh", "en"),
@@ -199,6 +203,82 @@ with tempfile.TemporaryDirectory() as temporary:
     assert result[result.index("--sponsorblock-remove") + 1] == "sponsor,selfpromo"
     assert "--downloader" in result
     assert Path(result[result.index("--downloader") + 1]).name.lower() == "aria2c.exe"
+    assert "--write-thumbnail" not in result
     assert result[-2:] == ["--", "https://example.com/video"]
+
+    common_external = dict(
+        executable=executable,
+        source_url="https://example.com/video",
+        format_selector="best",
+        output_template=str(root / "%(title)s.%(ext)s"),
+        ffmpeg_location=None,
+        browser="none",
+        playlist=False,
+        subtitle_language=None,
+    )
+
+    no_cover = external_ytdlp.build_external_command(
+        **common_external,
+        include_subtitle=False,
+        include_cover=False,
+    )
+    assert "--no-write-thumbnail" in no_cover
+    assert "--no-embed-thumbnail" in no_cover
+    unchanged = media_policy._apply_cover_sidecar_command(
+        SimpleNamespace(keep_cover_sidecar=False),
+        list(no_cover),
+    )
+    assert unchanged == no_cover
+
+    sidecar_only = media_policy._apply_cover_sidecar_command(
+        SimpleNamespace(keep_cover_sidecar=True),
+        list(no_cover),
+    )
+    assert "--write-thumbnail" in sidecar_only
+    assert "--no-write-thumbnail" not in sidecar_only
+    assert "--no-embed-thumbnail" in sidecar_only
+    assert sidecar_only.index("--write-thumbnail") < sidecar_only.index("--")
+
+    embed_only = external_ytdlp.build_external_command(
+        **common_external,
+        include_subtitle=False,
+        include_cover=True,
+    )
+    assert "--embed-thumbnail" in embed_only
+    assert "--write-thumbnail" not in embed_only
+    assert "--no-write-thumbnail" not in embed_only
+
+    embed_and_sidecar = media_policy._apply_cover_sidecar_command(
+        SimpleNamespace(keep_cover_sidecar=True),
+        list(embed_only),
+    )
+    assert "--embed-thumbnail" in embed_and_sidecar
+    assert "--write-thumbnail" in embed_and_sidecar
+    assert "--no-write-thumbnail" not in embed_and_sidecar
+
+    embedded_sidecar_only = media_policy._apply_embedded_cover_sidecar(
+        SimpleNamespace(keep_cover_sidecar=True),
+        {"writethumbnail": False, "postprocessors": []},
+    )
+    assert embedded_sidecar_only["writethumbnail"] is True
+    assert embedded_sidecar_only["postprocessors"] == []
+
+    embedded_embed_and_sidecar = media_policy._apply_embedded_cover_sidecar(
+        SimpleNamespace(keep_cover_sidecar=True),
+        {
+            "writethumbnail": True,
+            "postprocessors": [
+                {"key": "FFmpegMetadata"},
+                {"key": "EmbedThumbnail", "already_have_thumbnail": False},
+            ],
+        },
+    )
+    assert embedded_embed_and_sidecar["writethumbnail"] is True
+    embed_pp = next(
+        item
+        for item in embedded_embed_and_sidecar["postprocessors"]
+        if item.get("key") == "EmbedThumbnail"
+    )
+    assert embed_pp["already_have_thumbnail"] is True
 
 print("local media policy tests OK")

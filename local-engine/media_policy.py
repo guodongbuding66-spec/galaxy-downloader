@@ -47,6 +47,7 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "useAria2c": False,
     "includeDanmaku": False,
     "danmakuFormats": ["xml"],
+    "keepCoverSidecar": False,
 }
 
 
@@ -72,6 +73,7 @@ def _clean_preferences(value: object) -> dict[str, Any]:
         "useAria2c": bool(raw.get("useAria2c", False)),
         "includeDanmaku": bool(raw.get("includeDanmaku", False)),
         "danmakuFormats": list(_validated_danmaku_formats(raw.get("danmakuFormats"))),
+        "keepCoverSidecar": bool(raw.get("keepCoverSidecar", False)),
     }
 
 
@@ -268,10 +270,34 @@ def _convert_danmaku_sidecars(
     return selected
 
 
+def _apply_cover_sidecar_command(job: Any, command: list[str]) -> list[str]:
+    if not bool(getattr(job, "keep_cover_sidecar", False)):
+        return command
+    command = [value for value in command if value != "--no-write-thumbnail"]
+    if "--write-thumbnail" not in command:
+        _insert_before_source(command, ["--write-thumbnail"])
+    return command
+
+
+def _apply_embedded_cover_sidecar(job: Any, options: dict[str, Any]) -> dict[str, Any]:
+    if not bool(getattr(job, "keep_cover_sidecar", False)):
+        return options
+    options["writethumbnail"] = True
+    postprocessors = options.get("postprocessors")
+    if isinstance(postprocessors, list):
+        for postprocessor in postprocessors:
+            if isinstance(postprocessor, dict) and postprocessor.get("key") == "EmbedThumbnail":
+                # Mirrors yt-dlp CLI: already_have_thumbnail=True prevents the
+                # separately requested thumbnail from being deleted after embed.
+                postprocessor["already_have_thumbnail"] = True
+    return options
+
+
 def _apply_external_command(job: Any, command: list[str], executable: Path) -> list[str]:
     if job is None:
         return command
 
+    command = _apply_cover_sidecar_command(job, command)
     start, end = _valid_segment(
         getattr(job, "segment_start", None),
         getattr(job, "segment_end", None),
@@ -321,13 +347,14 @@ def _apply_external_command(job: Any, command: list[str], executable: Path) -> l
 
 
 def install_media_policy(engine_module):
-    """Add opt-in segment/chapter/subtitle/audio/Bilibili/SponsorBlock/aria2 settings.
+    """Add opt-in segment/chapter/subtitle/audio/sidecar/SponsorBlock/aria2 settings.
 
     The website can send these fields per job. When it does not, the desktop UI
     preferences are used. Every advanced behavior is disabled by default. The
     bundled yt-dlp remains the orchestrator; Bilibili danmaku is downloaded as
     native XML in a separate sidecar pass, then optional ASS/JSON outputs are
     generated offline so normal subtitle conversion/embed behavior is unchanged.
+    Cover embedding and keeping a cover sidecar are deliberately independent.
     """
     if getattr(engine_module, "_galaxy_media_policy_installed", False):
         return engine_module.Job
@@ -346,6 +373,7 @@ def install_media_policy(engine_module):
         use_aria2c: bool = False
         include_danmaku: bool = False
         danmaku_formats: tuple[str, ...] = ("xml",)
+        keep_cover_sidecar: bool = False
 
     MediaJob.__name__ = "Job"
     MediaJob.__qualname__ = "Job"
@@ -391,6 +419,9 @@ def install_media_policy(engine_module):
             danmaku_formats=_validated_danmaku_formats(
                 query.get("danmaku_formats", [",".join(preferences["danmakuFormats"])])[0]
             ),
+            keep_cover_sidecar=engine_module._bool(
+                query.get("cover_sidecar", ["1" if preferences["keepCoverSidecar"] else "0"])[0]
+            ),
         )
 
     def job_from_payload(payload: dict[str, Any]):
@@ -414,6 +445,7 @@ def install_media_policy(engine_module):
             use_aria2c=bool(merged.get("useAria2c", False)),
             include_danmaku=bool(merged.get("includeDanmaku", False)),
             danmaku_formats=_validated_danmaku_formats(merged.get("danmakuFormats")),
+            keep_cover_sidecar=bool(merged.get("keepCoverSidecar", False)),
         )
 
     def job_to_payload(job) -> dict[str, Any]:
@@ -429,6 +461,7 @@ def install_media_policy(engine_module):
             useAria2c=bool(getattr(job, "use_aria2c", False)),
             includeDanmaku=bool(getattr(job, "include_danmaku", False)),
             danmakuFormats=list(_validated_danmaku_formats(getattr(job, "danmaku_formats", ("xml",)))),
+            keepCoverSidecar=bool(getattr(job, "keep_cover_sidecar", False)),
         )
         return payload
 
@@ -479,7 +512,7 @@ def install_media_policy(engine_module):
         sponsor_categories = tuple(getattr(job, "sponsorblock_categories", ()) or ())
         if sponsor_categories:
             options["sponsorblock_remove"] = set(sponsor_categories)
-        return options
+        return _apply_embedded_cover_sidecar(job, options)
 
     engine_module.EngineWindow.build_options = build_options
 
@@ -588,6 +621,8 @@ def install_media_policy(engine_module):
         payload["bilibiliDanmakuXml"] = True
         payload["bilibiliDanmakuFormats"] = list(DANMAKU_OUTPUT_FORMATS)
         payload["bilibiliDanmakuDefault"] = False
+        payload["coverSidecar"] = True
+        payload["coverSidecarDefault"] = False
         return payload
 
     engine_module.EngineWindow.bridge_status = bridge_status
