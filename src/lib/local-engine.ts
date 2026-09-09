@@ -89,7 +89,7 @@ export interface LocalEngineAdvancedOptions {
   audioLanguages: string[]
   sponsorBlockCategories: SponsorBlockCategory[]
   useAria2c: boolean
-  includeDanmaku: boolean
+  includeDanmaku?: boolean
 }
 
 export function createDefaultLocalEngineAdvancedOptions(): LocalEngineAdvancedOptions {
