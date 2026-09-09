@@ -87,10 +87,15 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
             b"/v1/gallery-dl/tool",
             b"/v1/gallery-dl/jobs?limit=100",
             b"/v1/gallery-dl/jobs",
-            b"/v1/gallery-dl/tool/check",
+            b"/v1/gallery-dl/tool/${action}",
         ):
             self.assertIn(route, script)
-        for action in (b"runToolAction('install')", b"runToolAction('update')", b"runToolAction('remove')"):
+        for action in (
+            b"runToolAction('check')",
+            b"runToolAction('install')",
+            b"runToolAction('update')",
+            b"runToolAction('remove')",
+        ):
             self.assertIn(action, script)
         self.assertIn(b"removeConfirmation", script)
         self.assertIn(b"sourceUrl", script)
