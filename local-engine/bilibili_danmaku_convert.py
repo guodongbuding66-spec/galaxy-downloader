@@ -5,9 +5,10 @@ import math
 import os
 import re
 import xml.etree.ElementTree as ET
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Collection, Iterable, Sequence
+from typing import Collection, Sequence
 
 MAX_XML_BYTES = 32 * 1024 * 1024
 MAX_COMMENTS = 100_000
@@ -169,14 +170,12 @@ def _validated_resolution(width: int, height: int) -> tuple[int, int]:
     return width_value, height_value
 
 
-def _lane_y(index: int, font_size: int, height: int, *, bottom: bool = False) -> int:
+def _lane_y(index: int, font_size: int, height: int) -> int:
     margin = max(24, font_size)
     usable = max(font_size, height - margin * 2)
     lane_height = max(font_size + 4, 24)
     lane_count = max(1, usable // lane_height)
     lane = index % lane_count
-    if bottom:
-        return max(margin, height - margin - lane * lane_height)
     return min(height - margin, margin + lane * lane_height)
 
 
@@ -265,10 +264,8 @@ def _atomic_write_text(path: Path, content: str) -> None:
         temporary.write_text(content, encoding="utf-8", newline="\n")
         temporary.replace(path)
     finally:
-        try:
+        with suppress(OSError):
             temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
 
 
 def convert_danmaku_file(
