@@ -10,6 +10,10 @@ def _path_parts(path: str) -> list[str]:
     return [part for part in path.split("/") if part]
 
 
+def _is_gallery_dl_path(path: str) -> bool:
+    return path == "/v1/gallery-dl" or path.startswith("/v1/gallery-dl/")
+
+
 class HeadlessGalleryDlHttpMixin:
     """Composable authenticated `/v1/gallery-dl/*` routes."""
 
@@ -35,7 +39,7 @@ class HeadlessGalleryDlHttpMixin:
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)  # type: ignore[attr-defined]
         path = parsed.path
-        if not path.startswith("/v1/gallery-dl"):
+        if not _is_gallery_dl_path(path):
             super().do_GET()  # type: ignore[misc]
             return
         if not self._authorized():  # type: ignore[attr-defined]
@@ -70,7 +74,7 @@ class HeadlessGalleryDlHttpMixin:
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path  # type: ignore[attr-defined]
-        if not path.startswith("/v1/gallery-dl"):
+        if not _is_gallery_dl_path(path):
             super().do_POST()  # type: ignore[misc]
             return
         if not self._authorized():  # type: ignore[attr-defined]
