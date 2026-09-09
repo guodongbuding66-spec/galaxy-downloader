@@ -128,11 +128,13 @@
     }
   }
 
+  function hasLiveJobs() {
+    return state.jobs.some((job) => job.state === 'queued' || job.state === 'active')
+  }
+
   function schedulePolling() {
     stopPolling()
-    if (!isVisible()) return
-    const hasLiveJobs = state.jobs.some((job) => job.state === 'queued' || job.state === 'active')
-    if (!hasLiveJobs) return
+    if (!isVisible() || !hasLiveJobs()) return
     state.pollTimer = window.setTimeout(async () => {
       state.pollTimer = null
       if (!isVisible()) return
@@ -191,7 +193,7 @@
     const tool = state.tool || {}
     const result = state.lastToolResult || null
     const installed = Boolean(tool.installed)
-    const mutationBlocked = Boolean(tool.mutationBlocked)
+    const mutationBlocked = Boolean(tool.mutationBlocked) || hasLiveJobs()
     const rootReady = tool.toolRootReady !== false
     const acceptingJobs = state.engine?.acceptingJobs !== false
 
@@ -284,8 +286,13 @@
   }
 
   async function loadJobs() {
-    const result = await api('/v1/gallery-dl/jobs?limit=100')
+    const [result, tool] = await Promise.all([
+      api('/v1/gallery-dl/jobs?limit=100'),
+      api('/v1/gallery-dl/tool'),
+    ])
     state.jobs = Array.isArray(result.jobs) ? result.jobs : []
+    state.tool = tool
+    renderTool()
     renderJobs()
   }
 
