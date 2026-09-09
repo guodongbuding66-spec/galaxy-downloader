@@ -79,6 +79,7 @@ class HeadlessGalleryDlApi:
         self.executor = executor or GalleryDlExecutor(self._engine)
         self._tool_probe = tool_probe or self._managed_tool_status
         self._registry = LocalTaskProviderRegistry()
+        self._closed = False
         self._registry.register(
             "gallery-dl",
             label="gallery-dl",
@@ -90,10 +91,19 @@ class HeadlessGalleryDlApi:
         root = existing_managed_gallery_dl(self._engine)
         return root is not None, gallery_dl_version(root)
 
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise HeadlessGalleryDlApiError(
+                "gallery-dl api is closed",
+                status=503,
+                code="GALLERY_DL_API_CLOSED",
+            )
+
     def status(self) -> dict[str, object]:
         available, version = self._tool_probe()
         return {
             "available": bool(available),
+            "acceptingJobs": not self._closed,
             "version": str(version)[:128] if version else None,
             "maxFilesPerJob": MAX_GALLERY_DL_FILES,
             "maxTrackedJobs": MAX_GALLERY_DL_TASKS,
@@ -133,6 +143,7 @@ class HeadlessGalleryDlApi:
         )
 
     def submit(self, payload: object) -> dict[str, object]:
+        self._ensure_open()
         if not isinstance(payload, dict):
             raise HeadlessGalleryDlApiError("gallery-dl request must be a JSON object")
         unknown = sorted(str(key) for key in payload if key not in _ALLOWED_SUBMIT_FIELDS)
@@ -171,6 +182,7 @@ class HeadlessGalleryDlApi:
         return self.job(task_id)
 
     def action(self, task_id: object, action: object) -> dict[str, object]:
+        self._ensure_open()
         clean_id = self._validate_task_id(task_id)
         clean_action = str(action or "").strip().lower()
         if clean_action not in {"cancel", "retry"}:
@@ -195,6 +207,19 @@ class HeadlessGalleryDlApi:
             "message": result.message,
             **self.job(clean_id),
         }
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        # The shared gallery-dl executor intentionally cancels only at safe file
+        # boundaries. Request cancellation for every queued/active Headless task
+        # so stopping the API cannot leave new gallery work queued behind it.
+        for row in self._rows():
+            actions = tuple(row.get("providerActions") or ())
+            task_id = str(row.get("providerTaskId") or "")
+            if task_id and "cancel" in actions:
+                self._registry.perform_action("gallery-dl", task_id, "cancel")
 
 
 def run_headless_gallery_dl_api_self_test() -> None:
