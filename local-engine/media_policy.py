@@ -12,6 +12,12 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import external_ytdlp
+from bilibili_policy import (
+    BilibiliDanmakuError,
+    DANMAKU_LANGUAGE,
+    download_danmaku_sidecar,
+    is_bilibili_url,
+)
 
 PREFERENCES_FILENAME = "media-options.json"
 SUBTITLE_MODES = {"manual", "auto", "both"}
@@ -37,6 +43,7 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "audioLanguages": [],
     "sponsorBlockCategories": [],
     "useAria2c": False,
+    "includeDanmaku": False,
 }
 
 
@@ -60,6 +67,7 @@ def _clean_preferences(value: object) -> dict[str, Any]:
         "audioLanguages": list(_validated_languages(raw.get("audioLanguages"))),
         "sponsorBlockCategories": list(_validated_sponsor_categories(raw.get("sponsorBlockCategories"))),
         "useAria2c": bool(raw.get("useAria2c", False)),
+        "includeDanmaku": bool(raw.get("includeDanmaku", False)),
     }
 
 
@@ -203,6 +211,18 @@ def _insert_before_source(command: list[str], values: list[str]) -> None:
     command[index:index] = values
 
 
+def _bilibili_danmaku_requested(job: Any) -> bool:
+    return bool(
+        job is not None
+        and getattr(job, "include_danmaku", False)
+        and is_bilibili_url(getattr(job, "source_url", ""))
+    )
+
+
+def _embedded_danmaku_only(job: Any) -> bool:
+    return _bilibili_danmaku_requested(job) and not bool(getattr(job, "include_subtitle", False))
+
+
 def _apply_external_command(job: Any, command: list[str], executable: Path) -> list[str]:
     if job is None:
         return command
@@ -256,12 +276,13 @@ def _apply_external_command(job: Any, command: list[str], executable: Path) -> l
 
 
 def install_media_policy(engine_module):
-    """Add opt-in segment/chapter/subtitle/audio/SponsorBlock/aria2 settings.
+    """Add opt-in segment/chapter/subtitle/audio/Bilibili/SponsorBlock/aria2 settings.
 
     The website can send these fields per job. When it does not, the desktop UI
     preferences are used. Every advanced behavior is disabled by default. The
-    bundled yt-dlp remains the orchestrator; aria2c is only an optional external
-    downloader selected by yt-dlp when the user explicitly enables it.
+    bundled yt-dlp remains the orchestrator; Bilibili danmaku is saved in a
+    separate XML-only sidecar pass so normal subtitle conversion/embed behavior
+    remains unchanged.
     """
     if getattr(engine_module, "_galaxy_media_policy_installed", False):
         return engine_module.Job
@@ -278,6 +299,7 @@ def install_media_policy(engine_module):
         audio_languages: tuple[str, ...] = ()
         sponsorblock_categories: tuple[str, ...] = ()
         use_aria2c: bool = False
+        include_danmaku: bool = False
 
     MediaJob.__name__ = "Job"
     MediaJob.__qualname__ = "Job"
@@ -317,6 +339,9 @@ def install_media_policy(engine_module):
             use_aria2c=engine_module._bool(
                 query.get("aria2", ["1" if preferences["useAria2c"] else "0"])[0]
             ),
+            include_danmaku=engine_module._bool(
+                query.get("danmaku", ["1" if preferences["includeDanmaku"] else "0"])[0]
+            ),
         )
 
     def job_from_payload(payload: dict[str, Any]):
@@ -338,6 +363,7 @@ def install_media_policy(engine_module):
             audio_languages=_validated_languages(merged.get("audioLanguages")),
             sponsorblock_categories=_validated_sponsor_categories(merged.get("sponsorBlockCategories")),
             use_aria2c=bool(merged.get("useAria2c", False)),
+            include_danmaku=bool(merged.get("includeDanmaku", False)),
         )
 
     def job_to_payload(job) -> dict[str, Any]:
@@ -351,6 +377,7 @@ def install_media_policy(engine_module):
             audioLanguages=list(getattr(job, "audio_languages", ()) or ()),
             sponsorBlockCategories=list(getattr(job, "sponsorblock_categories", ()) or ()),
             useAria2c=bool(getattr(job, "use_aria2c", False)),
+            includeDanmaku=bool(getattr(job, "include_danmaku", False)),
         )
         return payload
 
@@ -387,6 +414,15 @@ def install_media_policy(engine_module):
             languages = tuple(getattr(job, "subtitle_languages", ()) or ())
             if languages:
                 options["subtitleslangs"] = list(languages)
+        elif _embedded_danmaku_only(job):
+            # The embedded fallback can safely write native XML when there is no
+            # simultaneous SRT conversion/embed request. Combined subtitle +
+            # danmaku jobs are handled by the bundled external yt-dlp sidecar
+            # pass so XML is never fed through FFmpeg's subtitle converter.
+            options["writesubtitles"] = True
+            options["writeautomaticsub"] = False
+            options["subtitleslangs"] = [DANMAKU_LANGUAGE]
+            options["subtitlesformat"] = "xml"
         if len(tuple(getattr(job, "audio_languages", ()) or ())) > 1:
             options["allow_multiple_audio_streams"] = True
         sponsor_categories = tuple(getattr(job, "sponsorblock_categories", ()) or ())
@@ -410,7 +446,46 @@ def install_media_policy(engine_module):
     def run_external_job(window, executable):
         _MEDIA_CONTEXT.job = window.job
         try:
-            return original_run_external_job(window, executable)
+            completed = original_run_external_job(window, executable)
+            job = window.job
+            if not completed or not _bilibili_danmaku_requested(job):
+                if (
+                    not completed
+                    and _bilibili_danmaku_requested(job)
+                    and bool(getattr(job, "include_subtitle", False))
+                ):
+                    window._update_bridge(
+                        bilibiliDanmakuStatus="deferred",
+                        bilibiliDanmakuWarning=(
+                            "Bundled yt-dlp was unavailable; embedded fallback keeps normal subtitles "
+                            "but cannot safely combine them with native danmaku XML in one pass."
+                        ),
+                    )
+                return completed
+
+            window._update_bridge(bilibiliDanmakuStatus="saving", bilibiliDanmakuWarning=None)
+            try:
+                download_danmaku_sidecar(
+                    Path(executable),
+                    str(job.source_url),
+                    output_template=str(
+                        engine_module.default_download_dir() / "%(title).180B [%(id)s].%(ext)s"
+                    ),
+                    browser=str(getattr(job, "browser", "none") or "none"),
+                    playlist=bool(getattr(job, "playlist", False)),
+                    collection_mode=getattr(job, "collection_mode", None),
+                    selected_items=getattr(job, "collection_items", None),
+                    cancelled=window.cancel_event.is_set,
+                    on_status=window.external_status_hook,
+                )
+                window._update_bridge(bilibiliDanmakuStatus="saved", bilibiliDanmakuWarning=None)
+            except BilibiliDanmakuError as exc:
+                if window.cancel_event.is_set():
+                    raise engine_module.DownloadCancelled("Cancelled by user") from exc
+                warning = str(exc).strip()[:500] or "Bilibili danmaku XML could not be saved"
+                window._update_bridge(bilibiliDanmakuStatus="failed", bilibiliDanmakuWarning=warning)
+                window.external_status_hook(f"[Galaxy] Bilibili 弹幕 XML 保存失败：{warning[:180]}")
+            return completed
         finally:
             _MEDIA_CONTEXT.job = None
 
@@ -422,6 +497,8 @@ def install_media_policy(engine_module):
         payload = original_bridge_status(window)
         payload["aria2Ready"] = aria2c_available(engine_module)
         payload["advancedMedia"] = True
+        payload["bilibiliDanmakuXml"] = True
+        payload["bilibiliDanmakuDefault"] = False
         return payload
 
     engine_module.EngineWindow.bridge_status = bridge_status
