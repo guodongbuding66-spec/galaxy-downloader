@@ -69,8 +69,12 @@ def handle_gallery_dl_download_request(
 
     try:
         task_id = str(submit_gallery_dl_task(source_url, max_files=raw_limit) or "").strip()
-    except (GalleryDlExecutorError, PublicUrlError, ValueError):
+    except (PublicUrlError, ValueError):
         return _error(400, "GALLERY_DL_REJECTED", "The gallery-dl task was rejected by the local engine")
+    except GalleryDlExecutorError:
+        return _error(503, "GALLERY_DL_SUBMIT_FAILED", "The local gallery-dl executor could not prepare the task")
+    except Exception:  # noqa: BLE001 - bridge must fail closed without exposing executor internals
+        return _error(500, "GALLERY_DL_SUBMIT_FAILED", "The local gallery-dl executor failed to accept the task")
 
     if _GALLERY_DL_TASK_ID_RE.fullmatch(task_id) is None:
         return _error(500, "INVALID_TASK_ID", "The local gallery-dl executor returned an invalid task id")
@@ -159,6 +163,17 @@ def run_gallery_dl_bridge_self_test() -> None:
     assert handle_gallery_dl_download_request(
         {"sourceUrl": "https://1.1.1.1/gallery"}, None
     ).payload["code"] == "GALLERY_DL_UNAVAILABLE"
+
+    def unavailable_submit(_source_url: str, *, max_files: int) -> str:
+        assert max_files == MAX_GALLERY_DL_FILES
+        raise GalleryDlExecutorError("private local path detail must not escape")
+
+    unavailable = handle_gallery_dl_download_request(
+        {"sourceUrl": "https://1.1.1.1/gallery"}, unavailable_submit
+    )
+    assert unavailable.status == 503
+    assert unavailable.payload["code"] == "GALLERY_DL_SUBMIT_FAILED"
+    assert "private local path" not in unavailable.payload["message"]
 
     def invalid_submit(_source_url: str, *, max_files: int) -> str:
         assert max_files == MAX_GALLERY_DL_FILES
