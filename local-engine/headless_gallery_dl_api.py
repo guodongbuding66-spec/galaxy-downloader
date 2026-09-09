@@ -65,9 +65,6 @@ def _resolved_tools_root(explicit: Path | None) -> tuple[Path, bool]:
     try:
         return _default_tools_root(), True
     except PlatformPathError:
-        # gallery-dl is optional. A malformed portable/install-mode setting must
-        # not prevent the rest of Headless from starting; fail this capability
-        # closed instead of letting the optional tool path poison the server.
         return _program_dir(), False
 
 
@@ -191,14 +188,13 @@ class HeadlessGalleryDlApi:
 
     def tool_status(self) -> dict[str, object]:
         available, version = self._tool_probe()
-        blocked = self._tool_mutation_blocked()
         return {
             "installed": bool(available),
             "version": _public_safe_value(version),
             "managedOnly": True,
             "toolRootReady": bool(self._tool_root_ready),
             "supportedActions": ["check", "install", "update", "remove"],
-            "mutationBlocked": blocked,
+            "mutationBlocked": self._tool_mutation_blocked(),
             "removeConfirmation": _REMOVE_CONFIRMATION,
         }
 
@@ -237,7 +233,6 @@ class HeadlessGalleryDlApi:
             unknown = sorted(str(key) for key in payload if key not in _ALLOWED_SUBMIT_FIELDS)
             if unknown:
                 raise HeadlessGalleryDlApiError("gallery-dl request contains unsupported fields")
-
             available, _version = self._tool_probe()
             if not available:
                 raise HeadlessGalleryDlApiError(
@@ -245,26 +240,17 @@ class HeadlessGalleryDlApi:
                     status=503,
                     code="GALLERY_DL_UNAVAILABLE",
                 )
-
             try:
                 source = validated_public_http_url(str(payload.get("sourceUrl") or ""))
             except PublicUrlError as exc:
                 raise HeadlessGalleryDlApiError("a public http(s) sourceUrl is required") from exc
-
             max_files = payload.get("maxFiles", MAX_GALLERY_DL_FILES)
             if isinstance(max_files, bool) or not isinstance(max_files, int):
                 raise HeadlessGalleryDlApiError("maxFiles must be an integer")
             if max_files < 1 or max_files > MAX_GALLERY_DL_FILES:
-                raise HeadlessGalleryDlApiError(
-                    f"maxFiles must be between 1 and {MAX_GALLERY_DL_FILES}"
-                )
-
+                raise HeadlessGalleryDlApiError(f"maxFiles must be between 1 and {MAX_GALLERY_DL_FILES}")
             try:
-                task_id = self.executor.submit(
-                    source,
-                    output_root=self.download_root,
-                    max_files=max_files,
-                )
+                task_id = self.executor.submit(source, output_root=self.download_root, max_files=max_files)
             except (GalleryDlExecutorError, PublicUrlError) as exc:
                 raise HeadlessGalleryDlApiError("gallery-dl request could not be queued") from exc
             return self.job(task_id)
@@ -276,7 +262,6 @@ class HeadlessGalleryDlApi:
             clean_action = str(action or "").strip().lower()
             if clean_action not in {"cancel", "retry"}:
                 raise HeadlessGalleryDlApiError("unsupported gallery-dl action")
-
             current = self.job(clean_id)["job"]
             if clean_action not in current.get("actions", []):
                 raise HeadlessGalleryDlApiError(
@@ -291,80 +276,70 @@ class HeadlessGalleryDlApi:
                     status=409,
                     code="GALLERY_DL_ACTION_CONFLICT",
                 )
-            return {
-                "changed": bool(result.changed),
-                "message": result.message,
-                **self.job(clean_id),
-            }
+            return {"changed": bool(result.changed), "message": result.message, **self.job(clean_id)}
+
+    def _tool_action_impl(self, clean_action: str, payload: object) -> dict[str, object]:
+        self._ensure_open()
+        if not isinstance(payload, dict):
+            raise HeadlessGalleryDlApiError("gallery-dl tool request must be a JSON object")
+        allowed_fields = {"confirm"} if clean_action == "remove" else set()
+        if any(str(key) not in allowed_fields for key in payload):
+            raise HeadlessGalleryDlApiError("gallery-dl tool request contains unsupported fields")
+        if clean_action == "remove" and payload.get("confirm") != _REMOVE_CONFIRMATION:
+            raise HeadlessGalleryDlApiError(
+                "gallery-dl removal requires explicit confirmation",
+                status=409,
+                code="GALLERY_DL_REMOVE_CONFIRMATION_REQUIRED",
+            )
+        if not self._tool_root_ready:
+            raise HeadlessGalleryDlApiError(
+                "gallery-dl tool root is unavailable",
+                status=503,
+                code="GALLERY_DL_TOOL_ROOT_UNAVAILABLE",
+            )
+        if clean_action in _TOOL_MUTATIONS and self._tool_mutation_blocked():
+            raise HeadlessGalleryDlApiError(
+                "gallery-dl tool mutation is blocked while jobs are queued or active",
+                status=409,
+                code="GALLERY_DL_TOOL_BUSY",
+            )
+        request = ManagedToolActionRequest(tool="gallery-dl", action=clean_action, user_initiated=True)
+        try:
+            result = self._tool_action_runner(self._engine, request)
+        except Exception as exc:
+            raise HeadlessGalleryDlApiError(
+                "gallery-dl tool action failed",
+                status=502,
+                code="GALLERY_DL_TOOL_ACTION_FAILED",
+            ) from exc
+        if not isinstance(result, ManagedToolActionResult):
+            raise HeadlessGalleryDlApiError(
+                "gallery-dl tool action returned an invalid result",
+                status=502,
+                code="GALLERY_DL_TOOL_ACTION_FAILED",
+            )
+        if result.state == "runtime-busy":
+            raise HeadlessGalleryDlApiError(
+                "gallery-dl runtime is busy",
+                status=409,
+                code="GALLERY_DL_TOOL_BUSY",
+            )
+        return {"result": _public_tool_action_result(result), "tool": self.tool_status()}
 
     def tool_action(self, action: object, payload: object) -> dict[str, object]:
+        clean_action = str(action or "").strip().lower()
+        if clean_action not in _TOOL_ACTIONS:
+            raise HeadlessGalleryDlApiError("unsupported gallery-dl tool action")
+        if clean_action == "check":
+            return self._tool_action_impl(clean_action, payload)
         with self._operation_lock:
-            self._ensure_open()
-            clean_action = str(action or "").strip().lower()
-            if clean_action not in _TOOL_ACTIONS:
-                raise HeadlessGalleryDlApiError("unsupported gallery-dl tool action")
-            if not isinstance(payload, dict):
-                raise HeadlessGalleryDlApiError("gallery-dl tool request must be a JSON object")
-            allowed_fields = {"confirm"} if clean_action == "remove" else set()
-            if any(str(key) not in allowed_fields for key in payload):
-                raise HeadlessGalleryDlApiError("gallery-dl tool request contains unsupported fields")
-            if clean_action == "remove" and payload.get("confirm") != _REMOVE_CONFIRMATION:
-                raise HeadlessGalleryDlApiError(
-                    "gallery-dl removal requires explicit confirmation",
-                    status=409,
-                    code="GALLERY_DL_REMOVE_CONFIRMATION_REQUIRED",
-                )
-            if not self._tool_root_ready:
-                raise HeadlessGalleryDlApiError(
-                    "gallery-dl tool root is unavailable",
-                    status=503,
-                    code="GALLERY_DL_TOOL_ROOT_UNAVAILABLE",
-                )
-            if clean_action in _TOOL_MUTATIONS and self._tool_mutation_blocked():
-                raise HeadlessGalleryDlApiError(
-                    "gallery-dl tool mutation is blocked while jobs are queued or active",
-                    status=409,
-                    code="GALLERY_DL_TOOL_BUSY",
-                )
-
-            request = ManagedToolActionRequest(
-                tool="gallery-dl",
-                action=clean_action,
-                user_initiated=True,
-            )
-            try:
-                result = self._tool_action_runner(self._engine, request)
-            except Exception as exc:
-                raise HeadlessGalleryDlApiError(
-                    "gallery-dl tool action failed",
-                    status=502,
-                    code="GALLERY_DL_TOOL_ACTION_FAILED",
-                ) from exc
-            if not isinstance(result, ManagedToolActionResult):
-                raise HeadlessGalleryDlApiError(
-                    "gallery-dl tool action returned an invalid result",
-                    status=502,
-                    code="GALLERY_DL_TOOL_ACTION_FAILED",
-                )
-            if result.state == "runtime-busy":
-                raise HeadlessGalleryDlApiError(
-                    "gallery-dl runtime is busy",
-                    status=409,
-                    code="GALLERY_DL_TOOL_BUSY",
-                )
-            return {
-                "result": _public_tool_action_result(result),
-                "tool": self.tool_status(),
-            }
+            return self._tool_action_impl(clean_action, payload)
 
     def close(self) -> None:
         with self._operation_lock:
             if self._closed:
                 return
             self._closed = True
-            # The shared gallery-dl executor intentionally cancels only at safe file
-            # boundaries. Request cancellation for every queued/active Headless task
-            # so stopping the API cannot leave new gallery work queued behind it.
             for row in self._rows():
                 actions = tuple(row.get("providerActions") or ())
                 task_id = str(row.get("providerTaskId") or "")
