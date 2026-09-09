@@ -64,6 +64,10 @@ jobs:
             local-engine/recovery_policy.py \
             local-engine/pause_resume_policy.py \
             local-engine/resume_bridge.py \
+            local-engine/gallery_dl_runtime.py \
+            local-engine/local_task_provider.py \
+            local-engine/gallery_dl_executor.py \
+            local-engine/gallery_dl_bridge.py \
             local-engine/recovery_display.py \
             local-engine/failure_policy.py \
             local-engine/runtime_health.py \
@@ -118,6 +122,8 @@ jobs:
           python3 scripts/test-local-job-queue.py
           python3 scripts/test-local-bridge-submission.py
           python3 scripts/test-local-bridge-format-catalog.py
+          python3 scripts/test-local-gallery-dl-executor.py
+          python3 scripts/test-local-gallery-dl-bridge.py
           python3 scripts/test-local-archive-policy.py
           python3 scripts/test-local-media-cleanup.py
           python3 scripts/test-local-media-cleanup-suggestions.py
