@@ -52,6 +52,9 @@ class HeadlessGalleryDlHttpMixin:
             if parts == ["v1", "gallery-dl", "status"]:
                 self._json(200, {"ok": True, **self.gallery_dl_api.status()})  # type: ignore[union-attr,attr-defined]
                 return
+            if parts == ["v1", "gallery-dl", "tool"]:
+                self._json(200, {"ok": True, **self.gallery_dl_api.tool_status()})  # type: ignore[union-attr,attr-defined]
+                return
             if parts == ["v1", "gallery-dl", "jobs"]:
                 values = parse_qs(parsed.query, keep_blank_values=False, max_num_fields=4)
                 raw_limit = (values.get("limit") or [""])[0]
@@ -94,6 +97,14 @@ class HeadlessGalleryDlHttpMixin:
                 and parts[4] in {"cancel", "retry"}
             ):
                 result = self.gallery_dl_api.action(parts[3], parts[4])  # type: ignore[union-attr]
+                self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
+                return
+            if (
+                len(parts) == 4
+                and parts[:3] == ["v1", "gallery-dl", "tool"]
+                and parts[3] in {"check", "install", "update", "remove"}
+            ):
+                result = self.gallery_dl_api.tool_action(parts[3], self._read_json())  # type: ignore[union-attr,attr-defined]
                 self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
                 return
             self._json(404, {"ok": False, "error": "not found"})  # type: ignore[attr-defined]
