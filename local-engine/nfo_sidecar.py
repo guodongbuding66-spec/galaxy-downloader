@@ -33,8 +33,9 @@ def _bounded_text(value: object, limit: int) -> str:
 def _bounded_list(value: object) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple, set)):
         return ()
+    raw_values = sorted(value, key=lambda item: str(item)) if isinstance(value, set) else value
     result: list[str] = []
-    for raw in value:
+    for raw in raw_values:
         item = _bounded_text(raw, MAX_LIST_ITEM_CHARS)
         if not item or item in result:
             continue
