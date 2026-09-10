@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from gallery_dl_executor import (
+    MAX_GALLERY_DL_DATE_LENGTH,
     MAX_GALLERY_DL_FILES,
     MAX_GALLERY_DL_TASKS,
     GalleryDlExecutor,
@@ -22,7 +23,7 @@ from managed_tool_actions import (
 from platform_paths import PlatformPathError, resolve_platform_paths
 from url_policy import PublicUrlError, validated_public_http_url
 
-_ALLOWED_SUBMIT_FIELDS = frozenset({"sourceUrl", "maxFiles", "archiveEnabled"})
+_ALLOWED_SUBMIT_FIELDS = frozenset({"sourceUrl", "maxFiles", "archiveEnabled", "dateAfter", "dateBefore"})
 _GALLERY_TASK_ID_RE = re.compile(r"^gdl-[a-f0-9]{16}$")
 _SAFE_PUBLIC_VALUE_RE = re.compile(r"^[A-Za-z0-9._+!-]{1,128}$")
 _TOOL_ACTIONS = frozenset({"check", "install", "update", "remove"})
@@ -108,6 +109,20 @@ def _public_safe_value(value: object, *, fallback: str | None = None) -> str | N
     if not text:
         return fallback
     return text if _SAFE_PUBLIC_VALUE_RE.fullmatch(text) else fallback
+
+
+def _optional_date_value(payload: dict[object, object], key: str) -> str | None:
+    if key not in payload or payload.get(key) is None:
+        return None
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise HeadlessGalleryDlApiError(f"{key} must be an ISO 8601 date or integer Unix timestamp string")
+    text = value.strip()
+    if not text:
+        raise HeadlessGalleryDlApiError(f"{key} must not be empty")
+    if len(text) > MAX_GALLERY_DL_DATE_LENGTH:
+        raise HeadlessGalleryDlApiError(f"{key} is too long")
+    return text
 
 
 def _public_tool_action_message(action: str, state: str, ok: bool) -> str:
@@ -199,6 +214,7 @@ class HeadlessGalleryDlApi:
             "maxTrackedJobs": MAX_GALLERY_DL_TASKS,
             "supportedActions": ["cancel", "retry"],
             "archiveSupported": bool(self._state_root_ready),
+            "dateFilterSupported": True,
             "managedOnly": True,
         }
 
@@ -281,22 +297,20 @@ class HeadlessGalleryDlApi:
                     status=503,
                     code="GALLERY_DL_ARCHIVE_UNAVAILABLE",
                 )
+            date_after = _optional_date_value(payload, "dateAfter")
+            date_before = _optional_date_value(payload, "dateBefore")
             try:
+                submit_kwargs: dict[str, object] = {
+                    "output_root": self.download_root,
+                    "max_files": max_files,
+                }
                 if archive_enabled:
-                    task_id = self.executor.submit(
-                        source,
-                        output_root=self.download_root,
-                        max_files=max_files,
-                        archive_enabled=True,
-                    )
-                else:
-                    # Keep non-Archive submissions compatible with injected
-                    # executors that implement the pre-Archive bounded contract.
-                    task_id = self.executor.submit(
-                        source,
-                        output_root=self.download_root,
-                        max_files=max_files,
-                    )
+                    submit_kwargs["archive_enabled"] = True
+                if date_after is not None:
+                    submit_kwargs["date_after"] = date_after
+                if date_before is not None:
+                    submit_kwargs["date_before"] = date_before
+                task_id = self.executor.submit(source, **submit_kwargs)
             except (GalleryDlExecutorError, PublicUrlError) as exc:
                 raise HeadlessGalleryDlApiError("gallery-dl request could not be queued") from exc
             return self.job(task_id)
@@ -398,5 +412,6 @@ def run_headless_gallery_dl_api_self_test() -> None:
     assert not _GALLERY_TASK_ID_RE.fullmatch("../gdl-0123456789abcdef")
     assert _public_safe_value("1.2.3+build") == "1.2.3+build"
     assert _public_safe_value("/tmp/private") is None
+    assert MAX_GALLERY_DL_DATE_LENGTH == 64
     assert MAX_GALLERY_DL_FILES == 500
     assert MAX_GALLERY_DL_TASKS == 200
