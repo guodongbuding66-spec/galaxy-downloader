@@ -282,12 +282,21 @@ class HeadlessGalleryDlApi:
                     code="GALLERY_DL_ARCHIVE_UNAVAILABLE",
                 )
             try:
-                task_id = self.executor.submit(
-                    source,
-                    output_root=self.download_root,
-                    max_files=max_files,
-                    archive_enabled=archive_enabled,
-                )
+                if archive_enabled:
+                    task_id = self.executor.submit(
+                        source,
+                        output_root=self.download_root,
+                        max_files=max_files,
+                        archive_enabled=True,
+                    )
+                else:
+                    # Keep non-Archive submissions compatible with injected
+                    # executors that implement the pre-Archive bounded contract.
+                    task_id = self.executor.submit(
+                        source,
+                        output_root=self.download_root,
+                        max_files=max_files,
+                    )
             except (GalleryDlExecutorError, PublicUrlError) as exc:
                 raise HeadlessGalleryDlApiError("gallery-dl request could not be queued") from exc
             return self.job(task_id)
