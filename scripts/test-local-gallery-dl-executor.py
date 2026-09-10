@@ -48,7 +48,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
             started = threading.Event()
             release = threading.Event()
 
-            def runner(_url, _task_dir, _max_files, _archive_path, cancel_event, progress):
+            def runner(_url, _task_dir, _max_files, _archive_path, _after, _before, cancel_event, progress):
                 started.set()
                 progress("first.jpg", 1, 0)
                 release.wait(2)
@@ -79,7 +79,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
             calls = {"count": 0}
             archive_paths: list[Path | None] = []
 
-            def runner(_url, _task_dir, _max_files, archive_path, cancel_event, progress):
+            def runner(_url, _task_dir, _max_files, archive_path, _after, _before, cancel_event, progress):
                 calls["count"] += 1
                 archive_paths.append(archive_path)
                 if calls["count"] == 1:
@@ -109,12 +109,77 @@ class GalleryDlExecutorTests(unittest.TestCase):
             self.assertEqual(archive_paths, [expected_archive, expected_archive])
             self.assertNotIn(str(expected_archive), completed.detail)
 
+    def test_date_filter_validation_zero_match_and_retry_preserve_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            calls = {"count": 0}
+            seen: list[tuple[str | None, str | None]] = []
+
+            def runner(_url, _task_dir, _max_files, _archive, date_after, date_before, _cancel, _progress):
+                calls["count"] += 1
+                seen.append((date_after, date_before))
+                if calls["count"] == 1:
+                    return GalleryDlRunResult(4, 0, 0)
+                return GalleryDlRunResult(0, 0, 0)
+
+            executor = GalleryDlExecutor(self.engine(root), runner=runner, validator=lambda value: value)
+            task_id = executor.submit(
+                "https://example.com/gallery",
+                date_after=" 2026-01-01T00:00:00+08:00 ",
+                date_before="2026-02-01",
+            )
+            failed = wait_state(executor, task_id, {"failed"})
+            self.assertIn("retry", failed.actions)
+            self.assertTrue(executor.retry(task_id).ok)
+            completed = wait_state(executor, task_id, {"completed"})
+            self.assertIn("日期过滤", completed.detail)
+            expected = [("2026-01-01T00:00:00+08:00", "2026-02-01")] * 2
+            self.assertEqual(seen, expected)
+            self.assertIn("date-after/date-before", completed.advice)
+
+    def test_date_filter_accepts_unix_and_rejects_invalid_or_reversed_ranges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            seen: list[tuple[str | None, str | None]] = []
+
+            def runner(_url, _task_dir, _max_files, _archive, date_after, date_before, _cancel, _progress):
+                seen.append((date_after, date_before))
+                return GalleryDlRunResult(0, 0, 0)
+
+            executor = GalleryDlExecutor(self.engine(root), runner=runner, validator=lambda value: value)
+            for kwargs in (
+                {"date_after": 1767972600},
+                {"date_after": ""},
+                {"date_after": "not-a-date"},
+                {"date_before": "9" * 65},
+                {"date_after": "2026-02-01", "date_before": "2026-01-01"},
+                {"date_after": "2026-01-01T10:00:00+08:00", "date_before": "2026-01-01T02:00:00Z"},
+            ):
+                with self.subTest(kwargs=kwargs), self.assertRaises(GalleryDlExecutorError):
+                    executor.submit("https://example.com/gallery", **kwargs)  # type: ignore[arg-type]
+
+            task_id = executor.submit("https://example.com/gallery", date_after="1767972600")
+            completed = wait_state(executor, task_id, {"completed"})
+            self.assertEqual(completed.state, "completed")
+            self.assertEqual(seen, [("1767972600", None)])
+
+            timezone_task = executor.submit(
+                "https://example.com/gallery",
+                date_after="2026-01-01T10:00:00+08:00",
+                date_before="2026-01-01T03:00:00Z",
+            )
+            self.assertEqual(wait_state(executor, timezone_task, {"completed"}).state, "completed")
+            self.assertEqual(
+                seen[-1],
+                ("2026-01-01T10:00:00+08:00", "2026-01-01T03:00:00Z"),
+            )
+
     def test_failure_retry_and_limits(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             calls = {"count": 0}
 
-            def runner(_url, _task_dir, _max_files, _archive_path, _cancel, progress):
+            def runner(_url, _task_dir, _max_files, _archive_path, _after, _before, _cancel, progress):
                 calls["count"] += 1
                 if calls["count"] == 1:
                     return GalleryDlRunResult(4, 1, 0)
@@ -138,7 +203,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
             root = Path(directory)
             archive_paths: list[Path | None] = []
 
-            def runner(_url, _task_dir, _max_files, archive_path, _cancel, _progress):
+            def runner(_url, _task_dir, _max_files, archive_path, _after, _before, _cancel, _progress):
                 archive_paths.append(archive_path)
                 return GalleryDlRunResult(0, 0, 0)
 
@@ -161,7 +226,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
             engine = SimpleNamespace(default_download_dir=lambda: root / "downloads")
             seen: list[Path | None] = []
 
-            def runner(_url, _task_dir, _max_files, archive_path, _cancel, progress):
+            def runner(_url, _task_dir, _max_files, archive_path, _after, _before, _cancel, progress):
                 seen.append(archive_path)
                 progress("ok.jpg", 1, 1)
                 return GalleryDlRunResult(0, 1, 1)
@@ -245,7 +310,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
                 executor.submit("https://example.com/gallery", archive_enabled=True)
             self.assertTrue(archive_path.is_dir())
 
-    def test_managed_embedding_clears_config_uses_archive_memory_cache_and_cleans_modules(self) -> None:
+    def test_managed_embedding_clears_config_uses_archive_date_memory_cache_and_cleans_modules(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             tools = root / "tools"
@@ -281,6 +346,8 @@ class GalleryDlExecutorTests(unittest.TestCase):
             )
             archive_path = (root / "state" / "gallery-dl" / "archive.sqlite3").resolve()
             archive_path.parent.mkdir(parents=True)
+            date_after = "2026-01-01T00:00:00Z"
+            date_before = "2026-02-01"
             (package / "job.py").write_text(
                 "from pathlib import Path\n"
                 "from . import config\n"
@@ -299,6 +366,8 @@ class GalleryDlExecutorTests(unittest.TestCase):
                 "        assert config.get((), 'actions') == ()\n"
                 "        assert config.get((), 'postprocessors') == ()\n"
                 f"        assert config.get(('extractor',), 'archive') == {str(archive_path)!r}\n"
+                f"        assert config.get(('extractor',), 'date-after') == {date_after!r}\n"
+                f"        assert config.get(('extractor',), 'date-before') == {date_before!r}\n"
                 "        try:\n"
                 "            self.handle_directory({})\n"
                 "            self.handle_url(self.url, {'filename':'one','extension':'jpg'})\n"
@@ -317,6 +386,8 @@ class GalleryDlExecutorTests(unittest.TestCase):
                 task_dir,
                 10,
                 archive_path,
+                date_after,
+                date_before,
                 threading.Event(),
                 lambda *_args: None,
             )
