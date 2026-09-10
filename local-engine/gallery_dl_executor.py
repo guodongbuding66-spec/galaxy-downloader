@@ -500,6 +500,7 @@ class GalleryDlExecutor:
                     current.downloaded = max(current.downloaded, int(result.downloaded))
                     current.current_file = ""
                     date_filtered = bool(current.date_after or current.date_before)
+                    resume_retry = current.resume_enabled and current.attempt > 1
                     if result.cancelled or current.cancel_event.is_set():
                         current.state = "cancelled"
                         current.detail = f"已取消 · 已处理 {current.processed} 项 · 已保存 {current.downloaded} 项"
@@ -510,16 +511,16 @@ class GalleryDlExecutor:
                         current.downloaded <= 0
                         and not current.archive_enabled
                         and not date_filtered
-                        and not current.resume_enabled
+                        and not resume_retry
                     ):
                         current.state = "failed"
                         current.detail = "gallery-dl 没有保存任何可下载文件。"
                     else:
                         current.state = "completed"
                         if current.downloaded <= 0:
-                            if current.resume_enabled:
+                            if resume_retry:
                                 current.detail = (
-                                    "已完成 · Resume 已启用，本次没有新增文件；"
+                                    "已完成 · Resume 重试本次没有新增文件；"
                                     "同一托管任务目录中的已有文件与断点数据已保留。"
                                 )
                             elif current.archive_enabled and date_filtered:
