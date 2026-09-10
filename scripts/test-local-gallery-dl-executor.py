@@ -215,6 +215,36 @@ class GalleryDlExecutorTests(unittest.TestCase):
             with self.assertRaises(GalleryDlExecutorError):
                 executor.submit("https://example.com/gallery", archive_enabled=True)
 
+    def test_symlink_archive_file_is_rejected(self) -> None:
+        if not hasattr(Path, "symlink_to"):
+            self.skipTest("symlink not supported")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_root = root / "state" / "gallery-dl"
+            archive_root.mkdir(parents=True)
+            outside = root / "outside.sqlite3"
+            outside.write_bytes(b"")
+            archive_path = archive_root / "archive.sqlite3"
+            try:
+                archive_path.symlink_to(outside)
+            except OSError:
+                self.skipTest("symlink creation is not permitted")
+            executor = GalleryDlExecutor(self.engine(root), runner=lambda *_args: None, validator=lambda value: value)
+            with self.assertRaises(GalleryDlExecutorError):
+                executor.submit("https://example.com/gallery", archive_enabled=True)
+            self.assertTrue(outside.is_file())
+            self.assertEqual(outside.read_bytes(), b"")
+
+    def test_non_regular_archive_file_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "state" / "gallery-dl" / "archive.sqlite3"
+            archive_path.mkdir(parents=True)
+            executor = GalleryDlExecutor(self.engine(root), runner=lambda *_args: None, validator=lambda value: value)
+            with self.assertRaises(GalleryDlExecutorError):
+                executor.submit("https://example.com/gallery", archive_enabled=True)
+            self.assertTrue(archive_path.is_dir())
+
     def test_managed_embedding_clears_config_uses_archive_memory_cache_and_cleans_modules(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
