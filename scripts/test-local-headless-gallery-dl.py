@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import threading
@@ -29,7 +30,7 @@ class FakeExecutor:
     def __init__(self) -> None:
         self.tasks: dict[str, dict[str, object]] = {}
         self.counter = 0
-        self.last_submit: tuple[str, Path, int, bool] | None = None
+        self.last_submit: tuple[str, Path, int, bool, float | int | None] | None = None
 
     def submit(
         self,
@@ -38,10 +39,17 @@ class FakeExecutor:
         output_root: Path,
         max_files: int,
         archive_enabled: bool = False,
+        rate_limit_mib: float | int | None = None,
     ) -> str:
         self.counter += 1
         task_id = f"gdl-{self.counter:016x}"
-        self.last_submit = (source_url, Path(output_root), int(max_files), bool(archive_enabled))
+        self.last_submit = (
+            source_url,
+            Path(output_root),
+            int(max_files),
+            bool(archive_enabled),
+            rate_limit_mib,
+        )
         self.tasks[task_id] = {
             "state": "queued",
             "detail": "等待 /tmp/private/cookie.txt Authorization: Bearer abcdefghijklmnop",
@@ -153,16 +161,25 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     assert status["version"] == "1.32.0-test"
     assert status["maxFilesPerJob"] == 500 and status["maxTrackedJobs"] == 200
     assert status["archiveSupported"] is True
+    assert status["rateLimitSupported"] is True
+    assert status["rateLimitMinMiB"] == 0.1
+    assert status["rateLimitMaxMiB"] == 1024.0
+    assert status["rateLimitUnit"] == "MiB/s"
     assert status["managedOnly"] is True
     assert str(root) not in json.dumps(status)
 
     created = api.submit(
-        {"sourceUrl": "https://1.1.1.1/gallery", "maxFiles": 25, "archiveEnabled": True}
+        {
+            "sourceUrl": "https://1.1.1.1/gallery",
+            "maxFiles": 25,
+            "archiveEnabled": True,
+            "rateLimitMiB": 2.5,
+        }
     )
     task = created["job"]
     assert task["id"] == "gdl-0000000000000001"
     assert task["state"] == "queued" and task["actions"] == ["cancel"]
-    assert executor.last_submit == ("https://1.1.1.1/gallery", root / "downloads", 25, True)
+    assert executor.last_submit == ("https://1.1.1.1/gallery", root / "downloads", 25, True, 2.5)
     serialized = json.dumps(created)
     assert "/tmp/private" not in serialized
     assert "abcdefghijklmnop" not in serialized
@@ -175,14 +192,22 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     assert api.action(task["id"], "retry")["job"]["state"] == "queued"
     _expect_error(lambda: api.action(task["id"], "retry"), 409, "GALLERY_DL_ACTION_CONFLICT")
 
-    plain = api.submit({"sourceUrl": "https://1.1.1.1/gallery-plain", "archiveEnabled": False})
+    plain = api.submit(
+        {"sourceUrl": "https://1.1.1.1/gallery-plain", "archiveEnabled": False, "rateLimitMiB": None}
+    )
     assert plain["job"]["state"] == "queued"
     assert executor.last_submit == (
         "https://1.1.1.1/gallery-plain",
         root / "downloads",
         500,
         False,
+        None,
     )
+
+    for index, rate in enumerate((0.1, 1024), start=1):
+        bounded = api.submit({"sourceUrl": f"https://1.1.1.1/gallery-bound-{index}", "rateLimitMiB": rate})
+        assert bounded["job"]["state"] == "queued"
+        assert executor.last_submit is not None and executor.last_submit[-1] == rate
 
     invalid_calls = (
         lambda: api.submit({"sourceUrl": "file:///tmp/private"}),
@@ -191,6 +216,15 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "maxFiles": 501}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "archiveEnabled": "true"}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "archiveEnabled": 1}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": True}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": "2.5"}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": "500k"}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": "1M-2M"}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": 0.099}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": 1024.001}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": math.nan}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": math.inf}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": -math.inf}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "archivePath": str(root / "escape.sqlite3")}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "cookies": "secret"}),
         lambda: api.jobs(limit=201),
@@ -227,6 +261,7 @@ def _test_invalid_tool_path_isolated(root: Path) -> None:
         assert api.status()["available"] is False
         assert api.status()["acceptingJobs"] is True
         assert api.status()["archiveSupported"] is False
+        assert api.status()["rateLimitSupported"] is True
         _expect_error(
             lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery"}),
             503,
@@ -241,8 +276,10 @@ def _test_invalid_tool_path_isolated(root: Path) -> None:
         )
         assert archive_only.status()["available"] is True
         assert archive_only.status()["archiveSupported"] is False
-        ordinary = archive_only.submit({"sourceUrl": "https://1.1.1.1/plain"})
+        ordinary = archive_only.submit({"sourceUrl": "https://1.1.1.1/plain", "rateLimitMiB": 1})
         assert ordinary["job"]["state"] == "queued"
+        assert archive_only.executor.last_submit is not None  # type: ignore[attr-defined]
+        assert archive_only.executor.last_submit[-1] == 1  # type: ignore[attr-defined]
         _expect_error(
             lambda: archive_only.submit(
                 {"sourceUrl": "https://1.1.1.1/archive", "archiveEnabled": True}
@@ -262,6 +299,7 @@ def _test_real_executor_state_root_binding(root: Path) -> None:
     )
     try:
         assert api.status()["archiveSupported"] is True
+        assert api.status()["rateLimitSupported"] is True
         assert api.executor.engine_module.state_dir() == state_root.resolve(strict=False)
         assert str(state_root) not in json.dumps(api.status())
     finally:
@@ -309,13 +347,21 @@ def _test_http(api: HeadlessGalleryDlApi, root: Path) -> None:
         code, body = _request(port, "GET", "/v1/gallery-dl/status", token=token)
         assert code == 200 and body["ok"] is True and body["available"] is True
         assert body["acceptingJobs"] is True and body["archiveSupported"] is True
+        assert body["rateLimitSupported"] is True
+        assert body["rateLimitMinMiB"] == 0.1 and body["rateLimitMaxMiB"] == 1024.0
+        assert body["rateLimitUnit"] == "MiB/s"
 
         code, body = _request(
             port,
             "POST",
             "/v1/gallery-dl/jobs",
             token=token,
-            payload={"sourceUrl": "https://1.1.1.1/gallery", "maxFiles": 9, "archiveEnabled": True},
+            payload={
+                "sourceUrl": "https://1.1.1.1/gallery",
+                "maxFiles": 9,
+                "archiveEnabled": True,
+                "rateLimitMiB": 3.25,
+            },
         )
         assert code == 201 and body["ok"] is True
         task_id = body["job"]["id"]
@@ -324,6 +370,7 @@ def _test_http(api: HeadlessGalleryDlApi, root: Path) -> None:
             root / "downloads",
             9,
             True,
+            3.25,
         )
         code, body = _request(port, "GET", f"/v1/gallery-dl/jobs/{task_id}", token=token)
         assert code == 200 and body["job"]["id"] == task_id
@@ -344,6 +391,22 @@ def _test_http(api: HeadlessGalleryDlApi, root: Path) -> None:
             "/v1/gallery-dl/jobs",
             token=token,
             payload={"sourceUrl": "https://1.1.1.1/gallery", "archiveEnabled": "true"},
+        )
+        assert code == 400 and body["code"] == "GALLERY_DL_INVALID_REQUEST"
+        code, body = _request(
+            port,
+            "POST",
+            "/v1/gallery-dl/jobs",
+            token=token,
+            payload={"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": "500k"},
+        )
+        assert code == 400 and body["code"] == "GALLERY_DL_INVALID_REQUEST"
+        code, body = _request(
+            port,
+            "POST",
+            "/v1/gallery-dl/jobs",
+            token=token,
+            payload={"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": 2048},
         )
         assert code == 400 and body["code"] == "GALLERY_DL_INVALID_REQUEST"
         code, body = _request(
