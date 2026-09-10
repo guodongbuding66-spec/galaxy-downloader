@@ -82,9 +82,13 @@
           <form id="gallerySubmitForm" class="gallery-form">
             <label class="field grow" for="gallerySourceUrl"><span>Source URL</span><input id="gallerySourceUrl" name="sourceUrl" type="url" required autocomplete="off" inputmode="url" placeholder="https://example.com/gallery"></label>
             <label class="field gallery-limit-field" for="galleryMaxFiles"><span>Max files</span><input id="galleryMaxFiles" name="maxFiles" type="number" min="1" max="500" step="1" value="500" required></label>
+            <label class="gallery-archive-option" for="galleryArchiveEnabled">
+              <input id="galleryArchiveEnabled" name="archiveEnabled" type="checkbox" aria-describedby="galleryArchiveHelp" disabled>
+              <span><strong>Archive</strong><small id="galleryArchiveHelp">Skip files already recorded by this Local Engine.</small></span>
+            </label>
             <button class="button primary gallery-submit-button" id="gallerySubmitButton" type="submit">Add download</button>
           </form>
-          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL and file-count limit are sent. Output stays inside the Headless download root.</div>
+          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL, file-count limit and Archive boolean are sent. Output and Archive storage stay inside trusted Headless paths.</div>
         </section>
 
         <section class="panel gallery-tool-panel">
@@ -196,6 +200,8 @@
     const mutationBlocked = Boolean(tool.mutationBlocked) || hasLiveJobs()
     const rootReady = tool.toolRootReady !== false
     const acceptingJobs = state.engine?.acceptingJobs !== false
+    const archiveSupported = state.engine?.archiveSupported === true
+    const archiveControl = $('galleryArchiveEnabled')
 
     setText('galleryToolInstalled', installed ? 'Installed' : 'Not installed')
     setText('galleryToolVersion', tool.version || '—')
@@ -203,6 +209,9 @@
     setText('galleryToolMutation', mutationBlocked ? 'Blocked by active tasks' : 'Available')
     setText('galleryToolSummary', !rootReady ? 'Managed tool storage is unavailable.' : installed ? 'Verified managed gallery-dl is available.' : 'gallery-dl is not installed yet.')
     setText('galleryToolMessage', result?.message || 'Tool checks are explicit; startup never contacts the provider.')
+    setText('galleryArchiveHelp', archiveSupported ? 'Skip files already recorded by this Local Engine.' : 'Archive is unavailable because a trusted state root is not available.')
+
+    if (!archiveSupported) archiveControl.checked = false
 
     const busy = state.toolActionPending
     $('galleryToolCheck').disabled = busy || !rootReady
@@ -215,6 +224,7 @@
     $('gallerySubmitButton').disabled = state.submitPending || !installed || !acceptingJobs
     $('gallerySourceUrl').disabled = state.submitPending || !installed || !acceptingJobs
     $('galleryMaxFiles').disabled = state.submitPending || !installed || !acceptingJobs
+    archiveControl.disabled = state.submitPending || !installed || !acceptingJobs || !archiveSupported
   }
 
   function actionButton(job, action) {
@@ -321,6 +331,7 @@
       showError('Max files must be between 1 and 500')
       return
     }
+    const archiveEnabled = state.engine?.archiveSupported === true && $('galleryArchiveEnabled').checked
     state.submitPending = true
     renderTool()
     setText('gallerySubmitStatus', 'Queueing gallery download…')
@@ -328,6 +339,7 @@
       const result = await postJson('/v1/gallery-dl/jobs', {
         sourceUrl: $('gallerySourceUrl').value.trim(),
         maxFiles,
+        archiveEnabled: Boolean(archiveEnabled),
       })
       setText('gallerySubmitStatus', result.job?.title ? `Queued: ${result.job.title}` : 'Gallery download queued.')
       $('gallerySourceUrl').value = ''
