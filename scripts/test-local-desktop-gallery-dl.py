@@ -55,6 +55,7 @@ class _Window:
         *,
         archive_supported: bool,
         archive_value: bool,
+        resume_value: bool = True,
         date_after: str = " 2026-01-01 ",
         date_before: str = " 2026-02-01 ",
     ) -> None:
@@ -62,10 +63,12 @@ class _Window:
         self._quick_state_var = _Var("")
         self._gallery_dl_archive_var = _Var(archive_value)
         self._gallery_dl_archive_supported = archive_supported
+        self._gallery_dl_resume_var = _Var(resume_value)
         self._gallery_dl_date_after_var = _Var(date_after)
         self._gallery_dl_date_before_var = _Var(date_before)
         self._gallery_dl_fallback_button = _Button()
         self._gallery_dl_archive_check = _Check()
+        self._gallery_dl_resume_check = _Check()
         self._gallery_dl_date_after_entry = _Check()
         self._gallery_dl_date_before_entry = _Check()
         self.submissions: list[dict[str, object]] = []
@@ -138,7 +141,7 @@ class DesktopGalleryDlTests(unittest.TestCase):
             self.assertFalse(desktop_gallery_dl.gallery_archive_ready(RelativeEngine()))
             self.assertFalse(desktop_gallery_dl.gallery_archive_ready(BrokenEngine()))
 
-    def test_archive_request_fails_closed_when_tk_variable_is_unavailable(self) -> None:
+    def test_archive_and_resume_requests_fail_closed_when_tk_variable_is_unavailable(self) -> None:
         class BrokenVar:
             @staticmethod
             def get():
@@ -146,9 +149,12 @@ class DesktopGalleryDlTests(unittest.TestCase):
 
         class BrokenWindow:
             _gallery_dl_archive_var = BrokenVar()
+            _gallery_dl_resume_var = BrokenVar()
 
         self.assertFalse(desktop_gallery_dl.gallery_archive_requested(object()))
         self.assertFalse(desktop_gallery_dl.gallery_archive_requested(BrokenWindow()))
+        self.assertFalse(desktop_gallery_dl.gallery_resume_requested(object()))
+        self.assertFalse(desktop_gallery_dl.gallery_resume_requested(BrokenWindow()))
 
     def test_date_request_fails_closed_when_tk_variable_is_unavailable(self) -> None:
         class GoodVar:
@@ -168,8 +174,8 @@ class DesktopGalleryDlTests(unittest.TestCase):
         self.assertEqual(desktop_gallery_dl.gallery_date_values(object()), (None, None))
         self.assertEqual(desktop_gallery_dl.gallery_date_values(BrokenWindow()), (None, None))
 
-    def test_submit_captures_archive_and_date_values_before_background_worker(self) -> None:
-        window = _Window(archive_supported=True, archive_value=True)
+    def test_submit_captures_archive_resume_and_date_values_before_background_worker(self) -> None:
+        window = _Window(archive_supported=True, archive_value=True, resume_value=True)
 
         class Engine:
             @staticmethod
@@ -187,14 +193,17 @@ class DesktopGalleryDlTests(unittest.TestCase):
         assert thread is not None
         self.assertTrue(thread.started)
         self.assertEqual(window._gallery_dl_archive_var.calls, 1)
+        self.assertEqual(window._gallery_dl_resume_var.calls, 1)
         self.assertEqual(window._gallery_dl_date_after_var.calls, 1)
         self.assertEqual(window._gallery_dl_date_before_var.calls, 1)
         self.assertIn(("disabled",), window._gallery_dl_fallback_button.states)
         self.assertEqual(window._gallery_dl_archive_check.configs[-1]["state"], "disabled")
+        self.assertEqual(window._gallery_dl_resume_check.configs[-1]["state"], "disabled")
         self.assertEqual(window._gallery_dl_date_after_entry.configs[-1]["state"], "disabled")
         self.assertEqual(window._gallery_dl_date_before_entry.configs[-1]["state"], "disabled")
 
         window._gallery_dl_archive_var.fail = True
+        window._gallery_dl_resume_var.fail = True
         window._gallery_dl_date_after_var.fail = True
         window._gallery_dl_date_before_var.fail = True
         thread.target()
@@ -205,22 +214,28 @@ class DesktopGalleryDlTests(unittest.TestCase):
         self.assertEqual(submission["max_files"], desktop_gallery_dl.MAX_GALLERY_DL_FILES)
         self.assertIs(type(submission["archive_enabled"]), bool)
         self.assertTrue(submission["archive_enabled"])
+        self.assertIs(type(submission["resume_enabled"]), bool)
+        self.assertTrue(submission["resume_enabled"])
         self.assertEqual(submission["date_after"], "2026-01-01")
         self.assertEqual(submission["date_before"], "2026-02-01")
         self.assertEqual(window._gallery_dl_archive_var.calls, 1)
+        self.assertEqual(window._gallery_dl_resume_var.calls, 1)
         self.assertEqual(window._gallery_dl_date_after_var.calls, 1)
         self.assertEqual(window._gallery_dl_date_before_var.calls, 1)
         self.assertIn(("!disabled",), window._gallery_dl_fallback_button.states)
         self.assertEqual(window._gallery_dl_archive_check.configs[-1]["state"], "normal")
+        self.assertEqual(window._gallery_dl_resume_check.configs[-1]["state"], "normal")
         self.assertEqual(window._gallery_dl_date_after_entry.configs[-1]["state"], "normal")
         self.assertEqual(window._gallery_dl_date_before_entry.configs[-1]["state"], "normal")
         self.assertIn("Archive 已启用", str(window._quick_state_var.value))
+        self.assertIn("Resume 已启用", str(window._quick_state_var.value))
         self.assertIn("日期过滤已启用", str(window._quick_state_var.value))
 
-    def test_submit_forces_archive_off_and_omits_empty_dates(self) -> None:
+    def test_submit_forces_archive_off_and_preserves_resume_off_and_empty_dates(self) -> None:
         window = _Window(
             archive_supported=False,
             archive_value=True,
+            resume_value=False,
             date_after="  ",
             date_before="",
         )
@@ -241,38 +256,50 @@ class DesktopGalleryDlTests(unittest.TestCase):
         self.assertIsNotNone(thread)
         assert thread is not None
         self.assertEqual(window._gallery_dl_archive_var.calls, 0)
+        self.assertEqual(window._gallery_dl_resume_var.calls, 1)
         self.assertEqual(window._gallery_dl_date_after_var.calls, 1)
         self.assertEqual(window._gallery_dl_date_before_var.calls, 1)
         thread.target()
         self.assertEqual(len(window.submissions), 1)
         self.assertIs(type(window.submissions[0]["archive_enabled"]), bool)
         self.assertFalse(window.submissions[0]["archive_enabled"])
+        self.assertIs(type(window.submissions[0]["resume_enabled"]), bool)
+        self.assertFalse(window.submissions[0]["resume_enabled"])
         self.assertIsNone(window.submissions[0]["date_after"])
         self.assertIsNone(window.submissions[0]["date_before"])
         self.assertEqual(window._gallery_dl_archive_check.configs[-1]["state"], "disabled")
+        self.assertEqual(window._gallery_dl_resume_check.configs[-1]["state"], "normal")
         self.assertEqual(window._gallery_dl_date_after_entry.configs[-1]["state"], "normal")
         self.assertEqual(window._gallery_dl_date_before_entry.configs[-1]["state"], "normal")
+        self.assertNotIn("Resume 已启用", str(window._quick_state_var.value))
         self.assertNotIn("日期过滤已启用", str(window._quick_state_var.value))
 
-    def test_archive_and_date_ui_are_default_off_or_empty_and_accessible(self) -> None:
+    def test_archive_resume_and_date_ui_are_default_off_or_empty_and_accessible(self) -> None:
         source = (LOCAL_ENGINE / "desktop_gallery_dl.py").read_text(encoding="utf-8")
-        self.assertIn("tk.BooleanVar(master=window, value=False)", source)
+        self.assertGreaterEqual(source.count("tk.BooleanVar(master=window, value=False)"), 2)
         self.assertGreaterEqual(source.count('tk.StringVar(master=window, value="")'), 2)
-        self.assertIn("tk.Checkbutton(", source)
+        self.assertGreaterEqual(source.count("tk.Checkbutton("), 2)
         self.assertIn("tk.Entry(", source)
         self.assertIn('text="Archive · 跳过已记录项"', source)
+        self.assertIn('text="Resume · 重试复用断点"', source)
         self.assertIn('label="After"', source)
         self.assertIn('label="Before"', source)
         self.assertIn("takefocus=True", source)
         self.assertIn("height=44", source)
         self.assertIn("highlightcolor=ui.ACCENT", source)
         self.assertIn("archive_enabled=bool(archive_enabled)", source)
+        self.assertIn("resume_enabled=bool(resume_enabled)", source)
         self.assertIn("date_after=date_after", source)
         self.assertIn("date_before=date_before", source)
+        self.assertIn("HTTP Range", source)
+        self.assertIn(".part", source)
         self.assertIn("YYYY-MM-DD", source)
         self.assertNotIn("archive_path", source.lower())
         self.assertNotIn("date_path", source.lower())
         self.assertNotIn("date_config", source.lower())
+        self.assertNotIn("resume_path", source.lower())
+        self.assertNotIn("part_directory", source.lower())
+        self.assertNotIn("range_header", source.lower())
 
     def test_production_entrypoint_installs_desktop_gallery_dl(self) -> None:
         source = (LOCAL_ENGINE / "entrypoint.py").read_text(encoding="utf-8")
