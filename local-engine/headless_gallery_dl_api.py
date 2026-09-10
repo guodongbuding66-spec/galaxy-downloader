@@ -22,7 +22,7 @@ from managed_tool_actions import (
 from platform_paths import PlatformPathError, resolve_platform_paths
 from url_policy import PublicUrlError, validated_public_http_url
 
-_ALLOWED_SUBMIT_FIELDS = frozenset({"sourceUrl", "maxFiles"})
+_ALLOWED_SUBMIT_FIELDS = frozenset({"sourceUrl", "maxFiles", "archiveEnabled"})
 _GALLERY_TASK_ID_RE = re.compile(r"^gdl-[a-f0-9]{16}$")
 _SAFE_PUBLIC_VALUE_RE = re.compile(r"^[A-Za-z0-9._+!-]{1,128}$")
 _TOOL_ACTIONS = frozenset({"check", "install", "update", "remove"})
@@ -40,13 +40,17 @@ class HeadlessGalleryDlApiError(RuntimeError):
 
 
 class _HeadlessGalleryDlEngine:
-    """Minimal engine/tool context required by the shared gallery-dl executor."""
+    """Minimal trusted runtime context required by the shared gallery-dl executor."""
 
-    def __init__(self, tools_root: Path) -> None:
+    def __init__(self, tools_root: Path, state_root: Path) -> None:
         self._tools_root = Path(tools_root).resolve(strict=False)
+        self._state_root = Path(state_root).resolve(strict=False)
 
     def tools_dir(self) -> Path:
         return self._tools_root
+
+    def state_dir(self) -> Path:
+        return self._state_root
 
 
 def _program_dir() -> Path:
@@ -59,6 +63,10 @@ def _default_tools_root() -> Path:
     return resolve_platform_paths(program_dir=_program_dir()).tools_dir
 
 
+def _default_state_root() -> Path:
+    return resolve_platform_paths(program_dir=_program_dir()).state_dir
+
+
 def _resolved_tools_root(explicit: Path | None) -> tuple[Path, bool]:
     if explicit is not None:
         return Path(explicit).resolve(strict=False), True
@@ -66,6 +74,18 @@ def _resolved_tools_root(explicit: Path | None) -> tuple[Path, bool]:
         return _default_tools_root(), True
     except PlatformPathError:
         return _program_dir(), False
+
+
+def _resolved_state_root(explicit: Path | None) -> tuple[Path, bool]:
+    if explicit is not None:
+        return Path(explicit).resolve(strict=False), True
+    try:
+        return _default_state_root(), True
+    except PlatformPathError:
+        # Keep ordinary Headless startup fail-soft if platform path configuration
+        # is invalid. Archive stays unavailable until a trusted state root can be
+        # resolved; the fallback path is never exposed or used for Archive jobs.
+        return (_program_dir() / "state").resolve(strict=False), False
 
 
 def _public_task(row: dict[str, object]) -> dict[str, object]:
@@ -133,13 +153,15 @@ class HeadlessGalleryDlApi:
         download_root: Path,
         *,
         tools_root: Path | None = None,
+        state_root: Path | None = None,
         executor: GalleryDlExecutor | None = None,
         tool_probe: ToolProbe | None = None,
         tool_action_runner: ToolActionRunner = perform_managed_tool_action,
     ) -> None:
         self.download_root = Path(download_root).resolve(strict=False)
         resolved_tools, self._tool_root_ready = _resolved_tools_root(tools_root)
-        self._engine = _HeadlessGalleryDlEngine(resolved_tools)
+        resolved_state, self._state_root_ready = _resolved_state_root(state_root)
+        self._engine = _HeadlessGalleryDlEngine(resolved_tools, resolved_state)
         self.executor = executor or GalleryDlExecutor(self._engine)
         self._tool_probe = tool_probe or self._managed_tool_status
         self._tool_action_runner = tool_action_runner
@@ -176,6 +198,7 @@ class HeadlessGalleryDlApi:
             "maxFilesPerJob": MAX_GALLERY_DL_FILES,
             "maxTrackedJobs": MAX_GALLERY_DL_TASKS,
             "supportedActions": ["cancel", "retry"],
+            "archiveSupported": bool(self._state_root_ready),
             "managedOnly": True,
         }
 
@@ -249,8 +272,31 @@ class HeadlessGalleryDlApi:
                 raise HeadlessGalleryDlApiError("maxFiles must be an integer")
             if max_files < 1 or max_files > MAX_GALLERY_DL_FILES:
                 raise HeadlessGalleryDlApiError(f"maxFiles must be between 1 and {MAX_GALLERY_DL_FILES}")
+            archive_enabled = payload.get("archiveEnabled", False)
+            if not isinstance(archive_enabled, bool):
+                raise HeadlessGalleryDlApiError("archiveEnabled must be a boolean")
+            if archive_enabled and not self._state_root_ready:
+                raise HeadlessGalleryDlApiError(
+                    "gallery-dl Archive state root is unavailable",
+                    status=503,
+                    code="GALLERY_DL_ARCHIVE_UNAVAILABLE",
+                )
             try:
-                task_id = self.executor.submit(source, output_root=self.download_root, max_files=max_files)
+                if archive_enabled:
+                    task_id = self.executor.submit(
+                        source,
+                        output_root=self.download_root,
+                        max_files=max_files,
+                        archive_enabled=True,
+                    )
+                else:
+                    # Keep non-Archive submissions compatible with injected
+                    # executors that implement the pre-Archive bounded contract.
+                    task_id = self.executor.submit(
+                        source,
+                        output_root=self.download_root,
+                        max_files=max_files,
+                    )
             except (GalleryDlExecutorError, PublicUrlError) as exc:
                 raise HeadlessGalleryDlApiError("gallery-dl request could not be queued") from exc
             return self.job(task_id)
