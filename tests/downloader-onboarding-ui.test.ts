@@ -16,7 +16,7 @@ describe('downloader Local Engine onboarding UI', () => {
     const downloader = source('src/app/[locale]/unified-downloader.tsx')
     expect(downloader).toContain("clearInput: '清空链接'")
     expect(downloader).toContain('{workbenchCopy.clearInput}')
-    expect(downloader).toContain("variant=\"outline\"")
+    expect(downloader).toContain('variant="outline"')
   })
 
   it('uses a four-step guide whose first step installs and opens Local Engine', () => {
@@ -25,5 +25,15 @@ describe('downloader Local Engine onboarding UI', () => {
     expect(quickStart).toContain("engineTitle: '下载安装并打开本地引擎'")
     expect(quickStart).toContain('href="galaxy-downloader://open"')
     expect(quickStart).toContain("open: '打开引擎'")
+  })
+
+  it('distinguishes outdated, partially-ready and offline engines without hard-coded old thresholds', () => {
+    const setupHint = source('src/components/downloader/LocalEngineSetupHint.tsx')
+    expect(setupHint).toContain('probeLocalEngineVersion')
+    expect(setupHint).toContain('LOCAL_ENGINE_REQUIRED_VERSION')
+    expect(setupHint).toContain("setStatus('upgrade')")
+    expect(setupHint).toContain("imageVersion ? 'ready' : 'repair'")
+    expect(setupHint).toContain("type Status = 'checking' | 'ready' | 'upgrade' | 'repair' | 'offline'")
+    expect(setupHint).not.toContain('0.7.0+')
   })
 })
