@@ -61,7 +61,7 @@ def _set_submit_controls(window, *, disabled: bool) -> None:
                 cursor="arrow" if archive_disabled else "hand2",
             )
         except tk.TclError:
-            pass
+            return
 
 
 def _submit_gallery_fallback(window, engine_module) -> None:
@@ -124,7 +124,7 @@ def _submit_gallery_fallback(window, engine_module) -> None:
         try:
             window.after(0, finish)
         except tk.TclError:
-            pass
+            return
 
     threading.Thread(target=worker, name="GalaxyGalleryDlSubmit", daemon=True).start()
 
