@@ -37,6 +37,18 @@ def gallery_archive_requested(window: object) -> bool:
         return False
 
 
+def gallery_date_values(window: object) -> tuple[str | None, str | None]:
+    """Capture optional Date values on the Tk/UI thread and fail closed on Tcl errors."""
+    after_var = getattr(window, "_gallery_dl_date_after_var", None)
+    before_var = getattr(window, "_gallery_dl_date_before_var", None)
+    try:
+        after = str(after_var.get() if after_var is not None else "").strip()
+        before = str(before_var.get() if before_var is not None else "").strip()
+    except tk.TclError:
+        return None, None
+    return after or None, before or None
+
+
 def _window_exists(window: tk.Misc | None) -> bool:
     if window is None:
         return False
@@ -63,6 +75,18 @@ def _set_submit_controls(window, *, disabled: bool) -> None:
         except tk.TclError:
             return
 
+    for attribute in ("_gallery_dl_date_after_entry", "_gallery_dl_date_before_entry"):
+        entry = getattr(window, attribute, None)
+        if entry is None:
+            continue
+        try:
+            entry.configure(
+                state="disabled" if disabled else "normal",
+                cursor="arrow" if disabled else "xterm",
+            )
+        except tk.TclError:
+            return
+
 
 def _submit_gallery_fallback(window, engine_module) -> None:
     source_var = getattr(window, "_quick_url_var", None)
@@ -81,11 +105,14 @@ def _submit_gallery_fallback(window, engine_module) -> None:
         return
 
     archive_enabled = bool(getattr(window, "_gallery_dl_archive_supported", False)) and gallery_archive_requested(window)
+    date_after, date_before = gallery_date_values(window)
+    date_filtered = bool(date_after or date_before)
     _set_submit_controls(window, disabled=True)
     if state_var is not None:
         state_var.set(
             "正在校验公网链接并提交 gallery-dl 任务…"
             + (" Archive 已启用。" if archive_enabled else "")
+            + (" 日期过滤已启用。" if date_filtered else "")
         )
 
     def worker() -> None:
@@ -99,6 +126,8 @@ def _submit_gallery_fallback(window, engine_module) -> None:
                     validated,
                     max_files=MAX_GALLERY_DL_FILES,
                     archive_enabled=bool(archive_enabled),
+                    date_after=date_after,
+                    date_before=date_before,
                 )
                 or ""
             )
@@ -106,8 +135,9 @@ def _submit_gallery_fallback(window, engine_module) -> None:
                 raise RuntimeError("gallery-dl 任务未返回任务 ID。")
             ok = True
             archive_detail = " · Archive 已启用" if archive_enabled else ""
+            date_detail = " · 日期过滤已启用" if date_filtered else ""
             message = (
-                f"已加入 gallery-dl 任务中心 · {task_id}{archive_detail}"
+                f"已加入 gallery-dl 任务中心 · {task_id}{archive_detail}{date_detail}"
                 " · 可在任务中心取消或失败后重试。"
             )
         except Exception as exc:  # noqa: BLE001
@@ -127,6 +157,33 @@ def _submit_gallery_fallback(window, engine_module) -> None:
             return
 
     threading.Thread(target=worker, name="GalaxyGalleryDlSubmit", daemon=True).start()
+
+
+def _date_entry(master, *, label: str, variable: tk.StringVar) -> tuple[tk.Frame, tk.Entry]:
+    field = tk.Frame(master, bg=ui.PANEL_2)
+    ui._label(field, label, size=7, weight="bold", color=ui.MUTED, bg=ui.PANEL_2).pack(anchor="w", pady=(0, 3))
+    target = tk.Frame(field, bg=ui.PANEL_3, height=44)
+    target.pack(fill="x")
+    target.pack_propagate(False)
+    entry = tk.Entry(
+        target,
+        textvariable=variable,
+        takefocus=True,
+        font=("Segoe UI", 8),
+        bg=ui.PANEL_3,
+        fg=ui.TEXT,
+        insertbackground=ui.TEXT,
+        disabledbackground=ui.PANEL_2,
+        disabledforeground=ui.SUBTLE,
+        relief="flat",
+        bd=0,
+        highlightthickness=1,
+        highlightbackground=ui.BORDER_SOFT,
+        highlightcolor=ui.ACCENT,
+        cursor="xterm",
+    )
+    entry.pack(fill="both", expand=True, padx=8)
+    return field, entry
 
 
 def _install_gallery_fallback(window, engine_module) -> None:
@@ -206,9 +263,35 @@ def _install_gallery_fallback(window, engine_module) -> None:
         wraplength=430,
         justify="left",
     ).pack(side="left", fill="x", expand=True, padx=(10, 0))
+
+    date_row = tk.Frame(card, bg=ui.PANEL_2)
+    date_row.pack(fill="x", pady=(8, 0))
+    date_after_var = tk.StringVar(master=window, value="")
+    date_before_var = tk.StringVar(master=window, value="")
+    date_after_field, date_after_entry = _date_entry(date_row, label="After", variable=date_after_var)
+    date_after_field.pack(side="left", fill="x", expand=True)
+    ui._label(date_row, "→", size=8, weight="bold", color=ui.SUBTLE, bg=ui.PANEL_2).pack(
+        side="left", padx=8, pady=(18, 0)
+    )
+    date_before_field, date_before_entry = _date_entry(date_row, label="Before", variable=date_before_var)
+    date_before_field.pack(side="left", fill="x", expand=True)
+    ui._label(
+        date_row,
+        "可选日期过滤 · 建议 YYYY-MM-DD。由 gallery-dl 原生 date-after / date-before 校验和执行。",
+        size=7,
+        color=ui.SUBTLE,
+        bg=ui.PANEL_2,
+        wraplength=280,
+        justify="left",
+    ).pack(side="left", fill="x", expand=True, padx=(12, 0), pady=(18, 0))
+
     window._gallery_dl_archive_supported = archive_supported
     window._gallery_dl_archive_var = archive_var
     window._gallery_dl_archive_check = archive_check
+    window._gallery_dl_date_after_var = date_after_var
+    window._gallery_dl_date_before_var = date_before_var
+    window._gallery_dl_date_after_entry = date_after_entry
+    window._gallery_dl_date_before_entry = date_before_entry
     window._galaxy_gallery_dl_fallback_built = True
 
 
@@ -243,8 +326,17 @@ def run_desktop_gallery_dl_self_test() -> None:
         def get() -> bool:
             return True
 
+    class _DateVar:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+        def get(self) -> str:
+            return self.value
+
     class _Window:
         _gallery_dl_archive_var = _ArchiveVar()
+        _gallery_dl_date_after_var = _DateVar(" 2026-01-01 ")
+        _gallery_dl_date_before_var = _DateVar("")
 
     assert gallery_fallback_ready({"galleryDlReady": True}) is True
     assert gallery_fallback_ready({"galleryDlReady": False}) is False
@@ -254,4 +346,6 @@ def run_desktop_gallery_dl_self_test() -> None:
     assert gallery_archive_ready(object()) is False
     assert gallery_archive_requested(_Window()) is True
     assert gallery_archive_requested(object()) is False
+    assert gallery_date_values(_Window()) == ("2026-01-01", None)
+    assert gallery_date_values(object()) == (None, None)
     assert MAX_GALLERY_DL_FILES == 500
