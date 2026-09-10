@@ -86,6 +86,10 @@
               <input id="galleryArchiveEnabled" name="archiveEnabled" type="checkbox" aria-describedby="galleryArchiveHelp" disabled>
               <span><strong>Archive</strong><small id="galleryArchiveHelp">Skip files already recorded by this Local Engine.</small></span>
             </label>
+            <label class="gallery-resume-option" for="galleryResumeEnabled">
+              <input id="galleryResumeEnabled" name="resumeEnabled" type="checkbox" aria-describedby="galleryResumeHelp" disabled>
+              <span><strong>Resume</strong><small id="galleryResumeHelp">Reuse this task's managed directory on Retry so gallery-dl can reuse completed and .part files.</small></span>
+            </label>
             <button class="button primary gallery-submit-button" id="gallerySubmitButton" type="submit">Add download</button>
             <fieldset class="gallery-date-range" id="galleryDateRange" disabled>
               <legend>Date filter <span>Optional</span></legend>
@@ -97,7 +101,7 @@
               <small id="galleryDateHelp">Uses gallery-dl native post ordering. Some sites with pinned older posts can stop an “After” scan earlier than expected.</small>
             </fieldset>
           </form>
-          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL, file-count limit, optional Date values and Archive boolean are sent. Output and Archive storage stay inside trusted Headless paths.</div>
+          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL, file-count limit, optional Date values, Archive boolean and explicit Resume opt-in are sent. Output, Archive and Resume storage stay inside trusted Headless paths.</div>
         </section>
 
         <section class="panel gallery-tool-panel">
@@ -211,7 +215,9 @@
     const acceptingJobs = state.engine?.acceptingJobs !== false
     const archiveSupported = state.engine?.archiveSupported === true
     const dateFilterSupported = state.engine?.dateFilterSupported === true
+    const resumeSupported = state.engine?.resumeSupported === true
     const archiveControl = $('galleryArchiveEnabled')
+    const resumeControl = $('galleryResumeEnabled')
     const dateRange = $('galleryDateRange')
 
     setText('galleryToolInstalled', installed ? 'Installed' : 'Not installed')
@@ -221,9 +227,11 @@
     setText('galleryToolSummary', !rootReady ? 'Managed tool storage is unavailable.' : installed ? 'Verified managed gallery-dl is available.' : 'gallery-dl is not installed yet.')
     setText('galleryToolMessage', result?.message || 'Tool checks are explicit; startup never contacts the provider.')
     setText('galleryArchiveHelp', archiveSupported ? 'Skip files already recorded by this Local Engine.' : 'Archive is unavailable because a trusted state root is not available.')
+    setText('galleryResumeHelp', resumeSupported ? "Retry reuses this task's managed directory. Existing .part files resume only when the remote server honors HTTP Range." : 'Resume is unavailable on this Headless API version.')
     setText('galleryDateHelp', dateFilterSupported ? 'Uses gallery-dl native post ordering. Some sites with pinned older posts can stop an “After” scan earlier than expected.' : 'Date filtering is unavailable on this Headless API version.')
 
     if (!archiveSupported) archiveControl.checked = false
+    if (!resumeSupported) resumeControl.checked = false
     if (!dateFilterSupported) {
       $('galleryDateAfter').value = ''
       $('galleryDateBefore').value = ''
@@ -241,6 +249,7 @@
     $('gallerySourceUrl').disabled = state.submitPending || !installed || !acceptingJobs
     $('galleryMaxFiles').disabled = state.submitPending || !installed || !acceptingJobs
     archiveControl.disabled = state.submitPending || !installed || !acceptingJobs || !archiveSupported
+    resumeControl.disabled = state.submitPending || !installed || !acceptingJobs || !resumeSupported
     dateRange.disabled = state.submitPending || !installed || !acceptingJobs || !dateFilterSupported
   }
 
@@ -349,6 +358,7 @@
       return
     }
     const archiveEnabled = state.engine?.archiveSupported === true && $('galleryArchiveEnabled').checked
+    const resumeEnabled = state.engine?.resumeSupported === true && $('galleryResumeEnabled').checked
     const dateFilterSupported = state.engine?.dateFilterSupported === true
     const dateAfter = dateFilterSupported ? $('galleryDateAfter').value.trim() : ''
     const dateBefore = dateFilterSupported ? $('galleryDateBefore').value.trim() : ''
@@ -364,6 +374,7 @@
       maxFiles,
       archiveEnabled: Boolean(archiveEnabled),
     }
+    if (resumeEnabled) payload.resumeEnabled = true
     if (dateAfter) payload.dateAfter = dateAfter
     if (dateBefore) payload.dateBefore = dateBefore
 
