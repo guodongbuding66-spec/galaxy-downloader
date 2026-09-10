@@ -37,7 +37,10 @@ def wait_state(executor: GalleryDlExecutor, task_id: str, states: set[str], time
 
 class GalleryDlExecutorTests(unittest.TestCase):
     def engine(self, root: Path):
-        return SimpleNamespace(default_download_dir=lambda: root / "downloads")
+        return SimpleNamespace(
+            default_download_dir=lambda: root / "downloads",
+            state_dir=lambda: root / "state",
+        )
 
     def test_fifo_queued_cancel_and_safe_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -45,7 +48,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
             started = threading.Event()
             release = threading.Event()
 
-            def runner(_url, _task_dir, _max_files, cancel_event, progress):
+            def runner(_url, _task_dir, _max_files, _archive_path, cancel_event, progress):
                 started.set()
                 progress("first.jpg", 1, 0)
                 release.wait(2)
@@ -69,14 +72,16 @@ class GalleryDlExecutorTests(unittest.TestCase):
             release.set()
             self.assertEqual(wait_state(executor, first, {"completed"}).state, "completed")
 
-    def test_active_cancel_is_safe_point_and_retry_uses_new_attempt(self) -> None:
+    def test_active_cancel_retry_reuses_same_managed_archive(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             started = threading.Event()
             calls = {"count": 0}
+            archive_paths: list[Path | None] = []
 
-            def runner(_url, _task_dir, _max_files, cancel_event, progress):
+            def runner(_url, _task_dir, _max_files, archive_path, cancel_event, progress):
                 calls["count"] += 1
+                archive_paths.append(archive_path)
                 if calls["count"] == 1:
                     started.set()
                     progress("large-file.jpg", 1, 0)
@@ -88,7 +93,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
                 return GalleryDlRunResult(0, 1, 1)
 
             executor = GalleryDlExecutor(self.engine(root), runner=runner, validator=lambda value: value)
-            task_id = executor.submit("https://example.com/gallery")
+            task_id = executor.submit("https://example.com/gallery", archive_enabled=True)
             self.assertTrue(started.wait(1))
             action = executor.cancel(task_id)
             self.assertTrue(action.ok and action.changed)
@@ -100,13 +105,16 @@ class GalleryDlExecutorTests(unittest.TestCase):
             self.assertEqual(completed.state, "completed")
             attempts = sorted((root / "downloads" / "gallery-dl").glob(f"{task_id}-a*"))
             self.assertEqual(len(attempts), 2)
+            expected_archive = (root / "state" / "gallery-dl" / "archive.sqlite3").resolve()
+            self.assertEqual(archive_paths, [expected_archive, expected_archive])
+            self.assertNotIn(str(expected_archive), completed.detail)
 
     def test_failure_retry_and_limits(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             calls = {"count": 0}
 
-            def runner(_url, _task_dir, _max_files, _cancel, progress):
+            def runner(_url, _task_dir, _max_files, _archive_path, _cancel, progress):
                 calls["count"] += 1
                 if calls["count"] == 1:
                     return GalleryDlRunResult(4, 1, 0)
@@ -124,6 +132,44 @@ class GalleryDlExecutorTests(unittest.TestCase):
             self.assertNotIn(str(root), failed.detail)
             self.assertTrue(executor.retry(task_id).ok)
             self.assertEqual(wait_state(executor, task_id, {"completed"}).state, "completed")
+
+    def test_archive_requires_boolean_and_zero_new_files_is_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_paths: list[Path | None] = []
+
+            def runner(_url, _task_dir, _max_files, archive_path, _cancel, _progress):
+                archive_paths.append(archive_path)
+                return GalleryDlRunResult(0, 0, 0)
+
+            executor = GalleryDlExecutor(self.engine(root), runner=runner, validator=lambda value: value)
+            with self.assertRaises(GalleryDlExecutorError):
+                executor.submit("https://example.com/gallery", archive_enabled="true")  # type: ignore[arg-type]
+
+            task_id = executor.submit("https://example.com/gallery", archive_enabled=True)
+            completed = wait_state(executor, task_id, {"completed"})
+            self.assertIn("Archive", completed.detail)
+            expected = (root / "state" / "gallery-dl" / "archive.sqlite3").resolve()
+            self.assertEqual(archive_paths, [expected])
+            self.assertTrue(expected.parent.is_dir())
+            serialized = json.dumps(completed.__dict__, ensure_ascii=False)
+            self.assertNotIn(str(expected), serialized)
+
+    def test_archive_disabled_does_not_require_state_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            engine = SimpleNamespace(default_download_dir=lambda: root / "downloads")
+            seen: list[Path | None] = []
+
+            def runner(_url, _task_dir, _max_files, archive_path, _cancel, progress):
+                seen.append(archive_path)
+                progress("ok.jpg", 1, 1)
+                return GalleryDlRunResult(0, 1, 1)
+
+            executor = GalleryDlExecutor(engine, runner=runner, validator=lambda value: value)
+            task_id = executor.submit("https://example.com/gallery")
+            self.assertEqual(wait_state(executor, task_id, {"completed"}).state, "completed")
+            self.assertEqual(seen, [None])
 
     def test_public_url_boundary_rejects_private_hosts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -149,7 +195,57 @@ class GalleryDlExecutorTests(unittest.TestCase):
             with self.assertRaises(GalleryDlExecutorError):
                 executor.submit("https://example.com/gallery", output_root=link)
 
-    def test_managed_embedding_clears_config_uses_memory_cache_and_cleans_modules(self) -> None:
+    def test_symlink_archive_state_root_is_rejected(self) -> None:
+        if not hasattr(Path, "symlink_to"):
+            self.skipTest("symlink not supported")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real = root / "real-state"
+            real.mkdir()
+            link = root / "state-link"
+            try:
+                link.symlink_to(real, target_is_directory=True)
+            except OSError:
+                self.skipTest("symlink creation is not permitted")
+            engine = SimpleNamespace(
+                default_download_dir=lambda: root / "downloads",
+                state_dir=lambda: link,
+            )
+            executor = GalleryDlExecutor(engine, runner=lambda *_args: None, validator=lambda value: value)
+            with self.assertRaises(GalleryDlExecutorError):
+                executor.submit("https://example.com/gallery", archive_enabled=True)
+
+    def test_symlink_archive_file_is_rejected(self) -> None:
+        if not hasattr(Path, "symlink_to"):
+            self.skipTest("symlink not supported")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_root = root / "state" / "gallery-dl"
+            archive_root.mkdir(parents=True)
+            outside = root / "outside.sqlite3"
+            outside.write_bytes(b"")
+            archive_path = archive_root / "archive.sqlite3"
+            try:
+                archive_path.symlink_to(outside)
+            except OSError:
+                self.skipTest("symlink creation is not permitted")
+            executor = GalleryDlExecutor(self.engine(root), runner=lambda *_args: None, validator=lambda value: value)
+            with self.assertRaises(GalleryDlExecutorError):
+                executor.submit("https://example.com/gallery", archive_enabled=True)
+            self.assertTrue(outside.is_file())
+            self.assertEqual(outside.read_bytes(), b"")
+
+    def test_non_regular_archive_file_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "state" / "gallery-dl" / "archive.sqlite3"
+            archive_path.mkdir(parents=True)
+            executor = GalleryDlExecutor(self.engine(root), runner=lambda *_args: None, validator=lambda value: value)
+            with self.assertRaises(GalleryDlExecutorError):
+                executor.submit("https://example.com/gallery", archive_enabled=True)
+            self.assertTrue(archive_path.is_dir())
+
+    def test_managed_embedding_clears_config_uses_archive_memory_cache_and_cleans_modules(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             tools = root / "tools"
@@ -183,6 +279,8 @@ class GalleryDlExecutorTests(unittest.TestCase):
                 "        self.depth = 1; self.target = None\n",
                 encoding="utf-8",
             )
+            archive_path = (root / "state" / "gallery-dl" / "archive.sqlite3").resolve()
+            archive_path.parent.mkdir(parents=True)
             (package / "job.py").write_text(
                 "from pathlib import Path\n"
                 "from . import config\n"
@@ -200,6 +298,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
                 "        assert config.get(('output',), 'mode') == 'null'\n"
                 "        assert config.get((), 'actions') == ()\n"
                 "        assert config.get((), 'postprocessors') == ()\n"
+                f"        assert config.get(('extractor',), 'archive') == {str(archive_path)!r}\n"
                 "        try:\n"
                 "            self.handle_directory({})\n"
                 "            self.handle_url(self.url, {'filename':'one','extension':'jpg'})\n"
@@ -217,6 +316,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
                 "https://example.com/gallery",
                 task_dir,
                 10,
+                archive_path,
                 threading.Event(),
                 lambda *_args: None,
             )

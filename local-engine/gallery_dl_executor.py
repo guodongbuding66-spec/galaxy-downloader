@@ -37,7 +37,7 @@ class GalleryDlRunResult:
 
 
 ProgressCallback = Callable[[str, int, int], None]
-Runner = Callable[[str, Path, int, threading.Event, ProgressCallback], GalleryDlRunResult]
+Runner = Callable[[str, Path, int, Path | None, threading.Event, ProgressCallback], GalleryDlRunResult]
 
 
 @dataclass
@@ -46,6 +46,8 @@ class _GalleryTask:
     source_url: str
     output_root: Path
     max_files: int
+    archive_enabled: bool = False
+    archive_path: Path | None = None
     state: str = "queued"
     attempt: int = 1
     processed: int = 0
@@ -104,6 +106,41 @@ def _task_directory(root: Path, task_id: str, attempt: int) -> Path:
     if gallery_root not in resolved.parents:
         raise GalleryDlExecutorError("gallery-dl 任务目录越过了输出边界。")
     return resolved
+
+
+def _managed_archive_path(state_root: Path) -> Path:
+    """Return Galaxy's fixed gallery-dl archive path below the trusted state root."""
+    root = Path(state_root)
+    try:
+        if root.exists() and root.is_symlink():
+            raise GalleryDlExecutorError("gallery-dl 状态目录不能是符号链接。")
+        root.mkdir(parents=True, exist_ok=True)
+        resolved_root = root.resolve()
+        if not resolved_root.is_dir() or resolved_root.is_symlink():
+            raise GalleryDlExecutorError("gallery-dl 状态目录不可用。")
+        gallery_root = resolved_root / "gallery-dl"
+        if gallery_root.exists() and gallery_root.is_symlink():
+            raise GalleryDlExecutorError("gallery-dl Archive 目录不能是符号链接。")
+        gallery_root.mkdir(parents=False, exist_ok=True)
+        resolved_gallery_root = gallery_root.resolve()
+    except OSError as exc:
+        raise GalleryDlExecutorError("无法创建 gallery-dl Archive 状态目录。") from exc
+    if resolved_root not in resolved_gallery_root.parents:
+        raise GalleryDlExecutorError("gallery-dl Archive 目录越过了状态边界。")
+
+    archive_path = resolved_gallery_root / "archive.sqlite3"
+    try:
+        # Checking only the parent directory is insufficient: a pre-created
+        # archive.sqlite3 symlink would make SQLite follow writes outside the
+        # managed state root. Reject the leaf itself before handing it to
+        # gallery-dl. An existing archive must also be a regular file.
+        if archive_path.is_symlink():
+            raise GalleryDlExecutorError("gallery-dl Archive 文件不能是符号链接。")
+        if archive_path.exists() and not archive_path.is_file():
+            raise GalleryDlExecutorError("gallery-dl Archive 路径必须是普通文件。")
+    except OSError as exc:
+        raise GalleryDlExecutorError("无法验证 gallery-dl Archive 文件。") from exc
+    return archive_path
 
 
 class _RunController:
@@ -169,6 +206,7 @@ def _run_managed_gallery_dl(
     source_url: str,
     task_dir: Path,
     max_files: int,
+    archive_path: Path | None,
     cancel_event: threading.Event,
     progress: ProgressCallback,
 ) -> GalleryDlRunResult:
@@ -181,6 +219,10 @@ def _run_managed_gallery_dl(
         config.set((), "postprocessors", ())
         config.set(("output",), "mode", "null")
         config.set(("cache",), "file", ":memory:")
+        if archive_path is not None:
+            # The path is derived exclusively from Galaxy's state_dir; user/API
+            # payloads never supply a filesystem location for this option.
+            config.set(("extractor",), "archive", str(archive_path))
 
         controller = _RunController(task_dir, max_files, cancel_event, progress, exception.StopExtraction)
 
@@ -235,8 +277,8 @@ class GalleryDlExecutor:
         self.engine_module = engine_module
         self._validator = validator
         self._runner = runner or (
-            lambda source_url, task_dir, max_files, cancel_event, progress: _run_managed_gallery_dl(
-                engine_module, source_url, task_dir, max_files, cancel_event, progress
+            lambda source_url, task_dir, max_files, archive_path, cancel_event, progress: _run_managed_gallery_dl(
+                engine_module, source_url, task_dir, max_files, archive_path, cancel_event, progress
             )
         )
         self._lock = threading.RLock()
@@ -250,7 +292,20 @@ class GalleryDlExecutor:
             raise GalleryDlExecutorError("本机下载目录不可用。")
         return Path(getter())
 
-    def submit(self, source_url: str, *, output_root: Path | None = None, max_files: int = MAX_GALLERY_DL_FILES) -> str:
+    def _default_archive_path(self) -> Path:
+        getter = getattr(self.engine_module, "state_dir", None)
+        if not callable(getter):
+            raise GalleryDlExecutorError("本机状态目录不可用，无法启用 gallery-dl Archive。")
+        return _managed_archive_path(Path(getter()))
+
+    def submit(
+        self,
+        source_url: str,
+        *,
+        output_root: Path | None = None,
+        max_files: int = MAX_GALLERY_DL_FILES,
+        archive_enabled: bool = False,
+    ) -> str:
         source = self._validator(str(source_url or ""))
         try:
             limit = int(max_files)
@@ -258,9 +313,20 @@ class GalleryDlExecutor:
             raise GalleryDlExecutorError("gallery-dl 文件数量上限无效。") from exc
         if limit < 1 or limit > MAX_GALLERY_DL_FILES:
             raise GalleryDlExecutorError(f"gallery-dl 单任务文件数量必须在 1 到 {MAX_GALLERY_DL_FILES} 之间。")
+        if not isinstance(archive_enabled, bool):
+            raise GalleryDlExecutorError("gallery-dl Archive 开关必须是布尔值。")
         root = _safe_output_root(Path(output_root) if output_root is not None else self._default_output_root())
+        archive_path = self._default_archive_path() if archive_enabled else None
         task_id = f"gdl-{uuid.uuid4().hex[:16]}"
-        task = _GalleryTask(task_id, source, root, limit, detail="等待 gallery-dl 下载线程。")
+        task = _GalleryTask(
+            task_id,
+            source,
+            root,
+            limit,
+            archive_enabled=archive_enabled,
+            archive_path=archive_path,
+            detail="等待 gallery-dl 下载线程。",
+        )
         with self._lock:
             self._tasks[task_id] = task
             self._queue.append(task_id)
@@ -319,7 +385,14 @@ class GalleryDlExecutor:
                         else:
                             current.detail = f"已处理 {current.processed} 项 · 已保存 {current.downloaded} 项"
 
-                result = self._runner(task.source_url, task_dir, task.max_files, task.cancel_event, progress)
+                result = self._runner(
+                    task.source_url,
+                    task_dir,
+                    task.max_files,
+                    task.archive_path,
+                    task.cancel_event,
+                    progress,
+                )
                 if not isinstance(result, GalleryDlRunResult):
                     raise GalleryDlExecutorError("gallery-dl runner 返回了无效结果。")
                 with self._lock:
@@ -335,13 +408,17 @@ class GalleryDlExecutor:
                     elif result.status_code:
                         current.state = "failed"
                         current.detail = f"gallery-dl 执行失败（状态 {int(result.status_code)}）。"
-                    elif current.downloaded <= 0:
+                    elif current.downloaded <= 0 and not current.archive_enabled:
                         current.state = "failed"
                         current.detail = "gallery-dl 没有保存任何可下载文件。"
                     else:
                         current.state = "completed"
-                        suffix = " · 已达到本任务数量上限" if result.limit_reached else ""
-                        current.detail = f"已完成 · 保存 {current.downloaded} 项{suffix}"
+                        if current.downloaded <= 0:
+                            current.detail = "已完成 · 本次没有新增文件；Archive 已启用，可能已全部跳过。"
+                        else:
+                            suffix = " · 已达到本任务数量上限" if result.limit_reached else ""
+                            archive_suffix = " · Archive 已更新" if current.archive_enabled else ""
+                            current.detail = f"已完成 · 保存 {current.downloaded} 项{suffix}{archive_suffix}"
                     self._trim_locked()
             except (GalleryDlExecutorError, GalleryDlRuntimeError):
                 with self._lock:
@@ -397,7 +474,8 @@ class GalleryDlExecutor:
             task.processed = 0
             task.downloaded = 0
             task.current_file = ""
-            task.detail = f"等待重试 · 第 {task.attempt} 次尝试；之前已保存的文件保持不变。"
+            archive_detail = "；继续复用 Galaxy Archive" if task.archive_enabled else ""
+            task.detail = f"等待重试 · 第 {task.attempt} 次尝试；之前已保存的文件保持不变{archive_detail}。"
             task.cancel_event = threading.Event()
             self._queue.append(task.task_id)
             self._ensure_worker_locked()
@@ -435,8 +513,12 @@ class GalleryDlExecutor:
                 actions = ("retry",)
                 failure_label = "gallery-dl 失败" if task.state == "failed" else "gallery-dl 已取消"
                 advice = "可按原参数重试；新尝试使用新的任务子目录，不删除之前已经保存的文件。"
+                if task.archive_enabled:
+                    advice += " Galaxy Archive 会继续复用，避免重复保存已记录项目。"
             elif task.state == "completed":
                 advice = "文件已保存到 Galaxy 下载目录的 gallery-dl 任务子目录。"
+                if task.archive_enabled:
+                    advice += " Archive 由 Galaxy 状态目录统一管理。"
             rows.append(
                 LocalTaskSnapshot(
                     task_id=task.task_id,
@@ -481,8 +563,14 @@ def install_gallery_dl_executor(engine_module) -> GalleryDlExecutor:
 
     window_cls = getattr(engine_module, "EngineWindow", None)
     if window_cls is not None:
-        def submit_gallery_dl_task(window, source_url: str, *, max_files: int = MAX_GALLERY_DL_FILES) -> str:
-            return executor.submit(source_url, max_files=max_files)
+        def submit_gallery_dl_task(
+            window,
+            source_url: str,
+            *,
+            max_files: int = MAX_GALLERY_DL_FILES,
+            archive_enabled: bool = False,
+        ) -> str:
+            return executor.submit(source_url, max_files=max_files, archive_enabled=archive_enabled)
 
         window_cls.submit_gallery_dl_task = submit_gallery_dl_task
         window_cls._galaxy_gallery_dl_executor_installed = True
