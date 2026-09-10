@@ -22,6 +22,7 @@ from gallery_dl_executor import (  # noqa: E402
     GalleryDlExecutorError,
     GalleryDlRunResult,
     _run_managed_gallery_dl,
+    _task_directory,
 )
 
 
@@ -80,6 +81,19 @@ class GalleryDlResumeContractTests(unittest.TestCase):
             self.assertEqual(task_dirs[0].name, f"{task_id}-a1")
             self.assertEqual(task_dirs[1].name, f"{task_id}-a2")
 
+    def test_resume_initial_zero_files_is_still_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executor = GalleryDlExecutor(
+                self.engine(root),
+                runner=lambda *_args: GalleryDlRunResult(0, 0, 0),
+                validator=lambda value: value,
+            )
+            task_id = executor.submit("https://example.com/gallery", resume_enabled=True)
+            failed = wait_state(executor, task_id, {"failed"})
+            self.assertIn("没有保存任何可下载文件", failed.detail)
+            self.assertIn("retry", failed.actions)
+
     def test_resume_retry_reuses_directory_and_preserves_partial_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -132,8 +146,38 @@ class GalleryDlResumeContractTests(unittest.TestCase):
             wait_state(executor, task_id, {"failed"})
             self.assertTrue(executor.retry(task_id).ok)
             completed = wait_state(executor, task_id, {"completed"})
-            self.assertIn("Resume", completed.detail)
+            self.assertIn("Resume 重试", completed.detail)
             self.assertIn("没有新增文件", completed.detail)
+
+    def test_resume_task_directory_rejects_symlink_leaf(self) -> None:
+        if not hasattr(Path, "symlink_to"):
+            self.skipTest("symlink not supported")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_root = root / "downloads"
+            gallery_root = output_root / "gallery-dl"
+            gallery_root.mkdir(parents=True)
+            outside = root / "outside"
+            outside.mkdir()
+            leaf = gallery_root / "gdl-fixed-resume"
+            try:
+                leaf.symlink_to(outside, target_is_directory=True)
+            except OSError:
+                self.skipTest("symlink creation is not permitted")
+            with self.assertRaises(GalleryDlExecutorError):
+                _task_directory(output_root, "gdl-fixed", 1, resume_enabled=True)
+            self.assertTrue(outside.is_dir())
+
+    def test_resume_task_directory_rejects_non_directory_leaf(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_root = root / "downloads"
+            leaf = output_root / "gallery-dl" / "gdl-fixed-resume"
+            leaf.parent.mkdir(parents=True)
+            leaf.write_bytes(b"not-a-directory")
+            with self.assertRaises(GalleryDlExecutorError):
+                _task_directory(output_root, "gdl-fixed", 1, resume_enabled=True)
+            self.assertTrue(leaf.is_file())
 
     def test_managed_embedding_explicitly_keeps_gallery_dl_part_files_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
