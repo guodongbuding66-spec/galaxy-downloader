@@ -12,6 +12,7 @@ on:
       - "local-engine/managed_tool_actions.py"
       - "scripts/test-local-gallery-dl-executor.py"
       - "scripts/test-local-gallery-dl-product.py"
+      - "scripts/test-local-desktop-gallery-dl.py"
       - ".github/workflows/gallery-dl-executor.yml"
   workflow_dispatch:
 
@@ -45,7 +46,10 @@ jobs:
           local-engine/managed_tool_actions.py
           scripts/test-local-gallery-dl-executor.py
           scripts/test-local-gallery-dl-product.py
+          scripts/test-local-desktop-gallery-dl.py
       - name: Test gallery-dl executor contract
         run: python scripts/test-local-gallery-dl-executor.py
       - name: Test gallery-dl product contract
         run: python scripts/test-local-gallery-dl-product.py
+      - name: Test Desktop gallery-dl contract
+        run: python scripts/test-local-desktop-gallery-dl.py
