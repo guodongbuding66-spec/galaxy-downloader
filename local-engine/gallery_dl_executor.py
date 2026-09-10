@@ -414,6 +414,8 @@ class GalleryDlExecutor:
         if after_dt is not None and before_dt is not None and after_dt >= before_dt:
             raise GalleryDlExecutorError("gallery-dl date-after 必须早于 date-before。")
         rate_limit_bps = _validate_gallery_rate_mib(rate_limit_mib)
+        if rate_limit_bps is not None and self._runner is not None:
+            raise GalleryDlExecutorError("gallery-dl Rate 仅支持 Galaxy 托管执行器；自定义 runner 不能静默忽略 Rate。")
 
         root = _safe_output_root(Path(output_root) if output_root is not None else self._default_output_root())
         archive_path = self._default_archive_path() if archive_enabled else None
