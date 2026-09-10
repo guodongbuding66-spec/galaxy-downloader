@@ -17,11 +17,10 @@ if str(LOCAL_ENGINE) not in sys.path:
     sys.path.insert(0, str(LOCAL_ENGINE))
 
 import gallery_dl_executor as gallery_executor  # noqa: E402
-from gallery_dl_executor import (  # noqa: E402
-    GalleryDlExecutor,
-    GalleryDlExecutorError,
-    GalleryDlRunResult,
-)
+
+GalleryDlExecutor = gallery_executor.GalleryDlExecutor
+GalleryDlExecutorError = gallery_executor.GalleryDlExecutorError
+GalleryDlRunResult = gallery_executor.GalleryDlRunResult
 
 
 def wait_state(executor: GalleryDlExecutor, task_id: str, states: set[str], timeout: float = 4.0):
