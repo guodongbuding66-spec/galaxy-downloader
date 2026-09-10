@@ -192,9 +192,7 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     assert api.action(task["id"], "retry")["job"]["state"] == "queued"
     _expect_error(lambda: api.action(task["id"], "retry"), 409, "GALLERY_DL_ACTION_CONFLICT")
 
-    plain = api.submit(
-        {"sourceUrl": "https://1.1.1.1/gallery-plain", "archiveEnabled": False, "rateLimitMiB": None}
-    )
+    plain = api.submit({"sourceUrl": "https://1.1.1.1/gallery-plain", "archiveEnabled": False})
     assert plain["job"]["state"] == "queued"
     assert executor.last_submit == (
         "https://1.1.1.1/gallery-plain",
@@ -217,9 +215,13 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "archiveEnabled": "true"}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "archiveEnabled": 1}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": True}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": False}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": None}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": "2.5"}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": "500k"}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": "1M-2M"}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": 0}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": -1}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": 0.099}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": 1024.001}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": math.nan}),
@@ -230,8 +232,10 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
         lambda: api.jobs(limit=201),
         lambda: api.job("../../secret"),
     )
+    counter_before_invalid = executor.counter
     for callback in invalid_calls:
         _expect_error(callback, 400, "GALLERY_DL_INVALID_REQUEST")
+    assert executor.counter == counter_before_invalid
     _expect_error(lambda: api.job("gdl-ffffffffffffffff"), 404, "GALLERY_DL_JOB_NOT_FOUND")
 
     unavailable = HeadlessGalleryDlApi(
@@ -391,6 +395,14 @@ def _test_http(api: HeadlessGalleryDlApi, root: Path) -> None:
             "/v1/gallery-dl/jobs",
             token=token,
             payload={"sourceUrl": "https://1.1.1.1/gallery", "archiveEnabled": "true"},
+        )
+        assert code == 400 and body["code"] == "GALLERY_DL_INVALID_REQUEST"
+        code, body = _request(
+            port,
+            "POST",
+            "/v1/gallery-dl/jobs",
+            token=token,
+            payload={"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": None},
         )
         assert code == 400 and body["code"] == "GALLERY_DL_INVALID_REQUEST"
         code, body = _request(
