@@ -29,12 +29,19 @@ class FakeExecutor:
     def __init__(self) -> None:
         self.tasks: dict[str, dict[str, object]] = {}
         self.counter = 0
-        self.last_submit: tuple[str, Path, int] | None = None
+        self.last_submit: tuple[str, Path, int, bool] | None = None
 
-    def submit(self, source_url: str, *, output_root: Path, max_files: int) -> str:
+    def submit(
+        self,
+        source_url: str,
+        *,
+        output_root: Path,
+        max_files: int,
+        archive_enabled: bool = False,
+    ) -> str:
         self.counter += 1
         task_id = f"gdl-{self.counter:016x}"
-        self.last_submit = (source_url, Path(output_root), int(max_files))
+        self.last_submit = (source_url, Path(output_root), int(max_files), bool(archive_enabled))
         self.tasks[task_id] = {
             "state": "queued",
             "detail": "等待 /tmp/private/cookie.txt Authorization: Bearer abcdefghijklmnop",
@@ -136,6 +143,7 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     api = HeadlessGalleryDlApi(
         root / "downloads",
         tools_root=root / "tools",
+        state_root=root / "trusted-state",
         executor=executor,  # type: ignore[arg-type]
         tool_probe=lambda: (True, "1.32.0-test"),
     )
@@ -144,17 +152,22 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     assert status["acceptingJobs"] is True
     assert status["version"] == "1.32.0-test"
     assert status["maxFilesPerJob"] == 500 and status["maxTrackedJobs"] == 200
+    assert status["archiveSupported"] is True
     assert status["managedOnly"] is True
+    assert str(root) not in json.dumps(status)
 
-    created = api.submit({"sourceUrl": "https://1.1.1.1/gallery", "maxFiles": 25})
+    created = api.submit(
+        {"sourceUrl": "https://1.1.1.1/gallery", "maxFiles": 25, "archiveEnabled": True}
+    )
     task = created["job"]
     assert task["id"] == "gdl-0000000000000001"
     assert task["state"] == "queued" and task["actions"] == ["cancel"]
-    assert executor.last_submit == ("https://1.1.1.1/gallery", root / "downloads", 25)
+    assert executor.last_submit == ("https://1.1.1.1/gallery", root / "downloads", 25, True)
     serialized = json.dumps(created)
     assert "/tmp/private" not in serialized
     assert "abcdefghijklmnop" not in serialized
     assert "[redacted]" in serialized
+    assert str(root / "trusted-state") not in serialized
 
     assert api.jobs(limit=10)["count"] == 1
     assert api.job(task["id"])["job"]["provider"] == "gallery-dl"
@@ -162,11 +175,23 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     assert api.action(task["id"], "retry")["job"]["state"] == "queued"
     _expect_error(lambda: api.action(task["id"], "retry"), 409, "GALLERY_DL_ACTION_CONFLICT")
 
+    plain = api.submit({"sourceUrl": "https://1.1.1.1/gallery-plain", "archiveEnabled": False})
+    assert plain["job"]["state"] == "queued"
+    assert executor.last_submit == (
+        "https://1.1.1.1/gallery-plain",
+        root / "downloads",
+        500,
+        False,
+    )
+
     invalid_calls = (
         lambda: api.submit({"sourceUrl": "file:///tmp/private"}),
         lambda: api.submit({"sourceUrl": "http://127.0.0.1/private"}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "maxFiles": True}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "maxFiles": 501}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "archiveEnabled": "true"}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "archiveEnabled": 1}),
+        lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "archivePath": str(root / "escape.sqlite3")}),
         lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery", "cookies": "secret"}),
         lambda: api.jobs(limit=201),
         lambda: api.job("../../secret"),
@@ -178,6 +203,7 @@ def _test_api(root: Path) -> HeadlessGalleryDlApi:
     unavailable = HeadlessGalleryDlApi(
         root / "downloads",
         tools_root=root / "tools",
+        state_root=root / "trusted-state",
         executor=FakeExecutor(),  # type: ignore[arg-type]
         tool_probe=lambda: (False, None),
     )
@@ -200,11 +226,46 @@ def _test_invalid_tool_path_isolated(root: Path) -> None:
         )
         assert api.status()["available"] is False
         assert api.status()["acceptingJobs"] is True
+        assert api.status()["archiveSupported"] is False
         _expect_error(
             lambda: api.submit({"sourceUrl": "https://1.1.1.1/gallery"}),
             503,
             "GALLERY_DL_UNAVAILABLE",
         )
+
+        archive_only = HeadlessGalleryDlApi(
+            root / "downloads-archive-invalid-env",
+            tools_root=root / "tools",
+            executor=FakeExecutor(),  # type: ignore[arg-type]
+            tool_probe=lambda: (True, "1.32.0-test"),
+        )
+        assert archive_only.status()["available"] is True
+        assert archive_only.status()["archiveSupported"] is False
+        ordinary = archive_only.submit({"sourceUrl": "https://1.1.1.1/plain"})
+        assert ordinary["job"]["state"] == "queued"
+        _expect_error(
+            lambda: archive_only.submit(
+                {"sourceUrl": "https://1.1.1.1/archive", "archiveEnabled": True}
+            ),
+            503,
+            "GALLERY_DL_ARCHIVE_UNAVAILABLE",
+        )
+
+
+def _test_real_executor_state_root_binding(root: Path) -> None:
+    state_root = root / "headless-state"
+    api = HeadlessGalleryDlApi(
+        root / "downloads-real-executor",
+        tools_root=root / "tools",
+        state_root=state_root,
+        tool_probe=lambda: (False, None),
+    )
+    try:
+        assert api.status()["archiveSupported"] is True
+        assert api.executor.engine_module.state_dir() == state_root.resolve(strict=False)
+        assert str(state_root) not in json.dumps(api.status())
+    finally:
+        api.close()
 
 
 def _test_close_lifecycle(root: Path) -> None:
@@ -212,6 +273,7 @@ def _test_close_lifecycle(root: Path) -> None:
     api = HeadlessGalleryDlApi(
         root / "downloads-close",
         tools_root=root / "tools",
+        state_root=root / "state-close",
         executor=executor,  # type: ignore[arg-type]
         tool_probe=lambda: (True, "1.32.0-test"),
     )
@@ -246,17 +308,23 @@ def _test_http(api: HeadlessGalleryDlApi, root: Path) -> None:
         assert code == 401 and body["error"] == "unauthorized"
         code, body = _request(port, "GET", "/v1/gallery-dl/status", token=token)
         assert code == 200 and body["ok"] is True and body["available"] is True
-        assert body["acceptingJobs"] is True
+        assert body["acceptingJobs"] is True and body["archiveSupported"] is True
 
         code, body = _request(
             port,
             "POST",
             "/v1/gallery-dl/jobs",
             token=token,
-            payload={"sourceUrl": "https://1.1.1.1/gallery", "maxFiles": 9},
+            payload={"sourceUrl": "https://1.1.1.1/gallery", "maxFiles": 9, "archiveEnabled": True},
         )
         assert code == 201 and body["ok"] is True
         task_id = body["job"]["id"]
+        assert api.executor.last_submit == (  # type: ignore[attr-defined]
+            "https://1.1.1.1/gallery",
+            root / "downloads",
+            9,
+            True,
+        )
         code, body = _request(port, "GET", f"/v1/gallery-dl/jobs/{task_id}", token=token)
         assert code == 200 and body["job"]["id"] == task_id
         code, body = _request(port, "GET", "/v1/gallery-dl/jobs?limit=2", token=token)
@@ -270,6 +338,23 @@ def _test_http(api: HeadlessGalleryDlApi, root: Path) -> None:
             port, "POST", "/v1/gallery-dl/jobs", token=token, payload={"sourceUrl": "file:///tmp/private"}
         )
         assert code == 400 and body["code"] == "GALLERY_DL_INVALID_REQUEST"
+        code, body = _request(
+            port,
+            "POST",
+            "/v1/gallery-dl/jobs",
+            token=token,
+            payload={"sourceUrl": "https://1.1.1.1/gallery", "archiveEnabled": "true"},
+        )
+        assert code == 400 and body["code"] == "GALLERY_DL_INVALID_REQUEST"
+        code, body = _request(
+            port,
+            "POST",
+            "/v1/gallery-dl/jobs",
+            token=token,
+            payload={"sourceUrl": "https://1.1.1.1/gallery", "archivePath": str(root / "secret.sqlite3")},
+        )
+        assert code == 400 and body["code"] == "GALLERY_DL_INVALID_REQUEST"
+        assert str(root) not in json.dumps(body)
         code, body = _request(
             port,
             "POST",
@@ -308,6 +393,7 @@ def run_test() -> None:
         root = Path(directory).resolve()
         _test_http(_test_api(root), root)
         _test_invalid_tool_path_isolated(root)
+        _test_real_executor_state_root_binding(root)
         _test_close_lifecycle(root)
 
 
