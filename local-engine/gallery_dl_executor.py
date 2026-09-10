@@ -7,6 +7,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -23,6 +24,9 @@ from url_policy import validated_public_http_url
 MAX_GALLERY_DL_FILES = 500
 MAX_GALLERY_DL_TASKS = 200
 MAX_GALLERY_DL_DATE_LENGTH = 64
+MIN_GALLERY_DL_RATE_MIB = Decimal("0.1")
+MAX_GALLERY_DL_RATE_MIB = Decimal("1024")
+_BYTES_PER_MIB = Decimal(1024 * 1024)
 _SAFE_NAME_RE = re.compile(r"[^\w .()+\[\]-]+", re.UNICODE)
 _UNIX_TIMESTAMP_RE = re.compile(r"[+-]?\d+\Z")
 
@@ -58,6 +62,7 @@ class _GalleryTask:
     resume_enabled: bool = False
     date_after: str | None = None
     date_before: str | None = None
+    rate_limit_bps: int | None = None
     state: str = "queued"
     attempt: int = 1
     processed: int = 0
@@ -112,6 +117,38 @@ def _validate_gallery_date(value: object, label: str) -> tuple[str | None, datet
         except (OverflowError, OSError, ValueError) as exc:
             raise GalleryDlExecutorError(f"gallery-dl {label} Unix 时间戳超出当前平台可用范围。") from exc
     return text, parsed
+
+
+def _validate_gallery_rate_mib(value: object) -> int | None:
+    """Normalize a deterministic MiB/s limit to integer bytes/s.
+
+    Callers intentionally cannot pass gallery-dl's free-form rate strings or
+    random ranges. Galaxy exposes one numeric unit and writes one exact integer
+    byte rate into the managed runtime configuration.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise GalleryDlExecutorError("gallery-dl Rate 必须是 MiB/s 数值；不限速时请省略该参数。")
+    try:
+        rate = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise GalleryDlExecutorError("gallery-dl Rate 数值无效。") from exc
+    if not rate.is_finite():
+        raise GalleryDlExecutorError("gallery-dl Rate 必须是有限数值。")
+    if rate < MIN_GALLERY_DL_RATE_MIB or rate > MAX_GALLERY_DL_RATE_MIB:
+        raise GalleryDlExecutorError(
+            f"gallery-dl Rate 必须在 {MIN_GALLERY_DL_RATE_MIB} 到 {MAX_GALLERY_DL_RATE_MIB} MiB/s 之间。"
+        )
+    return int((rate * _BYTES_PER_MIB).to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def _format_rate_limit(rate_limit_bps: int | None) -> str:
+    if rate_limit_bps is None:
+        return ""
+    value = Decimal(rate_limit_bps) / _BYTES_PER_MIB
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return f"{text} MiB/s"
 
 
 def _is_within(root: Path, candidate: Path) -> bool:
@@ -182,10 +219,6 @@ def _managed_archive_path(state_root: Path) -> Path:
 
     archive_path = resolved_gallery_root / "archive.sqlite3"
     try:
-        # Checking only the parent directory is insufficient: a pre-created
-        # archive.sqlite3 symlink would make SQLite follow writes outside the
-        # managed state root. Reject the leaf itself before handing it to
-        # gallery-dl. An existing archive must also be a regular file.
         if archive_path.is_symlink():
             raise GalleryDlExecutorError("gallery-dl Archive 文件不能是符号链接。")
         if archive_path.exists() and not archive_path.is_file():
@@ -261,26 +294,21 @@ def _run_managed_gallery_dl(
     archive_path: Path | None,
     date_after: str | None,
     date_before: str | None,
+    rate_limit_bps: int | None,
     cancel_event: threading.Event,
     progress: ProgressCallback,
 ) -> GalleryDlRunResult:
     with managed_gallery_dl_modules(engine_module) as (config, job_module, exception):
-        # Do not load gallery-dl's user/system configuration. Galaxy owns the
-        # full execution policy for this task, including output and cache state.
         config.clear()
         config.set((), "base-directory", str(task_dir))
         config.set((), "actions", ())
         config.set((), "postprocessors", ())
         config.set(("output",), "mode", "null")
         config.set(("cache",), "file", ":memory:")
-        # gallery-dl currently enables .part files by default. Set it explicitly
-        # so Galaxy's managed single-file retry behavior does not depend on a
-        # future upstream default change. Resume across Galaxy attempts is
-        # controlled separately by whether the managed task directory is reused.
         config.set(("downloader",), "part", True)
+        if rate_limit_bps is not None:
+            config.set(("downloader",), "rate", str(rate_limit_bps))
         if archive_path is not None:
-            # The path is derived exclusively from Galaxy's state_dir; user/API
-            # payloads never supply a filesystem location for this option.
             config.set(("extractor",), "archive", str(archive_path))
         if date_after is not None:
             config.set(("extractor",), "date-after", date_after)
@@ -316,8 +344,6 @@ def _run_managed_gallery_dl(
                     except GalleryDlExecutorError:
                         raise
                     except Exception:
-                        # Let gallery-dl's own handler produce its normal bounded
-                        # status for ordinary filename-format errors.
                         pass
                 super().handle_url(url, kwdict)
                 current.after_resource(getattr(self, "pathfmt", None))
@@ -339,21 +365,10 @@ class GalleryDlExecutor:
     def __init__(self, engine_module, *, runner: Runner | None = None, validator=validated_public_http_url) -> None:
         self.engine_module = engine_module
         self._validator = validator
-        self._runner = runner or (
-            lambda source_url, task_dir, max_files, archive_path, date_after, date_before, cancel_event, progress: (
-                _run_managed_gallery_dl(
-                    engine_module,
-                    source_url,
-                    task_dir,
-                    max_files,
-                    archive_path,
-                    date_after,
-                    date_before,
-                    cancel_event,
-                    progress,
-                )
-            )
-        )
+        # Keep the legacy injected-runner shape stable for existing tests and
+        # product adapters. Managed-only options such as Rate are applied by the
+        # default runtime path below, not by widening the test injection API.
+        self._runner = runner
         self._lock = threading.RLock()
         self._tasks: dict[str, _GalleryTask] = {}
         self._queue: deque[str] = deque()
@@ -381,6 +396,7 @@ class GalleryDlExecutor:
         resume_enabled: bool = False,
         date_after: str | None = None,
         date_before: str | None = None,
+        rate_limit_mib: float | int | None = None,
     ) -> str:
         source = self._validator(str(source_url or ""))
         try:
@@ -397,10 +413,12 @@ class GalleryDlExecutor:
         date_before_value, before_dt = _validate_gallery_date(date_before, "date-before")
         if after_dt is not None and before_dt is not None and after_dt >= before_dt:
             raise GalleryDlExecutorError("gallery-dl date-after 必须早于 date-before。")
+        rate_limit_bps = _validate_gallery_rate_mib(rate_limit_mib)
 
         root = _safe_output_root(Path(output_root) if output_root is not None else self._default_output_root())
         archive_path = self._default_archive_path() if archive_enabled else None
         task_id = f"gdl-{uuid.uuid4().hex[:16]}"
+        rate_detail = f" Rate ≤ {_format_rate_limit(rate_limit_bps)}。" if rate_limit_bps is not None else ""
         task = _GalleryTask(
             task_id,
             source,
@@ -411,10 +429,10 @@ class GalleryDlExecutor:
             resume_enabled=resume_enabled,
             date_after=date_after_value,
             date_before=date_before_value,
+            rate_limit_bps=rate_limit_bps,
             detail=(
-                "等待 gallery-dl 下载线程。Resume 已启用。"
-                if resume_enabled
-                else "等待 gallery-dl 下载线程。"
+                ("等待 gallery-dl 下载线程。Resume 已启用。" if resume_enabled else "等待 gallery-dl 下载线程。")
+                + rate_detail
             ),
         )
         with self._lock:
@@ -448,7 +466,8 @@ class GalleryDlExecutor:
                 task.current_file = ""
                 task.processed = 0
                 task.downloaded = 0
-                task.detail = "正在初始化托管 gallery-dl…"
+                rate_detail = f" · Rate ≤ {_format_rate_limit(task.rate_limit_bps)}" if task.rate_limit_bps is not None else ""
+                task.detail = f"正在初始化托管 gallery-dl…{rate_detail}"
                 attempt = task.attempt
             try:
                 task_dir = _task_directory(
@@ -467,29 +486,50 @@ class GalleryDlExecutor:
                         current.downloaded = max(0, int(downloaded))
                         if current_file:
                             current.current_file = current_file[:180]
+                        rate_suffix = (
+                            f" · Rate ≤ {_format_rate_limit(current.rate_limit_bps)}"
+                            if current.rate_limit_bps is not None
+                            else ""
+                        )
                         if current.cancel_event.is_set():
                             current.detail = (
                                 f"正在取消 · 已处理 {current.processed} 项 · 已保存 {current.downloaded} 项；"
-                                "当前网络文件结束后停止。"
+                                f"当前网络文件结束后停止。{rate_suffix}"
                             )
                         elif current.current_file:
                             current.detail = (
                                 f"当前 {current.current_file} · 已处理 {current.processed} 项 · "
-                                f"已保存 {current.downloaded} 项"
+                                f"已保存 {current.downloaded} 项{rate_suffix}"
                             )
                         else:
-                            current.detail = f"已处理 {current.processed} 项 · 已保存 {current.downloaded} 项"
+                            current.detail = (
+                                f"已处理 {current.processed} 项 · 已保存 {current.downloaded} 项{rate_suffix}"
+                            )
 
-                result = self._runner(
-                    task.source_url,
-                    task_dir,
-                    task.max_files,
-                    task.archive_path,
-                    task.date_after,
-                    task.date_before,
-                    task.cancel_event,
-                    progress,
-                )
+                if self._runner is None:
+                    result = _run_managed_gallery_dl(
+                        self.engine_module,
+                        task.source_url,
+                        task_dir,
+                        task.max_files,
+                        task.archive_path,
+                        task.date_after,
+                        task.date_before,
+                        task.rate_limit_bps,
+                        task.cancel_event,
+                        progress,
+                    )
+                else:
+                    result = self._runner(
+                        task.source_url,
+                        task_dir,
+                        task.max_files,
+                        task.archive_path,
+                        task.date_after,
+                        task.date_before,
+                        task.cancel_event,
+                        progress,
+                    )
                 if not isinstance(result, GalleryDlRunResult):
                     raise GalleryDlExecutorError("gallery-dl runner 返回了无效结果。")
                 with self._lock:
@@ -501,12 +541,19 @@ class GalleryDlExecutor:
                     current.current_file = ""
                     date_filtered = bool(current.date_after or current.date_before)
                     resume_retry = current.resume_enabled and current.attempt > 1
+                    rate_suffix = (
+                        f" · Rate ≤ {_format_rate_limit(current.rate_limit_bps)}"
+                        if current.rate_limit_bps is not None
+                        else ""
+                    )
                     if result.cancelled or current.cancel_event.is_set():
                         current.state = "cancelled"
-                        current.detail = f"已取消 · 已处理 {current.processed} 项 · 已保存 {current.downloaded} 项"
+                        current.detail = (
+                            f"已取消 · 已处理 {current.processed} 项 · 已保存 {current.downloaded} 项{rate_suffix}"
+                        )
                     elif result.status_code:
                         current.state = "failed"
-                        current.detail = f"gallery-dl 执行失败（状态 {int(result.status_code)}）。"
+                        current.detail = f"gallery-dl 执行失败（状态 {int(result.status_code)}）。{rate_suffix}"
                     elif (
                         current.downloaded <= 0
                         and not current.archive_enabled
@@ -514,43 +561,53 @@ class GalleryDlExecutor:
                         and not resume_retry
                     ):
                         current.state = "failed"
-                        current.detail = "gallery-dl 没有保存任何可下载文件。"
+                        current.detail = f"gallery-dl 没有保存任何可下载文件。{rate_suffix}"
                     else:
                         current.state = "completed"
                         if current.downloaded <= 0:
                             if resume_retry:
                                 current.detail = (
                                     "已完成 · Resume 重试本次没有新增文件；"
-                                    "同一托管任务目录中的已有文件与断点数据已保留。"
+                                    f"同一托管任务目录中的已有文件与断点数据已保留。{rate_suffix}"
                                 )
                             elif current.archive_enabled and date_filtered:
                                 current.detail = (
                                     "已完成 · 本次没有新增文件；Archive 与日期过滤均已启用，"
-                                    "可能没有匹配项或已全部跳过。"
+                                    f"可能没有匹配项或已全部跳过。{rate_suffix}"
                                 )
                             elif current.archive_enabled:
-                                current.detail = "已完成 · 本次没有新增文件；Archive 已启用，可能已全部跳过。"
+                                current.detail = (
+                                    f"已完成 · 本次没有新增文件；Archive 已启用，可能已全部跳过。{rate_suffix}"
+                                )
                             else:
-                                current.detail = "已完成 · 本次没有新增文件；日期过滤已启用，可能没有匹配项。"
+                                current.detail = f"已完成 · 本次没有新增文件；日期过滤已启用，可能没有匹配项。{rate_suffix}"
                         else:
                             suffix = " · 已达到本任务数量上限" if result.limit_reached else ""
                             archive_suffix = " · Archive 已更新" if current.archive_enabled else ""
                             date_suffix = " · 日期过滤已应用" if date_filtered else ""
                             resume_suffix = " · Resume 已启用" if current.resume_enabled else ""
                             current.detail = (
-                                f"已完成 · 保存 {current.downloaded} 项{suffix}{archive_suffix}{date_suffix}{resume_suffix}"
+                                f"已完成 · 保存 {current.downloaded} 项{suffix}{archive_suffix}{date_suffix}"
+                                f"{resume_suffix}{rate_suffix}"
                             )
                     self._trim_locked()
             except (GalleryDlExecutorError, GalleryDlRuntimeError):
                 with self._lock:
                     current = self._tasks.get(task.task_id)
                     if current is not None and current.attempt == attempt:
+                        rate_suffix = (
+                            f" · Rate ≤ {_format_rate_limit(current.rate_limit_bps)}"
+                            if current.rate_limit_bps is not None
+                            else ""
+                        )
                         if current.cancel_event.is_set():
                             current.state = "cancelled"
-                            current.detail = f"已取消 · 已处理 {current.processed} 项 · 已保存 {current.downloaded} 项"
+                            current.detail = (
+                                f"已取消 · 已处理 {current.processed} 项 · 已保存 {current.downloaded} 项{rate_suffix}"
+                            )
                         else:
                             current.state = "failed"
-                            current.detail = "gallery-dl 本机执行失败。请检查工具状态或来源是否受支持。"
+                            current.detail = f"gallery-dl 本机执行失败。请检查工具状态或来源是否受支持。{rate_suffix}"
                         current.current_file = ""
                         self._trim_locked()
             except Exception:
@@ -559,7 +616,12 @@ class GalleryDlExecutor:
                     if current is not None and current.attempt == attempt:
                         current.state = "failed"
                         current.current_file = ""
-                        current.detail = "gallery-dl 本机执行失败。"
+                        rate_suffix = (
+                            f" · Rate ≤ {_format_rate_limit(current.rate_limit_bps)}"
+                            if current.rate_limit_bps is not None
+                            else ""
+                        )
+                        current.detail = f"gallery-dl 本机执行失败。{rate_suffix}"
                         self._trim_locked()
 
     def cancel(self, task_id: str) -> LocalTaskActionResult:
@@ -602,9 +664,14 @@ class GalleryDlExecutor:
                 if task.resume_enabled
                 else ""
             )
+            rate_detail = (
+                f"；继续沿用 Rate ≤ {_format_rate_limit(task.rate_limit_bps)}"
+                if task.rate_limit_bps is not None
+                else ""
+            )
             task.detail = (
                 f"等待重试 · 第 {task.attempt} 次尝试；之前已保存的文件保持不变"
-                f"{archive_detail}{date_detail}{resume_detail}。"
+                f"{archive_detail}{date_detail}{resume_detail}{rate_detail}。"
             )
             task.cancel_event = threading.Event()
             self._queue.append(task.task_id)
@@ -629,11 +696,17 @@ class GalleryDlExecutor:
             failure_label = ""
             advice = ""
             date_filtered = bool(task.date_after or task.date_before)
+            rate_advice = (
+                f" 当前任务下载速率上限为 {_format_rate_limit(task.rate_limit_bps)}。"
+                if task.rate_limit_bps is not None
+                else ""
+            )
             if task.state == "queued":
                 actions = ("cancel",)
                 advice = "等待同一 gallery-dl 执行器中的前序任务；不会读取系统或用户 gallery-dl 配置。"
                 if task.resume_enabled:
                     advice += " Resume 已启用；后续重试会复用同一托管任务目录。"
+                advice += rate_advice
             elif task.state == "active":
                 if not task.cancel_event.is_set():
                     actions = ("cancel",)
@@ -644,6 +717,7 @@ class GalleryDlExecutor:
                 )
                 if task.resume_enabled:
                     advice += " 网络失败遗留的 .part 可在 Galaxy Retry 时由 gallery-dl 原生 Range 续传。"
+                advice += rate_advice
             elif task.state in {"failed", "cancelled"}:
                 actions = ("retry",)
                 failure_label = "gallery-dl 失败" if task.state == "failed" else "gallery-dl 已取消"
@@ -658,6 +732,7 @@ class GalleryDlExecutor:
                     advice += " Galaxy Archive 会继续复用，避免重复保存已记录项目。"
                 if date_filtered:
                     advice += " date-after/date-before 会按原值继续应用。"
+                advice += rate_advice
             elif task.state == "completed":
                 advice = "文件已保存到 Galaxy 下载目录的 gallery-dl 任务子目录。"
                 if task.resume_enabled:
@@ -666,6 +741,7 @@ class GalleryDlExecutor:
                     advice += " Archive 由 Galaxy 状态目录统一管理。"
                 if date_filtered:
                     advice += " 日期范围由 gallery-dl 原生 date-after/date-before 处理。"
+                advice += rate_advice
             rows.append(
                 LocalTaskSnapshot(
                     task_id=task.task_id,
@@ -719,6 +795,7 @@ def install_gallery_dl_executor(engine_module) -> GalleryDlExecutor:
             resume_enabled: bool = False,
             date_after: str | None = None,
             date_before: str | None = None,
+            rate_limit_mib: float | int | None = None,
         ) -> str:
             return executor.submit(
                 source_url,
@@ -727,6 +804,7 @@ def install_gallery_dl_executor(engine_module) -> GalleryDlExecutor:
                 resume_enabled=resume_enabled,
                 date_after=date_after,
                 date_before=date_before,
+                rate_limit_mib=rate_limit_mib,
             )
 
         window_cls.submit_gallery_dl_task = submit_gallery_dl_task
@@ -738,4 +816,6 @@ def run_gallery_dl_executor_self_test() -> None:
     assert _display_name({"filename": "a/b\\c", "extension": "jpg"}).endswith(".jpg")
     date, parsed = _validate_gallery_date("2026-01-09T15:30:00Z", "date-after")
     assert date == "2026-01-09T15:30:00Z" and parsed == datetime(2026, 1, 9, 15, 30, 0)
+    assert _validate_gallery_rate_mib(1) == 1_048_576
+    assert _validate_gallery_rate_mib(None) is None
     assert MAX_GALLERY_DL_FILES == 500
