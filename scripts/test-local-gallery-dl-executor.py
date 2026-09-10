@@ -388,6 +388,7 @@ class GalleryDlExecutorTests(unittest.TestCase):
                 archive_path,
                 date_after,
                 date_before,
+                None,
                 threading.Event(),
                 lambda *_args: None,
             )
