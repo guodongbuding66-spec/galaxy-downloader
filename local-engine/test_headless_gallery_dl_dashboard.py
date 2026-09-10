@@ -100,6 +100,7 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         self.assertIn(b"removeConfirmation", script)
         self.assertIn(b"sourceUrl", script)
         self.assertIn(b"maxFiles", script)
+        self.assertIn(b"archiveEnabled", script)
         self.assertIn(b"sessionStorage", script)
         self.assertIn(b"window.confirm", script)
         self.assertIn(b"setTimeout", script)
@@ -111,11 +112,30 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
             b"cookieFile",
             b"httpHeaders",
             b"outputRoot",
+            b"archivePath",
             b"toolUrl",
             b"localStorage",
             b"https://cdn.",
         ):
             self.assertNotIn(forbidden, script)
+
+    def test_gallery_archive_control_is_default_off_and_capability_gated(self) -> None:
+        status, _, script = self.request("/dashboard/gallery-dl.js")
+        self.assertEqual(status, 200)
+        for marker in (
+            b'id="galleryArchiveEnabled"',
+            b'name="archiveEnabled"',
+            b'type="checkbox"',
+            b'aria-describedby="galleryArchiveHelp"',
+            b'galleryArchiveEnabled" name="archiveEnabled" type="checkbox" aria-describedby="galleryArchiveHelp" disabled',
+            b"state.engine?.archiveSupported === true",
+            b"if (!archiveSupported) archiveControl.checked = false",
+            b"archiveControl.disabled = state.submitPending || !installed || !acceptingJobs || !archiveSupported",
+            b"const archiveEnabled = state.engine?.archiveSupported === true && $('galleryArchiveEnabled').checked",
+            b"archiveEnabled: Boolean(archiveEnabled)",
+        ):
+            self.assertIn(marker, script)
+        self.assertNotIn(b"galleryArchiveEnabled').checked = true", script)
 
     def test_gallery_task_refresh_keeps_tool_mutation_state_fresh(self) -> None:
         status, _, script = self.request("/dashboard/gallery-dl.js")
@@ -137,7 +157,7 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         self.assertLess(jobs_fetch, jobs_state)
         self.assertLess(jobs_state, tool_fetch)
 
-    def test_gallery_workspace_has_native_limits_and_responsive_styles(self) -> None:
+    def test_gallery_workspace_has_native_limits_accessibility_and_responsive_styles(self) -> None:
         status, _, script = self.request("/dashboard/gallery-dl.js")
         self.assertEqual(status, 200)
         for marker in (
@@ -145,6 +165,7 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
             b'type="number"',
             b'min="1"',
             b'max="500"',
+            b'type="checkbox"',
             b'role="status"',
             b"active tasks refresh automatically",
         ):
@@ -152,10 +173,17 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
 
         status, _, stylesheet = self.request("/dashboard/gallery-dl.css")
         self.assertEqual(status, 200)
-        self.assertIn(b".gallery-grid", stylesheet)
-        self.assertIn(b"@media(max-width:900px)", stylesheet)
-        self.assertIn(b"@media(max-width:560px)", stylesheet)
-        self.assertIn(b"prefers-color-scheme:dark", stylesheet)
+        for marker in (
+            b".gallery-grid",
+            b".gallery-archive-option",
+            b"min-height:44px",
+            b".gallery-archive-option:focus-within",
+            b".gallery-archive-option:has(input:disabled)",
+            b"@media(max-width:900px)",
+            b"@media(max-width:560px)",
+            b"prefers-color-scheme:dark",
+        ):
+            self.assertIn(marker, stylesheet)
 
 
 if __name__ == "__main__":
