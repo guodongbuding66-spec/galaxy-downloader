@@ -227,6 +227,7 @@ class GalleryDlResumeContractTests(unittest.TestCase):
                     None,
                     None,
                     None,
+                    None,
                     threading.Event(),
                     lambda *_args: None,
                 )
