@@ -16,7 +16,6 @@ LOCAL_ENGINE = ROOT / "local-engine"
 if str(LOCAL_ENGINE) not in sys.path:
     sys.path.insert(0, str(LOCAL_ENGINE))
 
-import gallery_dl_executor as executor_module  # noqa: E402
 from gallery_dl_executor import (  # noqa: E402
     GalleryDlExecutor,
     GalleryDlExecutorError,
@@ -219,7 +218,7 @@ class GalleryDlResumeContractTests(unittest.TestCase):
                     SimpleNamespace(StopExtraction=StopExtraction),
                 )
 
-            with patch.object(executor_module, "managed_gallery_dl_modules", fake_modules):
+            with patch("gallery_dl_executor.managed_gallery_dl_modules", fake_modules):
                 result = _run_managed_gallery_dl(
                     object(),
                     "https://example.com/gallery",
