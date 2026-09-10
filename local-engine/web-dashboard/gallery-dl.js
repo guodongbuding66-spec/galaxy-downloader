@@ -87,8 +87,17 @@
               <span><strong>Archive</strong><small id="galleryArchiveHelp">Skip files already recorded by this Local Engine.</small></span>
             </label>
             <button class="button primary gallery-submit-button" id="gallerySubmitButton" type="submit">Add download</button>
+            <fieldset class="gallery-date-range" id="galleryDateRange" disabled>
+              <legend>Date filter <span>Optional</span></legend>
+              <div class="gallery-date-controls">
+                <label class="field gallery-date-field" for="galleryDateAfter"><span>After</span><input id="galleryDateAfter" name="dateAfter" type="date" aria-describedby="galleryDateHelp"></label>
+                <span class="gallery-date-divider" aria-hidden="true">to</span>
+                <label class="field gallery-date-field" for="galleryDateBefore"><span>Before</span><input id="galleryDateBefore" name="dateBefore" type="date" aria-describedby="galleryDateHelp"></label>
+              </div>
+              <small id="galleryDateHelp">Uses gallery-dl native post ordering. Some sites with pinned older posts can stop an “After” scan earlier than expected.</small>
+            </fieldset>
           </form>
-          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL, file-count limit and Archive boolean are sent. Output and Archive storage stay inside trusted Headless paths.</div>
+          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL, file-count limit, optional Date values and Archive boolean are sent. Output and Archive storage stay inside trusted Headless paths.</div>
         </section>
 
         <section class="panel gallery-tool-panel">
@@ -201,7 +210,9 @@
     const rootReady = tool.toolRootReady !== false
     const acceptingJobs = state.engine?.acceptingJobs !== false
     const archiveSupported = state.engine?.archiveSupported === true
+    const dateFilterSupported = state.engine?.dateFilterSupported === true
     const archiveControl = $('galleryArchiveEnabled')
+    const dateRange = $('galleryDateRange')
 
     setText('galleryToolInstalled', installed ? 'Installed' : 'Not installed')
     setText('galleryToolVersion', tool.version || '—')
@@ -210,8 +221,13 @@
     setText('galleryToolSummary', !rootReady ? 'Managed tool storage is unavailable.' : installed ? 'Verified managed gallery-dl is available.' : 'gallery-dl is not installed yet.')
     setText('galleryToolMessage', result?.message || 'Tool checks are explicit; startup never contacts the provider.')
     setText('galleryArchiveHelp', archiveSupported ? 'Skip files already recorded by this Local Engine.' : 'Archive is unavailable because a trusted state root is not available.')
+    setText('galleryDateHelp', dateFilterSupported ? 'Uses gallery-dl native post ordering. Some sites with pinned older posts can stop an “After” scan earlier than expected.' : 'Date filtering is unavailable on this Headless API version.')
 
     if (!archiveSupported) archiveControl.checked = false
+    if (!dateFilterSupported) {
+      $('galleryDateAfter').value = ''
+      $('galleryDateBefore').value = ''
+    }
 
     const busy = state.toolActionPending
     $('galleryToolCheck').disabled = busy || !rootReady
@@ -225,6 +241,7 @@
     $('gallerySourceUrl').disabled = state.submitPending || !installed || !acceptingJobs
     $('galleryMaxFiles').disabled = state.submitPending || !installed || !acceptingJobs
     archiveControl.disabled = state.submitPending || !installed || !acceptingJobs || !archiveSupported
+    dateRange.disabled = state.submitPending || !installed || !acceptingJobs || !dateFilterSupported
   }
 
   function actionButton(job, action) {
@@ -332,15 +349,29 @@
       return
     }
     const archiveEnabled = state.engine?.archiveSupported === true && $('galleryArchiveEnabled').checked
+    const dateFilterSupported = state.engine?.dateFilterSupported === true
+    const dateAfter = dateFilterSupported ? $('galleryDateAfter').value.trim() : ''
+    const dateBefore = dateFilterSupported ? $('galleryDateBefore').value.trim() : ''
+    if (dateAfter && dateBefore && dateAfter >= dateBefore) {
+      setText('gallerySubmitStatus', 'Gallery download was not queued.')
+      showError('Date “After” must be earlier than Date “Before”.')
+      $('galleryDateAfter').focus()
+      return
+    }
+
+    const payload = {
+      sourceUrl: $('gallerySourceUrl').value.trim(),
+      maxFiles,
+      archiveEnabled: Boolean(archiveEnabled),
+    }
+    if (dateAfter) payload.dateAfter = dateAfter
+    if (dateBefore) payload.dateBefore = dateBefore
+
     state.submitPending = true
     renderTool()
     setText('gallerySubmitStatus', 'Queueing gallery download…')
     try {
-      const result = await postJson('/v1/gallery-dl/jobs', {
-        sourceUrl: $('gallerySourceUrl').value.trim(),
-        maxFiles,
-        archiveEnabled: Boolean(archiveEnabled),
-      })
+      const result = await postJson('/v1/gallery-dl/jobs', payload)
       setText('gallerySubmitStatus', result.job?.title ? `Queued: ${result.job.title}` : 'Gallery download queued.')
       $('gallerySourceUrl').value = ''
       await loadJobs()

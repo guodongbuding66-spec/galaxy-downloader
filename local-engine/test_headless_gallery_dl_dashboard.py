@@ -101,6 +101,8 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         self.assertIn(b"sourceUrl", script)
         self.assertIn(b"maxFiles", script)
         self.assertIn(b"archiveEnabled", script)
+        self.assertIn(b"dateAfter", script)
+        self.assertIn(b"dateBefore", script)
         self.assertIn(b"sessionStorage", script)
         self.assertIn(b"window.confirm", script)
         self.assertIn(b"setTimeout", script)
@@ -113,6 +115,8 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
             b"httpHeaders",
             b"outputRoot",
             b"archivePath",
+            b"dateConfig",
+            b"datePath",
             b"toolUrl",
             b"localStorage",
             b"https://cdn.",
@@ -136,6 +140,46 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         ):
             self.assertIn(marker, script)
         self.assertNotIn(b"galleryArchiveEnabled').checked = true", script)
+
+    def test_gallery_date_controls_are_default_empty_capability_gated_and_bounded(self) -> None:
+        status, _, script = self.request("/dashboard/gallery-dl.js")
+        self.assertEqual(status, 200)
+        for marker in (
+            b'id="galleryDateRange" disabled',
+            b'id="galleryDateAfter" name="dateAfter" type="date"',
+            b'id="galleryDateBefore" name="dateBefore" type="date"',
+            b'aria-describedby="galleryDateHelp"',
+            b"state.engine?.dateFilterSupported === true",
+            b"if (!dateFilterSupported)",
+            b"$('galleryDateAfter').value = ''",
+            b"$('galleryDateBefore').value = ''",
+            b"dateRange.disabled = state.submitPending || !installed || !acceptingJobs || !dateFilterSupported",
+            b"const dateAfter = dateFilterSupported ? $('galleryDateAfter').value.trim() : ''",
+            b"const dateBefore = dateFilterSupported ? $('galleryDateBefore').value.trim() : ''",
+            b"if (dateAfter && dateBefore && dateAfter >= dateBefore)",
+            b"Date \xe2\x80\x9cAfter\xe2\x80\x9d must be earlier than Date \xe2\x80\x9cBefore\xe2\x80\x9d.",
+            b"$('galleryDateAfter').focus()",
+            b"if (dateAfter) payload.dateAfter = dateAfter",
+            b"if (dateBefore) payload.dateBefore = dateBefore",
+            b"pinned older posts",
+        ):
+            self.assertIn(marker, script)
+
+        after_markup = script.split(b'id="galleryDateAfter"', 1)[1].split(b"></label>", 1)[0]
+        before_markup = script.split(b'id="galleryDateBefore"', 1)[1].split(b"></label>", 1)[0]
+        self.assertNotIn(b"value=", after_markup)
+        self.assertNotIn(b"value=", before_markup)
+
+        submit = script.split(b"async function submitGallery(event)", 1)[1].split(
+            b"async function runJobAction", 1
+        )[0]
+        payload_start = submit.index(b"const payload = {")
+        after_assignment = submit.index(b"if (dateAfter) payload.dateAfter = dateAfter")
+        before_assignment = submit.index(b"if (dateBefore) payload.dateBefore = dateBefore")
+        post_call = submit.index(b"postJson('/v1/gallery-dl/jobs', payload)")
+        self.assertLess(payload_start, after_assignment)
+        self.assertLess(after_assignment, post_call)
+        self.assertLess(before_assignment, post_call)
 
     def test_gallery_task_refresh_keeps_tool_mutation_state_fresh(self) -> None:
         status, _, script = self.request("/dashboard/gallery-dl.js")
@@ -166,6 +210,9 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
             b'min="1"',
             b'max="500"',
             b'type="checkbox"',
+            b'type="date"',
+            b'<fieldset class="gallery-date-range"',
+            b'<legend>Date filter <span>Optional</span></legend>',
             b'role="status"',
             b"active tasks refresh automatically",
         ):
@@ -176,9 +223,14 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         for marker in (
             b".gallery-grid",
             b".gallery-archive-option",
+            b".gallery-date-range",
+            b".gallery-date-controls",
+            b".gallery-date-field",
             b"min-height:44px",
             b".gallery-archive-option:focus-within",
+            b".gallery-date-range:focus-within",
             b".gallery-archive-option:has(input:disabled)",
+            b".gallery-date-range:disabled",
             b"@media(max-width:900px)",
             b"@media(max-width:560px)",
             b"prefers-color-scheme:dark",
