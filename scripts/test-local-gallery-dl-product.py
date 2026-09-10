@@ -143,7 +143,7 @@ class GalleryDlProductTests(unittest.TestCase):
             executor = install_gallery_dl_executor(engine)
             executor._validator = lambda value: value
 
-            def runner(_url, _task_dir, _max_files, cancel_event, progress):
+            def runner(_url, _task_dir, _max_files, _archive_path, cancel_event, progress):
                 started.set()
                 progress("visible.jpg", 1, 0)
                 release.wait(2)
