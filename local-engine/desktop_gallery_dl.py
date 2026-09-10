@@ -37,6 +37,17 @@ def gallery_archive_requested(window: object) -> bool:
         return False
 
 
+def gallery_resume_requested(window: object) -> bool:
+    """Capture the optional Resume toggle on the Tk/UI thread and fail closed."""
+    variable = getattr(window, "_gallery_dl_resume_var", None)
+    if variable is None:
+        return False
+    try:
+        return bool(variable.get())
+    except tk.TclError:
+        return False
+
+
 def gallery_date_values(window: object) -> tuple[str | None, str | None]:
     """Capture optional Date values on the Tk/UI thread and fail closed on Tcl errors."""
     after_var = getattr(window, "_gallery_dl_date_after_var", None)
@@ -75,6 +86,16 @@ def _set_submit_controls(window, *, disabled: bool) -> None:
         except tk.TclError:
             return
 
+    resume_check = getattr(window, "_gallery_dl_resume_check", None)
+    if resume_check is not None:
+        try:
+            resume_check.configure(
+                state="disabled" if disabled else "normal",
+                cursor="arrow" if disabled else "hand2",
+            )
+        except tk.TclError:
+            return
+
     for attribute in ("_gallery_dl_date_after_entry", "_gallery_dl_date_before_entry"):
         entry = getattr(window, attribute, None)
         if entry is None:
@@ -105,6 +126,7 @@ def _submit_gallery_fallback(window, engine_module) -> None:
         return
 
     archive_enabled = bool(getattr(window, "_gallery_dl_archive_supported", False)) and gallery_archive_requested(window)
+    resume_enabled = gallery_resume_requested(window)
     date_after, date_before = gallery_date_values(window)
     date_filtered = bool(date_after or date_before)
     _set_submit_controls(window, disabled=True)
@@ -112,6 +134,7 @@ def _submit_gallery_fallback(window, engine_module) -> None:
         state_var.set(
             "正在校验公网链接并提交 gallery-dl 任务…"
             + (" Archive 已启用。" if archive_enabled else "")
+            + (" Resume 已启用。" if resume_enabled else "")
             + (" 日期过滤已启用。" if date_filtered else "")
         )
 
@@ -126,6 +149,7 @@ def _submit_gallery_fallback(window, engine_module) -> None:
                     validated,
                     max_files=MAX_GALLERY_DL_FILES,
                     archive_enabled=bool(archive_enabled),
+                    resume_enabled=bool(resume_enabled),
                     date_after=date_after,
                     date_before=date_before,
                 )
@@ -135,9 +159,10 @@ def _submit_gallery_fallback(window, engine_module) -> None:
                 raise RuntimeError("gallery-dl 任务未返回任务 ID。")
             ok = True
             archive_detail = " · Archive 已启用" if archive_enabled else ""
+            resume_detail = " · Resume 已启用" if resume_enabled else ""
             date_detail = " · 日期过滤已启用" if date_filtered else ""
             message = (
-                f"已加入 gallery-dl 任务中心 · {task_id}{archive_detail}{date_detail}"
+                f"已加入 gallery-dl 任务中心 · {task_id}{archive_detail}{resume_detail}{date_detail}"
                 " · 可在任务中心取消或失败后重试。"
             )
         except Exception as exc:  # noqa: BLE001
@@ -264,6 +289,45 @@ def _install_gallery_fallback(window, engine_module) -> None:
         justify="left",
     ).pack(side="left", fill="x", expand=True, padx=(10, 0))
 
+    resume_row = tk.Frame(card, bg=ui.PANEL_2, height=44)
+    resume_row.pack(fill="x", pady=(7, 0))
+    resume_row.pack_propagate(False)
+    resume_var = tk.BooleanVar(master=window, value=False)
+    resume_check = tk.Checkbutton(
+        resume_row,
+        text="Resume · 重试复用断点",
+        variable=resume_var,
+        onvalue=True,
+        offvalue=False,
+        takefocus=True,
+        anchor="w",
+        bg=ui.PANEL_2,
+        fg=ui.TEXT,
+        activebackground=ui.PANEL_2,
+        activeforeground=ui.TEXT,
+        selectcolor=ui.PANEL_3,
+        disabledforeground=ui.SUBTLE,
+        font=("Segoe UI", 8, "bold"),
+        bd=0,
+        relief="flat",
+        highlightthickness=1,
+        highlightbackground=ui.BORDER_SOFT,
+        highlightcolor=ui.ACCENT,
+        padx=4,
+        pady=8,
+        cursor="hand2",
+    )
+    resume_check.pack(side="left", fill="y")
+    ui._label(
+        resume_row,
+        "开启后失败/取消后的 Retry 复用同一托管目录和 .part；字节续传仅在远端支持 HTTP Range 时生效。",
+        size=7,
+        color=ui.SUBTLE,
+        bg=ui.PANEL_2,
+        wraplength=430,
+        justify="left",
+    ).pack(side="left", fill="x", expand=True, padx=(10, 0))
+
     date_row = tk.Frame(card, bg=ui.PANEL_2)
     date_row.pack(fill="x", pady=(8, 0))
     date_after_var = tk.StringVar(master=window, value="")
@@ -288,6 +352,8 @@ def _install_gallery_fallback(window, engine_module) -> None:
     window._gallery_dl_archive_supported = archive_supported
     window._gallery_dl_archive_var = archive_var
     window._gallery_dl_archive_check = archive_check
+    window._gallery_dl_resume_var = resume_var
+    window._gallery_dl_resume_check = resume_check
     window._gallery_dl_date_after_var = date_after_var
     window._gallery_dl_date_before_var = date_before_var
     window._gallery_dl_date_after_entry = date_after_entry
@@ -326,6 +392,11 @@ def run_desktop_gallery_dl_self_test() -> None:
         def get() -> bool:
             return True
 
+    class _ResumeVar:
+        @staticmethod
+        def get() -> bool:
+            return True
+
     class _DateVar:
         def __init__(self, value: str) -> None:
             self.value = value
@@ -335,6 +406,7 @@ def run_desktop_gallery_dl_self_test() -> None:
 
     class _Window:
         _gallery_dl_archive_var = _ArchiveVar()
+        _gallery_dl_resume_var = _ResumeVar()
         _gallery_dl_date_after_var = _DateVar(" 2026-01-01 ")
         _gallery_dl_date_before_var = _DateVar("")
 
@@ -346,6 +418,8 @@ def run_desktop_gallery_dl_self_test() -> None:
     assert gallery_archive_ready(object()) is False
     assert gallery_archive_requested(_Window()) is True
     assert gallery_archive_requested(object()) is False
+    assert gallery_resume_requested(_Window()) is True
+    assert gallery_resume_requested(object()) is False
     assert gallery_date_values(_Window()) == ("2026-01-01", None)
     assert gallery_date_values(object()) == (None, None)
     assert MAX_GALLERY_DL_FILES == 500
