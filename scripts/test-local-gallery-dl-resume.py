@@ -113,7 +113,8 @@ class GalleryDlResumeContractTests(unittest.TestCase):
             self.assertNotIn(str(root), completed.detail)
             self.assertNotIn(str(root), completed.advice)
             managed_dirs = list((root / "downloads" / "gallery-dl").iterdir())
-            self.assertEqual(managed_dirs, [task_dirs[0]])
+            self.assertEqual(len(managed_dirs), 1)
+            self.assertTrue(managed_dirs[0].samefile(task_dirs[0]))
 
     def test_resume_zero_new_files_can_complete_after_retry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
