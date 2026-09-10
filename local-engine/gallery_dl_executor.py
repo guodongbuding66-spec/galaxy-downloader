@@ -55,6 +55,7 @@ class _GalleryTask:
     max_files: int
     archive_enabled: bool = False
     archive_path: Path | None = None
+    resume_enabled: bool = False
     date_after: str | None = None
     date_before: str | None = None
     state: str = "queued"
@@ -136,17 +137,24 @@ def _safe_output_root(root: Path) -> Path:
     return resolved
 
 
-def _task_directory(root: Path, task_id: str, attempt: int) -> Path:
+def _task_directory(root: Path, task_id: str, attempt: int, *, resume_enabled: bool = False) -> Path:
     gallery_root = _safe_output_root(root) / "gallery-dl"
-    if gallery_root.exists() and gallery_root.is_symlink():
-        raise GalleryDlExecutorError("gallery-dl 托管输出目录不能是符号链接。")
-    gallery_root.mkdir(parents=True, exist_ok=True)
-    gallery_root = gallery_root.resolve()
-    target = gallery_root / f"{task_id}-a{attempt}"
-    if target.exists() and target.is_symlink():
-        raise GalleryDlExecutorError("gallery-dl 任务目录不能是符号链接。")
-    target.mkdir(parents=False, exist_ok=True)
-    resolved = target.resolve()
+    try:
+        if gallery_root.exists() and gallery_root.is_symlink():
+            raise GalleryDlExecutorError("gallery-dl 托管输出目录不能是符号链接。")
+        gallery_root.mkdir(parents=True, exist_ok=True)
+        gallery_root = gallery_root.resolve()
+        target = gallery_root / (f"{task_id}-resume" if resume_enabled else f"{task_id}-a{attempt}")
+        if target.exists():
+            if target.is_symlink():
+                raise GalleryDlExecutorError("gallery-dl 任务目录不能是符号链接。")
+            if not target.is_dir():
+                raise GalleryDlExecutorError("gallery-dl 任务目录必须是目录。")
+        else:
+            target.mkdir(parents=False, exist_ok=False)
+        resolved = target.resolve()
+    except OSError as exc:
+        raise GalleryDlExecutorError("无法创建或验证 gallery-dl 任务目录。") from exc
     if gallery_root not in resolved.parents:
         raise GalleryDlExecutorError("gallery-dl 任务目录越过了输出边界。")
     return resolved
@@ -265,6 +273,11 @@ def _run_managed_gallery_dl(
         config.set((), "postprocessors", ())
         config.set(("output",), "mode", "null")
         config.set(("cache",), "file", ":memory:")
+        # gallery-dl currently enables .part files by default. Set it explicitly
+        # so Galaxy's managed single-file retry behavior does not depend on a
+        # future upstream default change. Resume across Galaxy attempts is
+        # controlled separately by whether the managed task directory is reused.
+        config.set(("downloader",), "part", True)
         if archive_path is not None:
             # The path is derived exclusively from Galaxy's state_dir; user/API
             # payloads never supply a filesystem location for this option.
@@ -365,6 +378,7 @@ class GalleryDlExecutor:
         output_root: Path | None = None,
         max_files: int = MAX_GALLERY_DL_FILES,
         archive_enabled: bool = False,
+        resume_enabled: bool = False,
         date_after: str | None = None,
         date_before: str | None = None,
     ) -> str:
@@ -377,6 +391,8 @@ class GalleryDlExecutor:
             raise GalleryDlExecutorError(f"gallery-dl 单任务文件数量必须在 1 到 {MAX_GALLERY_DL_FILES} 之间。")
         if not isinstance(archive_enabled, bool):
             raise GalleryDlExecutorError("gallery-dl Archive 开关必须是布尔值。")
+        if not isinstance(resume_enabled, bool):
+            raise GalleryDlExecutorError("gallery-dl Resume 开关必须是布尔值。")
         date_after_value, after_dt = _validate_gallery_date(date_after, "date-after")
         date_before_value, before_dt = _validate_gallery_date(date_before, "date-before")
         if after_dt is not None and before_dt is not None and after_dt >= before_dt:
@@ -392,9 +408,14 @@ class GalleryDlExecutor:
             limit,
             archive_enabled=archive_enabled,
             archive_path=archive_path,
+            resume_enabled=resume_enabled,
             date_after=date_after_value,
             date_before=date_before_value,
-            detail="等待 gallery-dl 下载线程。",
+            detail=(
+                "等待 gallery-dl 下载线程。Resume 已启用。"
+                if resume_enabled
+                else "等待 gallery-dl 下载线程。"
+            ),
         )
         with self._lock:
             self._tasks[task_id] = task
@@ -430,7 +451,12 @@ class GalleryDlExecutor:
                 task.detail = "正在初始化托管 gallery-dl…"
                 attempt = task.attempt
             try:
-                task_dir = _task_directory(task.output_root, task.task_id, attempt)
+                task_dir = _task_directory(
+                    task.output_root,
+                    task.task_id,
+                    attempt,
+                    resume_enabled=task.resume_enabled,
+                )
 
                 def progress(current_file: str, processed: int, downloaded: int) -> None:
                     with self._lock:
@@ -480,13 +506,23 @@ class GalleryDlExecutor:
                     elif result.status_code:
                         current.state = "failed"
                         current.detail = f"gallery-dl 执行失败（状态 {int(result.status_code)}）。"
-                    elif current.downloaded <= 0 and not current.archive_enabled and not date_filtered:
+                    elif (
+                        current.downloaded <= 0
+                        and not current.archive_enabled
+                        and not date_filtered
+                        and not current.resume_enabled
+                    ):
                         current.state = "failed"
                         current.detail = "gallery-dl 没有保存任何可下载文件。"
                     else:
                         current.state = "completed"
                         if current.downloaded <= 0:
-                            if current.archive_enabled and date_filtered:
+                            if current.resume_enabled:
+                                current.detail = (
+                                    "已完成 · Resume 已启用，本次没有新增文件；"
+                                    "同一托管任务目录中的已有文件与断点数据已保留。"
+                                )
+                            elif current.archive_enabled and date_filtered:
                                 current.detail = (
                                     "已完成 · 本次没有新增文件；Archive 与日期过滤均已启用，"
                                     "可能没有匹配项或已全部跳过。"
@@ -499,8 +535,9 @@ class GalleryDlExecutor:
                             suffix = " · 已达到本任务数量上限" if result.limit_reached else ""
                             archive_suffix = " · Archive 已更新" if current.archive_enabled else ""
                             date_suffix = " · 日期过滤已应用" if date_filtered else ""
+                            resume_suffix = " · Resume 已启用" if current.resume_enabled else ""
                             current.detail = (
-                                f"已完成 · 保存 {current.downloaded} 项{suffix}{archive_suffix}{date_suffix}"
+                                f"已完成 · 保存 {current.downloaded} 项{suffix}{archive_suffix}{date_suffix}{resume_suffix}"
                             )
                     self._trim_locked()
             except (GalleryDlExecutorError, GalleryDlRuntimeError):
@@ -559,9 +596,14 @@ class GalleryDlExecutor:
             task.current_file = ""
             archive_detail = "；继续复用 Galaxy Archive" if task.archive_enabled else ""
             date_detail = "；沿用原日期过滤" if task.date_after or task.date_before else ""
+            resume_detail = (
+                "；Resume 复用同一托管目录，完整文件保留，.part 交给 gallery-dl 原生断点续传"
+                if task.resume_enabled
+                else ""
+            )
             task.detail = (
                 f"等待重试 · 第 {task.attempt} 次尝试；之前已保存的文件保持不变"
-                f"{archive_detail}{date_detail}。"
+                f"{archive_detail}{date_detail}{resume_detail}。"
             )
             task.cancel_event = threading.Event()
             self._queue.append(task.task_id)
@@ -589,6 +631,8 @@ class GalleryDlExecutor:
             if task.state == "queued":
                 actions = ("cancel",)
                 advice = "等待同一 gallery-dl 执行器中的前序任务；不会读取系统或用户 gallery-dl 配置。"
+                if task.resume_enabled:
+                    advice += " Resume 已启用；后续重试会复用同一托管任务目录。"
             elif task.state == "active":
                 if not task.cancel_event.is_set():
                     actions = ("cancel",)
@@ -597,16 +641,26 @@ class GalleryDlExecutor:
                     if not task.cancel_event.is_set()
                     else "取消请求已记录；当前网络文件完成或失败后停止。"
                 )
+                if task.resume_enabled:
+                    advice += " 网络失败遗留的 .part 可在 Galaxy Retry 时由 gallery-dl 原生 Range 续传。"
             elif task.state in {"failed", "cancelled"}:
                 actions = ("retry",)
                 failure_label = "gallery-dl 失败" if task.state == "failed" else "gallery-dl 已取消"
-                advice = "可按原参数重试；新尝试使用新的任务子目录，不删除之前已经保存的文件。"
+                if task.resume_enabled:
+                    advice = (
+                        "可按原参数重试；Resume 会复用同一托管任务目录，完整文件保留，"
+                        ".part 由 gallery-dl 原生 HTTP Range 续传。"
+                    )
+                else:
+                    advice = "可按原参数重试；新尝试使用新的任务子目录，不删除之前已经保存的文件。"
                 if task.archive_enabled:
                     advice += " Galaxy Archive 会继续复用，避免重复保存已记录项目。"
                 if date_filtered:
                     advice += " date-after/date-before 会按原值继续应用。"
             elif task.state == "completed":
                 advice = "文件已保存到 Galaxy 下载目录的 gallery-dl 任务子目录。"
+                if task.resume_enabled:
+                    advice += " Resume 使用同一托管任务目录，并保留 gallery-dl .part 断点数据供重试。"
                 if task.archive_enabled:
                     advice += " Archive 由 Galaxy 状态目录统一管理。"
                 if date_filtered:
@@ -661,6 +715,7 @@ def install_gallery_dl_executor(engine_module) -> GalleryDlExecutor:
             *,
             max_files: int = MAX_GALLERY_DL_FILES,
             archive_enabled: bool = False,
+            resume_enabled: bool = False,
             date_after: str | None = None,
             date_before: str | None = None,
         ) -> str:
@@ -668,6 +723,7 @@ def install_gallery_dl_executor(engine_module) -> GalleryDlExecutor:
                 source_url,
                 max_files=max_files,
                 archive_enabled=archive_enabled,
+                resume_enabled=resume_enabled,
                 date_after=date_after,
                 date_before=date_before,
             )
