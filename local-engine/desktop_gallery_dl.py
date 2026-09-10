@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+from pathlib import Path
 
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook, show_desktop_presenter
@@ -14,7 +15,16 @@ def gallery_fallback_ready(inventory: object) -> bool:
 
 
 def gallery_archive_ready(engine_module: object) -> bool:
-    return callable(getattr(engine_module, "state_dir", None))
+    state_dir = getattr(engine_module, "state_dir", None)
+    if not callable(state_dir):
+        return False
+    try:
+        root = state_dir()
+        if root is None or (isinstance(root, str) and not root.strip()):
+            return False
+        return Path(root).expanduser().is_absolute()
+    except Exception:  # noqa: BLE001 - capability detection must fail closed
+        return False
 
 
 def gallery_archive_requested(window: object) -> bool:
@@ -220,8 +230,13 @@ def install_desktop_gallery_dl(engine_module):
 def run_desktop_gallery_dl_self_test() -> None:
     class _EngineWithState:
         @staticmethod
+        def state_dir() -> Path:
+            return Path.cwd().resolve()
+
+    class _EngineWithBrokenState:
+        @staticmethod
         def state_dir():
-            return None
+            raise RuntimeError("broken state root")
 
     class _ArchiveVar:
         @staticmethod
@@ -235,6 +250,7 @@ def run_desktop_gallery_dl_self_test() -> None:
     assert gallery_fallback_ready({"galleryDlReady": False}) is False
     assert gallery_fallback_ready(None) is False
     assert gallery_archive_ready(_EngineWithState()) is True
+    assert gallery_archive_ready(_EngineWithBrokenState()) is False
     assert gallery_archive_ready(object()) is False
     assert gallery_archive_requested(_Window()) is True
     assert gallery_archive_requested(object()) is False
