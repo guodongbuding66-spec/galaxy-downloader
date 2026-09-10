@@ -101,6 +101,7 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         self.assertIn(b"sourceUrl", script)
         self.assertIn(b"maxFiles", script)
         self.assertIn(b"archiveEnabled", script)
+        self.assertIn(b"resumeEnabled", script)
         self.assertIn(b"dateAfter", script)
         self.assertIn(b"dateBefore", script)
         self.assertIn(b"sessionStorage", script)
@@ -117,6 +118,10 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
             b"archivePath",
             b"dateConfig",
             b"datePath",
+            b"resumePath",
+            b"partDirectory",
+            b"resumeConfig",
+            b"rangeHeader",
             b"toolUrl",
             b"localStorage",
             b"https://cdn.",
@@ -140,6 +145,35 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         ):
             self.assertIn(marker, script)
         self.assertNotIn(b"galleryArchiveEnabled').checked = true", script)
+
+    def test_gallery_resume_control_is_default_off_capability_gated_and_opt_in_only(self) -> None:
+        status, _, script = self.request("/dashboard/gallery-dl.js")
+        self.assertEqual(status, 200)
+        for marker in (
+            b'id="galleryResumeEnabled"',
+            b'name="resumeEnabled"',
+            b'aria-describedby="galleryResumeHelp"',
+            b'galleryResumeEnabled" name="resumeEnabled" type="checkbox" aria-describedby="galleryResumeHelp" disabled',
+            b"state.engine?.resumeSupported === true",
+            b"if (!resumeSupported) resumeControl.checked = false",
+            b"resumeControl.disabled = state.submitPending || !installed || !acceptingJobs || !resumeSupported",
+            b"const resumeEnabled = state.engine?.resumeSupported === true && $('galleryResumeEnabled').checked",
+            b"if (resumeEnabled) payload.resumeEnabled = true",
+            b"remote server honors HTTP Range",
+            b".part files",
+        ):
+            self.assertIn(marker, script)
+        self.assertNotIn(b"galleryResumeEnabled').checked = true", script)
+        self.assertNotIn(b"resumeEnabled: Boolean(resumeEnabled)", script)
+
+        submit = script.split(b"async function submitGallery(event)", 1)[1].split(
+            b"async function runJobAction", 1
+        )[0]
+        payload_start = submit.index(b"const payload = {")
+        resume_assignment = submit.index(b"if (resumeEnabled) payload.resumeEnabled = true")
+        post_call = submit.index(b"postJson('/v1/gallery-dl/jobs', payload)")
+        self.assertLess(payload_start, resume_assignment)
+        self.assertLess(resume_assignment, post_call)
 
     def test_gallery_date_controls_are_default_empty_capability_gated_and_bounded(self) -> None:
         status, _, script = self.request("/dashboard/gallery-dl.js")
@@ -223,13 +257,16 @@ class HeadlessGalleryDlDashboardTest(unittest.TestCase):
         for marker in (
             b".gallery-grid",
             b".gallery-archive-option",
+            b".gallery-resume-option",
             b".gallery-date-range",
             b".gallery-date-controls",
             b".gallery-date-field",
             b"min-height:44px",
             b".gallery-archive-option:focus-within",
+            b".gallery-resume-option:focus-within",
             b".gallery-date-range:focus-within",
             b".gallery-archive-option:has(input:disabled)",
+            b".gallery-resume-option:has(input:disabled)",
             b".gallery-date-range:disabled",
             b"@media(max-width:900px)",
             b"@media(max-width:560px)",
