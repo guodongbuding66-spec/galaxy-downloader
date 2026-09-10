@@ -199,6 +199,25 @@ class GalleryDlRateContractTests(unittest.TestCase):
             self.assertEqual(wait_state(executor, task_id, {"completed"}).state, "completed")
             self.assertEqual(calls, 1)
 
+    def test_custom_runner_rejects_rate_instead_of_silently_ignoring_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            calls = 0
+
+            def legacy_runner(_url, _task_dir, _max_files, _archive, _after, _before, _cancel, _progress):
+                nonlocal calls
+                calls += 1
+                return GalleryDlRunResult(0, 1, 1)
+
+            executor = GalleryDlExecutor(self.engine(root), runner=legacy_runner, validator=lambda value: value)
+            with self.assertRaises(GalleryDlExecutorError) as error:
+                executor.submit("https://example.com/gallery", rate_limit_mib=2.5)
+
+            self.assertIn("自定义 runner", str(error.exception))
+            self.assertEqual(calls, 0)
+            self.assertEqual(executor.snapshots(), ())
+            self.assertFalse((root / "downloads").exists())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
