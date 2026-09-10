@@ -13,6 +13,20 @@ def gallery_fallback_ready(inventory: object) -> bool:
     return bool(isinstance(inventory, dict) and inventory.get("galleryDlReady"))
 
 
+def gallery_archive_ready(engine_module: object) -> bool:
+    return callable(getattr(engine_module, "state_dir", None))
+
+
+def gallery_archive_requested(window: object) -> bool:
+    variable = getattr(window, "_gallery_dl_archive_var", None)
+    if variable is None:
+        return False
+    try:
+        return bool(variable.get())
+    except tk.TclError:
+        return False
+
+
 def _window_exists(window: tk.Misc | None) -> bool:
     if window is None:
         return False
@@ -22,11 +36,28 @@ def _window_exists(window: tk.Misc | None) -> bool:
         return False
 
 
+def _set_submit_controls(window, *, disabled: bool) -> None:
+    button = getattr(window, "_gallery_dl_fallback_button", None)
+    if button is not None:
+        button.state(["disabled" if disabled else "!disabled"])
+
+    archive_check = getattr(window, "_gallery_dl_archive_check", None)
+    if archive_check is not None:
+        archive_supported = bool(getattr(window, "_gallery_dl_archive_supported", False))
+        archive_disabled = disabled or not archive_supported
+        try:
+            archive_check.configure(
+                state="disabled" if archive_disabled else "normal",
+                cursor="arrow" if archive_disabled else "hand2",
+            )
+        except tk.TclError:
+            pass
+
+
 def _submit_gallery_fallback(window, engine_module) -> None:
     source_var = getattr(window, "_quick_url_var", None)
     source = str(source_var.get() if source_var is not None else "").strip()
     state_var = getattr(window, "_quick_state_var", None)
-    button = getattr(window, "_gallery_dl_fallback_button", None)
     if not source:
         if state_var is not None:
             state_var.set("请先粘贴一个图片、图库或社交帖子链接。")
@@ -39,10 +70,13 @@ def _submit_gallery_fallback(window, engine_module) -> None:
         show_desktop_presenter(window, "tools")
         return
 
-    if button is not None:
-        button.state(["disabled"])
+    archive_enabled = bool(getattr(window, "_gallery_dl_archive_supported", False)) and gallery_archive_requested(window)
+    _set_submit_controls(window, disabled=True)
     if state_var is not None:
-        state_var.set("正在校验公网链接并提交 gallery-dl 任务…")
+        state_var.set(
+            "正在校验公网链接并提交 gallery-dl 任务…"
+            + (" Archive 已启用。" if archive_enabled else "")
+        )
 
     def worker() -> None:
         try:
@@ -50,11 +84,22 @@ def _submit_gallery_fallback(window, engine_module) -> None:
             submit = getattr(window, "submit_gallery_dl_task", None)
             if not callable(submit):
                 raise RuntimeError("gallery-dl 本机执行器未安装。")
-            task_id = str(submit(validated, max_files=MAX_GALLERY_DL_FILES) or "")
+            task_id = str(
+                submit(
+                    validated,
+                    max_files=MAX_GALLERY_DL_FILES,
+                    archive_enabled=bool(archive_enabled),
+                )
+                or ""
+            )
             if not task_id:
                 raise RuntimeError("gallery-dl 任务未返回任务 ID。")
             ok = True
-            message = f"已加入 gallery-dl 任务中心 · {task_id} · 可在任务中心取消或失败后重试。"
+            archive_detail = " · Archive 已启用" if archive_enabled else ""
+            message = (
+                f"已加入 gallery-dl 任务中心 · {task_id}{archive_detail}"
+                " · 可在任务中心取消或失败后重试。"
+            )
         except Exception as exc:  # noqa: BLE001
             ok = False
             message = str(exc) or "gallery-dl 任务提交失败。"
@@ -62,8 +107,7 @@ def _submit_gallery_fallback(window, engine_module) -> None:
         def finish() -> None:
             if not _window_exists(window):
                 return
-            if button is not None:
-                button.state(["!disabled"])
+            _set_submit_controls(window, disabled=False)
             if state_var is not None:
                 state_var.set((message if ok else f"gallery-dl 提交失败：{message}")[:280])
 
@@ -107,6 +151,54 @@ def _install_gallery_fallback(window, engine_module) -> None:
     )
     button.pack(side="right", padx=(14, 0))
     window._gallery_dl_fallback_button = button
+
+    archive_supported = gallery_archive_ready(engine_module)
+    archive_row = tk.Frame(card, bg=ui.PANEL_2, height=44)
+    archive_row.pack(fill="x", pady=(7, 0))
+    archive_row.pack_propagate(False)
+    archive_var = tk.BooleanVar(master=window, value=False)
+    archive_check = tk.Checkbutton(
+        archive_row,
+        text="Archive · 跳过已记录项",
+        variable=archive_var,
+        onvalue=True,
+        offvalue=False,
+        state="normal" if archive_supported else "disabled",
+        takefocus=True,
+        anchor="w",
+        bg=ui.PANEL_2,
+        fg=ui.TEXT,
+        activebackground=ui.PANEL_2,
+        activeforeground=ui.TEXT,
+        selectcolor=ui.PANEL_3,
+        disabledforeground=ui.SUBTLE,
+        font=("Segoe UI", 8, "bold"),
+        bd=0,
+        relief="flat",
+        highlightthickness=1,
+        highlightbackground=ui.BORDER_SOFT,
+        highlightcolor=ui.ACCENT,
+        padx=4,
+        pady=8,
+        cursor="hand2" if archive_supported else "arrow",
+    )
+    archive_check.pack(side="left", fill="y")
+    ui._label(
+        archive_row,
+        (
+            "开启后由 Galaxy 状态目录维护记录；重试沿用同一 Archive，不暴露本机路径。"
+            if archive_supported
+            else "当前状态目录不可用，Archive 已禁用；普通 gallery-dl 下载不受影响。"
+        ),
+        size=7,
+        color=ui.SUBTLE,
+        bg=ui.PANEL_2,
+        wraplength=430,
+        justify="left",
+    ).pack(side="left", fill="x", expand=True, padx=(10, 0))
+    window._gallery_dl_archive_supported = archive_supported
+    window._gallery_dl_archive_var = archive_var
+    window._gallery_dl_archive_check = archive_check
     window._galaxy_gallery_dl_fallback_built = True
 
 
@@ -126,7 +218,24 @@ def install_desktop_gallery_dl(engine_module):
 
 
 def run_desktop_gallery_dl_self_test() -> None:
+    class _EngineWithState:
+        @staticmethod
+        def state_dir():
+            return None
+
+    class _ArchiveVar:
+        @staticmethod
+        def get() -> bool:
+            return True
+
+    class _Window:
+        _gallery_dl_archive_var = _ArchiveVar()
+
     assert gallery_fallback_ready({"galleryDlReady": True}) is True
     assert gallery_fallback_ready({"galleryDlReady": False}) is False
     assert gallery_fallback_ready(None) is False
+    assert gallery_archive_ready(_EngineWithState()) is True
+    assert gallery_archive_ready(object()) is False
+    assert gallery_archive_requested(_Window()) is True
+    assert gallery_archive_requested(object()) is False
     assert MAX_GALLERY_DL_FILES == 500
