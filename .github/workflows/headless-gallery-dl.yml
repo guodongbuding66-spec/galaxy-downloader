@@ -16,6 +16,7 @@ on:
       - "local-engine/url_policy.py"
       - "scripts/test-local-headless-gallery-dl.py"
       - "scripts/test-local-headless-gallery-dl-date.py"
+      - "scripts/test-local-headless-gallery-dl-resume.py"
       - "scripts/test-local-headless-gallery-dl-tools.py"
       - ".github/workflows/headless-gallery-dl.yml"
   workflow_dispatch:
@@ -52,10 +53,13 @@ jobs:
           local-engine/local_task_provider.py
           scripts/test-local-headless-gallery-dl.py
           scripts/test-local-headless-gallery-dl-date.py
+          scripts/test-local-headless-gallery-dl-resume.py
           scripts/test-local-headless-gallery-dl-tools.py
       - name: Test Headless gallery-dl contract
         run: python scripts/test-local-headless-gallery-dl.py
       - name: Test Headless gallery-dl Date contract
         run: python scripts/test-local-headless-gallery-dl-date.py
+      - name: Test Headless gallery-dl Resume contract
+        run: python scripts/test-local-headless-gallery-dl-resume.py
       - name: Test Headless gallery-dl tool manager
         run: python scripts/test-local-headless-gallery-dl-tools.py

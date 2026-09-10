@@ -23,7 +23,9 @@ from managed_tool_actions import (
 from platform_paths import PlatformPathError, resolve_platform_paths
 from url_policy import PublicUrlError, validated_public_http_url
 
-_ALLOWED_SUBMIT_FIELDS = frozenset({"sourceUrl", "maxFiles", "archiveEnabled", "dateAfter", "dateBefore"})
+_ALLOWED_SUBMIT_FIELDS = frozenset(
+    {"sourceUrl", "maxFiles", "archiveEnabled", "resumeEnabled", "dateAfter", "dateBefore"}
+)
 _GALLERY_TASK_ID_RE = re.compile(r"^gdl-[a-f0-9]{16}$")
 _SAFE_PUBLIC_VALUE_RE = re.compile(r"^[A-Za-z0-9._+!-]{1,128}$")
 _TOOL_ACTIONS = frozenset({"check", "install", "update", "remove"})
@@ -215,6 +217,7 @@ class HeadlessGalleryDlApi:
             "supportedActions": ["cancel", "retry"],
             "archiveSupported": bool(self._state_root_ready),
             "dateFilterSupported": True,
+            "resumeSupported": True,
             "managedOnly": True,
         }
 
@@ -297,6 +300,9 @@ class HeadlessGalleryDlApi:
                     status=503,
                     code="GALLERY_DL_ARCHIVE_UNAVAILABLE",
                 )
+            resume_enabled = payload.get("resumeEnabled", False)
+            if not isinstance(resume_enabled, bool):
+                raise HeadlessGalleryDlApiError("resumeEnabled must be a boolean")
             date_after = _optional_date_value(payload, "dateAfter")
             date_before = _optional_date_value(payload, "dateBefore")
             try:
@@ -306,6 +312,8 @@ class HeadlessGalleryDlApi:
                 }
                 if archive_enabled:
                     submit_kwargs["archive_enabled"] = True
+                if resume_enabled:
+                    submit_kwargs["resume_enabled"] = True
                 if date_after is not None:
                     submit_kwargs["date_after"] = date_after
                 if date_before is not None:
