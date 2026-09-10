@@ -131,7 +131,7 @@ def _optional_date_value(payload: dict[object, object], key: str) -> str | None:
 
 
 def _optional_rate_limit_mib(payload: dict[object, object]) -> float | int | None:
-    if "rateLimitMiB" not in payload or payload.get("rateLimitMiB") is None:
+    if "rateLimitMiB" not in payload:
         return None
     value = payload.get("rateLimitMiB")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
