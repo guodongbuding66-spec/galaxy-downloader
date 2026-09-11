@@ -14,7 +14,11 @@ LOCAL_ENGINE = ROOT / "local-engine"
 if str(LOCAL_ENGINE) not in sys.path:
     sys.path.insert(0, str(LOCAL_ENGINE))
 
-from gallery_dl_executor import GalleryDlExecutor, GalleryDlRunResult  # noqa: E402
+from gallery_dl_executor import (  # noqa: E402
+    GalleryDlExecutor,
+    GalleryDlExecutorError,
+    GalleryDlRunResult,
+)
 
 
 def wait_state(executor: GalleryDlExecutor, task_id: str, states: set[str], timeout: float = 4.0):
@@ -143,7 +147,7 @@ class GalleryDlOutputDirectoryContractTests(unittest.TestCase):
             invalid.write_text("file", encoding="utf-8")
             executor = GalleryDlExecutor(self.engine(root), runner=lambda *_args: None, validator=lambda value: value)
 
-            with self.assertRaises(Exception):
+            with self.assertRaises(GalleryDlExecutorError):
                 executor.submit("https://example.com/gallery", output_root=invalid)
             self.assertEqual(executor.snapshots(), ())
 
