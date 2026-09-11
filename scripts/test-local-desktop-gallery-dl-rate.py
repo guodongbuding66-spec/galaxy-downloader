@@ -4,6 +4,7 @@ import math
 import sys
 import tkinter as tk
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -103,6 +104,8 @@ class DesktopGalleryDlRateTests(unittest.TestCase):
         _DeferredThread.latest = None
 
     def test_rate_parser_keeps_blank_unlimited_and_accepts_managed_bounds(self) -> None:
+        self.assertEqual(desktop_gallery_dl.MIN_GALLERY_DL_RATE_MIB, Decimal("0.1"))
+        self.assertEqual(desktop_gallery_dl.MAX_GALLERY_DL_RATE_MIB, Decimal("1024"))
         for raw, expected in (
             ("", None),
             ("   ", None),
@@ -198,18 +201,18 @@ class DesktopGalleryDlRateTests(unittest.TestCase):
         self.assertEqual(window._gallery_dl_rate_entry.configs, [])
         self.assertIn("Rate 设置无效", str(window._quick_state_var.value))
 
-    def test_rate_ui_uses_native_accessible_input_and_no_raw_config_or_path_surface(self) -> None:
+    def test_rate_ui_uses_native_accessible_input_and_shared_bounds(self) -> None:
         source = (LOCAL_ENGINE / "desktop_gallery_dl.py").read_text(encoding="utf-8")
         for marker in (
             '"Rate · MiB/s（可选）"',
-            "tk.StringVar(master=window, value=\"\")",
+            'rate_var = tk.StringVar(master=window, value="")',
             "_gallery_dl_rate_var",
             "_gallery_dl_rate_entry",
             "height=44",
             "takefocus=True",
             "highlightcolor=ui.ACCENT",
-            "0.1",
-            "1024",
+            "MIN_GALLERY_DL_RATE_MIB",
+            "MAX_GALLERY_DL_RATE_MIB",
             "留空不限速",
             "rate_limit_mib",
         ):
