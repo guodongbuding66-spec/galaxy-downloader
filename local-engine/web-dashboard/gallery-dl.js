@@ -82,6 +82,7 @@
           <form id="gallerySubmitForm" class="gallery-form">
             <label class="field grow" for="gallerySourceUrl"><span>Source URL</span><input id="gallerySourceUrl" name="sourceUrl" type="url" required autocomplete="off" inputmode="url" placeholder="https://example.com/gallery"></label>
             <label class="field gallery-limit-field" for="galleryMaxFiles"><span>Max files</span><input id="galleryMaxFiles" name="maxFiles" type="number" min="1" max="500" step="1" value="500" required></label>
+            <label class="field gallery-rate-field" for="galleryRateLimit"><span>Rate <small>MiB/s · Optional</small></span><input id="galleryRateLimit" name="rateLimitMiB" type="number" min="0.1" max="1024" step="0.1" inputmode="decimal" placeholder="Unlimited" aria-describedby="galleryRateHelp" disabled><small id="galleryRateHelp">Blank keeps gallery-dl unlimited.</small></label>
             <label class="gallery-archive-option" for="galleryArchiveEnabled">
               <input id="galleryArchiveEnabled" name="archiveEnabled" type="checkbox" aria-describedby="galleryArchiveHelp" disabled>
               <span><strong>Archive</strong><small id="galleryArchiveHelp">Skip files already recorded by this Local Engine.</small></span>
@@ -101,7 +102,7 @@
               <small id="galleryDateHelp">Uses gallery-dl native post ordering. Some sites with pinned older posts can stop an “After” scan earlier than expected.</small>
             </fieldset>
           </form>
-          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL, file-count limit, optional Date values, Archive boolean and explicit Resume opt-in are sent. Output, Archive and Resume storage stay inside trusted Headless paths.</div>
+          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL, file-count limit, optional Date values, optional numeric Rate, Archive boolean and explicit Resume opt-in are sent. Blank Rate means unlimited; raw gallery-dl rate strings and paths are never exposed.</div>
         </section>
 
         <section class="panel gallery-tool-panel">
@@ -206,6 +207,14 @@
     setText('galleryMetricCompleted', completed)
   }
 
+  function rateBounds() {
+    const advertisedMin = Number(state.engine?.rateLimitMinMiB)
+    const advertisedMax = Number(state.engine?.rateLimitMaxMiB)
+    const min = Number.isFinite(advertisedMin) && advertisedMin >= 0.1 && advertisedMin <= 1024 ? advertisedMin : 0.1
+    const max = Number.isFinite(advertisedMax) && advertisedMax >= min && advertisedMax <= 1024 ? advertisedMax : 1024
+    return { min, max }
+  }
+
   function renderTool() {
     const tool = state.tool || {}
     const result = state.lastToolResult || null
@@ -216,9 +225,12 @@
     const archiveSupported = state.engine?.archiveSupported === true
     const dateFilterSupported = state.engine?.dateFilterSupported === true
     const resumeSupported = state.engine?.resumeSupported === true
+    const rateSupported = state.engine?.rateLimitSupported === true
     const archiveControl = $('galleryArchiveEnabled')
     const resumeControl = $('galleryResumeEnabled')
+    const rateControl = $('galleryRateLimit')
     const dateRange = $('galleryDateRange')
+    const { min: rateMin, max: rateMax } = rateBounds()
 
     setText('galleryToolInstalled', installed ? 'Installed' : 'Not installed')
     setText('galleryToolVersion', tool.version || '—')
@@ -229,9 +241,13 @@
     setText('galleryArchiveHelp', archiveSupported ? 'Skip files already recorded by this Local Engine.' : 'Archive is unavailable because a trusted state root is not available.')
     setText('galleryResumeHelp', resumeSupported ? "Retry reuses this task's managed directory. Existing .part files resume only when the remote server honors HTTP Range." : 'Resume is unavailable on this Headless API version.')
     setText('galleryDateHelp', dateFilterSupported ? 'Uses gallery-dl native post ordering. Some sites with pinned older posts can stop an “After” scan earlier than expected.' : 'Date filtering is unavailable on this Headless API version.')
+    setText('galleryRateHelp', rateSupported ? `Blank = unlimited. Numeric limit: ${rateMin}–${rateMax} MiB/s.` : 'Rate limiting is unavailable on this Headless API version.')
 
+    rateControl.min = String(rateMin)
+    rateControl.max = String(rateMax)
     if (!archiveSupported) archiveControl.checked = false
     if (!resumeSupported) resumeControl.checked = false
+    if (!rateSupported) rateControl.value = ''
     if (!dateFilterSupported) {
       $('galleryDateAfter').value = ''
       $('galleryDateBefore').value = ''
@@ -250,6 +266,7 @@
     $('galleryMaxFiles').disabled = state.submitPending || !installed || !acceptingJobs
     archiveControl.disabled = state.submitPending || !installed || !acceptingJobs || !archiveSupported
     resumeControl.disabled = state.submitPending || !installed || !acceptingJobs || !resumeSupported
+    rateControl.disabled = state.submitPending || !installed || !acceptingJobs || !rateSupported
     dateRange.disabled = state.submitPending || !installed || !acceptingJobs || !dateFilterSupported
   }
 
@@ -360,6 +377,7 @@
     const archiveEnabled = state.engine?.archiveSupported === true && $('galleryArchiveEnabled').checked
     const resumeEnabled = state.engine?.resumeSupported === true && $('galleryResumeEnabled').checked
     const dateFilterSupported = state.engine?.dateFilterSupported === true
+    const rateSupported = state.engine?.rateLimitSupported === true
     const dateAfter = dateFilterSupported ? $('galleryDateAfter').value.trim() : ''
     const dateBefore = dateFilterSupported ? $('galleryDateBefore').value.trim() : ''
     if (dateAfter && dateBefore && dateAfter >= dateBefore) {
@@ -367,6 +385,20 @@
       showError('Date “After” must be earlier than Date “Before”.')
       $('galleryDateAfter').focus()
       return
+    }
+
+    const rateText = rateSupported ? $('galleryRateLimit').value.trim() : ''
+    let rateLimitMiB = null
+    if (rateText) {
+      const parsedRate = Number(rateText)
+      const { min: rateMin, max: rateMax } = rateBounds()
+      if (!Number.isFinite(parsedRate) || parsedRate < rateMin || parsedRate > rateMax) {
+        setText('gallerySubmitStatus', 'Gallery download was not queued.')
+        showError(`Rate must be between ${rateMin} and ${rateMax} MiB/s, or left blank for unlimited.`)
+        $('galleryRateLimit').focus()
+        return
+      }
+      rateLimitMiB = parsedRate
     }
 
     const payload = {
@@ -377,6 +409,7 @@
     if (resumeEnabled) payload.resumeEnabled = true
     if (dateAfter) payload.dateAfter = dateAfter
     if (dateBefore) payload.dateBefore = dateBefore
+    if (rateLimitMiB !== null) payload.rateLimitMiB = rateLimitMiB
 
     state.submitPending = true
     renderTool()
