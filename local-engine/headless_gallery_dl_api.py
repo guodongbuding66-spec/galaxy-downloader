@@ -3,13 +3,16 @@ from __future__ import annotations
 import re
 import sys
 import threading
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Callable
 
 from gallery_dl_executor import (
     MAX_GALLERY_DL_DATE_LENGTH,
     MAX_GALLERY_DL_FILES,
+    MAX_GALLERY_DL_RATE_MIB,
     MAX_GALLERY_DL_TASKS,
+    MIN_GALLERY_DL_RATE_MIB,
     GalleryDlExecutor,
     GalleryDlExecutorError,
 )
@@ -24,7 +27,7 @@ from platform_paths import PlatformPathError, resolve_platform_paths
 from url_policy import PublicUrlError, validated_public_http_url
 
 _ALLOWED_SUBMIT_FIELDS = frozenset(
-    {"sourceUrl", "maxFiles", "archiveEnabled", "resumeEnabled", "dateAfter", "dateBefore"}
+    {"sourceUrl", "maxFiles", "archiveEnabled", "resumeEnabled", "dateAfter", "dateBefore", "rateLimitMiB"}
 )
 _GALLERY_TASK_ID_RE = re.compile(r"^gdl-[a-f0-9]{16}$")
 _SAFE_PUBLIC_VALUE_RE = re.compile(r"^[A-Za-z0-9._+!-]{1,128}$")
@@ -127,6 +130,25 @@ def _optional_date_value(payload: dict[object, object], key: str) -> str | None:
     return text
 
 
+def _optional_rate_limit_mib(payload: dict[object, object]) -> float | int | None:
+    if "rateLimitMiB" not in payload:
+        return None
+    value = payload.get("rateLimitMiB")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise HeadlessGalleryDlApiError("rateLimitMiB must be a numeric MiB/s value")
+    try:
+        rate = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise HeadlessGalleryDlApiError("rateLimitMiB must be a finite numeric MiB/s value") from exc
+    if not rate.is_finite():
+        raise HeadlessGalleryDlApiError("rateLimitMiB must be a finite numeric MiB/s value")
+    if rate < MIN_GALLERY_DL_RATE_MIB or rate > MAX_GALLERY_DL_RATE_MIB:
+        raise HeadlessGalleryDlApiError(
+            f"rateLimitMiB must be between {MIN_GALLERY_DL_RATE_MIB} and {MAX_GALLERY_DL_RATE_MIB}"
+        )
+    return value
+
+
 def _public_tool_action_message(action: str, state: str, ok: bool) -> str:
     if state == "runtime-busy":
         return "gallery-dl tasks are active; stop them before changing the managed tool."
@@ -218,6 +240,10 @@ class HeadlessGalleryDlApi:
             "archiveSupported": bool(self._state_root_ready),
             "dateFilterSupported": True,
             "resumeSupported": True,
+            "rateLimitSupported": True,
+            "rateLimitMinMiB": float(MIN_GALLERY_DL_RATE_MIB),
+            "rateLimitMaxMiB": float(MAX_GALLERY_DL_RATE_MIB),
+            "rateLimitUnit": "MiB/s",
             "managedOnly": True,
         }
 
@@ -305,6 +331,7 @@ class HeadlessGalleryDlApi:
                 raise HeadlessGalleryDlApiError("resumeEnabled must be a boolean")
             date_after = _optional_date_value(payload, "dateAfter")
             date_before = _optional_date_value(payload, "dateBefore")
+            rate_limit_mib = _optional_rate_limit_mib(payload)
             try:
                 submit_kwargs: dict[str, object] = {
                     "output_root": self.download_root,
@@ -318,6 +345,8 @@ class HeadlessGalleryDlApi:
                     submit_kwargs["date_after"] = date_after
                 if date_before is not None:
                     submit_kwargs["date_before"] = date_before
+                if rate_limit_mib is not None:
+                    submit_kwargs["rate_limit_mib"] = rate_limit_mib
                 task_id = self.executor.submit(source, **submit_kwargs)
             except (GalleryDlExecutorError, PublicUrlError) as exc:
                 raise HeadlessGalleryDlApiError("gallery-dl request could not be queued") from exc
@@ -420,6 +449,8 @@ def run_headless_gallery_dl_api_self_test() -> None:
     assert not _GALLERY_TASK_ID_RE.fullmatch("../gdl-0123456789abcdef")
     assert _public_safe_value("1.2.3+build") == "1.2.3+build"
     assert _public_safe_value("/tmp/private") is None
+    assert _optional_rate_limit_mib({"rateLimitMiB": 1}) == 1
+    assert _optional_rate_limit_mib({}) is None
     assert MAX_GALLERY_DL_DATE_LENGTH == 64
     assert MAX_GALLERY_DL_FILES == 500
     assert MAX_GALLERY_DL_TASKS == 200
