@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook, show_desktop_presenter
-from gallery_dl_executor import MAX_GALLERY_DL_FILES, install_gallery_dl_executor
+from gallery_dl_executor import (
+    MAX_GALLERY_DL_FILES,
+    MAX_GALLERY_DL_RATE_MIB,
+    MIN_GALLERY_DL_RATE_MIB,
+    install_gallery_dl_executor,
+)
 from tool_manager import tool_inventory
 
 
@@ -60,6 +66,35 @@ def gallery_date_values(window: object) -> tuple[str | None, str | None]:
     return after or None, before or None
 
 
+def gallery_rate_limit_mib(window: object) -> float | None:
+    """Capture the optional managed Rate limit on the Tk/UI thread.
+
+    Blank or an unavailable Tk variable means unlimited. Invalid user-entered values
+    are rejected before a background worker is started; the shared executor remains
+    the final authority for normalization to integer bytes per second.
+    """
+    variable = getattr(window, "_gallery_dl_rate_var", None)
+    if variable is None:
+        return None
+    try:
+        text = str(variable.get()).strip()
+    except tk.TclError:
+        return None
+    if not text:
+        return None
+    try:
+        rate = Decimal(text)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("请输入数字 MiB/s，或留空表示不限速。") from exc
+    if not rate.is_finite():
+        raise ValueError("Rate 必须是有限数字。")
+    if rate < MIN_GALLERY_DL_RATE_MIB or rate > MAX_GALLERY_DL_RATE_MIB:
+        raise ValueError(
+            f"Rate 必须在 {MIN_GALLERY_DL_RATE_MIB}–{MAX_GALLERY_DL_RATE_MIB} MiB/s 之间，或留空不限速。"
+        )
+    return float(rate)
+
+
 def _window_exists(window: tk.Misc | None) -> bool:
     if window is None:
         return False
@@ -96,7 +131,11 @@ def _set_submit_controls(window, *, disabled: bool) -> None:
         except tk.TclError:
             return
 
-    for attribute in ("_gallery_dl_date_after_entry", "_gallery_dl_date_before_entry"):
+    for attribute in (
+        "_gallery_dl_rate_entry",
+        "_gallery_dl_date_after_entry",
+        "_gallery_dl_date_before_entry",
+    ):
         entry = getattr(window, attribute, None)
         if entry is None:
             continue
@@ -129,6 +168,13 @@ def _submit_gallery_fallback(window, engine_module) -> None:
     resume_enabled = gallery_resume_requested(window)
     date_after, date_before = gallery_date_values(window)
     date_filtered = bool(date_after or date_before)
+    try:
+        rate_limit_mib = gallery_rate_limit_mib(window)
+    except ValueError as exc:
+        if state_var is not None:
+            state_var.set(f"gallery-dl Rate 设置无效：{exc}")
+        return
+    rate_limited = rate_limit_mib is not None
     _set_submit_controls(window, disabled=True)
     if state_var is not None:
         state_var.set(
@@ -136,6 +182,7 @@ def _submit_gallery_fallback(window, engine_module) -> None:
             + (" Archive 已启用。" if archive_enabled else "")
             + (" Resume 已启用。" if resume_enabled else "")
             + (" 日期过滤已启用。" if date_filtered else "")
+            + (f" Rate ≤ {rate_limit_mib:g} MiB/s。" if rate_limited else "")
         )
 
     def worker() -> None:
@@ -144,25 +191,25 @@ def _submit_gallery_fallback(window, engine_module) -> None:
             submit = getattr(window, "submit_gallery_dl_task", None)
             if not callable(submit):
                 raise RuntimeError("gallery-dl 本机执行器未安装。")
-            task_id = str(
-                submit(
-                    validated,
-                    max_files=MAX_GALLERY_DL_FILES,
-                    archive_enabled=bool(archive_enabled),
-                    resume_enabled=bool(resume_enabled),
-                    date_after=date_after,
-                    date_before=date_before,
-                )
-                or ""
-            )
+            submit_kwargs: dict[str, object] = {
+                "max_files": MAX_GALLERY_DL_FILES,
+                "archive_enabled": bool(archive_enabled),
+                "resume_enabled": bool(resume_enabled),
+                "date_after": date_after,
+                "date_before": date_before,
+            }
+            if rate_limit_mib is not None:
+                submit_kwargs["rate_limit_mib"] = rate_limit_mib
+            task_id = str(submit(validated, **submit_kwargs) or "")
             if not task_id:
                 raise RuntimeError("gallery-dl 任务未返回任务 ID。")
             ok = True
             archive_detail = " · Archive 已启用" if archive_enabled else ""
             resume_detail = " · Resume 已启用" if resume_enabled else ""
             date_detail = " · 日期过滤已启用" if date_filtered else ""
+            rate_detail = f" · Rate ≤ {rate_limit_mib:g} MiB/s" if rate_limited else ""
             message = (
-                f"已加入 gallery-dl 任务中心 · {task_id}{archive_detail}{resume_detail}{date_detail}"
+                f"已加入 gallery-dl 任务中心 · {task_id}{archive_detail}{resume_detail}{date_detail}{rate_detail}"
                 " · 可在任务中心取消或失败后重试。"
             )
         except Exception as exc:  # noqa: BLE001
@@ -187,6 +234,40 @@ def _submit_gallery_fallback(window, engine_module) -> None:
 def _date_entry(master, *, label: str, variable: tk.StringVar) -> tuple[tk.Frame, tk.Entry]:
     field = tk.Frame(master, bg=ui.PANEL_2)
     ui._label(field, label, size=7, weight="bold", color=ui.MUTED, bg=ui.PANEL_2).pack(anchor="w", pady=(0, 3))
+    target = tk.Frame(field, bg=ui.PANEL_3, height=44)
+    target.pack(fill="x")
+    target.pack_propagate(False)
+    entry = tk.Entry(
+        target,
+        textvariable=variable,
+        takefocus=True,
+        font=("Segoe UI", 8),
+        bg=ui.PANEL_3,
+        fg=ui.TEXT,
+        insertbackground=ui.TEXT,
+        disabledbackground=ui.PANEL_2,
+        disabledforeground=ui.SUBTLE,
+        relief="flat",
+        bd=0,
+        highlightthickness=1,
+        highlightbackground=ui.BORDER_SOFT,
+        highlightcolor=ui.ACCENT,
+        cursor="xterm",
+    )
+    entry.pack(fill="both", expand=True, padx=8)
+    return field, entry
+
+
+def _rate_entry(master, *, variable: tk.StringVar) -> tuple[tk.Frame, tk.Entry]:
+    field = tk.Frame(master, bg=ui.PANEL_2)
+    ui._label(
+        field,
+        "Rate · MiB/s（可选）",
+        size=7,
+        weight="bold",
+        color=ui.MUTED,
+        bg=ui.PANEL_2,
+    ).pack(anchor="w", pady=(0, 3))
     target = tk.Frame(field, bg=ui.PANEL_3, height=44)
     target.pack(fill="x")
     target.pack_propagate(False)
@@ -328,6 +409,21 @@ def _install_gallery_fallback(window, engine_module) -> None:
         justify="left",
     ).pack(side="left", fill="x", expand=True, padx=(10, 0))
 
+    rate_row = tk.Frame(card, bg=ui.PANEL_2)
+    rate_row.pack(fill="x", pady=(8, 0))
+    rate_var = tk.StringVar(master=window, value="")
+    rate_field, rate_entry = _rate_entry(rate_row, variable=rate_var)
+    rate_field.pack(side="left", fill="x")
+    ui._label(
+        rate_row,
+        f"留空不限速；可填 {MIN_GALLERY_DL_RATE_MIB}–{MAX_GALLERY_DL_RATE_MIB} MiB/s。只接受数字，不接受 500k / 1M-2M 等 gallery-dl 原始表达式。",
+        size=7,
+        color=ui.SUBTLE,
+        bg=ui.PANEL_2,
+        wraplength=470,
+        justify="left",
+    ).pack(side="left", fill="x", expand=True, padx=(12, 0), pady=(18, 0))
+
     date_row = tk.Frame(card, bg=ui.PANEL_2)
     date_row.pack(fill="x", pady=(8, 0))
     date_after_var = tk.StringVar(master=window, value="")
@@ -354,6 +450,8 @@ def _install_gallery_fallback(window, engine_module) -> None:
     window._gallery_dl_archive_check = archive_check
     window._gallery_dl_resume_var = resume_var
     window._gallery_dl_resume_check = resume_check
+    window._gallery_dl_rate_var = rate_var
+    window._gallery_dl_rate_entry = rate_entry
     window._gallery_dl_date_after_var = date_after_var
     window._gallery_dl_date_before_var = date_before_var
     window._gallery_dl_date_after_entry = date_after_entry
@@ -404,9 +502,15 @@ def run_desktop_gallery_dl_self_test() -> None:
         def get(self) -> str:
             return self.value
 
+    class _RateVar:
+        @staticmethod
+        def get() -> str:
+            return " 3.25 "
+
     class _Window:
         _gallery_dl_archive_var = _ArchiveVar()
         _gallery_dl_resume_var = _ResumeVar()
+        _gallery_dl_rate_var = _RateVar()
         _gallery_dl_date_after_var = _DateVar(" 2026-01-01 ")
         _gallery_dl_date_before_var = _DateVar("")
 
@@ -422,4 +526,6 @@ def run_desktop_gallery_dl_self_test() -> None:
     assert gallery_resume_requested(object()) is False
     assert gallery_date_values(_Window()) == ("2026-01-01", None)
     assert gallery_date_values(object()) == (None, None)
+    assert gallery_rate_limit_mib(_Window()) == 3.25
+    assert gallery_rate_limit_mib(object()) is None
     assert MAX_GALLERY_DL_FILES == 500
