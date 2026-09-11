@@ -25,11 +25,13 @@ class FakeExecutor:
     def __init__(self) -> None:
         self.tasks: dict[str, str] = {}
         self.counter = 0
+        self.last_source = ""
         self.last_kwargs: dict[str, object] = {}
 
     def submit(self, source_url: str, **kwargs: object) -> str:
         self.counter += 1
         task_id = f"gdl-{self.counter:016x}"
+        self.last_source = source_url
         self.last_kwargs = dict(kwargs)
         self.tasks[task_id] = "queued"
         return task_id
@@ -82,17 +84,27 @@ class TestServer(ThreadingHTTPServer):
         super().__init__(address, GalaxyApiRequestHandler)
 
 
-def request_json(port: int, payload: object, *, token: str) -> tuple[int, dict[str, object]]:
-    data = json.dumps(payload).encode("utf-8")
+def request_json(
+    port: int,
+    method: str,
+    path: str,
+    *,
+    token: str,
+    payload: object | None = None,
+) -> tuple[int, dict[str, object]]:
+    headers = {
+        "Host": f"127.0.0.1:{port}",
+        "Authorization": f"Bearer {token}",
+    }
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
     request = urllib.request.Request(
-        f"http://127.0.0.1:{port}/v1/gallery-dl/jobs",
+        f"http://127.0.0.1:{port}{path}",
         data=data,
-        headers={
-            "Host": f"127.0.0.1:{port}",
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
+        headers=headers,
+        method=method,
     )
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
@@ -134,10 +146,16 @@ def test_direct_rate_contract(root: Path) -> None:
         assert status["rateLimitMinMiB"] == 0.1
         assert status["rateLimitMaxMiB"] == 1024.0
         assert status["rateLimitUnit"] == "MiB/s"
+        assert status["archiveSupported"] is True
+        assert status["dateFilterSupported"] is True
+        assert status["resumeSupported"] is True
         assert str(root) not in json.dumps(status)
 
         api.submit({"sourceUrl": "https://1.1.1.1/plain"})
-        assert "rate_limit_mib" not in executor.last_kwargs
+        assert executor.last_kwargs == {
+            "output_root": root / "downloads",
+            "max_files": 500,
+        }
 
         for index, rate in enumerate((0.1, 1, 12.5, 1024), start=1):
             created = api.submit(
@@ -146,12 +164,39 @@ def test_direct_rate_contract(root: Path) -> None:
             assert created["job"]["state"] == "queued"
             assert executor.last_kwargs["rate_limit_mib"] == rate
 
+        composed = api.submit(
+            {
+                "sourceUrl": "https://1.1.1.1/composed",
+                "maxFiles": 17,
+                "archiveEnabled": True,
+                "resumeEnabled": True,
+                "dateAfter": " 2026-01-01 ",
+                "dateBefore": " 2026-03-01 ",
+                "rateLimitMiB": 3.25,
+            }
+        )
+        assert composed["job"]["state"] == "queued"
+        assert executor.last_source == "https://1.1.1.1/composed"
+        assert executor.last_kwargs == {
+            "output_root": root / "downloads",
+            "max_files": 17,
+            "archive_enabled": True,
+            "resume_enabled": True,
+            "date_after": "2026-01-01",
+            "date_before": "2026-03-01",
+            "rate_limit_mib": 3.25,
+        }
+
         invalid_rates: tuple[object, ...] = (
             True,
             False,
             None,
             "1",
             "12.5",
+            "500k",
+            "1M-2M",
+            [],
+            {},
             0,
             -1,
             0.0999,
@@ -167,6 +212,17 @@ def test_direct_rate_contract(root: Path) -> None:
                     {"sourceUrl": "https://1.1.1.1/invalid-rate", "rateLimitMiB": rate}
                 )
             )
+
+        for forbidden in (
+            {"rate": "3M"},
+            {"rateLimit": 3.25},
+            {"rateString": "3.25M"},
+            {"downloaderRate": 3.25},
+            {"rateConfig": {"downloader.rate": "3M"}},
+            {"ratePath": str(root / "secret-rate.txt")},
+        ):
+            payload = {"sourceUrl": "https://1.1.1.1/gallery", **forbidden}
+            expect_invalid(lambda payload=payload: api.submit(payload))
         assert executor.counter == counter_before
     finally:
         api.close()
@@ -180,20 +236,68 @@ def test_http_rate_contract(root: Path) -> None:
     thread.start()
     port = int(server.server_address[1])
     try:
+        code, body = request_json(port, "GET", "/v1/gallery-dl/status", token=token)
+        assert code == 200 and body["ok"] is True
+        assert body["rateLimitSupported"] is True
+        assert body["rateLimitMinMiB"] == 0.1
+        assert body["rateLimitMaxMiB"] == 1024.0
+        assert body["rateLimitUnit"] == "MiB/s"
+        assert str(root) not in json.dumps(body)
+
         code, body = request_json(
             port,
-            {"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": 3.25},
+            "POST",
+            "/v1/gallery-dl/jobs",
             token=token,
+            payload={"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": 3.25},
         )
         assert code == 201 and body["ok"] is True
-        assert executor.last_kwargs["rate_limit_mib"] == 3.25
+        assert executor.last_kwargs == {
+            "output_root": root / "downloads",
+            "max_files": 500,
+            "rate_limit_mib": 3.25,
+        }
+
+        code, body = request_json(
+            port,
+            "POST",
+            "/v1/gallery-dl/jobs",
+            token=token,
+            payload={
+                "sourceUrl": "https://1.1.1.1/composed",
+                "archiveEnabled": True,
+                "resumeEnabled": True,
+                "dateAfter": "2026-01-01",
+                "dateBefore": "2026-03-01",
+                "rateLimitMiB": 8,
+            },
+        )
+        assert code == 201 and body["ok"] is True
+        assert executor.last_kwargs["archive_enabled"] is True
+        assert executor.last_kwargs["resume_enabled"] is True
+        assert executor.last_kwargs["date_after"] == "2026-01-01"
+        assert executor.last_kwargs["date_before"] == "2026-03-01"
+        assert executor.last_kwargs["rate_limit_mib"] == 8
 
         counter_before = executor.counter
-        for rate in (None, True, "3.25", 0, 2048):
+        for bad_payload in (
+            {"rateLimitMiB": None},
+            {"rateLimitMiB": True},
+            {"rateLimitMiB": "3.25"},
+            {"rateLimitMiB": 0},
+            {"rateLimitMiB": 2048},
+            {"rate": "3M"},
+            {"rateLimit": 3.25},
+            {"downloaderRate": 3.25},
+            {"rateConfig": {"downloader.rate": "3M"}},
+            {"ratePath": str(root / "secret-rate.txt")},
+        ):
             code, body = request_json(
                 port,
-                {"sourceUrl": "https://1.1.1.1/gallery", "rateLimitMiB": rate},
+                "POST",
+                "/v1/gallery-dl/jobs",
                 token=token,
+                payload={"sourceUrl": "https://1.1.1.1/gallery", **bad_payload},
             )
             assert code == 400 and body["code"] == "GALLERY_DL_INVALID_REQUEST"
             assert str(root) not in json.dumps(body)
