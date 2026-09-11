@@ -15,6 +15,7 @@ on:
       - "scripts/test-local-gallery-dl-rate.py"
       - "scripts/test-local-gallery-dl-product.py"
       - "scripts/test-local-desktop-gallery-dl.py"
+      - "scripts/test-local-desktop-gallery-dl-rate.py"
       - ".github/workflows/gallery-dl-executor.yml"
   workflow_dispatch:
 
@@ -51,6 +52,7 @@ jobs:
           scripts/test-local-gallery-dl-rate.py
           scripts/test-local-gallery-dl-product.py
           scripts/test-local-desktop-gallery-dl.py
+          scripts/test-local-desktop-gallery-dl-rate.py
       - name: Test gallery-dl executor contract
         run: python scripts/test-local-gallery-dl-executor.py
       - name: Test gallery-dl Resume contract
@@ -61,3 +63,5 @@ jobs:
         run: python scripts/test-local-gallery-dl-product.py
       - name: Test Desktop gallery-dl contract
         run: python scripts/test-local-desktop-gallery-dl.py
+      - name: Test Desktop gallery-dl Rate contract
+        run: python scripts/test-local-desktop-gallery-dl-rate.py
