@@ -26,11 +26,25 @@ from managed_tool_actions import (
 from platform_paths import PlatformPathError, resolve_platform_paths
 from url_policy import PublicUrlError, validated_public_http_url
 
+MAX_GALLERY_DL_OUTPUT_DIRECTORY_LENGTH = 240
+MAX_GALLERY_DL_OUTPUT_DIRECTORY_DEPTH = 8
+MAX_GALLERY_DL_OUTPUT_SEGMENT_LENGTH = 120
 _ALLOWED_SUBMIT_FIELDS = frozenset(
-    {"sourceUrl", "maxFiles", "archiveEnabled", "resumeEnabled", "dateAfter", "dateBefore", "rateLimitMiB"}
+    {
+        "sourceUrl",
+        "maxFiles",
+        "archiveEnabled",
+        "resumeEnabled",
+        "dateAfter",
+        "dateBefore",
+        "rateLimitMiB",
+        "outputDirectory",
+    }
 )
 _GALLERY_TASK_ID_RE = re.compile(r"^gdl-[a-f0-9]{16}$")
 _SAFE_PUBLIC_VALUE_RE = re.compile(r"^[A-Za-z0-9._+!-]{1,128}$")
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+_WINDOWS_RESERVED_NAME_RE = re.compile(r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$", re.IGNORECASE)
 _TOOL_ACTIONS = frozenset({"check", "install", "update", "remove"})
 _TOOL_MUTATIONS = frozenset({"install", "update", "remove"})
 _REMOVE_CONFIRMATION = "remove-gallery-dl"
@@ -149,6 +163,57 @@ def _optional_rate_limit_mib(payload: dict[object, object]) -> float | int | Non
     return value
 
 
+def _relative_output_root(download_root: Path, payload: dict[object, object]) -> Path:
+    """Resolve an optional portable relative output directory below the trusted download root."""
+    root = Path(download_root).resolve(strict=False)
+    if "outputDirectory" not in payload:
+        return root
+
+    value = payload.get("outputDirectory")
+    if not isinstance(value, str):
+        raise HeadlessGalleryDlApiError("outputDirectory must be a relative directory string")
+    text = value.strip()
+    if not text:
+        raise HeadlessGalleryDlApiError("outputDirectory must not be empty")
+    if len(text) > MAX_GALLERY_DL_OUTPUT_DIRECTORY_LENGTH:
+        raise HeadlessGalleryDlApiError("outputDirectory is too long")
+    if text.startswith("/") or text.startswith("//") or _WINDOWS_DRIVE_RE.match(text):
+        raise HeadlessGalleryDlApiError("outputDirectory must be relative to the configured download root")
+    if "\\" in text:
+        raise HeadlessGalleryDlApiError("outputDirectory must use '/' as its separator")
+
+    parts = text.split("/")
+    if len(parts) > MAX_GALLERY_DL_OUTPUT_DIRECTORY_DEPTH:
+        raise HeadlessGalleryDlApiError("outputDirectory is too deep")
+    for part in parts:
+        if not part or part in {".", ".."} or part != part.strip():
+            raise HeadlessGalleryDlApiError("outputDirectory contains an invalid path segment")
+        if len(part) > MAX_GALLERY_DL_OUTPUT_SEGMENT_LENGTH:
+            raise HeadlessGalleryDlApiError("outputDirectory contains an overlong path segment")
+        if part.endswith(".") or ":" in part or any(ord(char) < 32 for char in part):
+            raise HeadlessGalleryDlApiError("outputDirectory contains a non-portable path segment")
+        if _WINDOWS_RESERVED_NAME_RE.fullmatch(part):
+            raise HeadlessGalleryDlApiError("outputDirectory contains a reserved path segment")
+
+    candidate = root.joinpath(*parts)
+    try:
+        resolved_candidate = candidate.resolve(strict=False)
+    except OSError as exc:
+        raise HeadlessGalleryDlApiError("outputDirectory could not be validated") from exc
+    if root not in resolved_candidate.parents:
+        raise HeadlessGalleryDlApiError("outputDirectory escapes the configured download root")
+
+    current = root
+    for part in parts:
+        current = current / part
+        try:
+            if current.exists() and (current.is_symlink() or not current.is_dir()):
+                raise HeadlessGalleryDlApiError("outputDirectory crosses an unsafe existing path component")
+        except OSError as exc:
+            raise HeadlessGalleryDlApiError("outputDirectory could not be validated") from exc
+    return candidate
+
+
 def _public_tool_action_message(action: str, state: str, ok: bool) -> str:
     if state == "runtime-busy":
         return "gallery-dl tasks are active; stop them before changing the managed tool."
@@ -244,6 +309,11 @@ class HeadlessGalleryDlApi:
             "rateLimitMinMiB": float(MIN_GALLERY_DL_RATE_MIB),
             "rateLimitMaxMiB": float(MAX_GALLERY_DL_RATE_MIB),
             "rateLimitUnit": "MiB/s",
+            "outputDirectorySupported": True,
+            "outputDirectoryMode": "relative",
+            "outputDirectorySeparator": "/",
+            "outputDirectoryMaxLength": MAX_GALLERY_DL_OUTPUT_DIRECTORY_LENGTH,
+            "outputDirectoryMaxDepth": MAX_GALLERY_DL_OUTPUT_DIRECTORY_DEPTH,
             "managedOnly": True,
         }
 
@@ -332,9 +402,10 @@ class HeadlessGalleryDlApi:
             date_after = _optional_date_value(payload, "dateAfter")
             date_before = _optional_date_value(payload, "dateBefore")
             rate_limit_mib = _optional_rate_limit_mib(payload)
+            output_root = _relative_output_root(self.download_root, payload)
             try:
                 submit_kwargs: dict[str, object] = {
-                    "output_root": self.download_root,
+                    "output_root": output_root,
                     "max_files": max_files,
                 }
                 if archive_enabled:
@@ -451,6 +522,9 @@ def run_headless_gallery_dl_api_self_test() -> None:
     assert _public_safe_value("/tmp/private") is None
     assert _optional_rate_limit_mib({"rateLimitMiB": 1}) == 1
     assert _optional_rate_limit_mib({}) is None
+    assert _relative_output_root(Path("downloads"), {}) == Path("downloads").resolve(strict=False)
     assert MAX_GALLERY_DL_DATE_LENGTH == 64
     assert MAX_GALLERY_DL_FILES == 500
     assert MAX_GALLERY_DL_TASKS == 200
+    assert MAX_GALLERY_DL_OUTPUT_DIRECTORY_LENGTH == 240
+    assert MAX_GALLERY_DL_OUTPUT_DIRECTORY_DEPTH == 8
