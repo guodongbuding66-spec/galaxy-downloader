@@ -18,6 +18,9 @@ RUNTIME_FILES = (
     "element-actions.js",
     "media-core.js",
     "settings-core.js",
+    "options.html",
+    "options.css",
+    "options.js",
     "page-probe.js",
 )
 DEFAULT_OUTPUT = ROOT / "dist" / "GalaxyMediaCapture-Firefox.xpi"
@@ -46,7 +49,17 @@ def _version_tuple(value: object) -> tuple[int, ...]:
 
 
 def validate_manifests(chrome: dict[str, Any], firefox: dict[str, Any]) -> None:
-    for key in ("manifest_version", "name", "version", "description", "permissions", "host_permissions", "content_scripts", "action"):
+    for key in (
+        "manifest_version",
+        "name",
+        "version",
+        "description",
+        "permissions",
+        "host_permissions",
+        "content_scripts",
+        "action",
+        "options_ui",
+    ):
         if chrome.get(key) != firefox.get(key):
             raise FirefoxPackageError(f"Firefox manifest drifted from shared Chrome field: {key}")
 
@@ -73,6 +86,9 @@ def validate_manifests(chrome: dict[str, Any], firefox: dict[str, Any]) -> None:
     for entry in firefox.get("content_scripts") or []:
         if isinstance(entry, dict):
             referenced.update(str(item) for item in entry.get("js") or [])
+    options_page = str((firefox.get("options_ui") or {}).get("page") or "").strip()
+    if options_page:
+        referenced.add(options_page)
     missing = sorted(referenced - set(RUNTIME_FILES))
     if missing:
         raise FirefoxPackageError(f"Firefox manifest references unpackaged scripts: {', '.join(missing)}")
