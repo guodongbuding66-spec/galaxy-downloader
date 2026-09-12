@@ -150,9 +150,10 @@ def test_direct_contract(root: Path) -> None:
     assert "thumbnail" not in sent
     assert_private_details_absent(result, root)
 
+    for payload in ({}, {"mediaId": "not-a-media-id"}):
+        expect_error(api, payload, code="TELEGRAM_MEDIA_ID_INVALID")
+
     invalid_payloads = (
-        {},
-        {"mediaId": "not-a-media-id"},
         {"mediaId": MEDIA_ID, "filePath": str(root / "private.mp4")},
         {"mediaId": MEDIA_ID, "thumbnail": str(root / "thumb.jpg")},
         {"mediaId": MEDIA_ID, "botToken": LEAK_TOKEN},
