@@ -11,7 +11,7 @@ def _path_parts(path: str) -> list[str]:
 
 
 class HeadlessTelegramHttpMixin:
-    """Composable authenticated `/v1/telegram/*` public-settings routes."""
+    """Composable authenticated `/v1/telegram/*` settings and secret routes."""
 
     @property
     def telegram_api(self) -> HeadlessTelegramApi | None:
@@ -72,6 +72,14 @@ class HeadlessTelegramHttpMixin:
             parts = _path_parts(path)
             if parts == ["v1", "telegram", "settings"]:
                 result = self.telegram_api.save_settings(self._read_json())  # type: ignore[union-attr,attr-defined]
+                self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
+                return
+            if parts == ["v1", "telegram", "bot-token"]:
+                result = self.telegram_api.save_bot_token(self._read_json())  # type: ignore[union-attr,attr-defined]
+                self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
+                return
+            if parts == ["v1", "telegram", "bot-token", "clear"]:
+                result = self.telegram_api.clear_bot_token(self._read_json())  # type: ignore[union-attr,attr-defined]
                 self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
                 return
             self._json(404, {"ok": False, "error": "not found"})  # type: ignore[attr-defined]
