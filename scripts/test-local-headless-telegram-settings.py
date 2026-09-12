@@ -107,7 +107,7 @@ def test_direct_contract(root: Path) -> None:
     status = api.status()
     assert status["settingsSupported"] is True
     assert status["secretMutationSupported"] is True
-    assert status["uploadEndpointSupported"] is False
+    assert status["uploadEndpointSupported"] is True
     assert status["botTokenConfigured"] is False
     assert status["modes"] == ["bot", "user"]
     assert set(status["sendAsModes"]) == {"document", "video", "audio"}
@@ -198,6 +198,7 @@ def test_http_contract(root: Path) -> None:
         assert code == 200 and body["ok"] is True
         assert body["botTokenConfigured"] is True
         assert body["secretMutationSupported"] is True
+        assert body["uploadEndpointSupported"] is True
         assert_no_secret(body, root)
 
         code, body = request_json(port, "GET", "/v1/telegram/settings")

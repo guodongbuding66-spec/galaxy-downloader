@@ -87,7 +87,7 @@ def test_direct_contract(root: Path) -> None:
     api = build_api(root)
     before = api.status()
     assert before["secretMutationSupported"] is True
-    assert before["uploadEndpointSupported"] is False
+    assert before["uploadEndpointSupported"] is True
     assert before["botTokenConfigured"] is False
 
     saved = api.save_bot_token({"botToken": BOT_TOKEN})

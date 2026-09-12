@@ -10,6 +10,7 @@ on:
       - "local-engine/telegram_transfer.py"
       - "scripts/test-local-headless-telegram-settings.py"
       - "scripts/test-local-headless-telegram-secret.py"
+      - "scripts/test-local-headless-telegram-upload.py"
       - ".github/workflows/headless-telegram.yml"
   workflow_dispatch:
 
@@ -41,7 +42,10 @@ jobs:
           local-engine/telegram_transfer.py
           scripts/test-local-headless-telegram-settings.py
           scripts/test-local-headless-telegram-secret.py
+          scripts/test-local-headless-telegram-upload.py
       - name: Test Headless Telegram public settings contract
         run: python scripts/test-local-headless-telegram-settings.py
       - name: Test Headless Telegram Bot Token mutation contract
         run: python scripts/test-local-headless-telegram-secret.py
+      - name: Test Headless Telegram media upload contract
+        run: python scripts/test-local-headless-telegram-upload.py
