@@ -26,6 +26,7 @@ KNOWN_STATE_FILES = (
     "ai-prompts.json",
     "ai-providers.json",
     "ai-history.sqlite3",
+    "telegram-upload.json",
     "engine.log",
 )
 LEGACY_V1_STATE_FILES = frozenset(
@@ -196,6 +197,8 @@ def run_runtime_storage_self_test() -> None:
         (legacy / "ai-prompts.json").write_text('{"version":1,"prompts":[]}', encoding="utf-8")
         (legacy / "ai-providers.json").write_text('{"version":1,"providers":[]}', encoding="utf-8")
         (legacy / "ai-history.sqlite3").write_bytes(b"ai-history")
+        (legacy / "telegram-upload.json").write_text('{"mode":"bot","chatId":"@legacy","sendAs":"document","userAdapter":"galaxy-telegram-user"}', encoding="utf-8")
+        (legacy / "telegram-upload-secret.json").write_text('{"botToken":"123456:NEVER-MIGRATE-THIS-SECRET"}', encoding="utf-8")
         (legacy / "unknown-secret.txt").write_text("do-not-copy", encoding="utf-8")
         installed.mkdir(parents=True)
         (installed / "workspace-options.json").write_text('{"historyEnabled": true}', encoding="utf-8")
@@ -229,10 +232,14 @@ def run_runtime_storage_self_test() -> None:
         assert (installed / "ai-prompts.json").read_text(encoding="utf-8") == '{"version":1,"prompts":[]}'
         assert (installed / "ai-providers.json").read_text(encoding="utf-8") == '{"version":1,"providers":[]}'
         assert (installed / "ai-history.sqlite3").read_bytes() == b"ai-history"
+        assert (installed / "telegram-upload.json").read_text(encoding="utf-8") == '{"mode":"bot","chatId":"@legacy","sendAs":"document","userAdapter":"galaxy-telegram-user"}'
+        assert not (installed / "telegram-upload-secret.json").exists()
         assert not (installed / "unknown-secret.txt").exists()
         ledger = json.loads((installed / STATE_IMPORT_LEDGER).read_text(encoding="utf-8"))
         assert ledger["version"] == STATE_IMPORT_LEDGER_VERSION
         assert set(ledger["files"]) == set(KNOWN_STATE_FILES)
+        assert "telegram-upload.json" in ledger["files"]
+        assert "telegram-upload-secret.json" not in ledger["files"]
 
         (installed / "ai-models.json").unlink()
         state_dir(InstalledEngine)
@@ -244,6 +251,8 @@ def run_runtime_storage_self_test() -> None:
         old_xdg_state.mkdir(parents=True)
         (old_xdg_state / "download-history.json").write_text('[{"id":"old-xdg"}]', encoding="utf-8")
         (old_xdg_state / "desktop-hotkey.json").write_text('{"shortcut":"Ctrl+Super+G"}', encoding="utf-8")
+        (old_xdg_state / "telegram-upload.json").write_text('{"mode":"user","chatId":"@xdg","sendAs":"document","userAdapter":"galaxy-telegram-user"}', encoding="utf-8")
+        (old_xdg_state / "telegram-upload-secret.json").write_text('{"botToken":"123456:NEVER-MIGRATE-XDG-SECRET"}', encoding="utf-8")
         # Installed state takes priority over a stale portable copy.
         (legacy / "download-history.json").write_text('[{"id":"portable"}]', encoding="utf-8")
 
@@ -262,6 +271,8 @@ def run_runtime_storage_self_test() -> None:
         assert migrated == new_xdg_state
         assert (migrated / "download-history.json").read_text(encoding="utf-8") == '[{"id":"old-xdg"}]'
         assert (migrated / "desktop-hotkey.json").read_text(encoding="utf-8") == '{"shortcut":"Ctrl+Super+G"}'
+        assert (migrated / "telegram-upload.json").read_text(encoding="utf-8") == '{"mode":"user","chatId":"@xdg","sendAs":"document","userAdapter":"galaxy-telegram-user"}'
+        assert not (migrated / "telegram-upload-secret.json").exists()
         assert not (migrated / "unknown-secret.txt").exists()
 
         class PortableEngine:
