@@ -6,6 +6,7 @@ import {
   requiresGalaxyHandoff,
   suggestedFilename,
 } from "./media-core.js";
+import { pendingAutoHandoffs } from "./handoff-policy.js";
 import {
   defaultExtensionSettings,
   domainIsIgnored,
@@ -29,6 +30,30 @@ async function loadSettings() {
   return settings;
 }
 
+function clearAutoHandoffState(state) {
+  state.autoHandoffCompleted.clear();
+  state.autoHandoffPending.clear();
+}
+
+function requestAutoHandoffs(tabId, state) {
+  for (const item of pendingAutoHandoffs(
+    state.byId,
+    settings,
+    state.autoHandoffCompleted,
+    state.autoHandoffPending,
+  )) {
+    state.autoHandoffPending.add(item.key);
+    chrome.tabs.sendMessage(tabId, { type: "galaxy:auto-handoff", id: item.id })
+      .then((response) => {
+        if (response?.ok) state.autoHandoffCompleted.add(item.key);
+      })
+      .catch(() => {
+        // The isolated content script may not be ready yet; a later discovery can retry.
+      })
+      .finally(() => state.autoHandoffPending.delete(item.key));
+  }
+}
+
 async function saveSettings(value) {
   const normalized = normalizeExtensionSettings(value);
   await chrome.storage.local.set({ [SETTINGS_KEY]: normalized });
@@ -38,6 +63,7 @@ async function saveSettings(value) {
       state.candidates = [];
       state.byId.clear();
       state.nextId = 1;
+      clearAutoHandoffState(state);
       void updateBadge(tabId, 0);
       continue;
     }
@@ -47,6 +73,7 @@ async function saveSettings(value) {
       rebuildIds(state);
       void updateBadge(tabId, filtered.length);
     }
+    requestAutoHandoffs(tabId, state);
   }
   return settings;
 }
@@ -61,7 +88,14 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 function stateFor(tabId) {
   let state = tabs.get(tabId);
   if (!state) {
-    state = { pageUrl: "", candidates: [], nextId: 1, byId: new Map() };
+    state = {
+      pageUrl: "",
+      candidates: [],
+      nextId: 1,
+      byId: new Map(),
+      autoHandoffCompleted: new Set(),
+      autoHandoffPending: new Set(),
+    };
     tabs.set(tabId, state);
   }
   return state;
@@ -97,11 +131,13 @@ function addCandidates(tabId, rawCandidates, pageUrl = "") {
     state.candidates = [];
     state.byId.clear();
     state.nextId = 1;
+    clearAutoHandoffState(state);
   }
   if (pageUrl) state.pageUrl = pageUrl;
   if (domainIsIgnored(state.pageUrl, settings)) {
     state.candidates = [];
     state.byId.clear();
+    clearAutoHandoffState(state);
     void updateBadge(tabId, 0);
     return 0;
   }
@@ -116,6 +152,7 @@ function addCandidates(tabId, rawCandidates, pageUrl = "") {
   state.candidates = mergeCandidates(state.candidates, accepted, { limit: MAX_CANDIDATES_PER_TAB });
   rebuildIds(state);
   void updateBadge(tabId, state.candidates.length);
+  requestAutoHandoffs(tabId, state);
   return state.candidates.length;
 }
 
@@ -190,6 +227,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     state.candidates = [];
     state.byId.clear();
     state.nextId = 1;
+    clearAutoHandoffState(state);
     void updateBadge(tabId, 0);
     sendResponse({ ok: true, count: 0, ignored: domainIsIgnored(state.pageUrl, settings) });
     return false;
