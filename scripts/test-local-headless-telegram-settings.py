@@ -259,7 +259,7 @@ def test_production_server_tolerates_injected_transfer_without_context(root: Pat
     )
     try:
         assert isinstance(server.telegram_api, HeadlessTelegramApi)
-        assert server.telegram_api.context.download_root == downloads.resolve(strict=False)
+        assert server.telegram_api.context.downloads_path == downloads.resolve(strict=False)
     finally:
         server.server_close()
 
