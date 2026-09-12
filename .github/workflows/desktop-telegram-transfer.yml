@@ -1,0 +1,37 @@
+name: Desktop Telegram Transfer
+
+on:
+  pull_request:
+    paths:
+      - "local-engine/desktop_transfers.py"
+      - "local-engine/telegram_transfer.py"
+      - "scripts/test-local-desktop-telegram-transfer.py"
+      - ".github/workflows/desktop-telegram-transfer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-telegram-transfer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+      - name: Compile Desktop Telegram transfer path
+        run: >-
+          python -m py_compile
+          local-engine/telegram_transfer.py
+          local-engine/desktop_transfers.py
+          scripts/test-local-desktop-telegram-transfer.py
+      - name: Test Desktop Telegram transfer contract
+        run: python scripts/test-local-desktop-telegram-transfer.py
