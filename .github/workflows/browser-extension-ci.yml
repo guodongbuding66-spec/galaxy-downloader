@@ -38,15 +38,17 @@ jobs:
           node --check browser-extension/settings-core.js
           node --check browser-extension/handoff-policy.js
           node --check browser-extension/auto-handoff.js
+          node --check browser-extension/options.js
           node --check browser-extension/page-probe.js
           node -e "JSON.parse(require('node:fs').readFileSync('browser-extension/manifest.json','utf8'))"
 
-      - name: Validate media candidate, settings and handoff policy
+      - name: Validate media candidate, settings, handoff and options policy
         run: |
           node browser-extension/test-media-core.mjs
           node --test browser-extension/tests/media-core.test.mjs
           node --test browser-extension/tests/settings-core.test.mjs
           node --test browser-extension/tests/handoff-policy.test.mjs
+          node --test browser-extension/tests/options-page.test.mjs
 
   firefox-package:
     runs-on: ubuntu-latest
@@ -75,7 +77,7 @@ jobs:
           mkdir -p dist/firefox-unpacked
           python -m zipfile -e dist/GalaxyMediaCapture-Firefox.xpi dist/firefox-unpacked
           node -e "JSON.parse(require('node:fs').readFileSync('dist/firefox-unpacked/manifest.json','utf8'))"
-          for file in background.js candidate-browser.js content.js dynamic-scan.js element-actions.js media-core.js settings-core.js handoff-policy.js auto-handoff.js page-probe.js; do
+          for file in background.js candidate-browser.js content.js dynamic-scan.js element-actions.js media-core.js settings-core.js handoff-policy.js auto-handoff.js options.js page-probe.js; do
             node --check "dist/firefox-unpacked/$file"
           done
           if grep -R -n -F 'chrome.' dist/firefox-unpacked --include='*.js'; then
