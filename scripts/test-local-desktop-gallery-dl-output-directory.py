@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 import tempfile
-import tkinter as tk
 import unittest
 from pathlib import Path
 from unittest.mock import patch
