@@ -4,8 +4,11 @@ on:
   pull_request:
     paths:
       - "local-engine/desktop_transfers.py"
+      - "local-engine/desktop_telegram_download.py"
       - "local-engine/telegram_transfer.py"
+      - "local-engine/telegram_download.py"
       - "scripts/test-local-desktop-telegram-transfer.py"
+      - "scripts/test-local-desktop-telegram-download.py"
       - ".github/workflows/desktop-telegram-transfer.yml"
   workflow_dispatch:
 
@@ -31,7 +34,12 @@ jobs:
         run: >-
           python -m py_compile
           local-engine/telegram_transfer.py
+          local-engine/telegram_download.py
+          local-engine/desktop_telegram_download.py
           local-engine/desktop_transfers.py
           scripts/test-local-desktop-telegram-transfer.py
-      - name: Test Desktop Telegram transfer contract
+          scripts/test-local-desktop-telegram-download.py
+      - name: Test Desktop Telegram upload contract
         run: python scripts/test-local-desktop-telegram-transfer.py
+      - name: Test Desktop Telegram download contract
+        run: python scripts/test-local-desktop-telegram-download.py
