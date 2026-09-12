@@ -18,6 +18,8 @@ RUNTIME_FILES = (
     "element-actions.js",
     "media-core.js",
     "settings-core.js",
+    "handoff-policy.js",
+    "auto-handoff.js",
     "page-probe.js",
 )
 DEFAULT_OUTPUT = ROOT / "dist" / "GalaxyMediaCapture-Firefox.xpi"
