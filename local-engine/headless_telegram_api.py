@@ -28,13 +28,9 @@ class HeadlessTelegramApiError(RuntimeError):
             self.code = str(code)
 
 
-def _safe_message(exc: BaseException) -> str:
+def _validation_message(exc: BaseException) -> str:
     text = " ".join(str(exc or "").split()).strip()
-    if not text:
-        return "Telegram settings request failed"
-    # Core validation messages do not contain secrets or paths. Keep this layer
-    # deliberately bounded so future exceptions cannot echo arbitrarily large data.
-    return text[:500]
+    return (text or "Telegram settings request failed")[:500]
 
 
 class HeadlessTelegramApi:
@@ -67,19 +63,29 @@ class HeadlessTelegramApi:
         try:
             return load_telegram_upload_settings(self.context)
         except Exception as exc:
-            raise HeadlessTelegramApiError(_safe_message(exc), status=503, code="TELEGRAM_SETTINGS_UNAVAILABLE") from exc
+            raise HeadlessTelegramApiError(
+                "Telegram settings are unavailable",
+                status=503,
+                code="TELEGRAM_SETTINGS_UNAVAILABLE",
+            ) from exc
+
+    def _token_configured(self) -> bool:
+        try:
+            return bool(telegram_bot_token_configured(self.context))
+        except Exception as exc:
+            raise HeadlessTelegramApiError(
+                "Telegram settings are unavailable",
+                status=503,
+                code="TELEGRAM_SETTINGS_UNAVAILABLE",
+            ) from exc
 
     def status(self) -> dict[str, Any]:
         settings = self._current()
-        try:
-            configured = telegram_bot_token_configured(self.context)
-        except Exception as exc:
-            raise HeadlessTelegramApiError(_safe_message(exc), status=503, code="TELEGRAM_SETTINGS_UNAVAILABLE") from exc
         return {
             "settingsSupported": True,
             "secretMutationSupported": False,
             "uploadEndpointSupported": False,
-            "botTokenConfigured": bool(configured),
+            "botTokenConfigured": self._token_configured(),
             "modes": ["bot", "user"],
             "sendAsModes": list(SEND_MODES),
             "settings": settings.public_payload(),
@@ -87,11 +93,7 @@ class HeadlessTelegramApi:
 
     def settings(self) -> dict[str, Any]:
         current = self._current()
-        try:
-            configured = telegram_bot_token_configured(self.context)
-        except Exception as exc:
-            raise HeadlessTelegramApiError(_safe_message(exc), status=503, code="TELEGRAM_SETTINGS_UNAVAILABLE") from exc
-        return {"settings": current.public_payload(), "botTokenConfigured": bool(configured)}
+        return {"settings": current.public_payload(), "botTokenConfigured": self._token_configured()}
 
     def save_settings(self, payload: object) -> dict[str, Any]:
         if not isinstance(payload, dict):
@@ -109,13 +111,14 @@ class HeadlessTelegramApi:
         )
         try:
             saved = save_telegram_upload_settings(self.context, candidate)
-            configured = telegram_bot_token_configured(self.context)
         except TelegramTransferError as exc:
-            raise HeadlessTelegramApiError(_safe_message(exc)) from exc
+            # Telegram core validation messages are intentionally user-facing and
+            # contain neither secret values nor filesystem paths.
+            raise HeadlessTelegramApiError(_validation_message(exc)) from exc
         except Exception as exc:
             raise HeadlessTelegramApiError(
                 "Telegram settings could not be saved",
                 status=503,
                 code="TELEGRAM_SETTINGS_UNAVAILABLE",
             ) from exc
-        return {"settings": saved.public_payload(), "botTokenConfigured": bool(configured)}
+        return {"settings": saved.public_payload(), "botTokenConfigured": self._token_configured()}
