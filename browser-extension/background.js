@@ -6,10 +6,57 @@ import {
   requiresGalaxyHandoff,
   suggestedFilename,
 } from "./media-core.js";
+import {
+  defaultExtensionSettings,
+  domainIsIgnored,
+  filterCandidatesForSettings,
+  normalizeExtensionSettings,
+} from "./settings-core.js";
 
 const MAX_CANDIDATES_PER_TAB = 200;
 const MAX_BATCH_DOWNLOADS = 20;
+const SETTINGS_KEY = "galaxyMediaCaptureSettings";
 const tabs = new Map();
+let settings = defaultExtensionSettings();
+
+async function loadSettings() {
+  try {
+    const stored = await chrome.storage.local.get(SETTINGS_KEY);
+    settings = normalizeExtensionSettings(stored?.[SETTINGS_KEY]);
+  } catch {
+    settings = defaultExtensionSettings();
+  }
+  return settings;
+}
+
+async function saveSettings(value) {
+  const normalized = normalizeExtensionSettings(value);
+  await chrome.storage.local.set({ [SETTINGS_KEY]: normalized });
+  settings = normalized;
+  for (const [tabId, state] of tabs.entries()) {
+    if (domainIsIgnored(state.pageUrl, settings)) {
+      state.candidates = [];
+      state.byId.clear();
+      state.nextId = 1;
+      void updateBadge(tabId, 0);
+      continue;
+    }
+    const filtered = filterCandidatesForSettings(state.candidates, state.pageUrl, settings);
+    if (filtered.length !== state.candidates.length) {
+      state.candidates = filtered;
+      rebuildIds(state);
+      void updateBadge(tabId, filtered.length);
+    }
+  }
+  return settings;
+}
+
+void loadSettings();
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes?.[SETTINGS_KEY]) return;
+  settings = normalizeExtensionSettings(changes[SETTINGS_KEY].newValue);
+});
 
 function stateFor(tabId) {
   let state = tabs.get(tabId);
@@ -52,14 +99,21 @@ function addCandidates(tabId, rawCandidates, pageUrl = "") {
     state.nextId = 1;
   }
   if (pageUrl) state.pageUrl = pageUrl;
+  if (domainIsIgnored(state.pageUrl, settings)) {
+    state.candidates = [];
+    state.byId.clear();
+    void updateBadge(tabId, 0);
+    return 0;
+  }
 
   const normalized = [];
   for (const raw of Array.isArray(rawCandidates) ? rawCandidates : []) {
     const candidate = normalizeCandidate(raw, { baseUrl: pageUrl || state.pageUrl });
     if (candidate) normalized.push(candidate);
   }
-  if (!normalized.length) return state.candidates.length;
-  state.candidates = mergeCandidates(state.candidates, normalized, { limit: MAX_CANDIDATES_PER_TAB });
+  const accepted = filterCandidatesForSettings(normalized, state.pageUrl, settings);
+  if (!accepted.length) return state.candidates.length;
+  state.candidates = mergeCandidates(state.candidates, accepted, { limit: MAX_CANDIDATES_PER_TAB });
   rebuildIds(state);
   void updateBadge(tabId, state.candidates.length);
   return state.candidates.length;
@@ -112,6 +166,18 @@ async function batchDownloadCandidates(tabId, ids) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "galaxy:get-settings") {
+    sendResponse({ ok: true, settings });
+    return false;
+  }
+
+  if (message?.type === "galaxy:save-settings") {
+    saveSettings(message.settings)
+      .then((saved) => sendResponse({ ok: true, settings: saved }))
+      .catch(() => sendResponse({ ok: false, error: "Unable to save extension settings." }));
+    return true;
+  }
+
   const tabId = sender.tab?.id;
   if (!Number.isInteger(tabId)) {
     sendResponse({ ok: false, error: "A tab context is required." });
@@ -125,7 +191,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     state.byId.clear();
     state.nextId = 1;
     void updateBadge(tabId, 0);
-    sendResponse({ ok: true, count: 0 });
+    sendResponse({ ok: true, count: 0, ignored: domainIsIgnored(state.pageUrl, settings) });
     return false;
   }
 
@@ -143,8 +209,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "galaxy:download-observed") {
     const pageUrl = String(message.pageUrl || sender.tab?.url || "");
     const candidate = normalizeCandidate(message.candidate, { baseUrl: pageUrl });
-    if (!candidate || !canDirectDownload(candidate)) {
-      sendResponse({ ok: false, error: "This observed element is not a safe direct-download source." });
+    if (!candidate || !filterCandidatesForSettings([candidate], pageUrl, settings).length || !canDirectDownload(candidate)) {
+      sendResponse({ ok: false, error: "This observed element is not an allowed direct-download source." });
       return false;
     }
     addCandidates(tabId, [candidate], pageUrl);

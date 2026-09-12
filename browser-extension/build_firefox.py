@@ -17,6 +17,7 @@ RUNTIME_FILES = (
     "dynamic-scan.js",
     "element-actions.js",
     "media-core.js",
+    "settings-core.js",
     "page-probe.js",
 )
 DEFAULT_OUTPUT = ROOT / "dist" / "GalaxyMediaCapture-Firefox.xpi"
