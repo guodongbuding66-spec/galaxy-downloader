@@ -122,10 +122,15 @@ class GalaxyApiServer(ThreadingHTTPServer):
             whisperx = whisperx_api or HeadlessWhisperXApi(runtime.download_root, context=shared_asr_context)
             plugins = plugin_api or HeadlessPluginApi(runtime.download_root)
             transfer = transfer_api or HeadlessTransferApi(runtime.download_root)
-            # Reuse the same bounded runtime context as Transfer Center so Telegram
-            # public settings and future upload contracts resolve one canonical
-            # state/download root without exposing those roots over HTTP.
-            telegram = telegram_api or HeadlessTelegramApi(runtime.download_root, context=transfer.context)
+            # Reuse Transfer Center's bounded context when the concrete production
+            # API exposes one. Older injected/fake Transfer APIs intentionally do
+            # not need to implement this optional attribute; Telegram then builds
+            # the same canonical context from runtime.download_root itself.
+            shared_transfer_context = getattr(transfer, "context", None)
+            telegram = telegram_api or HeadlessTelegramApi(
+                runtime.download_root,
+                context=shared_transfer_context,
+            )
             gallery = gallery_dl_api or HeadlessGalleryDlApi(runtime.download_root)
             if learning_api is not None:
                 coordinator = CourseDownloadCoordinator(runtime, learning_api)
