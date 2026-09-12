@@ -126,6 +126,8 @@ class DesktopGalleryDlOutputDirectoryTests(unittest.TestCase):
             self.assertEqual(window._gallery_dl_output_root, root)
             self.assertEqual(window._gallery_dl_output_var.value, str(root))
             picker.assert_called_once()
+            self.assertIs(picker.call_args.kwargs["mustexist"], True)
+            self.assertIs(picker.call_args.kwargs["parent"], window)
             self.assertIn("自定义输出目录", str(window._quick_state_var.value))
 
             with patch.object(desktop_gallery_dl.filedialog, "askdirectory", return_value=""):
@@ -247,7 +249,6 @@ class DesktopGalleryDlOutputDirectoryTests(unittest.TestCase):
             "takefocus=True",
             "height=44",
             "filedialog.askdirectory(",
-            'mustexist=True',
             'submit_kwargs["output_root"] = output_root',
             "executor.submit(",
             "output_root=output_root",
