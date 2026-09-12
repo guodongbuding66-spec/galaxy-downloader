@@ -8,13 +8,14 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENGINE = ROOT / "local-engine"
 if str(LOCAL_ENGINE) not in sys.path:
     sys.path.insert(0, str(LOCAL_ENGINE))
 
-from headless_api import GalaxyApiRequestHandler  # noqa: E402
+from headless_api import GalaxyApiRequestHandler, GalaxyApiServer  # noqa: E402
 from headless_telegram_api import HeadlessTelegramApi, HeadlessTelegramApiError  # noqa: E402
 from telegram_transfer import TelegramUploadSettings, save_telegram_upload_settings  # noqa: E402
 
@@ -46,6 +47,13 @@ class TestServer(ThreadingHTTPServer):
         self.course_download_coordinator = None
         self.course_attachment_download_service = None
         super().__init__(address, GalaxyApiRequestHandler)
+
+
+class FakeTransferApi:
+    """Legacy/injected Transfer API intentionally lacking the optional context attribute."""
+
+    def shutdown(self) -> None:
+        return
 
 
 def request_json(
@@ -232,12 +240,37 @@ def test_http_contract(root: Path) -> None:
         assert not thread.is_alive()
 
 
+def test_production_server_tolerates_injected_transfer_without_context(root: Path) -> None:
+    downloads = root / "downloads"
+    downloads.mkdir(parents=True, exist_ok=True)
+    runtime = SimpleNamespace(download_root=downloads)
+    server = GalaxyApiServer(
+        ("127.0.0.1", 0),
+        runtime,
+        AUTH,
+        "127.0.0.1",
+        media_api=SimpleNamespace(),
+        transfer_api=FakeTransferApi(),
+        ai_api=SimpleNamespace(shutdown=lambda: None),
+        asr_api=SimpleNamespace(context=None),
+        whisperx_api=SimpleNamespace(),
+        plugin_api=SimpleNamespace(),
+        gallery_dl_api=SimpleNamespace(close=lambda: None),
+    )
+    try:
+        assert isinstance(server.telegram_api, HeadlessTelegramApi)
+        assert server.telegram_api.context.download_root == downloads.resolve(strict=False)
+    finally:
+        server.server_close()
+
+
 def test_production_wiring() -> None:
     source = (LOCAL_ENGINE / "headless_api.py").read_text(encoding="utf-8")
     assert "HeadlessTelegramHttpMixin" in source
     assert "HeadlessTelegramApi" in source
     assert "telegram_api: HeadlessTelegramApi | None = None" in source
-    assert "context=transfer.context" in source
+    assert 'shared_transfer_context = getattr(transfer, "context", None)' in source
+    assert "context=shared_transfer_context" in source
     assert "self.telegram_api = telegram" in source
 
 
@@ -246,6 +279,7 @@ def run_test() -> None:
         root = Path(directory).resolve()
         test_direct_contract(root)
         test_http_contract(root)
+        test_production_server_tolerates_injected_transfer_without_context(root)
     test_production_wiring()
 
 
