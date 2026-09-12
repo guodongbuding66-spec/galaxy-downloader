@@ -8,12 +8,14 @@ from telegram_transfer import (
     SEND_MODES,
     TelegramTransferError,
     TelegramUploadSettings,
+    clear_telegram_bot_token,
     load_telegram_upload_settings,
     save_telegram_upload_settings,
     telegram_bot_token_configured,
 )
 
 _ALLOWED_SETTINGS_FIELDS = frozenset({"mode", "chatId", "sendAs", "userAdapter"})
+_ALLOWED_SECRET_FIELDS = frozenset({"botToken"})
 
 
 class HeadlessTelegramApiError(RuntimeError):
@@ -34,11 +36,10 @@ def _validation_message(exc: BaseException) -> str:
 
 
 class HeadlessTelegramApi:
-    """Authenticated facade for Telegram public upload settings only.
+    """Authenticated facade for Telegram settings and Bot Token mutation.
 
-    Secret mutation and file upload are intentionally separate contracts. This API
-    never reads or returns the Bot Token value; only configured/not-configured state
-    is public.
+    The Bot Token value is write-only over Headless. Status endpoints expose only a
+    boolean configured/not-configured flag; uploads remain a separate contract.
     """
 
     def __init__(
@@ -83,7 +84,7 @@ class HeadlessTelegramApi:
         settings = self._current()
         return {
             "settingsSupported": True,
-            "secretMutationSupported": False,
+            "secretMutationSupported": True,
             "uploadEndpointSupported": False,
             "botTokenConfigured": self._token_configured(),
             "modes": ["bot", "user"],
@@ -122,3 +123,47 @@ class HeadlessTelegramApi:
                 code="TELEGRAM_SETTINGS_UNAVAILABLE",
             ) from exc
         return {"settings": saved.public_payload(), "botTokenConfigured": self._token_configured()}
+
+    def save_bot_token(self, payload: object) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise HeadlessTelegramApiError("Telegram Bot Token request must be a JSON object")
+        unknown = sorted(str(key) for key in payload if key not in _ALLOWED_SECRET_FIELDS)
+        if unknown or "botToken" not in payload:
+            raise HeadlessTelegramApiError("Telegram Bot Token request contains unsupported fields")
+        token = payload.get("botToken")
+        if not isinstance(token, str) or not token.strip():
+            raise HeadlessTelegramApiError("Telegram Bot Token must be a non-empty string")
+        current = self._current()
+        try:
+            save_telegram_upload_settings(self.context, current, bot_token=token)
+        except TelegramTransferError as exc:
+            # Core validation never includes the submitted token value.
+            raise HeadlessTelegramApiError(_validation_message(exc)) from exc
+        except Exception as exc:
+            raise HeadlessTelegramApiError(
+                "Telegram Bot Token could not be saved",
+                status=503,
+                code="TELEGRAM_SECRET_UNAVAILABLE",
+            ) from exc
+        return {"botTokenConfigured": self._token_configured()}
+
+    def clear_bot_token(self, payload: object) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise HeadlessTelegramApiError("Telegram Bot Token clear request must be a JSON object")
+        if payload:
+            raise HeadlessTelegramApiError("Telegram Bot Token clear request must be empty")
+        try:
+            clear_telegram_bot_token(self.context)
+        except TelegramTransferError as exc:
+            raise HeadlessTelegramApiError(
+                _validation_message(exc),
+                status=503,
+                code="TELEGRAM_SECRET_UNAVAILABLE",
+            ) from exc
+        except Exception as exc:
+            raise HeadlessTelegramApiError(
+                "Telegram Bot Token could not be cleared",
+                status=503,
+                code="TELEGRAM_SECRET_UNAVAILABLE",
+            ) from exc
+        return {"botTokenConfigured": self._token_configured()}
