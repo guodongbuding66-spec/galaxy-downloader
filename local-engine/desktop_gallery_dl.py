@@ -149,6 +149,9 @@ def _choose_gallery_output_root(window: object, engine_module: object) -> bool:
         try:
             display_var.set(str(root))
         except tk.TclError:
+            # The owning window may have closed after the native picker returned.
+            # The selected path is already stored on the plain Python attribute,
+            # so failing to refresh this cosmetic StringVar is safe to ignore.
             pass
     if state_var is not None:
         state_var.set("已选择 gallery-dl 自定义输出目录；任务仍会写入其独立 gallery-dl 子目录。")
@@ -162,6 +165,8 @@ def _reset_gallery_output_root(window: object) -> None:
         try:
             display_var.set("")
         except tk.TclError:
+            # Resetting the plain Python attribute is authoritative. If Tk has
+            # already been destroyed, there is no live field left to repaint.
             pass
     state_var = getattr(window, "_quick_state_var", None)
     if state_var is not None:
