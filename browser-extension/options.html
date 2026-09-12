@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Galaxy Media Capture 设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="page-shell">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">GALAXY MEDIA CAPTURE</p>
+        <h1>扩展设置</h1>
+        <p class="subtitle">控制媒体发现过滤、忽略域名和桌面自动交接。设置仅保存在当前浏览器扩展本地。</p>
+      </div>
+      <span class="version">v0.4.0</span>
+    </header>
+
+    <section class="settings-card" aria-labelledby="discovery-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="discovery-title">媒体发现</h2>
+          <p>过滤页面中尺寸过小的图片和视频，减少图标、头像和预览碎片。</p>
+        </div>
+      </div>
+
+      <div class="size-grid">
+        <fieldset>
+          <legend>图片最小尺寸</legend>
+          <label>宽度 <input id="min-image-width" type="number" min="1" max="4096" inputmode="numeric"></label>
+          <span>×</span>
+          <label>高度 <input id="min-image-height" type="number" min="1" max="4096" inputmode="numeric"></label>
+          <em>px</em>
+        </fieldset>
+        <fieldset>
+          <legend>视频最小尺寸</legend>
+          <label>宽度 <input id="min-video-width" type="number" min="1" max="4096" inputmode="numeric"></label>
+          <span>×</span>
+          <label>高度 <input id="min-video-height" type="number" min="1" max="4096" inputmode="numeric"></label>
+          <em>px</em>
+        </fieldset>
+      </div>
+    </section>
+
+    <section class="settings-card" aria-labelledby="domains-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="domains-title">忽略域名</h2>
+          <p>每行一个域名。匹配域名及其子域名的页面将不再收集候选媒体。</p>
+        </div>
+        <span id="domain-count" class="counter">0 / 100</span>
+      </div>
+      <label class="textarea-label" for="ignored-domains">域名列表</label>
+      <textarea id="ignored-domains" rows="7" spellcheck="false" placeholder="example.com&#10;media.example.org"></textarea>
+      <p class="help">只填写域名，不要包含 <code>https://</code>、路径或端口。</p>
+    </section>
+
+    <section class="settings-card compact" aria-labelledby="handoff-title">
+      <div class="toggle-row">
+        <div>
+          <h2 id="handoff-title">自动交给 Galaxy</h2>
+          <p>发现必须由 Local Engine 解析的 HLS / DASH 流媒体时，自动请求打开 Galaxy 桌面应用。普通 MP4、音频和图片仍使用浏览器直接下载。</p>
+        </div>
+        <label class="switch">
+          <input id="auto-handoff" type="checkbox">
+          <span aria-hidden="true"></span>
+          <strong>启用</strong>
+        </label>
+      </div>
+    </section>
+
+    <footer class="action-bar">
+      <div id="status" class="status" role="status" aria-live="polite">正在读取设置…</div>
+      <button id="reset" class="secondary" type="button">恢复默认</button>
+      <button id="save" class="primary" type="button">保存设置</button>
+    </footer>
+  </main>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
