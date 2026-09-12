@@ -4,6 +4,7 @@ import threading
 import tkinter as tk
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from tkinter import filedialog
 
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook, show_desktop_presenter
@@ -95,6 +96,78 @@ def gallery_rate_limit_mib(window: object) -> float | None:
     return float(rate)
 
 
+def gallery_output_root(window: object) -> Path | None:
+    """Return the user-selected local output root without touching Tk from a worker thread."""
+    value = getattr(window, "_gallery_dl_output_root", None)
+    if value is None:
+        return None
+    try:
+        path = Path(value).expanduser()
+    except (TypeError, ValueError, OSError):
+        return None
+    return path if path.is_absolute() else None
+
+
+def _default_gallery_output_root(engine_module: object) -> Path | None:
+    getter = getattr(engine_module, "default_download_dir", None)
+    if not callable(getter):
+        return None
+    try:
+        root = Path(getter()).expanduser()
+    except (TypeError, ValueError, OSError):
+        return None
+    return root if root.is_absolute() else None
+
+
+def _choose_gallery_output_root(window: object, engine_module: object) -> bool:
+    current = gallery_output_root(window) or _default_gallery_output_root(engine_module)
+    kwargs: dict[str, object] = {
+        "parent": window,
+        "title": "选择 gallery-dl 输出目录",
+        "mustexist": True,
+    }
+    if current is not None:
+        kwargs["initialdir"] = str(current)
+    try:
+        selected = str(filedialog.askdirectory(**kwargs) or "").strip()
+    except (tk.TclError, OSError):
+        selected = ""
+    if not selected:
+        return False
+    try:
+        root = Path(selected).expanduser()
+    except (TypeError, ValueError, OSError):
+        return False
+    state_var = getattr(window, "_quick_state_var", None)
+    if not root.is_absolute():
+        if state_var is not None:
+            state_var.set("gallery-dl 输出目录无效：请选择本机绝对目录。")
+        return False
+    window._gallery_dl_output_root = root
+    display_var = getattr(window, "_gallery_dl_output_var", None)
+    if display_var is not None:
+        try:
+            display_var.set(str(root))
+        except tk.TclError:
+            pass
+    if state_var is not None:
+        state_var.set("已选择 gallery-dl 自定义输出目录；任务仍会写入其独立 gallery-dl 子目录。")
+    return True
+
+
+def _reset_gallery_output_root(window: object) -> None:
+    window._gallery_dl_output_root = None
+    display_var = getattr(window, "_gallery_dl_output_var", None)
+    if display_var is not None:
+        try:
+            display_var.set("")
+        except tk.TclError:
+            pass
+    state_var = getattr(window, "_quick_state_var", None)
+    if state_var is not None:
+        state_var.set("gallery-dl 已恢复使用 Galaxy 默认下载目录。")
+
+
 def _window_exists(window: tk.Misc | None) -> bool:
     if window is None:
         return False
@@ -130,6 +203,20 @@ def _set_submit_controls(window, *, disabled: bool) -> None:
             )
         except tk.TclError:
             return
+
+    output_entry = getattr(window, "_gallery_dl_output_entry", None)
+    if output_entry is not None:
+        try:
+            output_entry.configure(
+                state="disabled" if disabled else "readonly",
+                cursor="arrow" if disabled else "xterm",
+            )
+        except tk.TclError:
+            return
+    for attribute in ("_gallery_dl_output_browse_button", "_gallery_dl_output_reset_button"):
+        output_button = getattr(window, attribute, None)
+        if output_button is not None:
+            output_button.state(["disabled" if disabled else "!disabled"])
 
     for attribute in (
         "_gallery_dl_rate_entry",
@@ -168,6 +255,8 @@ def _submit_gallery_fallback(window, engine_module) -> None:
     resume_enabled = gallery_resume_requested(window)
     date_after, date_before = gallery_date_values(window)
     date_filtered = bool(date_after or date_before)
+    output_root = gallery_output_root(window)
+    custom_output = output_root is not None
     try:
         rate_limit_mib = gallery_rate_limit_mib(window)
     except ValueError as exc:
@@ -183,6 +272,7 @@ def _submit_gallery_fallback(window, engine_module) -> None:
             + (" Resume 已启用。" if resume_enabled else "")
             + (" 日期过滤已启用。" if date_filtered else "")
             + (f" Rate ≤ {rate_limit_mib:g} MiB/s。" if rate_limited else "")
+            + (" 使用自定义输出目录。" if custom_output else "")
         )
 
     def worker() -> None:
@@ -200,6 +290,8 @@ def _submit_gallery_fallback(window, engine_module) -> None:
             }
             if rate_limit_mib is not None:
                 submit_kwargs["rate_limit_mib"] = rate_limit_mib
+            if output_root is not None:
+                submit_kwargs["output_root"] = output_root
             task_id = str(submit(validated, **submit_kwargs) or "")
             if not task_id:
                 raise RuntimeError("gallery-dl 任务未返回任务 ID。")
@@ -208,8 +300,9 @@ def _submit_gallery_fallback(window, engine_module) -> None:
             resume_detail = " · Resume 已启用" if resume_enabled else ""
             date_detail = " · 日期过滤已启用" if date_filtered else ""
             rate_detail = f" · Rate ≤ {rate_limit_mib:g} MiB/s" if rate_limited else ""
+            output_detail = " · 自定义目录" if custom_output else ""
             message = (
-                f"已加入 gallery-dl 任务中心 · {task_id}{archive_detail}{resume_detail}{date_detail}{rate_detail}"
+                f"已加入 gallery-dl 任务中心 · {task_id}{archive_detail}{resume_detail}{date_detail}{rate_detail}{output_detail}"
                 " · 可在任务中心取消或失败后重试。"
             )
         except Exception as exc:  # noqa: BLE001
@@ -279,6 +372,41 @@ def _rate_entry(master, *, variable: tk.StringVar) -> tuple[tk.Frame, tk.Entry]:
         bg=ui.PANEL_3,
         fg=ui.TEXT,
         insertbackground=ui.TEXT,
+        disabledbackground=ui.PANEL_2,
+        disabledforeground=ui.SUBTLE,
+        relief="flat",
+        bd=0,
+        highlightthickness=1,
+        highlightbackground=ui.BORDER_SOFT,
+        highlightcolor=ui.ACCENT,
+        cursor="xterm",
+    )
+    entry.pack(fill="both", expand=True, padx=8)
+    return field, entry
+
+
+def _output_entry(master, *, variable: tk.StringVar) -> tuple[tk.Frame, tk.Entry]:
+    field = tk.Frame(master, bg=ui.PANEL_2)
+    ui._label(
+        field,
+        "Output directory（可选）",
+        size=7,
+        weight="bold",
+        color=ui.MUTED,
+        bg=ui.PANEL_2,
+    ).pack(anchor="w", pady=(0, 3))
+    target = tk.Frame(field, bg=ui.PANEL_3, height=44)
+    target.pack(fill="x")
+    target.pack_propagate(False)
+    entry = tk.Entry(
+        target,
+        textvariable=variable,
+        state="readonly",
+        takefocus=True,
+        font=("Segoe UI", 8),
+        bg=ui.PANEL_3,
+        fg=ui.TEXT,
+        readonlybackground=ui.PANEL_3,
         disabledbackground=ui.PANEL_2,
         disabledforeground=ui.SUBTLE,
         relief="flat",
@@ -409,6 +537,37 @@ def _install_gallery_fallback(window, engine_module) -> None:
         justify="left",
     ).pack(side="left", fill="x", expand=True, padx=(10, 0))
 
+    output_row = tk.Frame(card, bg=ui.PANEL_2)
+    output_row.pack(fill="x", pady=(8, 0))
+    output_var = tk.StringVar(master=window, value="")
+    output_field, output_entry = _output_entry(output_row, variable=output_var)
+    output_field.pack(side="left", fill="x", expand=True)
+    output_actions = tk.Frame(output_row, bg=ui.PANEL_2)
+    output_actions.pack(side="right", padx=(10, 0), pady=(18, 0))
+    output_browse = ui.ActionButton(
+        output_actions,
+        text="选择文件夹",
+        command=lambda: _choose_gallery_output_root(window, engine_module),
+        kind="secondary",
+    )
+    output_browse.pack(side="left")
+    output_reset = ui.ActionButton(
+        output_actions,
+        text="使用默认",
+        command=lambda: _reset_gallery_output_root(window),
+        kind="secondary",
+    )
+    output_reset.pack(side="left", padx=(7, 0))
+    ui._label(
+        output_row,
+        "留空使用 Galaxy 默认下载目录；只能通过系统目录选择器设置。每个任务仍创建独立 gallery-dl 子目录。",
+        size=7,
+        color=ui.SUBTLE,
+        bg=ui.PANEL_2,
+        wraplength=310,
+        justify="left",
+    ).pack(side="right", fill="x", padx=(12, 8), pady=(18, 0))
+
     rate_row = tk.Frame(card, bg=ui.PANEL_2)
     rate_row.pack(fill="x", pady=(8, 0))
     rate_var = tk.StringVar(master=window, value="")
@@ -450,6 +609,11 @@ def _install_gallery_fallback(window, engine_module) -> None:
     window._gallery_dl_archive_check = archive_check
     window._gallery_dl_resume_var = resume_var
     window._gallery_dl_resume_check = resume_check
+    window._gallery_dl_output_root = None
+    window._gallery_dl_output_var = output_var
+    window._gallery_dl_output_entry = output_entry
+    window._gallery_dl_output_browse_button = output_browse
+    window._gallery_dl_output_reset_button = output_reset
     window._gallery_dl_rate_var = rate_var
     window._gallery_dl_rate_entry = rate_entry
     window._gallery_dl_date_after_var = date_after_var
@@ -461,7 +625,33 @@ def _install_gallery_fallback(window, engine_module) -> None:
 
 def install_desktop_gallery_dl(engine_module):
     window_cls = engine_module.EngineWindow
-    install_gallery_dl_executor(engine_module)
+    executor = install_gallery_dl_executor(engine_module)
+
+    def submit_gallery_dl_task(
+        window,
+        source_url: str,
+        *,
+        output_root: Path | None = None,
+        max_files: int = MAX_GALLERY_DL_FILES,
+        archive_enabled: bool = False,
+        resume_enabled: bool = False,
+        date_after: str | None = None,
+        date_before: str | None = None,
+        rate_limit_mib: float | int | None = None,
+    ) -> str:
+        return executor.submit(
+            source_url,
+            output_root=output_root,
+            max_files=max_files,
+            archive_enabled=archive_enabled,
+            resume_enabled=resume_enabled,
+            date_after=date_after,
+            date_before=date_before,
+            rate_limit_mib=rate_limit_mib,
+        )
+
+    window_cls.submit_gallery_dl_task = submit_gallery_dl_task
+    window_cls._galaxy_gallery_dl_executor_installed = True
     if getattr(window_cls, "_galaxy_desktop_gallery_dl_installed", False):
         return window_cls
     register_after_build_ui_hook(
@@ -511,6 +701,7 @@ def run_desktop_gallery_dl_self_test() -> None:
         _gallery_dl_archive_var = _ArchiveVar()
         _gallery_dl_resume_var = _ResumeVar()
         _gallery_dl_rate_var = _RateVar()
+        _gallery_dl_output_root = Path.cwd().resolve()
         _gallery_dl_date_after_var = _DateVar(" 2026-01-01 ")
         _gallery_dl_date_before_var = _DateVar("")
 
@@ -528,4 +719,6 @@ def run_desktop_gallery_dl_self_test() -> None:
     assert gallery_date_values(object()) == (None, None)
     assert gallery_rate_limit_mib(_Window()) == 3.25
     assert gallery_rate_limit_mib(object()) is None
+    assert gallery_output_root(_Window()) == Path.cwd().resolve()
+    assert gallery_output_root(object()) is None
     assert MAX_GALLERY_DL_FILES == 500
