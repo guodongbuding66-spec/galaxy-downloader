@@ -1,0 +1,43 @@
+name: Headless Telegram
+
+on:
+  pull_request:
+    paths:
+      - "local-engine/headless_api.py"
+      - "local-engine/headless_telegram_api.py"
+      - "local-engine/headless_telegram_http.py"
+      - "local-engine/headless_transfer_api.py"
+      - "local-engine/telegram_transfer.py"
+      - "scripts/test-local-headless-telegram-settings.py"
+      - ".github/workflows/headless-telegram.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  headless-telegram:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Local Engine dependencies
+        run: python -m pip install -r local-engine/requirements.txt
+      - name: Compile Headless Telegram path
+        run: >-
+          python -m py_compile
+          local-engine/headless_api.py
+          local-engine/headless_telegram_api.py
+          local-engine/headless_telegram_http.py
+          local-engine/headless_transfer_api.py
+          local-engine/telegram_transfer.py
+          scripts/test-local-headless-telegram-settings.py
+      - name: Test Headless Telegram public settings contract
+        run: python scripts/test-local-headless-telegram-settings.py

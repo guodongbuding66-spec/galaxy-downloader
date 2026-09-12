@@ -26,6 +26,8 @@ from headless_qwen3_asr_api import Qwen3HeadlessAsrApi
 from headless_reader_epub_http import HeadlessReaderEpubHttpMixin
 from headless_reader_pdf_http import HeadlessReaderPdfHttpMixin
 from headless_settings_http import HeadlessSettingsHttpMixin
+from headless_telegram_api import HeadlessTelegramApi
+from headless_telegram_http import HeadlessTelegramHttpMixin
 from headless_transfer_api import HeadlessTransferApi
 from headless_transfer_http import HeadlessTransferHttpMixin
 from headless_udemy_attachment_inventory import install_headless_udemy_attachment_inventory
@@ -63,6 +65,7 @@ class GalaxyApiRequestHandler(
     HeadlessReaderEpubHttpMixin,
     HeadlessReaderPdfHttpMixin,
     HeadlessSettingsHttpMixin,
+    HeadlessTelegramHttpMixin,
     HeadlessTransferHttpMixin,
     HeadlessPluginHttpMixin,
     HeadlessWhisperXHttpMixin,
@@ -95,6 +98,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         whisperx_api: HeadlessWhisperXApi | None = None,
         plugin_api: HeadlessPluginApi | None = None,
         transfer_api: HeadlessTransferApi | None = None,
+        telegram_api: HeadlessTelegramApi | None = None,
         gallery_dl_api: HeadlessGalleryDlApi | None = None,
     ) -> None:
         ai = ai_api or HeadlessAiApi(runtime.download_root)
@@ -108,6 +112,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
         self._course_download_coordinator_closed = False
         self._course_attachment_download_service_closed = False
         transfer: HeadlessTransferApi | None = None
+        telegram: HeadlessTelegramApi | None = None
         gallery: HeadlessGalleryDlApi | None = None
         coordinator: CourseDownloadCoordinator | None = None
         attachment_downloads: CourseAttachmentDownloadService | None = None
@@ -117,6 +122,15 @@ class GalaxyApiServer(ThreadingHTTPServer):
             whisperx = whisperx_api or HeadlessWhisperXApi(runtime.download_root, context=shared_asr_context)
             plugins = plugin_api or HeadlessPluginApi(runtime.download_root)
             transfer = transfer_api or HeadlessTransferApi(runtime.download_root)
+            # Reuse Transfer Center's bounded context when the concrete production
+            # API exposes one. Older injected/fake Transfer APIs intentionally do
+            # not need to implement this optional attribute; Telegram then builds
+            # the same canonical context from runtime.download_root itself.
+            shared_transfer_context = getattr(transfer, "context", None)
+            telegram = telegram_api or HeadlessTelegramApi(
+                runtime.download_root,
+                context=shared_transfer_context,
+            )
             gallery = gallery_dl_api or HeadlessGalleryDlApi(runtime.download_root)
             if learning_api is not None:
                 coordinator = CourseDownloadCoordinator(runtime, learning_api)
@@ -135,6 +149,7 @@ class GalaxyApiServer(ThreadingHTTPServer):
             self.whisperx_api = whisperx
             self.plugin_api = plugins
             self.transfer_api = transfer
+            self.telegram_api = telegram
             self.gallery_dl_api = gallery
             self.course_download_coordinator = coordinator
             self.course_attachment_download_service = attachment_downloads
