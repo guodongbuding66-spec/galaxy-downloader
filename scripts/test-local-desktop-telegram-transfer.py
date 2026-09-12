@@ -87,7 +87,8 @@ class DesktopTelegramTransferTests(unittest.TestCase):
         telegram = source[source.index("    # Telegram"):]
         self.assertIn('telegram_token_var = tk.StringVar(value="")', telegram)
         self.assertIn('value="Bot Token 已保存" if telegram_bot_token_configured(engine_module) else "Bot Token 未保存"', telegram)
-        self.assertNotIn("_bot_token", telegram)
+        self.assertNotIn("_bot_token(", telegram)
+        self.assertNotIn("from telegram_transfer import _bot_token", source)
         self.assertNotIn("SECRETS_FILENAME", telegram)
         self.assertNotIn("read_text", telegram)
 
