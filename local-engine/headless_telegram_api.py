@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +13,14 @@ from telegram_transfer import (
     load_telegram_upload_settings,
     save_telegram_upload_settings,
     telegram_bot_token_configured,
+    upload_to_telegram,
 )
 
 _ALLOWED_SETTINGS_FIELDS = frozenset({"mode", "chatId", "sendAs", "userAdapter"})
 _ALLOWED_SECRET_FIELDS = frozenset({"botToken"})
+_ALLOWED_UPLOAD_FIELDS = frozenset({"mediaId", "filename", "extension", "caption", "autoChunk"})
+_MEDIA_ID_RE = re.compile(r"^[a-f0-9]{16,64}$")
+_EXTENSION_RE = re.compile(r"^[A-Za-z0-9]{1,12}$")
 
 
 class HeadlessTelegramApiError(RuntimeError):
@@ -35,11 +40,47 @@ def _validation_message(exc: BaseException) -> str:
     return (text or "Telegram settings request failed")[:500]
 
 
-class HeadlessTelegramApi:
-    """Authenticated facade for Telegram settings and Bot Token mutation.
+def _clean_media_id(value: object) -> str:
+    clean = str(value or "").strip().lower()
+    if not _MEDIA_ID_RE.fullmatch(clean):
+        raise HeadlessTelegramApiError("invalid media id", code="TELEGRAM_MEDIA_ID_INVALID")
+    return clean
 
-    The Bot Token value is write-only over Headless. Status endpoints expose only a
-    boolean configured/not-configured flag; uploads remain a separate contract.
+
+def _optional_text(value: object, *, label: str, max_length: int) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise HeadlessTelegramApiError(f"Telegram {label} must be a string")
+    if len(value) > max_length:
+        raise HeadlessTelegramApiError(f"Telegram {label} is too long")
+    return value
+
+
+def _translate_upload_error(exc: TelegramTransferError) -> HeadlessTelegramApiError:
+    detail = _validation_message(exc)
+    if detail == "媒体文件不可用":
+        return HeadlessTelegramApiError("media file unavailable", status=404, code="TELEGRAM_MEDIA_NOT_FOUND")
+    if detail in {
+        "请先设置 Telegram Chat ID / @username",
+        "请先保存 Telegram Bot Token",
+        "未检测到 Galaxy Telegram User Session adapter",
+    }:
+        return HeadlessTelegramApiError("Telegram upload is not configured", status=409, code="TELEGRAM_NOT_CONFIGURED")
+    if detail in {
+        "文件为空或超过 4 GB 上限",
+        "Bot 模式单文件超过 50 MB，请开启自动分片或使用 User Session adapter",
+        "文件需要过多 Telegram 分片",
+    }:
+        return HeadlessTelegramApiError("Telegram upload exceeds the configured limit", status=409, code="TELEGRAM_UPLOAD_LIMIT")
+    return HeadlessTelegramApiError("Telegram upload failed", status=502, code="TELEGRAM_UPLOAD_FAILED")
+
+
+class HeadlessTelegramApi:
+    """Authenticated facade for Telegram settings, secrets and media uploads.
+
+    The Bot Token remains write-only. Headless upload accepts only a Galaxy media
+    library id; arbitrary local file and thumbnail paths are intentionally not exposed.
     """
 
     def __init__(
@@ -85,7 +126,7 @@ class HeadlessTelegramApi:
         return {
             "settingsSupported": True,
             "secretMutationSupported": True,
-            "uploadEndpointSupported": False,
+            "uploadEndpointSupported": True,
             "botTokenConfigured": self._token_configured(),
             "modes": ["bot", "user"],
             "sendAsModes": list(SEND_MODES),
@@ -113,8 +154,6 @@ class HeadlessTelegramApi:
         try:
             saved = save_telegram_upload_settings(self.context, candidate)
         except TelegramTransferError as exc:
-            # Telegram core validation messages are intentionally user-facing and
-            # contain neither secret values nor filesystem paths.
             raise HeadlessTelegramApiError(_validation_message(exc)) from exc
         except Exception as exc:
             raise HeadlessTelegramApiError(
@@ -137,7 +176,6 @@ class HeadlessTelegramApi:
         try:
             save_telegram_upload_settings(self.context, current, bot_token=token)
         except TelegramTransferError as exc:
-            # Core validation never includes the submitted token value.
             raise HeadlessTelegramApiError(_validation_message(exc)) from exc
         except Exception as exc:
             raise HeadlessTelegramApiError(
@@ -167,3 +205,46 @@ class HeadlessTelegramApi:
                 code="TELEGRAM_SECRET_UNAVAILABLE",
             ) from exc
         return {"botTokenConfigured": self._token_configured()}
+
+    def upload_media(self, payload: object) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise HeadlessTelegramApiError("Telegram upload request must be a JSON object")
+        unknown = sorted(str(key) for key in payload if key not in _ALLOWED_UPLOAD_FIELDS)
+        if unknown:
+            raise HeadlessTelegramApiError("Telegram upload request contains unsupported fields")
+        media_id = _clean_media_id(payload.get("mediaId"))
+        filename = _optional_text(payload.get("filename"), label="filename", max_length=180)
+        extension = _optional_text(payload.get("extension"), label="extension", max_length=12).strip()
+        if extension and not _EXTENSION_RE.fullmatch(extension):
+            raise HeadlessTelegramApiError("Telegram extension must be alphanumeric")
+        caption = _optional_text(payload.get("caption"), label="caption", max_length=1024)
+        auto_chunk = payload.get("autoChunk", True)
+        if not isinstance(auto_chunk, bool):
+            raise HeadlessTelegramApiError("Telegram autoChunk must be a boolean")
+
+        current = self._current()
+        try:
+            results = upload_to_telegram(
+                self.context,
+                media_id=media_id,
+                filename=filename,
+                extension=extension,
+                caption=caption,
+                auto_chunk=auto_chunk,
+            )
+        except TelegramTransferError as exc:
+            raise _translate_upload_error(exc) from exc
+        except Exception as exc:
+            raise HeadlessTelegramApiError(
+                "Telegram upload failed",
+                status=502,
+                code="TELEGRAM_UPLOAD_FAILED",
+            ) from exc
+        return {
+            "uploaded": True,
+            "mediaId": media_id,
+            "parts": len(results),
+            "mode": current.mode,
+            "sendAs": current.send_as,
+            "autoChunk": auto_chunk,
+        }
