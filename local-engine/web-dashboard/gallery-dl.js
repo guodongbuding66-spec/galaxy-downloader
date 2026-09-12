@@ -81,6 +81,7 @@
           </div>
           <form id="gallerySubmitForm" class="gallery-form">
             <label class="field grow" for="gallerySourceUrl"><span>Source URL</span><input id="gallerySourceUrl" name="sourceUrl" type="url" required autocomplete="off" inputmode="url" placeholder="https://example.com/gallery"></label>
+            <label class="field gallery-output-field" for="galleryOutputDirectory"><span>Output directory</span><input id="galleryOutputDirectory" name="outputDirectory" type="text" maxlength="240" autocomplete="off" placeholder="Gallery/Artist" aria-describedby="galleryOutputDirectoryHelp" disabled><small id="galleryOutputDirectoryHelp">Relative to the configured download root. Leave blank to use the default.</small></label>
             <label class="field gallery-limit-field" for="galleryMaxFiles"><span>Max files</span><input id="galleryMaxFiles" name="maxFiles" type="number" min="1" max="500" step="1" value="500" required></label>
             <label class="field gallery-rate-field" for="galleryRateLimit"><span>Rate <small>MiB/s · Optional</small></span><input id="galleryRateLimit" name="rateLimitMiB" type="number" min="0.1" max="1024" step="0.1" inputmode="decimal" placeholder="Unlimited" aria-describedby="galleryRateHelp" disabled><small id="galleryRateHelp">Blank keeps gallery-dl unlimited.</small></label>
             <label class="gallery-archive-option" for="galleryArchiveEnabled">
@@ -102,7 +103,7 @@
               <small id="galleryDateHelp">Uses gallery-dl native post ordering. Some sites with pinned older posts can stop an “After” scan earlier than expected.</small>
             </fieldset>
           </form>
-          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL, file-count limit, optional Date values, optional numeric Rate, Archive boolean and explicit Resume opt-in are sent. Blank Rate means unlimited; raw gallery-dl rate strings and paths are never exposed.</div>
+          <div class="gallery-guidance" id="gallerySubmitStatus" role="status">Only the URL, file-count limit, optional relative Output directory, optional Date values, optional numeric Rate, Archive boolean and explicit Resume opt-in are sent. Output directory stays below the configured download root; absolute paths and raw gallery-dl path settings are never exposed.</div>
         </section>
 
         <section class="panel gallery-tool-panel">
@@ -215,6 +216,14 @@
     return { min, max }
   }
 
+  function outputDirectoryBounds() {
+    const advertisedLength = Number(state.engine?.outputDirectoryMaxLength)
+    const advertisedDepth = Number(state.engine?.outputDirectoryMaxDepth)
+    const maxLength = Number.isInteger(advertisedLength) && advertisedLength >= 1 && advertisedLength <= 240 ? advertisedLength : 240
+    const maxDepth = Number.isInteger(advertisedDepth) && advertisedDepth >= 1 && advertisedDepth <= 8 ? advertisedDepth : 8
+    return { maxLength, maxDepth }
+  }
+
   function renderTool() {
     const tool = state.tool || {}
     const result = state.lastToolResult || null
@@ -226,11 +235,14 @@
     const dateFilterSupported = state.engine?.dateFilterSupported === true
     const resumeSupported = state.engine?.resumeSupported === true
     const rateSupported = state.engine?.rateLimitSupported === true
+    const outputDirectorySupported = state.engine?.outputDirectorySupported === true
     const archiveControl = $('galleryArchiveEnabled')
     const resumeControl = $('galleryResumeEnabled')
     const rateControl = $('galleryRateLimit')
+    const outputControl = $('galleryOutputDirectory')
     const dateRange = $('galleryDateRange')
     const { min: rateMin, max: rateMax } = rateBounds()
+    const { maxLength: outputMaxLength, maxDepth: outputMaxDepth } = outputDirectoryBounds()
 
     setText('galleryToolInstalled', installed ? 'Installed' : 'Not installed')
     setText('galleryToolVersion', tool.version || '—')
@@ -242,12 +254,15 @@
     setText('galleryResumeHelp', resumeSupported ? "Retry reuses this task's managed directory. Existing .part files resume only when the remote server honors HTTP Range." : 'Resume is unavailable on this Headless API version.')
     setText('galleryDateHelp', dateFilterSupported ? 'Uses gallery-dl native post ordering. Some sites with pinned older posts can stop an “After” scan earlier than expected.' : 'Date filtering is unavailable on this Headless API version.')
     setText('galleryRateHelp', rateSupported ? `Blank = unlimited. Numeric limit: ${rateMin}–${rateMax} MiB/s.` : 'Rate limiting is unavailable on this Headless API version.')
+    setText('galleryOutputDirectoryHelp', outputDirectorySupported ? `Relative to the configured download root. Use / separators, up to ${outputMaxDepth} levels and ${outputMaxLength} characters; blank uses the default.` : 'Output directory selection is unavailable on this Headless API version.')
 
     rateControl.min = String(rateMin)
     rateControl.max = String(rateMax)
+    outputControl.maxLength = outputMaxLength
     if (!archiveSupported) archiveControl.checked = false
     if (!resumeSupported) resumeControl.checked = false
     if (!rateSupported) rateControl.value = ''
+    if (!outputDirectorySupported) outputControl.value = ''
     if (!dateFilterSupported) {
       $('galleryDateAfter').value = ''
       $('galleryDateBefore').value = ''
@@ -267,6 +282,7 @@
     archiveControl.disabled = state.submitPending || !installed || !acceptingJobs || !archiveSupported
     resumeControl.disabled = state.submitPending || !installed || !acceptingJobs || !resumeSupported
     rateControl.disabled = state.submitPending || !installed || !acceptingJobs || !rateSupported
+    outputControl.disabled = state.submitPending || !installed || !acceptingJobs || !outputDirectorySupported
     dateRange.disabled = state.submitPending || !installed || !acceptingJobs || !dateFilterSupported
   }
 
@@ -378,6 +394,7 @@
     const resumeEnabled = state.engine?.resumeSupported === true && $('galleryResumeEnabled').checked
     const dateFilterSupported = state.engine?.dateFilterSupported === true
     const rateSupported = state.engine?.rateLimitSupported === true
+    const outputDirectorySupported = state.engine?.outputDirectorySupported === true
     const dateAfter = dateFilterSupported ? $('galleryDateAfter').value.trim() : ''
     const dateBefore = dateFilterSupported ? $('galleryDateBefore').value.trim() : ''
     if (dateAfter && dateBefore && dateAfter >= dateBefore) {
@@ -401,6 +418,20 @@
       rateLimitMiB = parsedRate
     }
 
+    const outputDirectory = outputDirectorySupported ? $('galleryOutputDirectory').value.trim() : ''
+    const { maxLength: outputMaxLength, maxDepth: outputMaxDepth } = outputDirectoryBounds()
+    if (outputDirectory) {
+      const outputParts = outputDirectory.split('/')
+      const invalidSegment = outputParts.some((part) => !part || part === '.' || part === '..' || part !== part.trim() || part.endsWith('.') || part.includes(':') || /[\u0000-\u001f]/.test(part))
+      const invalidRoot = outputDirectory.startsWith('/') || outputDirectory.startsWith('//') || /^[A-Za-z]:/.test(outputDirectory) || outputDirectory.includes('\\')
+      if (outputDirectory.length > outputMaxLength || outputParts.length > outputMaxDepth || invalidRoot || invalidSegment) {
+        setText('gallerySubmitStatus', 'Gallery download was not queued.')
+        showError(`Output directory must be a relative path using /, with at most ${outputMaxDepth} levels and ${outputMaxLength} characters.`)
+        $('galleryOutputDirectory').focus()
+        return
+      }
+    }
+
     const payload = {
       sourceUrl: $('gallerySourceUrl').value.trim(),
       maxFiles,
@@ -410,6 +441,7 @@
     if (dateAfter) payload.dateAfter = dateAfter
     if (dateBefore) payload.dateBefore = dateBefore
     if (rateLimitMiB !== null) payload.rateLimitMiB = rateLimitMiB
+    if (outputDirectory) payload.outputDirectory = outputDirectory
 
     state.submitPending = true
     renderTool()
