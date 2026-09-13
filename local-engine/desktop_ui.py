@@ -3,9 +3,12 @@ from __future__ import annotations
 """Shared Desktop UI facade backed by the runtime design-token registry.
 
 The original implementation stays isolated in ``_desktop_ui_impl`` so this
-migration can preserve the public module contract while moving its runtime
-palette and control metrics to one semantic source of truth.
+migration can preserve the public module contract while moving runtime palette,
+typography, and primary button spacing to one semantic source of truth.
 """
+
+import tkinter as tk
+from typing import Callable
 
 import _desktop_ui_impl as _impl
 from desktop_design_tokens import (
@@ -28,6 +31,7 @@ from desktop_design_tokens import (
     TEXT,
     TYPE,
     WARNING,
+    font,
 )
 
 # Rebind the implementation's dynamic module globals before any widgets are
@@ -53,18 +57,103 @@ _RUNTIME_ALIASES = {
 for _name, _value in _RUNTIME_ALIASES.items():
     setattr(_impl, _name, _value)
 
-# Named semantic values used by ActionButton in the legacy implementation.
-# Expose them here for new code and for migration tests; the implementation
-# consumes the equivalent registry values through its runtime aliases.
 DANGER_CONTRAST = COLOR["danger_contrast"]
 SECONDARY_HOVER = COLOR["secondary_hover"]
-FONT_FAMILY = TYPE["family"]
-BUTTON_PAD_X = CONTROL["button_pad_x"]
-BUTTON_PAD_Y = CONTROL["button_pad_y"]
-BUTTON_COMPACT_PAD_X = CONTROL["button_compact_pad_x"]
-BUTTON_COMPACT_PAD_Y = CONTROL["button_compact_pad_y"]
+FONT_FAMILY = str(TYPE["family"])
+BUTTON_PAD_X = int(CONTROL["button_pad_x"])
+BUTTON_PAD_Y = int(CONTROL["button_pad_y"])
+BUTTON_COMPACT_PAD_X = int(CONTROL["button_compact_pad_x"])
+BUTTON_COMPACT_PAD_Y = int(CONTROL["button_compact_pad_y"])
 
-ActionButton = _impl.ActionButton
+# Preserve the legacy numeric type sizes exactly while sourcing the family and
+# the canonical common sizes from TYPE. The two exceptional display sizes are
+# intentionally left numeric until the next page-level typography migration.
+_TYPE_SIZE_BY_LEGACY = {
+    7: int(TYPE["caption"]),
+    8: int(TYPE["body_sm"]),
+    9: int(TYPE["body"]),
+    10: int(TYPE["title_sm"]),
+    16: int(TYPE["title"]),
+}
+
+
+class ActionButton(_impl.ActionButton):
+    """Compatibility button whose runtime metrics come from design tokens."""
+
+    def __init__(
+        self,
+        master,
+        *,
+        text: str,
+        command: Callable[[], None],
+        kind: str = "secondary",
+        width: int | None = None,
+        compact: bool = False,
+    ) -> None:
+        super().__init__(
+            master,
+            text=text,
+            command=command,
+            kind=kind,
+            width=width,
+            compact=compact,
+        )
+        self.configure(
+            font=font("body_sm" if compact else "body", bold=True),
+            padx=BUTTON_COMPACT_PAD_X if compact else BUTTON_PAD_X,
+            pady=BUTTON_COMPACT_PAD_Y if compact else BUTTON_PAD_Y,
+        )
+
+
+def _label(
+    master,
+    text: str | None = None,
+    *,
+    variable=None,
+    size=9,
+    weight="normal",
+    color=TEXT,
+    bg=PANEL,
+    **kwargs,
+):
+    widget = _ORIGINAL_LABEL(
+        master,
+        text,
+        variable=variable,
+        size=size,
+        weight=weight,
+        color=color,
+        bg=bg,
+        **kwargs,
+    )
+    token_size = _TYPE_SIZE_BY_LEGACY.get(int(size), int(size))
+    widget.configure(font=(FONT_FAMILY, token_size, weight))
+    return widget
+
+
+def _entry(master, variable: tk.Variable, width: int) -> tk.Entry:
+    widget = _ORIGINAL_ENTRY(master, variable, width)
+    widget.configure(font=font("body_sm"))
+    return widget
+
+
+def _check(master, text: str, variable: tk.BooleanVar) -> tk.Checkbutton:
+    widget = _ORIGINAL_CHECK(master, text, variable)
+    widget.configure(font=font("body_sm"))
+    return widget
+
+
+# Capture legacy helpers once, then replace the implementation globals. All
+# existing implementation functions resolve these names dynamically, so every
+# current workspace receives token-backed controls without a call-site rewrite.
+_ORIGINAL_LABEL = _impl._label
+_ORIGINAL_ENTRY = _impl._entry
+_ORIGINAL_CHECK = _impl._check
+_impl.ActionButton = ActionButton
+_impl._label = _label
+_impl._entry = _entry
+_impl._check = _check
+
 SPONSOR_LABELS = _impl.SPONSOR_LABELS
 WEBSITE_URL = _impl.WEBSITE_URL
 install_desktop_ui = _impl.install_desktop_ui
@@ -77,7 +166,14 @@ def run_self_test() -> None:
     assert ACCENT == COLOR["accent"]
     assert DANGER_CONTRAST == COLOR["danger_contrast"]
     assert BUTTON_PAD_X == CONTROL["button_pad_x"]
-    assert ActionButton.__module__ == "_desktop_ui_impl"
+    assert FONT_FAMILY == TYPE["family"]
+    assert _impl.ActionButton is ActionButton
+    assert _impl._label is _label
+    assert _impl._entry is _entry
+    assert _impl._check is _check
+    assert issubclass(ActionButton, tk.Button)
+    assert _TYPE_SIZE_BY_LEGACY[8] == TYPE["body_sm"]
+    assert _TYPE_SIZE_BY_LEGACY[9] == TYPE["body"]
 
 
 if __name__ == "__main__":
