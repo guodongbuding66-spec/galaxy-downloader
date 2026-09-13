@@ -11,7 +11,7 @@ def _path_parts(path: str) -> list[str]:
 
 
 class HeadlessTelegramHttpMixin:
-    """Composable authenticated `/v1/telegram/*` settings, secret and upload routes."""
+    """Composable authenticated `/v1/telegram/*` settings, transfer and download routes."""
 
     @property
     def telegram_api(self) -> HeadlessTelegramApi | None:
@@ -84,6 +84,26 @@ class HeadlessTelegramHttpMixin:
                 return
             if parts == ["v1", "telegram", "upload"]:
                 result = self.telegram_api.upload_media(self._read_json())  # type: ignore[union-attr,attr-defined]
+                self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
+                return
+            if parts == ["v1", "telegram", "download", "public", "browse"]:
+                result = self.telegram_api.browse_public(self._read_json())  # type: ignore[union-attr,attr-defined]
+                self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
+                return
+            if parts == ["v1", "telegram", "download", "chats"]:
+                result = self.telegram_api.list_chats(self._read_json())  # type: ignore[union-attr,attr-defined]
+                self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
+                return
+            if parts == ["v1", "telegram", "download", "chat", "browse"]:
+                result = self.telegram_api.browse_chat(self._read_json())  # type: ignore[union-attr,attr-defined]
+                self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
+                return
+            if parts == ["v1", "telegram", "download", "public"]:
+                result = self.telegram_api.download_public(self._read_json())  # type: ignore[union-attr,attr-defined]
+                self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
+                return
+            if parts == ["v1", "telegram", "download", "chat"]:
+                result = self.telegram_api.download_chat(self._read_json())  # type: ignore[union-attr,attr-defined]
                 self._json(200, {"ok": True, **result})  # type: ignore[attr-defined]
                 return
             self._json(404, {"ok": False, "error": "not found"})  # type: ignore[attr-defined]
