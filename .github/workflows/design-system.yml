@@ -6,6 +6,7 @@ on:
       - 'docs/design/**'
       - 'local-engine/desktop_design_tokens.py'
       - 'local-engine/desktop_ui.py'
+      - 'local-engine/_desktop_ui_impl.py'
       - 'scripts/test-design-system-docs.py'
       - '.github/workflows/design-system.yml'
   push:
@@ -15,6 +16,7 @@ on:
       - 'docs/design/**'
       - 'local-engine/desktop_design_tokens.py'
       - 'local-engine/desktop_ui.py'
+      - 'local-engine/_desktop_ui_impl.py'
       - 'scripts/test-design-system-docs.py'
       - '.github/workflows/design-system.yml'
 
@@ -42,4 +44,5 @@ jobs:
       - name: Validate design system contract
         run: |
           python local-engine/desktop_design_tokens.py
+          python local-engine/desktop_ui.py
           python scripts/test-design-system-docs.py
