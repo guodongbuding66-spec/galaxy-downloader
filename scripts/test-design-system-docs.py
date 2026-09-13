@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design"
 DESKTOP_UI = ROOT / "local-engine" / "desktop_ui.py"
+RUNTIME_TOKENS = ROOT / "local-engine" / "desktop_design_tokens.py"
 
 REQUIRED_FILES = (
     "DESIGN.md",
@@ -38,23 +39,24 @@ REQUIRED_COMPONENTS = (
     "Error State",
 )
 
+# compatibility alias -> (semantic runtime token, approved value)
 RUNTIME_COLORS = {
-    "BG": "#080C14",
-    "PANEL": "#0F1624",
-    "PANEL_2": "#141E30",
-    "PANEL_3": "#1A2740",
-    "BORDER": "#25324B",
-    "BORDER_SOFT": "#1C2940",
-    "TEXT": "#F6F8FC",
-    "MUTED": "#9AA6BB",
-    "SUBTLE": "#6F7D95",
-    "ACCENT": "#7C6CFF",
-    "ACCENT_HOVER": "#9185FF",
-    "CYAN": "#36D7C4",
-    "SUCCESS": "#45D18A",
-    "DANGER": "#FF6278",
-    "DANGER_HOVER": "#FF788B",
-    "WARNING": "#F2B84B",
+    "BG": ("bg", "#080C14"),
+    "PANEL": ("surface", "#0F1624"),
+    "PANEL_2": ("surface_raised", "#141E30"),
+    "PANEL_3": ("surface_elevated", "#1A2740"),
+    "BORDER": ("border", "#25324B"),
+    "BORDER_SOFT": ("border_subtle", "#1C2940"),
+    "TEXT": ("text_primary", "#F6F8FC"),
+    "MUTED": ("text_secondary", "#9AA6BB"),
+    "SUBTLE": ("text_subtle", "#6F7D95"),
+    "ACCENT": ("accent", "#7C6CFF"),
+    "ACCENT_HOVER": ("accent_hover", "#9185FF"),
+    "CYAN": ("info", "#36D7C4"),
+    "SUCCESS": ("success", "#45D18A"),
+    "DANGER": ("danger", "#FF6278"),
+    "DANGER_HOVER": ("danger_hover", "#FF788B"),
+    "WARNING": ("warning", "#F2B84B"),
 }
 
 
@@ -68,12 +70,24 @@ def assert_design_files() -> None:
 
 
 def assert_runtime_token_mapping() -> None:
-    source = DESKTOP_UI.read_text(encoding="utf-8")
-    tokens = (DESIGN / "TOKENS.md").read_text(encoding="utf-8")
-    for name, value in RUNTIME_COLORS.items():
-        pattern = rf"^{re.escape(name)}\s*=\s*\"{re.escape(value)}\"$"
-        assert re.search(pattern, source, flags=re.MULTILINE), f"runtime token changed without design update: {name}"
-        assert value in tokens and f"`{name}`" in tokens, f"token mapping missing: {name}"
+    runtime_source = RUNTIME_TOKENS.read_text(encoding="utf-8")
+    facade_source = DESKTOP_UI.read_text(encoding="utf-8")
+    docs = (DESIGN / "TOKENS.md").read_text(encoding="utf-8")
+
+    for alias, (semantic_name, value) in RUNTIME_COLORS.items():
+        semantic_pattern = rf'^\s*"{re.escape(semantic_name)}"\s*:\s*"{re.escape(value)}",?$'
+        assert re.search(semantic_pattern, runtime_source, flags=re.MULTILINE), (
+            f"runtime semantic token changed without design update: {semantic_name}"
+        )
+        alias_pattern = rf'^{re.escape(alias)}\s*=\s*COLOR\["{re.escape(semantic_name)}"\]$'
+        assert re.search(alias_pattern, runtime_source, flags=re.MULTILINE), (
+            f"runtime compatibility alias is not token-backed: {alias}"
+        )
+        assert value in docs and f"`{alias}`" in docs, f"token mapping missing: {alias}"
+        assert value not in facade_source, f"desktop_ui duplicated semantic color literal: {alias}"
+
+    assert "from desktop_design_tokens import (" in facade_source
+    assert "_RUNTIME_ALIASES" in facade_source
 
 
 def assert_component_contract() -> None:

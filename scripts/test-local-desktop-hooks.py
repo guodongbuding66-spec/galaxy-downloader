@@ -153,6 +153,7 @@ def test_history_button_registry(hooks) -> None:
 def test_single_desktop_method_owner() -> None:
     paths = [
         LOCAL_ENGINE / "desktop_ui.py",
+        LOCAL_ENGINE / "_desktop_ui_impl.py",
         LOCAL_ENGINE / "desktop_extras.py",
         LOCAL_ENGINE / "desktop_manager.py",
         LOCAL_ENGINE / "desktop_runtime.py",
@@ -186,9 +187,16 @@ def test_single_desktop_method_owner() -> None:
     assert queue_tick_owners == 1, f"expected one canonical _galaxy_queue_tick owner, got {queue_tick_owners}"
     assert queue_render_owners == 1, f"expected one canonical _render_queue owner, got {queue_render_owners}"
 
-    assert "run_after_build_ui_hooks(window)" in texts["desktop_ui.py"]
-    assert "run_queue_row_hooks(window, row, queued, index - 1, pending)" in texts["desktop_ui.py"]
-    assert "run_queue_tick_hooks(window)" in texts["desktop_ui.py"]
+    # The stable desktop_ui facade may wrap shared controls, but the canonical
+    # shell/hook owner remains singular in the isolated implementation module.
+    impl = texts["_desktop_ui_impl.py"]
+    assert "window_cls._build_ui = build_ui" in impl
+    assert "window_cls._galaxy_queue_tick = queue_tick" in impl
+    assert "run_after_build_ui_hooks(window)" in impl
+    assert "run_queue_row_hooks(window, row, queued, index - 1, pending)" in impl
+    assert "run_queue_tick_hooks(window)" in impl
+    assert "window_cls._build_ui = build_ui" not in texts["desktop_ui.py"]
+
     assert "run_job_lines_hooks(window" in texts["desktop_extras.py"]
     assert "register_after_build_ui_hook" in texts["desktop_extras.py"]
     assert "register_desktop_presenter" in texts["desktop_extras.py"]
