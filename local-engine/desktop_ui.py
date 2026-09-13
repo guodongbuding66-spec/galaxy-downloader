@@ -159,6 +159,21 @@ WEBSITE_URL = _impl.WEBSITE_URL
 install_desktop_ui = _impl.install_desktop_ui
 
 
+def __getattr__(name: str):
+    """Delegate legacy helpers that have not migrated to token wrappers yet.
+
+    Existing Desktop workspaces historically imported ``desktop_ui`` as a
+    helper module and called internal helpers such as ``_divider``. Keeping a
+    single delegation point preserves that contract while avoiding duplicate
+    implementations in this facade. Token-overridden names above always win.
+    """
+
+    try:
+        return getattr(_impl, name)
+    except AttributeError as exc:
+        raise AttributeError(f"module 'desktop_ui' has no attribute {name!r}") from exc
+
+
 def run_self_test() -> None:
     for name, expected in _RUNTIME_ALIASES.items():
         assert getattr(_impl, name) == expected
@@ -171,6 +186,8 @@ def run_self_test() -> None:
     assert _impl._label is _label
     assert _impl._entry is _entry
     assert _impl._check is _check
+    assert _divider is _impl._divider
+    assert _section_title is _impl._section_title
     assert issubclass(ActionButton, tk.Button)
     assert _TYPE_SIZE_BY_LEGACY[8] == TYPE["body_sm"]
     assert _TYPE_SIZE_BY_LEGACY[9] == TYPE["body"]
