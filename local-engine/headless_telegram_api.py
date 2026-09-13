@@ -5,6 +5,13 @@ from pathlib import Path
 from typing import Any
 
 from headless_transfer_api import HeadlessTransferContext, build_headless_transfer_context
+from telegram_download import (
+    browse_public_telegram,
+    browse_telegram_chat,
+    download_public_telegram,
+    download_telegram_chat,
+    list_telegram_chats,
+)
 from telegram_transfer import (
     SEND_MODES,
     TelegramTransferError,
@@ -19,8 +26,14 @@ from telegram_transfer import (
 _ALLOWED_SETTINGS_FIELDS = frozenset({"mode", "chatId", "sendAs", "userAdapter"})
 _ALLOWED_SECRET_FIELDS = frozenset({"botToken"})
 _ALLOWED_UPLOAD_FIELDS = frozenset({"mediaId", "filename", "extension", "caption", "autoChunk"})
+_ALLOWED_PUBLIC_BROWSE_FIELDS = frozenset({"source", "limit", "beforeMessageId", "mediaKinds"})
+_ALLOWED_CHAT_LIST_FIELDS = frozenset({"query", "limit"})
+_ALLOWED_CHAT_BROWSE_FIELDS = frozenset({"chatKey", "limit", "beforeMessageId", "mediaKinds"})
+_ALLOWED_PUBLIC_DOWNLOAD_FIELDS = frozenset({"source", "messageIds", "limit", "mediaKinds"})
+_ALLOWED_CHAT_DOWNLOAD_FIELDS = frozenset({"chatKey", "messageIds", "limit", "mediaKinds"})
 _MEDIA_ID_RE = re.compile(r"^[a-f0-9]{16,64}$")
 _EXTENSION_RE = re.compile(r"^[A-Za-z0-9]{1,12}$")
+_DOWNLOAD_MAX_ITEMS = 100
 
 
 class HeadlessTelegramApiError(RuntimeError):
@@ -57,6 +70,67 @@ def _optional_text(value: object, *, label: str, max_length: int) -> str:
     return value
 
 
+def _request_object(payload: object, allowed: frozenset[str], *, label: str) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HeadlessTelegramApiError(f"Telegram {label} request must be a JSON object")
+    unknown = sorted(str(key) for key in payload if key not in allowed)
+    if unknown:
+        raise HeadlessTelegramApiError(f"Telegram {label} request contains unsupported fields")
+    return payload
+
+
+def _required_text(payload: dict[str, Any], key: str, *, label: str, max_length: int) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise HeadlessTelegramApiError(f"Telegram {label} must be a non-empty string")
+    if len(value) > max_length:
+        raise HeadlessTelegramApiError(f"Telegram {label} is too long")
+    return value.strip()
+
+
+def _bounded_integer(value: object, *, label: str, default: int, minimum: int, maximum: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise HeadlessTelegramApiError(f"Telegram {label} must be an integer")
+    if value < minimum or value > maximum:
+        raise HeadlessTelegramApiError(f"Telegram {label} is out of range")
+    return value
+
+
+def _media_kinds_payload(value: object) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or not value:
+        raise HeadlessTelegramApiError("Telegram mediaKinds must be a non-empty array")
+    if len(value) > 3 or any(not isinstance(item, str) for item in value):
+        raise HeadlessTelegramApiError("Telegram mediaKinds is invalid")
+    cleaned: list[str] = []
+    for item in value:
+        kind = item.strip().lower()
+        if kind not in {"image", "video", "document"}:
+            raise HeadlessTelegramApiError("Telegram mediaKinds is invalid")
+        if kind not in cleaned:
+            cleaned.append(kind)
+    return cleaned
+
+
+def _message_ids_payload(value: object) -> list[int] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise HeadlessTelegramApiError("Telegram messageIds must be an array")
+    if len(value) > _DOWNLOAD_MAX_ITEMS:
+        raise HeadlessTelegramApiError("Telegram messageIds exceeds the batch limit")
+    result: list[int] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, int) or item < 1 or item > 2_147_483_647:
+            raise HeadlessTelegramApiError("Telegram messageIds contains an invalid id")
+        if item not in result:
+            result.append(item)
+    return result
+
+
 def _translate_upload_error(exc: TelegramTransferError) -> HeadlessTelegramApiError:
     detail = _validation_message(exc)
     if detail == "媒体文件不可用":
@@ -76,12 +150,40 @@ def _translate_upload_error(exc: TelegramTransferError) -> HeadlessTelegramApiEr
     return HeadlessTelegramApiError("Telegram upload failed", status=502, code="TELEGRAM_UPLOAD_FAILED")
 
 
-class HeadlessTelegramApi:
-    """Authenticated facade for Telegram settings, secrets and media uploads.
+def _translate_download_error(exc: TelegramTransferError) -> HeadlessTelegramApiError:
+    detail = _validation_message(exc)
+    if detail == "未检测到 Galaxy Telegram User Session adapter":
+        return HeadlessTelegramApiError(
+            "Telegram download is not configured",
+            status=409,
+            code="TELEGRAM_DOWNLOAD_NOT_CONFIGURED",
+        )
+    validation_markers = (
+        "请输入 Telegram",
+        "只支持 Telegram",
+        "Telegram public username",
+        "Telegram public link",
+        "Telegram message id",
+        "Telegram mediaKinds",
+        "Telegram batch",
+        "Telegram chat key",
+        "Public Post",
+    )
+    if any(detail.startswith(marker) for marker in validation_markers):
+        return HeadlessTelegramApiError(
+            "invalid Telegram download request",
+            status=400,
+            code="TELEGRAM_DOWNLOAD_INVALID_REQUEST",
+        )
+    return HeadlessTelegramApiError(
+        "Telegram download failed",
+        status=502,
+        code="TELEGRAM_DOWNLOAD_FAILED",
+    )
 
-    The Bot Token remains write-only. Headless upload accepts only a Galaxy media
-    library id; arbitrary local file and thumbnail paths are intentionally not exposed.
-    """
+
+class HeadlessTelegramApi:
+    """Authenticated facade for bounded Telegram settings, transfer and download operations."""
 
     def __init__(
         self,
@@ -127,6 +229,10 @@ class HeadlessTelegramApi:
             "settingsSupported": True,
             "secretMutationSupported": True,
             "uploadEndpointSupported": True,
+            "downloadEndpointSupported": True,
+            "chatBrowserSupported": True,
+            "downloadMaxItems": _DOWNLOAD_MAX_ITEMS,
+            "downloadMediaKinds": ["image", "video", "document"],
             "botTokenConfigured": self._token_configured(),
             "modes": ["bot", "user"],
             "sendAsModes": list(SEND_MODES),
@@ -138,18 +244,13 @@ class HeadlessTelegramApi:
         return {"settings": current.public_payload(), "botTokenConfigured": self._token_configured()}
 
     def save_settings(self, payload: object) -> dict[str, Any]:
-        if not isinstance(payload, dict):
-            raise HeadlessTelegramApiError("Telegram settings request must be a JSON object")
-        unknown = sorted(str(key) for key in payload if key not in _ALLOWED_SETTINGS_FIELDS)
-        if unknown:
-            raise HeadlessTelegramApiError("Telegram settings request contains unsupported fields")
-
+        request = _request_object(payload, _ALLOWED_SETTINGS_FIELDS, label="settings")
         current = self._current()
         candidate = TelegramUploadSettings(
-            mode=payload.get("mode", current.mode),
-            chat_id=payload.get("chatId", current.chat_id),
-            send_as=payload.get("sendAs", current.send_as),
-            user_adapter=payload.get("userAdapter", current.user_adapter),
+            mode=request.get("mode", current.mode),
+            chat_id=request.get("chatId", current.chat_id),
+            send_as=request.get("sendAs", current.send_as),
+            user_adapter=request.get("userAdapter", current.user_adapter),
         )
         try:
             saved = save_telegram_upload_settings(self.context, candidate)
@@ -164,12 +265,10 @@ class HeadlessTelegramApi:
         return {"settings": saved.public_payload(), "botTokenConfigured": self._token_configured()}
 
     def save_bot_token(self, payload: object) -> dict[str, Any]:
-        if not isinstance(payload, dict):
-            raise HeadlessTelegramApiError("Telegram Bot Token request must be a JSON object")
-        unknown = sorted(str(key) for key in payload if key not in _ALLOWED_SECRET_FIELDS)
-        if unknown or "botToken" not in payload:
+        request = _request_object(payload, _ALLOWED_SECRET_FIELDS, label="Bot Token")
+        if "botToken" not in request:
             raise HeadlessTelegramApiError("Telegram Bot Token request contains unsupported fields")
-        token = payload.get("botToken")
+        token = request.get("botToken")
         if not isinstance(token, str) or not token.strip():
             raise HeadlessTelegramApiError("Telegram Bot Token must be a non-empty string")
         current = self._current()
@@ -186,9 +285,8 @@ class HeadlessTelegramApi:
         return {"botTokenConfigured": self._token_configured()}
 
     def clear_bot_token(self, payload: object) -> dict[str, Any]:
-        if not isinstance(payload, dict):
-            raise HeadlessTelegramApiError("Telegram Bot Token clear request must be a JSON object")
-        if payload:
+        request = _request_object(payload, frozenset(), label="Bot Token clear")
+        if request:
             raise HeadlessTelegramApiError("Telegram Bot Token clear request must be empty")
         try:
             clear_telegram_bot_token(self.context)
@@ -207,18 +305,14 @@ class HeadlessTelegramApi:
         return {"botTokenConfigured": self._token_configured()}
 
     def upload_media(self, payload: object) -> dict[str, Any]:
-        if not isinstance(payload, dict):
-            raise HeadlessTelegramApiError("Telegram upload request must be a JSON object")
-        unknown = sorted(str(key) for key in payload if key not in _ALLOWED_UPLOAD_FIELDS)
-        if unknown:
-            raise HeadlessTelegramApiError("Telegram upload request contains unsupported fields")
-        media_id = _clean_media_id(payload.get("mediaId"))
-        filename = _optional_text(payload.get("filename"), label="filename", max_length=180)
-        extension = _optional_text(payload.get("extension"), label="extension", max_length=12).strip()
+        request = _request_object(payload, _ALLOWED_UPLOAD_FIELDS, label="upload")
+        media_id = _clean_media_id(request.get("mediaId"))
+        filename = _optional_text(request.get("filename"), label="filename", max_length=180)
+        extension = _optional_text(request.get("extension"), label="extension", max_length=12).strip()
         if extension and not _EXTENSION_RE.fullmatch(extension):
             raise HeadlessTelegramApiError("Telegram extension must be alphanumeric")
-        caption = _optional_text(payload.get("caption"), label="caption", max_length=1024)
-        auto_chunk = payload.get("autoChunk", True)
+        caption = _optional_text(request.get("caption"), label="caption", max_length=1024)
+        auto_chunk = request.get("autoChunk", True)
         if not isinstance(auto_chunk, bool):
             raise HeadlessTelegramApiError("Telegram autoChunk must be a boolean")
 
@@ -248,3 +342,94 @@ class HeadlessTelegramApi:
             "sendAs": current.send_as,
             "autoChunk": auto_chunk,
         }
+
+    def browse_public(self, payload: object) -> dict[str, Any]:
+        request = _request_object(payload, _ALLOWED_PUBLIC_BROWSE_FIELDS, label="public browse")
+        source = _required_text(request, "source", label="source", max_length=500)
+        limit = _bounded_integer(request.get("limit"), label="limit", default=50, minimum=1, maximum=100)
+        before = _bounded_integer(
+            request.get("beforeMessageId"), label="beforeMessageId", default=0, minimum=0, maximum=2_147_483_647
+        )
+        kinds = _media_kinds_payload(request.get("mediaKinds"))
+        try:
+            return browse_public_telegram(
+                self.context,
+                source,
+                limit=limit,
+                before_message_id=before,
+                media_kinds=kinds,
+            )
+        except TelegramTransferError as exc:
+            raise _translate_download_error(exc) from exc
+        except Exception as exc:
+            raise HeadlessTelegramApiError("Telegram download failed", status=502, code="TELEGRAM_DOWNLOAD_FAILED") from exc
+
+    def list_chats(self, payload: object) -> dict[str, Any]:
+        request = _request_object(payload, _ALLOWED_CHAT_LIST_FIELDS, label="chat list")
+        query = _optional_text(request.get("query"), label="query", max_length=120)
+        limit = _bounded_integer(request.get("limit"), label="limit", default=50, minimum=1, maximum=100)
+        try:
+            return list_telegram_chats(self.context, query=query, limit=limit)
+        except TelegramTransferError as exc:
+            raise _translate_download_error(exc) from exc
+        except Exception as exc:
+            raise HeadlessTelegramApiError("Telegram download failed", status=502, code="TELEGRAM_DOWNLOAD_FAILED") from exc
+
+    def browse_chat(self, payload: object) -> dict[str, Any]:
+        request = _request_object(payload, _ALLOWED_CHAT_BROWSE_FIELDS, label="chat browse")
+        chat_key = _required_text(request, "chatKey", label="chatKey", max_length=120)
+        limit = _bounded_integer(request.get("limit"), label="limit", default=50, minimum=1, maximum=100)
+        before = _bounded_integer(
+            request.get("beforeMessageId"), label="beforeMessageId", default=0, minimum=0, maximum=2_147_483_647
+        )
+        kinds = _media_kinds_payload(request.get("mediaKinds"))
+        try:
+            return browse_telegram_chat(
+                self.context,
+                chat_key,
+                limit=limit,
+                before_message_id=before,
+                media_kinds=kinds,
+            )
+        except TelegramTransferError as exc:
+            raise _translate_download_error(exc) from exc
+        except Exception as exc:
+            raise HeadlessTelegramApiError("Telegram download failed", status=502, code="TELEGRAM_DOWNLOAD_FAILED") from exc
+
+    def download_public(self, payload: object) -> dict[str, Any]:
+        request = _request_object(payload, _ALLOWED_PUBLIC_DOWNLOAD_FIELDS, label="public download")
+        source = _required_text(request, "source", label="source", max_length=500)
+        ids = _message_ids_payload(request.get("messageIds"))
+        limit = _bounded_integer(request.get("limit"), label="limit", default=20, minimum=1, maximum=100)
+        kinds = _media_kinds_payload(request.get("mediaKinds"))
+        try:
+            return download_public_telegram(
+                self.context,
+                source,
+                message_ids=ids,
+                limit=limit,
+                media_kinds=kinds,
+            )
+        except TelegramTransferError as exc:
+            raise _translate_download_error(exc) from exc
+        except Exception as exc:
+            raise HeadlessTelegramApiError("Telegram download failed", status=502, code="TELEGRAM_DOWNLOAD_FAILED") from exc
+
+    def download_chat(self, payload: object) -> dict[str, Any]:
+        request = _request_object(payload, _ALLOWED_CHAT_DOWNLOAD_FIELDS, label="chat download")
+        chat_key = _required_text(request, "chatKey", label="chatKey", max_length=120)
+        ids = _message_ids_payload(request.get("messageIds"))
+        limit = _bounded_integer(request.get("limit"), label="limit", default=20, minimum=1, maximum=100)
+        kinds = _media_kinds_payload(request.get("mediaKinds"))
+        try:
+            return download_telegram_chat(
+                self.context,
+                chat_key,
+                message_ids=ids,
+                limit=limit,
+                media_kinds=kinds,
+            )
+        except TelegramTransferError as exc:
+            raise _translate_download_error(exc) from exc
+        except Exception as exc:
+            raise HeadlessTelegramApiError("Telegram download failed", status=502, code="TELEGRAM_DOWNLOAD_FAILED") from exc
