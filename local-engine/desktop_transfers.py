@@ -7,6 +7,7 @@ from tkinter import filedialog, ttk
 
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook
+from desktop_telegram_download import build_telegram_download_tab
 from telegram_transfer import (
     TelegramTransferError,
     TelegramUploadSettings,
@@ -586,6 +587,8 @@ def _show_transfer_center(window, engine_module) -> None:
     mode_combo.bind("<<ComboboxSelected>>", refresh_telegram_mode)
     refresh_telegram_mode()
 
+    build_telegram_download_tab(notebook, dialog, engine_module)
+
     def refresh_status() -> None:
         data = transfer_status(engine_module)
         torrent = "aria2c/Torrent ✓" if data["torrentReady"] else "aria2c 未安装"
@@ -650,6 +653,7 @@ def run_desktop_transfers_self_test() -> None:
     assert callable(download_torrent)
     assert callable(receive_p2p_file)
     assert callable(upload_to_telegram)
+    assert callable(build_telegram_download_tab)
     settings = _telegram_settings("BOT", " @example_user ", "VIDEO", "galaxy-telegram-user")
     assert settings.mode == "bot"
     assert settings.chat_id == "@example_user"
