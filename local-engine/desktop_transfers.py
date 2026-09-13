@@ -7,6 +7,7 @@ from tkinter import filedialog, ttk
 
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook
+from desktop_qr_transfer import build_qr_transfer_tab
 from desktop_telegram_download import build_telegram_download_tab
 from telegram_transfer import (
     TelegramTransferError,
@@ -74,7 +75,7 @@ def _show_transfer_center(window, engine_module) -> None:
     ui._label(shell, "传输中心", size=16, weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
         shell,
-        "Torrent / Magnet、局域网一次性短码 P2P，以及显式配置的 Telegram Bot / User Session 传输。",
+        "Torrent / Magnet、局域网 P2P / QR 手机接收，以及显式配置的 Telegram Bot / User Session 传输。",
         size=8,
         color=ui.MUTED,
         bg=ui.BG,
@@ -588,6 +589,7 @@ def _show_transfer_center(window, engine_module) -> None:
     refresh_telegram_mode()
 
     build_telegram_download_tab(notebook, dialog, engine_module)
+    qr_tab = build_qr_transfer_tab(notebook, dialog)
 
     def refresh_status() -> None:
         data = transfer_status(engine_module)
@@ -599,13 +601,18 @@ def _show_transfer_center(window, engine_module) -> None:
             telegram = "Telegram Bot ✓"
         else:
             telegram = "Telegram Bot 未配置"
-        status_var.set(f"{torrent} · LAN P2P ✓ · {telegram} · discovery UDP {data['p2pDiscoveryPort']}")
+        status_var.set(f"{torrent} · LAN P2P/QR ✓ · {telegram} · discovery UDP {data['p2pDiscoveryPort']}")
 
     footer = tk.Frame(shell, bg=ui.BG)
     footer.pack(fill="x", pady=(10, 0))
     ui.ActionButton(footer, text="刷新检测", command=refresh_status, kind="ghost", compact=True).pack(side="left")
 
     def close() -> None:
+        try:
+            qr_tab._galaxy_qr_stop()  # type: ignore[attr-defined]
+        except (AttributeError, tk.TclError):
+            # Closing must remain fail-soft if Tk has already destroyed the tab.
+            pass
         stop_sender()
         window._transfer_center_window = None
         dialog.destroy()
@@ -624,7 +631,7 @@ def _add_transfer_entry(window, engine_module) -> None:
     text = tk.Frame(card, bg=ui.PANEL_2)
     text.pack(side="left", fill="x", expand=True)
     ui._label(text, "传输中心", size=8, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
-    ui._label(text, "Magnet/Torrent · 局域网 P2P · Telegram", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w", pady=(2, 0))
+    ui._label(text, "Magnet/Torrent · 局域网 P2P/QR · Telegram", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w", pady=(2, 0))
     ui.ActionButton(
         card,
         text="打开传输中心",
@@ -654,6 +661,7 @@ def run_desktop_transfers_self_test() -> None:
     assert callable(receive_p2p_file)
     assert callable(upload_to_telegram)
     assert callable(build_telegram_download_tab)
+    assert callable(build_qr_transfer_tab)
     settings = _telegram_settings("BOT", " @example_user ", "VIDEO", "galaxy-telegram-user")
     assert settings.mode == "bot"
     assert settings.chat_id == "@example_user"
