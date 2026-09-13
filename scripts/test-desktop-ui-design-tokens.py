@@ -56,10 +56,14 @@ def main() -> None:
     assert ui._TYPE_SIZE_BY_LEGACY[10] == tokens.TYPE["title_sm"]
     assert ui._TYPE_SIZE_BY_LEGACY[16] == tokens.TYPE["title"]
 
-    # Public entrypoints used by engine.py and workspace hooks remain stable.
     assert callable(ui.install_desktop_ui)
     assert isinstance(ui.SPONSOR_LABELS, tuple)
     assert ui.WEBSITE_URL.startswith("https://")
+
+    # Runtime semantic colors must stay centralized in desktop_design_tokens.py.
+    source = (LOCAL_ENGINE / "desktop_ui.py").read_text(encoding="utf-8")
+    for value in tokens.COLOR.values():
+        assert value not in source, f"semantic color literal leaked into desktop_ui.py: {value}"
 
     print("Desktop UI design-token facade contract passed")
 
