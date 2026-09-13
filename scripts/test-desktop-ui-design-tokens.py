@@ -45,6 +45,18 @@ def main() -> None:
     assert impl._entry is ui._entry
     assert impl._check is ui._check
 
+    # Workspaces historically call these helpers through the desktop_ui module.
+    # Unmigrated helpers must delegate to the isolated implementation instead of
+    # disappearing during the facade migration.
+    for helper in ("_divider", "_section_title", "_status_chip", "_metric"):
+        assert getattr(ui, helper) is getattr(impl, helper), helper
+    try:
+        getattr(ui, "_definitely_missing_helper")
+    except AttributeError:
+        pass
+    else:
+        raise AssertionError("unknown helpers must still raise AttributeError")
+
     assert ui.FONT_FAMILY == tokens.TYPE["family"]
     assert ui.BUTTON_PAD_X == tokens.CONTROL["button_pad_x"]
     assert ui.BUTTON_PAD_Y == tokens.CONTROL["button_pad_y"]
