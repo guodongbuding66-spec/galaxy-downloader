@@ -42,7 +42,7 @@ class DesktopTelegramDownloadTests(unittest.TestCase):
             'selectmode="extended"',
             "to=100",
             "ids = ids[:100]",
-            '"下载文件只写入 Galaxy 管理的 Telegram 目录。"',
+            "下载文件只写入 Galaxy 管理的 Telegram 目录。",
         ):
             self.assertIn(marker, source)
 
