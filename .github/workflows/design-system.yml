@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'docs/design/**'
+      - 'local-engine/desktop_design_tokens.py'
       - 'local-engine/desktop_ui.py'
       - 'scripts/test-design-system-docs.py'
       - '.github/workflows/design-system.yml'
@@ -12,6 +13,7 @@ on:
       - main
     paths:
       - 'docs/design/**'
+      - 'local-engine/desktop_design_tokens.py'
       - 'local-engine/desktop_ui.py'
       - 'scripts/test-design-system-docs.py'
       - '.github/workflows/design-system.yml'
@@ -38,4 +40,6 @@ jobs:
           python-version: '3.13'
 
       - name: Validate design system contract
-        run: python scripts/test-design-system-docs.py
+        run: |
+          python local-engine/desktop_design_tokens.py
+          python scripts/test-design-system-docs.py
