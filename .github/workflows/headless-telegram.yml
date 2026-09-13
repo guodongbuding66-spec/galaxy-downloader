@@ -8,9 +8,11 @@ on:
       - "local-engine/headless_telegram_http.py"
       - "local-engine/headless_transfer_api.py"
       - "local-engine/telegram_transfer.py"
+      - "local-engine/telegram_download.py"
       - "scripts/test-local-headless-telegram-settings.py"
       - "scripts/test-local-headless-telegram-secret.py"
       - "scripts/test-local-headless-telegram-upload.py"
+      - "scripts/test-local-headless-telegram-download.py"
       - ".github/workflows/headless-telegram.yml"
   workflow_dispatch:
 
@@ -40,12 +42,16 @@ jobs:
           local-engine/headless_telegram_http.py
           local-engine/headless_transfer_api.py
           local-engine/telegram_transfer.py
+          local-engine/telegram_download.py
           scripts/test-local-headless-telegram-settings.py
           scripts/test-local-headless-telegram-secret.py
           scripts/test-local-headless-telegram-upload.py
+          scripts/test-local-headless-telegram-download.py
       - name: Test Headless Telegram public settings contract
         run: python scripts/test-local-headless-telegram-settings.py
       - name: Test Headless Telegram Bot Token mutation contract
         run: python scripts/test-local-headless-telegram-secret.py
       - name: Test Headless Telegram media upload contract
         run: python scripts/test-local-headless-telegram-upload.py
+      - name: Test Headless Telegram browse and download contract
+        run: python scripts/test-local-headless-telegram-download.py
