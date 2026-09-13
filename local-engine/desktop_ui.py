@@ -186,8 +186,8 @@ def run_self_test() -> None:
     assert _impl._label is _label
     assert _impl._entry is _entry
     assert _impl._check is _check
-    assert _divider is _impl._divider
-    assert _section_title is _impl._section_title
+    assert __getattr__("_divider") is _impl._divider
+    assert __getattr__("_section_title") is _impl._section_title
     assert issubclass(ActionButton, tk.Button)
     assert _TYPE_SIZE_BY_LEGACY[8] == TYPE["body_sm"]
     assert _TYPE_SIZE_BY_LEGACY[9] == TYPE["body"]
