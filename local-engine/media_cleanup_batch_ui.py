@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -31,6 +32,7 @@ _MODE_LABELS = {
     MODE_IMAGE_INPAINT: "图片 Inpainting",
     MODE_TRACKED_VIDEO: "移动水印跟踪",
 }
+_MODE_BY_LABEL = {label: value for value, label in _MODE_LABELS.items()}
 _STATE_LABELS = {
     QUEUED: "等待",
     RUNNING: "处理中",
@@ -46,16 +48,25 @@ def _parse_nonnegative_float(value: object, *, name: str) -> float:
         parsed = float(str(value).strip())
     except (TypeError, ValueError) as exc:
         raise MediaCleanupBatchError(f"{name} 必须是数字") from exc
+    if not math.isfinite(parsed):
+        raise MediaCleanupBatchError(f"{name} 必须是有限数字")
+    if parsed < 0:
+        raise MediaCleanupBatchError(f"{name} 不能小于 0")
+    return parsed
+
+
+def _parse_nonnegative_int(value: object, *, name: str) -> int:
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise MediaCleanupBatchError(f"{name} 必须是整数") from exc
     if parsed < 0:
         raise MediaCleanupBatchError(f"{name} 不能小于 0")
     return parsed
 
 
 def _parse_positive_int(value: object, *, name: str) -> int:
-    try:
-        parsed = int(str(value).strip())
-    except (TypeError, ValueError) as exc:
-        raise MediaCleanupBatchError(f"{name} 必须是整数") from exc
+    parsed = _parse_nonnegative_int(value, name=name)
     if parsed < 1:
         raise MediaCleanupBatchError(f"{name} 必须大于 0")
     return parsed
@@ -78,8 +89,8 @@ def build_batch_specs(
     if clean_mode not in _MODE_LABELS:
         raise MediaCleanupBatchError("批处理模式无效")
     region = {
-        "x": int(_parse_nonnegative_float(x, name="X")),
-        "y": int(_parse_nonnegative_float(y, name="Y")),
+        "x": _parse_nonnegative_int(x, name="X"),
+        "y": _parse_nonnegative_int(y, name="Y"),
         "width": _parse_positive_int(width, name="宽度"),
         "height": _parse_positive_int(height, name="高度"),
     }
@@ -193,13 +204,14 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
     footer.pack(fill="x", pady=(inline, 0))
 
     row_ids: dict[str, str] = {}
+    poll_after_id: list[str | None] = [None]
 
     def selected_task_id() -> str:
         selected = tree.selection()
         if not selected:
             return ""
-        iid = selected[0]
-        return str(tree.set(iid, "file") and tree.item(iid, "tags")[0] if tree.item(iid, "tags") else "")
+        tags = tree.item(selected[0], "tags")
+        return str(tags[0]) if tags else ""
 
     def render_record(record: dict[str, Any]) -> None:
         task_id = str(record.get("id") or "")
@@ -222,7 +234,7 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
         else:
             row_ids[task_id] = tree.insert("", "end", values=values, tags=(task_id, state))
 
-    def refresh() -> None:
+    def render_snapshot() -> None:
         if not dialog.winfo_exists():
             return
         snapshot = center.snapshot()
@@ -241,10 +253,15 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
             f"等待 {snapshot['waitingCount']} · 处理中 {snapshot['activeCount']} · "
             f"已结束 {len(snapshot['completed'])} · 并发 {snapshot['concurrencyLimit']}"
         )
+
+    def poll_snapshot() -> None:
+        if not dialog.winfo_exists():
+            return
+        render_snapshot()
         try:
-            dialog.after(500, refresh)
+            poll_after_id[0] = dialog.after(500, poll_snapshot)
         except tk.TclError:
-            pass
+            poll_after_id[0] = None
 
     def add_batch() -> None:
         files = filedialog.askopenfilenames(
@@ -267,7 +284,7 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
         ui._label(body, f"已选择 {len(files)} 个文件", size="title_sm", weight="bold", bg=ui.BG).pack(anchor="w")
         ui._label(
             body,
-            "坐标使用原始媒体像素。移动水印跟踪要求视频且仅一个区域；Auto 会对图片使用 Inpainting，对视频使用固定区域。",
+            "坐标使用原始媒体像素。移动水印跟踪要求视频且仅一个区域；自动模式对图片使用 Inpainting，对视频使用固定区域。",
             size="body_sm",
             color=ui.MUTED,
             bg=ui.BG,
@@ -275,7 +292,7 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
             justify="left",
         ).pack(anchor="w", pady=(micro, section))
 
-        mode_var = tk.StringVar(value=MODE_AUTO)
+        mode_label_var = tk.StringVar(value=_MODE_LABELS[MODE_AUTO])
         x_var = tk.StringVar(value="0")
         y_var = tk.StringVar(value="0")
         w_var = tk.StringVar(value="160")
@@ -283,7 +300,9 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
         anchor_var = tk.StringVar(value="0")
 
         def field(label: str, variable: tk.StringVar, row: int) -> None:
-            ui._label(body, label, size="body_sm", color=ui.SUBTLE, bg=ui.BG).grid(row=row, column=0, sticky="w", pady=(0, inline))
+            ui._label(body, label, size="body_sm", color=ui.SUBTLE, bg=ui.BG).grid(
+                row=row, column=0, sticky="w", pady=(0, inline)
+            )
             entry = tk.Entry(
                 body,
                 textvariable=variable,
@@ -295,15 +314,19 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
                 highlightthickness=1,
                 highlightbackground=ui.BORDER,
                 highlightcolor=ui.ACCENT,
+                takefocus=True,
             )
             entry.grid(row=row, column=1, sticky="ew", padx=(inline, 0), pady=(0, inline), ipady=micro)
 
-        ui._label(body, "模式", size="body_sm", color=ui.SUBTLE, bg=ui.BG).grid(row=0, column=0, sticky="w", pady=(0, inline))
+        ui._label(body, "模式", size="body_sm", color=ui.SUBTLE, bg=ui.BG).grid(
+            row=0, column=0, sticky="w", pady=(0, inline)
+        )
         mode_box = ttk.Combobox(
             body,
-            textvariable=mode_var,
-            values=(MODE_AUTO, MODE_STATIC, MODE_IMAGE_INPAINT, MODE_TRACKED_VIDEO),
+            textvariable=mode_label_var,
+            values=tuple(_MODE_BY_LABEL),
             state="readonly",
+            takefocus=True,
         )
         mode_box.grid(row=0, column=1, sticky="ew", padx=(inline, 0), pady=(0, inline), ipady=micro)
         field("区域 X", x_var, 1)
@@ -318,9 +341,10 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
 
         def submit() -> None:
             try:
+                mode = _MODE_BY_LABEL.get(mode_label_var.get(), MODE_AUTO)
                 specs = build_batch_specs(
                     list(files),
-                    mode=mode_var.get(),
+                    mode=mode,
                     x=x_var.get(),
                     y=y_var.get(),
                     width=w_var.get(),
@@ -333,10 +357,12 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
                 return
             status_var.set(f"已加入 {len(accepted)} 个任务")
             form.destroy()
-            refresh()
+            render_snapshot()
 
         ui.ActionButton(actions, text="取消", command=form.destroy, kind="ghost", compact=True).pack(side="right")
-        ui.ActionButton(actions, text="加入队列", command=submit, kind="secondary", compact=True).pack(side="right", padx=(0, inline))
+        ui.ActionButton(actions, text="加入队列", command=submit, kind="secondary", compact=True).pack(
+            side="right", padx=(0, inline)
+        )
 
     def cancel_selected() -> None:
         task_id = selected_task_id()
@@ -344,13 +370,15 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
             status_var.set("请先选择一个任务")
             return
         result = center.cancel(task_id)
-        status_var.set("已请求取消" if result.get("cancelled") else str(result.get("code") or result.get("state") or "无法取消"))
-        refresh()
+        status_var.set(
+            "已请求取消" if result.get("cancelled") else str(result.get("code") or result.get("state") or "无法取消")
+        )
+        render_snapshot()
 
     def clear_waiting() -> None:
         count = center.clear_waiting()
         status_var.set(f"已取消 {count} 个等待任务")
-        refresh()
+        render_snapshot()
 
     def open_result() -> None:
         task_id = selected_task_id()
@@ -367,16 +395,27 @@ def _show_batch_center(window: Any, engine_module: Any) -> None:
             messagebox.showerror(engine_module.APP_NAME, f"无法打开结果：\n{exc}", parent=dialog)
 
     ui.ActionButton(footer, text="添加批处理", command=add_batch, kind="primary").pack(side="left")
-    ui.ActionButton(footer, text="取消所选", command=cancel_selected, kind="ghost", compact=True).pack(side="left", padx=(inline, 0))
-    ui.ActionButton(footer, text="清空等待", command=clear_waiting, kind="ghost", compact=True).pack(side="left", padx=(inline, 0))
+    ui.ActionButton(footer, text="取消所选", command=cancel_selected, kind="ghost", compact=True).pack(
+        side="left", padx=(inline, 0)
+    )
+    ui.ActionButton(footer, text="清空等待", command=clear_waiting, kind="ghost", compact=True).pack(
+        side="left", padx=(inline, 0)
+    )
     ui.ActionButton(footer, text="打开结果", command=open_result, kind="secondary", compact=True).pack(side="right")
 
     def close_dialog() -> None:
+        after_id = poll_after_id[0]
+        poll_after_id[0] = None
+        if after_id is not None:
+            try:
+                dialog.after_cancel(after_id)
+            except tk.TclError:
+                pass
         window._media_cleanup_batch_window = None
         dialog.destroy()
 
     dialog.protocol("WM_DELETE_WINDOW", close_dialog)
-    refresh()
+    poll_snapshot()
 
 
 def _add_batch_entry(window: Any) -> None:
@@ -450,12 +489,27 @@ def run_media_cleanup_batch_ui_self_test() -> None:
         anchor_seconds="2.5",
     )
     assert tracked[0]["anchorSeconds"] == 2.5
+    for invalid in (-1, "1.5"):
+        try:
+            build_batch_specs(("/tmp/example.mp4",), mode=MODE_AUTO, x=invalid, y=0, width=1, height=1)
+        except MediaCleanupBatchError:
+            pass
+        else:
+            raise AssertionError(f"invalid pixel coordinate {invalid!r} must fail closed")
     try:
-        build_batch_specs(("/tmp/example.mp4",), mode=MODE_AUTO, x=-1, y=0, width=1, height=1)
+        build_batch_specs(
+            ("/tmp/example.mp4",),
+            mode=MODE_TRACKED_VIDEO,
+            x=0,
+            y=0,
+            width=1,
+            height=1,
+            anchor_seconds="nan",
+        )
     except MediaCleanupBatchError:
         pass
     else:
-        raise AssertionError("negative coordinates must fail closed")
+        raise AssertionError("non-finite anchor time must fail closed")
 
 
 if __name__ == "__main__":
