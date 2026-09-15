@@ -15,6 +15,7 @@ from course_download_sessions import (
 )
 from headless_output_tracking import clear_output_tracking, new_output_tracking_id
 from hotmart_course_provider import (
+    install_headless_hotmart_authorization,
     register_hotmart_download_authorization,
     resolve_authorized_hotmart_media,
     revoke_hotmart_download_authorization,
@@ -33,6 +34,10 @@ class CourseDownloadCoordinator:
     def __init__(self, runtime, learning_api, *, hotmart_resolver=None) -> None:
         if runtime is None or learning_api is None:
             raise CourseDownloadCoordinatorError("course download coordinator requires runtime and learning api")
+        # Install after the normal browser/output/metadata layers have been
+        # composed by Headless/Desktop startup. The wrapper activates only when
+        # a valid process-local Hotmart authorization token is present.
+        install_headless_hotmart_authorization()
         self.runtime = runtime
         self.learning_api = learning_api
         self._hotmart_resolver = hotmart_resolver or resolve_authorized_hotmart_media
