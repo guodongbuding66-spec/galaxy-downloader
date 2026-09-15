@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
 import secrets
 import shutil
 import subprocess
@@ -121,11 +119,16 @@ def _looks_like_media(url: str, mime_type: str = "") -> bool:
     return path.endswith(_MEDIA_EXTENSIONS) or mime.startswith(_MEDIA_MIME_PREFIXES) or mime in _MEDIA_MIME_EXACT
 
 
-def _candidate_score(candidate: HotmartMediaCandidate) -> tuple[int, int, int]:
+def _candidate_score(candidate: HotmartMediaCandidate) -> tuple[int, int, int, int]:
     kind_score = {"hls": 500, "dash": 450, "video": 400, "audio": 250, "media": 100}.get(candidate.kind, 0)
-    source_score = {"dom": 40, "network": 30, "performance": 20}.get(candidate.source, 0)
+    # HLS/DASH can only be accepted after the manifest response body is inspected.
+    # Prefer the network copy carrying a CDP request id over a DOM/performance
+    # duplicate of the same signed URL so deduplication never throws away the
+    # evidence required for the DRM gate.
+    manifest_evidence_score = 80 if candidate.kind in {"hls", "dash"} and candidate.request_id else 0
+    source_score = {"network": 40, "dom": 30, "performance": 20}.get(candidate.source, 0)
     signed_score = 10 if urlparse(candidate.url).query else 0
-    return kind_score, source_score, signed_score
+    return kind_score, manifest_evidence_score, source_score, signed_score
 
 
 def rank_hotmart_candidates(values: list[HotmartMediaCandidate]) -> list[HotmartMediaCandidate]:
@@ -254,16 +257,44 @@ def _dom_media_candidates(client: _HotmartProbeClient) -> list[HotmartMediaCandi
     return result
 
 
-def _manifest_body(client: _HotmartProbeClient, candidate: HotmartMediaCandidate) -> str:
+def _manifest_body(client: Any, candidate: HotmartMediaCandidate) -> str:
     if not candidate.request_id or candidate.kind not in {"hls", "dash"}:
         return ""
     try:
         payload = client.call("Network.getResponseBody", {"requestId": candidate.request_id}, timeout=2.0)
     except Exception:
         return ""
-    if payload.get("base64Encoded"):
+    if not isinstance(payload, dict) or payload.get("base64Encoded"):
         return ""
     return str(payload.get("body") or "")[:2_000_000]
+
+
+def select_verified_hotmart_candidate(client: Any, ranked: list[HotmartMediaCandidate]) -> HotmartMediaCandidate:
+    """Return a candidate only after a fail-closed DRM verification pass.
+
+    Direct files are bounded by the page-level EME detector. HLS/DASH manifests
+    additionally require the exact response body captured by CDP; an unavailable
+    manifest is never treated as implicitly DRM-free.
+    """
+
+    saw_drm_manifest = False
+    saw_unverified_manifest = False
+    for candidate in ranked:
+        if candidate.kind in {"hls", "dash"}:
+            body = _manifest_body(client, candidate)
+            if not body:
+                saw_unverified_manifest = True
+                continue
+            if manifest_uses_drm(body, kind=candidate.kind):
+                saw_drm_manifest = True
+                continue
+        return candidate
+
+    if saw_unverified_manifest:
+        raise HotmartCourseError("Hotmart 媒体清单无法安全验证 DRM 状态，Galaxy 已拒绝下载")
+    if saw_drm_manifest:
+        raise HotmartDrmProtectedError("Hotmart 页面发现的媒体清单包含 DRM/ContentProtection，Galaxy 已拒绝下载")
+    raise HotmartCourseError("当前已授权 Hotmart 页面没有可下载的非 DRM 媒体")
 
 
 def resolve_authorized_hotmart_media(source_url: object, browser: object) -> dict[str, Any]:
@@ -273,7 +304,7 @@ def resolve_authorized_hotmart_media(source_url: object, browser: object) -> dic
     signatures, and never decrypts protected streams. It launches a temporary
     browser, imports the user's explicitly selected browser cookies through the
     existing bounded cookie loader, observes resources the page itself obtains,
-    and returns one non-DRM public media URL for the normal download runtime.
+    and returns one verified non-DRM public media URL for the normal runtime.
     """
 
     page_url = _validated_hotmart_url(source_url)
@@ -338,19 +369,15 @@ def resolve_authorized_hotmart_media(source_url: object, browser: object) -> dic
             if not ranked:
                 raise HotmartCourseError("当前已授权 Hotmart 页面没有发现可下载的非 DRM 媒体；请确认已登录并打开具体课程/课时页面")
 
-            for candidate in ranked:
-                body = _manifest_body(client, candidate)
-                if body and manifest_uses_drm(body, kind=candidate.kind):
-                    continue
-                return {
-                    "mediaUrl": candidate.url,
-                    "referer": page_url,
-                    "browser": browser_id,
-                    "kind": candidate.kind,
-                    "mimeType": candidate.mime_type,
-                    "candidateCount": len(ranked),
-                }
-            raise HotmartDrmProtectedError("Hotmart 页面发现的媒体清单均包含 DRM/ContentProtection，Galaxy 已拒绝下载")
+            candidate = select_verified_hotmart_candidate(client, ranked)
+            return {
+                "mediaUrl": candidate.url,
+                "referer": page_url,
+                "browser": browser_id,
+                "kind": candidate.kind,
+                "mimeType": candidate.mime_type,
+                "candidateCount": len(ranked),
+            }
         except (HotmartCourseError, HotmartDrmProtectedError) as exc:
             last_error = exc
         except Exception as exc:  # noqa: BLE001
@@ -427,9 +454,10 @@ def install_headless_hotmart_authorization() -> None:
     """
 
     global _AUTH_INSTALLED
-    if _AUTH_INSTALLED:
-        return
     current_download_options = _service._download_options
+    if getattr(current_download_options, "_galaxy_hotmart_authorization", False):
+        _AUTH_INSTALLED = True
+        return
 
     def download_options_with_hotmart(payload: dict[str, Any], root: Path, progress_hook):
         options = current_download_options(payload, root, progress_hook)
@@ -452,13 +480,14 @@ def run_hotmart_course_provider_self_test() -> None:
     signed = "https://cdn.example.com/master.m3u8?Policy=abc&Signature=xyz&Key-Pair-Id=123"
     values = rank_hotmart_candidates(
         [
+            HotmartMediaCandidate(signed, "application/vnd.apple.mpegurl", "dom", ""),
             HotmartMediaCandidate(signed, "application/vnd.apple.mpegurl", "network", "1"),
-            HotmartMediaCandidate(signed, "application/vnd.apple.mpegurl", "performance", ""),
             HotmartMediaCandidate("https://cdn.example.com/video.mp4", "video/mp4", "dom", ""),
             HotmartMediaCandidate("blob:https://cdn.example.com/123", "video/mp4", "dom", ""),
         ]
     )
     assert values and values[0].url == signed
+    assert values[0].request_id == "1"
     assert len([item for item in values if item.url == signed]) == 1
     assert manifest_uses_drm("<ContentProtection schemeIdUri='urn:uuid:" + _WIDEVINE_UUID + "'/>", kind="dash")
     assert manifest_uses_drm("#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://key\"", kind="hls")
