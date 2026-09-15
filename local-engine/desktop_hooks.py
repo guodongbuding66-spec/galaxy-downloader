@@ -157,16 +157,21 @@ def _run(window: Any, attribute: str) -> None:
 
 
 def _install_builtin_runtime_hooks(window_cls: type) -> None:
-    """Install product hooks that must exist even when entrypoint wiring is minimal.
+    """Install product hooks when the full Local Engine package is importable.
 
-    Keep this list deliberately small. The cleanup batch task center is a direct
-    extension of the already-installed cleanup workbench and needs a shutdown
-    hook as well as an Advanced-panel entry. Installing it here guarantees that
-    source, packaged, and test EngineWindow builds all share the same lifecycle.
+    ``desktop_hooks`` is intentionally unit-testable as a standalone registry
+    module, so an isolated import may not put the sibling Local Engine modules
+    on ``sys.path``. That special case stays fail-soft. Missing dependencies of
+    an otherwise importable feature are not swallowed.
     """
     if window_cls.__dict__.get(_BUILTIN_RUNTIME_HOOKS_ATTR, False):
         return
-    from media_cleanup_batch_ui import install_media_cleanup_batch_ui
+    try:
+        from media_cleanup_batch_ui import install_media_cleanup_batch_ui
+    except ModuleNotFoundError as exc:
+        if exc.name == "media_cleanup_batch_ui":
+            return
+        raise
 
     install_media_cleanup_batch_ui(window_cls)
     setattr(window_cls, _BUILTIN_RUNTIME_HOOKS_ATTR, True)
