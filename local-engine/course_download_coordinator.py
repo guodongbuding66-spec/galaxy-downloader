@@ -202,6 +202,15 @@ class CourseDownloadCoordinator:
         state = str(snapshot.get("state") or "").strip().lower()
         if not job_id or state not in _TERMINAL_STATES:
             return
+
+        # The transient browser authorization is only required while yt-dlp is
+        # actively fetching the resolved media. Revoke it as soon as the job is
+        # terminal even if the Course session is missing or metadata sync fails.
+        token = self._hotmart_tokens.pop(job_id, "")
+        if token:
+            with suppress(Exception):
+                revoke_hotmart_download_authorization(token)
+
         try:
             session = course_download_session(job_id)
         except CourseDownloadSessionError:
