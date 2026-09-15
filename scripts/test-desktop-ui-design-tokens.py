@@ -15,6 +15,7 @@ def main() -> None:
     ui = importlib.import_module("desktop_ui")
     impl = importlib.import_module("_desktop_ui_impl")
 
+    tokens.run_self_test()
     ui.run_self_test()
 
     aliases = {
@@ -62,11 +63,33 @@ def main() -> None:
     assert ui.BUTTON_PAD_Y == tokens.CONTROL["button_pad_y"]
     assert ui.BUTTON_COMPACT_PAD_X == tokens.CONTROL["button_compact_pad_x"]
     assert ui.BUTTON_COMPACT_PAD_Y == tokens.CONTROL["button_compact_pad_y"]
+    assert ui.FOCUS_RING_WIDTH == tokens.CONTROL["focus_ring_width"]
+    assert tokens.CONTROL["target_min"] >= 44
+    assert tokens.CONTROL["focus_ring_width"] >= 2
     assert ui._TYPE_SIZE_BY_LEGACY[7] == tokens.TYPE["caption"]
     assert ui._TYPE_SIZE_BY_LEGACY[8] == tokens.TYPE["body_sm"]
     assert ui._TYPE_SIZE_BY_LEGACY[9] == tokens.TYPE["body"]
     assert ui._TYPE_SIZE_BY_LEGACY[10] == tokens.TYPE["title_sm"]
     assert ui._TYPE_SIZE_BY_LEGACY[16] == tokens.TYPE["title"]
+    assert ui._TYPE_SIZE_BY_LEGACY[17] == tokens.TYPE["brand"]
+    assert ui._TYPE_SIZE_BY_LEGACY[18] == tokens.TYPE["display"]
+
+    # Classic Tk buttons do not expose a cross-platform pixel min-height. The
+    # shared padding helper must therefore fill the difference between measured
+    # text line height and the 44px interaction-target token.
+    for line_height in (12, 16, 20, 32, 44, 64):
+        for compact in (False, True):
+            pad_y = tokens.target_padding(line_height, compact=compact)
+            base = tokens.CONTROL["button_compact_pad_y" if compact else "button_pad_y"]
+            assert pad_y >= base
+            if line_height < tokens.CONTROL["target_min"]:
+                assert line_height + 2 * pad_y >= tokens.CONTROL["target_min"]
+    try:
+        tokens.target_padding(0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("target padding must reject invalid font metrics")
 
     assert callable(ui.install_desktop_ui)
     assert isinstance(ui.SPONSOR_LABELS, tuple)

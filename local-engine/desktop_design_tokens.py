@@ -62,6 +62,7 @@ TYPE = MappingProxyType(
         "body": 9,
         "title_sm": 10,
         "title": 16,
+        "brand": 17,
         "display": 18,
     }
 )
@@ -82,8 +83,9 @@ CONTROL = MappingProxyType(
         "button_pad_y": 8,
         "button_compact_pad_x": 9,
         "button_compact_pad_y": 5,
-        "target_min": 36,
+        "target_min": 44,
         "target_comfortable": 44,
+        "focus_ring_width": 2,
     }
 )
 
@@ -124,16 +126,41 @@ def font(size_token: str = "body", *, bold: bool = False) -> tuple[str, int] | t
     return (family, size, "bold") if bold else (family, size)
 
 
+def target_padding(line_height: int, *, compact: bool = False) -> int:
+    """Return vertical padding that keeps a text control at least 44px tall.
+
+    Tk classic buttons express padding rather than a pixel minimum-height. The
+    runtime facade measures the active font line height and uses this helper to
+    satisfy the shared interaction-target contract without hard-coding a
+    platform-specific font metric.
+    """
+    if line_height <= 0:
+        raise ValueError("line_height must be positive")
+    base = int(CONTROL["button_compact_pad_y"] if compact else CONTROL["button_pad_y"])
+    required = max(0, int(CONTROL["target_min"]) - int(line_height))
+    return max(base, (required + 1) // 2)
+
+
 def run_self_test() -> None:
     assert COLOR["focus"] == COLOR["accent_hover"]
     assert SPACE["1"] == 4 and SPACE["10"] == 40
     assert RADIUS["pill"] == 999
-    assert TYPE["caption"] < TYPE["body"] < TYPE["title"]
+    assert TYPE["caption"] < TYPE["body"] < TYPE["title"] < TYPE["brand"] < TYPE["display"]
     assert MOTION["fast_ms"] < MOTION["normal_ms"] < MOTION["slow_ms"]
-    assert CONTROL["target_min"] >= 36
+    assert CONTROL["target_min"] >= 44
+    assert CONTROL["focus_ring_width"] >= 2
     assert BG == "#080C14" and ACCENT == "#7C6CFF" and DANGER == "#FF6278"
     assert font("body") == ("Segoe UI", 9)
     assert font("body_sm", bold=True) == ("Segoe UI", 8, "bold")
+    assert target_padding(16) == 14
+    assert target_padding(16, compact=True) == 14
+    assert target_padding(64) == CONTROL["button_pad_y"]
+    try:
+        target_padding(0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid line height must fail closed")
     try:
         COLOR["bg"] = "#000000"  # type: ignore[index]
     except TypeError:

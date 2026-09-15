@@ -7,6 +7,9 @@
 - [x] Shared label, entry, and checkbox typography uses the token type scale.
 - [x] Existing public color aliases remain available for workspace compatibility.
 - [x] Dedicated import/alias contract test runs in the Design System workflow.
-- [ ] Remaining page-level spacing and exceptional display sizes migrated.
+- [x] Exceptional 17/18pt display sizes are represented by named type tokens.
+- [x] Shared action buttons enforce the 44px interaction-target contract from measured font metrics.
+- [x] Shared action buttons expose token-backed visible keyboard focus rings.
+- [ ] Remaining page-level spacing migrated.
 - [ ] Transfer/workspace-specific components migrated.
 - [ ] Final motion/accessibility pass completed.
