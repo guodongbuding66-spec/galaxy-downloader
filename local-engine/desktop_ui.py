@@ -4,10 +4,12 @@ from __future__ import annotations
 
 The original implementation stays isolated in ``_desktop_ui_impl`` so this
 migration can preserve the public module contract while moving runtime palette,
-typography, and primary button spacing to one semantic source of truth.
+typography, interaction metrics, and primary button spacing to one semantic
+source of truth.
 """
 
 import tkinter as tk
+import tkinter.font as tkfont
 from typing import Callable
 
 import _desktop_ui_impl as _impl
@@ -22,6 +24,7 @@ from desktop_design_tokens import (
     CYAN,
     DANGER,
     DANGER_HOVER,
+    FOCUS,
     MUTED,
     PANEL,
     PANEL_2,
@@ -32,6 +35,7 @@ from desktop_design_tokens import (
     TYPE,
     WARNING,
     font,
+    target_padding,
 )
 
 # Rebind the implementation's dynamic module globals before any widgets are
@@ -64,21 +68,25 @@ BUTTON_PAD_X = int(CONTROL["button_pad_x"])
 BUTTON_PAD_Y = int(CONTROL["button_pad_y"])
 BUTTON_COMPACT_PAD_X = int(CONTROL["button_compact_pad_x"])
 BUTTON_COMPACT_PAD_Y = int(CONTROL["button_compact_pad_y"])
+FOCUS_RING_WIDTH = int(CONTROL["focus_ring_width"])
 
-# Preserve the legacy numeric type sizes exactly while sourcing the family and
-# the canonical common sizes from TYPE. The two exceptional display sizes are
-# intentionally left numeric until the next page-level typography migration.
+# Preserve the legacy numeric call signature while sourcing every currently
+# used Desktop type size from TYPE. This lets page call sites migrate to named
+# tokens independently without leaving 17/18pt display exceptions outside the
+# runtime scale.
 _TYPE_SIZE_BY_LEGACY = {
     7: int(TYPE["caption"]),
     8: int(TYPE["body_sm"]),
     9: int(TYPE["body"]),
     10: int(TYPE["title_sm"]),
     16: int(TYPE["title"]),
+    17: int(TYPE["brand"]),
+    18: int(TYPE["display"]),
 }
 
 
 class ActionButton(_impl.ActionButton):
-    """Compatibility button whose runtime metrics come from design tokens."""
+    """Compatibility button backed by shared type, target, and focus tokens."""
 
     def __init__(
         self,
@@ -98,10 +106,22 @@ class ActionButton(_impl.ActionButton):
             width=width,
             compact=compact,
         )
+        button_font = font("body_sm" if compact else "body", bold=True)
+        try:
+            line_height = int(tkfont.Font(master=self, font=button_font).metrics("linespace"))
+        except (tk.TclError, RuntimeError):
+            # Keep construction resilient on unusual Tk builds. The fallback is
+            # deterministic and still drives target_padding through the token
+            # contract rather than adding a second hard-coded padding value.
+            line_height = max(1, int(TYPE["body_sm" if compact else "body"]) * 2)
         self.configure(
-            font=font("body_sm" if compact else "body", bold=True),
+            font=button_font,
             padx=BUTTON_COMPACT_PAD_X if compact else BUTTON_PAD_X,
-            pady=BUTTON_COMPACT_PAD_Y if compact else BUTTON_PAD_Y,
+            pady=target_padding(line_height, compact=compact),
+            takefocus=True,
+            highlightthickness=FOCUS_RING_WIDTH,
+            highlightbackground=self._base,
+            highlightcolor=FOCUS,
         )
 
 
@@ -126,7 +146,12 @@ def _label(
         bg=bg,
         **kwargs,
     )
-    token_size = _TYPE_SIZE_BY_LEGACY.get(int(size), int(size))
+    if isinstance(size, str):
+        if size not in TYPE or size == "family":
+            raise KeyError(f"unknown type token: {size}")
+        token_size = int(TYPE[size])
+    else:
+        token_size = _TYPE_SIZE_BY_LEGACY.get(int(size), int(size))
     widget.configure(font=(FONT_FAMILY, token_size, weight))
     return widget
 
@@ -182,6 +207,8 @@ def run_self_test() -> None:
     assert DANGER_CONTRAST == COLOR["danger_contrast"]
     assert BUTTON_PAD_X == CONTROL["button_pad_x"]
     assert FONT_FAMILY == TYPE["family"]
+    assert FOCUS_RING_WIDTH == CONTROL["focus_ring_width"]
+    assert CONTROL["target_min"] >= 44
     assert _impl.ActionButton is ActionButton
     assert _impl._label is _label
     assert _impl._entry is _entry
@@ -191,6 +218,9 @@ def run_self_test() -> None:
     assert issubclass(ActionButton, tk.Button)
     assert _TYPE_SIZE_BY_LEGACY[8] == TYPE["body_sm"]
     assert _TYPE_SIZE_BY_LEGACY[9] == TYPE["body"]
+    assert _TYPE_SIZE_BY_LEGACY[17] == TYPE["brand"]
+    assert _TYPE_SIZE_BY_LEGACY[18] == TYPE["display"]
+    assert target_padding(16) >= BUTTON_PAD_Y
 
 
 if __name__ == "__main__":
