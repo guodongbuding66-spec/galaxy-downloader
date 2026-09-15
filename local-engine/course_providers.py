@@ -8,7 +8,6 @@ from url_policy import validated_public_http_url
 
 BROWSERS = frozenset({"none", "edge", "chrome", "firefox", "brave"})
 SUPPORTED_PROVIDER_IDS = frozenset({"udemy", "hotmart"})
-_HOTMART_DOWNLOAD_UNAVAILABLE = "Hotmart 目前仅支持课程来源识别；授权下载适配器尚未实现"
 
 
 class CourseProviderError(RuntimeError):
@@ -60,13 +59,13 @@ _UDEMY_DESCRIPTOR = CourseProviderDescriptor(
 _HOTMART_DESCRIPTOR = CourseProviderDescriptor(
     id="hotmart",
     name="Hotmart",
-    status="discovery",
+    status="authorized",
     requires_authorized_session=True,
-    supports_browser_cookies=False,
+    supports_browser_cookies=True,
     supports_subtitles=False,
     supports_attachments=False,
-    download_available=False,
-    download_unavailable_reason=_HOTMART_DOWNLOAD_UNAVAILABLE,
+    download_available=True,
+    download_unavailable_reason="",
     drm_bypass_supported=False,
 )
 
@@ -77,10 +76,7 @@ _PROVIDER_DESCRIPTORS = {
 
 
 def list_course_providers() -> list[dict[str, Any]]:
-    return [
-        _UDEMY_DESCRIPTOR.public_payload(),
-        _HOTMART_DESCRIPTOR.public_payload(),
-    ]
+    return [_UDEMY_DESCRIPTOR.public_payload(), _HOTMART_DESCRIPTOR.public_payload()]
 
 
 def _is_udemy_host(host: str) -> bool:
@@ -93,8 +89,7 @@ def _is_hotmart_club_host(host: str) -> bool:
     suffix = ".club.hotmart.com"
     if not clean.endswith(suffix):
         return False
-    club_subdomain = clean[: -len(suffix)].strip(".")
-    return bool(club_subdomain)
+    return bool(clean[: -len(suffix)].strip("."))
 
 
 def _validated_course_url(source_url: object) -> str:
@@ -141,12 +136,7 @@ def _clean_provider(value: object, *, detected: str) -> str:
     return requested
 
 
-def resolve_course_provider(
-    source_url: object,
-    *,
-    provider: object = "auto",
-) -> dict[str, Any]:
-    """Resolve provider identity and safe capabilities without constructing a download plan."""
+def resolve_course_provider(source_url: object, *, provider: object = "auto") -> dict[str, Any]:
     url = _validated_course_url(source_url)
     detected = _detect_provider_from_validated_url(url)
     provider_id = _clean_provider(provider, detected=detected)
@@ -186,13 +176,41 @@ def build_course_provider_plan(
     provider_id = str(resolution["provider"])
     url = str(resolution["sourceUrl"])
     if not resolution["downloadAvailable"]:
-        raise CourseProviderError(
-            str(resolution.get("downloadUnavailableReason") or "课程 Provider 尚未实现")
-        )
+        raise CourseProviderError(str(resolution.get("downloadUnavailableReason") or "课程 Provider 尚未实现"))
+
+    browser_id = _clean_browser(browser)
+    if provider_id == "hotmart":
+        if browser_id == "none":
+            raise CourseProviderError("Hotmart 下载需要选择已登录 Hotmart 的浏览器 Cookie 来源")
+        engine_payload = {
+            # This remains the trusted member-area page until the coordinator
+            # resolves a transient non-DRM media URL from the authorized session.
+            "sourceUrl": url,
+            "videoQuality": "best",
+            "audioQuality": "best",
+            "includeAudio": True,
+            "includeSubtitle": False,
+            "subtitleMode": "none",
+            "includeCourseAttachments": False,
+            "splitChapters": False,
+            "browser": browser_id,
+            "collectionMode": "single",
+            "displayTitle": "Hotmart 授权课程下载",
+            "_hotmartResolveAuthorizedMedia": True,
+        }
+        return {
+            **resolution,
+            "enginePayload": engine_payload,
+            "warnings": [
+                "仅下载当前浏览器账号已经有权访问并实际加载的媒体资源",
+                "不绕过 DRM/EME/Widevine；受保护课程会明确拒绝",
+                "Hotmart 当前阶段不声明字幕或附件自动下载支持",
+            ],
+        }
+
     if provider_id != "udemy":
         raise CourseProviderError("课程 Provider 尚未实现")
 
-    browser_id = _clean_browser(browser)
     engine_payload = {
         "sourceUrl": url,
         "videoQuality": "best",
@@ -210,9 +228,4 @@ def build_course_provider_plan(
     if browser_id == "none":
         warnings.append("付费或已报名课程通常需要选择已登录 Udemy 的浏览器 Cookie 来源")
     warnings.append("仅处理账号已获授权访问的课程；不提供 DRM 绕过")
-
-    return {
-        **resolution,
-        "enginePayload": engine_payload,
-        "warnings": warnings,
-    }
+    return {**resolution, "enginePayload": engine_payload, "warnings": warnings}
