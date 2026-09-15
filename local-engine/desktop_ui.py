@@ -125,6 +125,15 @@ class ActionButton(_impl.ActionButton):
         )
 
 
+def _resolve_type_size(size: int | str) -> int:
+    if isinstance(size, str):
+        if size not in TYPE or size == "family":
+            raise KeyError(f"unknown type token: {size}")
+        return int(TYPE[size])
+    numeric = int(size)
+    return int(_TYPE_SIZE_BY_LEGACY.get(numeric, numeric))
+
+
 def _label(
     master,
     text: str | None = None,
@@ -136,22 +145,21 @@ def _label(
     bg=PANEL,
     **kwargs,
 ):
+    # Resolve named typography before delegating to the legacy constructor.
+    # `_desktop_ui_impl._label` feeds `size` directly into Tk, so passing a
+    # semantic name such as "body_sm" through unchanged fails during real UI
+    # construction even though a later configure() would have been valid.
+    token_size = _resolve_type_size(size)
     widget = _ORIGINAL_LABEL(
         master,
         text,
         variable=variable,
-        size=size,
+        size=token_size,
         weight=weight,
         color=color,
         bg=bg,
         **kwargs,
     )
-    if isinstance(size, str):
-        if size not in TYPE or size == "family":
-            raise KeyError(f"unknown type token: {size}")
-        token_size = int(TYPE[size])
-    else:
-        token_size = _TYPE_SIZE_BY_LEGACY.get(int(size), int(size))
     widget.configure(font=(FONT_FAMILY, token_size, weight))
     return widget
 
@@ -220,6 +228,9 @@ def run_self_test() -> None:
     assert _TYPE_SIZE_BY_LEGACY[9] == TYPE["body"]
     assert _TYPE_SIZE_BY_LEGACY[17] == TYPE["brand"]
     assert _TYPE_SIZE_BY_LEGACY[18] == TYPE["display"]
+    assert _resolve_type_size("body_sm") == TYPE["body_sm"]
+    assert _resolve_type_size("title") == TYPE["title"]
+    assert _resolve_type_size(9) == TYPE["body"]
     assert target_padding(16) >= BUTTON_PAD_Y
 
 
