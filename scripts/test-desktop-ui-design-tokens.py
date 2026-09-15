@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib
 import pathlib
 import sys
@@ -8,6 +9,42 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 LOCAL_ENGINE = ROOT / "local-engine"
 if str(LOCAL_ENGINE) not in sys.path:
     sys.path.insert(0, str(LOCAL_ENGINE))
+
+
+def _contains_numeric_literal(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return True
+    return any(_contains_numeric_literal(child) for child in ast.iter_child_nodes(node))
+
+
+def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
+    """Reject direct numeric padx/pady values in the core Desktop page source."""
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(source_path))
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg in {"padx", "pady"} and _contains_numeric_literal(keyword.value):
+                    violations.append(f"line {getattr(keyword, 'lineno', '?')}: {keyword.arg}")
+        elif isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value in {"padx", "pady"}
+                    and value is not None
+                    and _contains_numeric_literal(value)
+                ):
+                    violations.append(f"line {getattr(key, 'lineno', '?')}: {key.value}")
+
+    assert not violations, "raw page spacing literals found: " + ", ".join(violations)
+    assert 'from desktop_design_tokens import LAYOUT' in source
+    assert 'LAYOUT["page"]' in source
+    assert 'LAYOUT["section"]' in source
+    assert 'LAYOUT["content"]' in source
+    assert 'LAYOUT["inline"]' in source
+    assert 'LAYOUT["micro"]' in source
 
 
 def main() -> None:
@@ -66,6 +103,8 @@ def main() -> None:
     assert ui.FOCUS_RING_WIDTH == tokens.CONTROL["focus_ring_width"]
     assert tokens.CONTROL["target_min"] >= 44
     assert tokens.CONTROL["focus_ring_width"] >= 2
+    assert tuple(tokens.LAYOUT.values()) == (0, 4, 8, 12, 16, 20, 24)
+    assert all(value in tokens.SPACE.values() for value in tokens.LAYOUT.values())
     assert ui._TYPE_SIZE_BY_LEGACY[7] == tokens.TYPE["caption"]
     assert ui._TYPE_SIZE_BY_LEGACY[8] == tokens.TYPE["body_sm"]
     assert ui._TYPE_SIZE_BY_LEGACY[9] == tokens.TYPE["body"]
@@ -99,6 +138,8 @@ def main() -> None:
     source = (LOCAL_ENGINE / "desktop_ui.py").read_text(encoding="utf-8")
     for value in tokens.COLOR.values():
         assert value not in source, f"semantic color literal leaked into desktop_ui.py: {value}"
+
+    _assert_spacing_is_tokenized(LOCAL_ENGINE / "_desktop_ui_impl.py")
 
     print("Desktop UI design-token facade contract passed")
 
