@@ -62,10 +62,10 @@ def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
 
     # The detector must reject real spacing literals while allowing numeric
     # constants that exist only in control-flow predicates.
-    assert _contains_raw_spacing_literal(ast.parse("padx=4", mode="eval").body.value)
-    conditional = ast.parse('padx=(SPACE_A if index == 0 else SPACE_B)', mode="eval").body.value
+    assert _contains_raw_spacing_literal(ast.parse("4", mode="eval").body)
+    conditional = ast.parse("(SPACE_A if index == 0 else SPACE_B)", mode="eval").body
     assert not _contains_raw_spacing_literal(conditional)
-    conditional_bad = ast.parse('padx=(4 if index == 0 else SPACE_B)', mode="eval").body.value
+    conditional_bad = ast.parse("(4 if index == 0 else SPACE_B)", mode="eval").body
     assert _contains_raw_spacing_literal(conditional_bad)
 
 
