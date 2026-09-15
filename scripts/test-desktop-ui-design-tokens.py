@@ -11,10 +11,24 @@ if str(LOCAL_ENGINE) not in sys.path:
     sys.path.insert(0, str(LOCAL_ENGINE))
 
 
-def _contains_numeric_literal(node: ast.AST) -> bool:
-    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-        return True
-    return any(_contains_numeric_literal(child) for child in ast.iter_child_nodes(node))
+def _contains_raw_spacing_literal(node: ast.AST) -> bool:
+    """Detect numeric values that directly contribute to a padding expression.
+
+    Deliberately do not walk an IfExp condition: a layout expression such as
+    ``TOKEN_A if index == 0 else TOKEN_B`` contains a numeric control-flow
+    literal, but neither padding branch is a magic spacing value.
+    """
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, (int, float)) and not isinstance(node.value, bool)
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return any(_contains_raw_spacing_literal(item) for item in node.elts)
+    if isinstance(node, ast.IfExp):
+        return _contains_raw_spacing_literal(node.body) or _contains_raw_spacing_literal(node.orelse)
+    if isinstance(node, ast.BinOp):
+        return _contains_raw_spacing_literal(node.left) or _contains_raw_spacing_literal(node.right)
+    if isinstance(node, ast.UnaryOp):
+        return _contains_raw_spacing_literal(node.operand)
+    return False
 
 
 def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
@@ -26,7 +40,7 @@ def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             for keyword in node.keywords:
-                if keyword.arg in {"padx", "pady"} and _contains_numeric_literal(keyword.value):
+                if keyword.arg in {"padx", "pady"} and _contains_raw_spacing_literal(keyword.value):
                     violations.append(f"line {getattr(keyword, 'lineno', '?')}: {keyword.arg}")
         elif isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values):
@@ -34,7 +48,7 @@ def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
                     isinstance(key, ast.Constant)
                     and key.value in {"padx", "pady"}
                     and value is not None
-                    and _contains_numeric_literal(value)
+                    and _contains_raw_spacing_literal(value)
                 ):
                     violations.append(f"line {getattr(key, 'lineno', '?')}: {key.value}")
 
@@ -45,6 +59,14 @@ def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
     assert 'LAYOUT["content"]' in source
     assert 'LAYOUT["inline"]' in source
     assert 'LAYOUT["micro"]' in source
+
+    # The detector must reject real spacing literals while allowing numeric
+    # constants that exist only in control-flow predicates.
+    assert _contains_raw_spacing_literal(ast.parse("padx=4", mode="eval").body.value)
+    conditional = ast.parse('padx=(SPACE_A if index == 0 else SPACE_B)', mode="eval").body.value
+    assert not _contains_raw_spacing_literal(conditional)
+    conditional_bad = ast.parse('padx=(4 if index == 0 else SPACE_B)', mode="eval").body.value
+    assert _contains_raw_spacing_literal(conditional_bad)
 
 
 def main() -> None:
