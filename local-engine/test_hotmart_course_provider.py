@@ -9,6 +9,24 @@ import headless_service
 import hotmart_course_provider as hotmart
 
 
+class _ManifestClient:
+    def __init__(self, bodies: dict[str, object] | None = None) -> None:
+        self.bodies = dict(bodies or {})
+
+    def call(self, method, params, timeout=2.0):
+        if method != "Network.getResponseBody":
+            raise AssertionError(f"unexpected method: {method}")
+        request_id = str(params.get("requestId") or "")
+        value = self.bodies.get(request_id)
+        if isinstance(value, Exception):
+            raise value
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return value
+        return {"body": str(value), "base64Encoded": False}
+
+
 class HotmartCourseProviderTests(unittest.TestCase):
     def setUp(self) -> None:
         patcher = patch(
@@ -22,12 +40,14 @@ class HotmartCourseProviderTests(unittest.TestCase):
         signed = "https://cdn.example.com/master.m3u8?Policy=abc&Signature=xyz&Key-Pair-Id=123"
         ranked = hotmart.rank_hotmart_candidates(
             [
+                hotmart.HotmartMediaCandidate(signed, "application/vnd.apple.mpegurl", "dom", ""),
                 hotmart.HotmartMediaCandidate(signed, "application/vnd.apple.mpegurl", "network", "req-1"),
-                hotmart.HotmartMediaCandidate(signed, "application/vnd.apple.mpegurl", "performance", ""),
                 hotmart.HotmartMediaCandidate("https://cdn.example.com/video.mp4?token=1", "video/mp4", "dom", ""),
             ]
         )
         self.assertEqual(ranked[0].url, signed)
+        self.assertEqual(ranked[0].request_id, "req-1")
+        self.assertEqual(ranked[0].source, "network")
         self.assertEqual(sum(item.url == signed for item in ranked), 1)
         self.assertIn("Signature=xyz", ranked[0].url)
 
@@ -55,6 +75,57 @@ class HotmartCourseProviderTests(unittest.TestCase):
             )
         )
         self.assertFalse(hotmart.manifest_uses_drm("#EXTM3U\n#EXTINF:6,\nsegment.ts", kind="hls"))
+
+    def test_hls_manifest_requires_response_body_before_download(self) -> None:
+        candidate = hotmart.HotmartMediaCandidate(
+            "https://cdn.example.com/master.m3u8?Signature=abc",
+            "application/vnd.apple.mpegurl",
+            "network",
+            "req-1",
+        )
+        with self.assertRaisesRegex(hotmart.HotmartCourseError, "无法安全验证 DRM"):
+            hotmart.select_verified_hotmart_candidate(_ManifestClient(), [candidate])
+
+    def test_dash_drm_manifest_is_rejected(self) -> None:
+        candidate = hotmart.HotmartMediaCandidate(
+            "https://cdn.example.com/master.mpd?Signature=abc",
+            "application/dash+xml",
+            "network",
+            "req-dash",
+        )
+        client = _ManifestClient(
+            {
+                "req-dash": "<MPD><ContentProtection schemeIdUri='urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'/></MPD>"
+            }
+        )
+        with self.assertRaisesRegex(hotmart.HotmartDrmProtectedError, "DRM/ContentProtection"):
+            hotmart.select_verified_hotmart_candidate(client, [candidate])
+
+    def test_verified_non_drm_hls_manifest_is_selected(self) -> None:
+        candidate = hotmart.HotmartMediaCandidate(
+            "https://cdn.example.com/master.m3u8?Signature=abc",
+            "application/vnd.apple.mpegurl",
+            "network",
+            "req-hls",
+        )
+        client = _ManifestClient({"req-hls": "#EXTM3U\n#EXTINF:6,\nsegment.ts"})
+        self.assertIs(hotmart.select_verified_hotmart_candidate(client, [candidate]), candidate)
+
+    def test_unverifiable_manifest_can_fall_back_to_direct_non_eme_media(self) -> None:
+        hls = hotmart.HotmartMediaCandidate(
+            "https://cdn.example.com/master.m3u8?Signature=abc",
+            "application/vnd.apple.mpegurl",
+            "network",
+            "req-hls",
+        )
+        direct = hotmart.HotmartMediaCandidate(
+            "https://cdn.example.com/video.mp4?Signature=def",
+            "video/mp4",
+            "network",
+            "req-video",
+        )
+        selected = hotmart.select_verified_hotmart_candidate(_ManifestClient(), [hls, direct])
+        self.assertIs(selected, direct)
 
     def test_hotmart_member_url_rejects_plain_club_login_host(self) -> None:
         with self.assertRaises(hotmart.HotmartCourseError):
