@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import headless_service
+import hotmart_course_provider as hotmart
 from course_download_coordinator import CourseDownloadCoordinator, CourseDownloadCoordinatorError
 from course_download_sessions import CourseDownloadSessionError
 from course_workspace import create_course, list_course_items
@@ -25,7 +26,7 @@ class _Job:
     def public_payload(self) -> dict:
         return {
             "id": self.job_id,
-            "sourceHost": "www.udemy.com",
+            "sourceHost": "course.example",
             "state": self.state,
             "progress": 100.0 if self.state == "completed" else 0.0,
             "detail": self.detail,
@@ -77,7 +78,14 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         install_headless_output_tracking()
 
-    def _learning(self, root: Path):
+    def _learning(
+        self,
+        root: Path,
+        *,
+        provider: str = "udemy",
+        source_url: str = "https://www.udemy.com/course/python-bootcamp/",
+        name: str = "Python Bootcamp",
+    ):
         downloads = root / "downloads"
         state = root / "state"
         data = root / "data"
@@ -92,9 +100,9 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
         ):
             course_id = create_course(
                 context,
-                "Python Bootcamp",
-                "https://www.udemy.com/course/python-bootcamp/",
-                provider="udemy",
+                name,
+                source_url,
+                provider=provider,
             )["id"]
         return api, course_id, downloads
 
@@ -110,6 +118,21 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
             },
         }
 
+    def _hotmart_plan(self, source_url: str) -> dict:
+        return {
+            "provider": "hotmart",
+            "sourceUrl": source_url,
+            "enginePayload": {
+                "sourceUrl": source_url,
+                "browser": "chrome",
+                "collectionMode": "single",
+                "includeAudio": True,
+                "includeSubtitle": False,
+                "includeCourseAttachments": False,
+                "_hotmartResolveAuthorizedMedia": True,
+            },
+        }
+
     def _wait_state(self, coordinator: CourseDownloadCoordinator, job_id: str, state: str) -> dict:
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline:
@@ -119,6 +142,16 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
                 return value
             time.sleep(0.02)
         raise AssertionError(f"course download session did not reach {state}")
+
+    def _wait_authorization_revoked(self, token: str) -> None:
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            try:
+                hotmart._authorization_context(token)
+            except hotmart.HotmartCourseError:
+                return
+            time.sleep(0.02)
+        raise AssertionError("Hotmart transient authorization was not revoked")
 
     def _tracking_id(self, runtime: _Runtime) -> str:
         return str(runtime.submissions[-1].get("_outputTrackingId") or "")
@@ -162,6 +195,81 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
             items = list_course_items(learning_api.context, course_id)
             self.assertEqual([item["title"] for item in items], ["01 Introduction", "02 Variables"])
             self.assertEqual(tracked_output_paths(self._tracking_id(runtime)), [])
+
+    def test_hotmart_uses_transient_media_url_and_revokes_auth_after_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page_url = "https://my-course.club.hotmart.com/lesson/abc/start?lesson=1"
+            signed_media = "https://cdn.example.com/master.m3u8?Policy=abc&Signature=xyz&Key-Pair-Id=123"
+            learning_api, course_id, downloads = self._learning(
+                root,
+                provider="hotmart",
+                source_url=page_url,
+                name="Hotmart Course",
+            )
+            runtime = _Runtime(downloads)
+            resolver_calls: list[tuple[str, str]] = []
+
+            def resolver(source_url: str, browser: str) -> dict:
+                resolver_calls.append((source_url, browser))
+                return {
+                    "mediaUrl": signed_media,
+                    "referer": page_url,
+                    "browser": browser,
+                    "kind": "hls",
+                    "mimeType": "application/vnd.apple.mpegurl",
+                    "candidateCount": 1,
+                }
+
+            coordinator = CourseDownloadCoordinator(runtime, learning_api, hotmart_resolver=resolver)
+            self.addCleanup(coordinator.close)
+            job, session = coordinator.submit(self._hotmart_plan(page_url), course_id)
+
+            self.assertEqual(resolver_calls, [(page_url, "chrome")])
+            self.assertEqual(session["provider"], "hotmart")
+            self.assertEqual(session["sourceUrl"], page_url)
+            payload = runtime.submissions[-1]
+            self.assertEqual(payload["sourceUrl"], signed_media)
+            self.assertNotEqual(payload["sourceUrl"], session["sourceUrl"])
+            self.assertNotIn("_hotmartResolveAuthorizedMedia", payload)
+            token = str(payload.get("_hotmartAuthorizationToken") or "")
+            self.assertTrue(token)
+            context = hotmart._authorization_context(token)
+            self.assertEqual(context["browser"], "chrome")
+            self.assertEqual(context["referer"], page_url)
+
+            output = downloads / "Hotmart Lesson.mp4"
+            output.write_bytes(b"lesson")
+            self._record_outputs(runtime, output)
+            runtime.terminal(job.job_id, "completed")
+
+            final = self._wait_state(coordinator, job.job_id, "synced")
+            self.assertEqual(final["session"]["sourceUrl"], page_url)
+            self.assertEqual(final["session"]["syncedCount"], 1)
+            self._wait_authorization_revoked(token)
+            items = list_course_items(learning_api.context, course_id)
+            self.assertEqual([item["title"] for item in items], ["Hotmart Lesson"])
+
+    def test_hotmart_resolver_failure_never_submits_runtime_job(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page_url = "https://my-course.club.hotmart.com/lesson/abc/start"
+            learning_api, course_id, downloads = self._learning(
+                root,
+                provider="hotmart",
+                source_url=page_url,
+                name="Hotmart Course",
+            )
+            runtime = _Runtime(downloads)
+
+            def resolver(_source_url: str, _browser: str) -> dict:
+                raise hotmart.HotmartDrmProtectedError("DRM protected")
+
+            coordinator = CourseDownloadCoordinator(runtime, learning_api, hotmart_resolver=resolver)
+            self.addCleanup(coordinator.close)
+            with self.assertRaisesRegex(hotmart.HotmartDrmProtectedError, "DRM protected"):
+                coordinator.submit(self._hotmart_plan(page_url), course_id)
+            self.assertEqual(runtime.submissions, [])
 
     def test_failed_job_discards_partial_tracking_without_course_items(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
