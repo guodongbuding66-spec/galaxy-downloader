@@ -32,6 +32,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install cleanup test dependency
+        run: python -m pip install "Pillow>=10,<13"
       - name: Compile desktop batch task center
         run: python -m py_compile local-engine/media_cleanup_batch_ui.py local-engine/media_cleanup_batch.py local-engine/desktop_hooks.py scripts/test-local-media-cleanup-batch-ui.py
       - name: Run desktop batch task center contract
