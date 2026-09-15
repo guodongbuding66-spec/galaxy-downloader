@@ -12,6 +12,7 @@ _JOB_LINES_ATTR = "_galaxy_job_line_hooks"
 _PRESENTER_ATTR = "_galaxy_desktop_presenters"
 _HISTORY_BUTTON_ATTR = "_galaxy_history_button_hooks"
 _QUEUE_ROW_ATTR = "_galaxy_queue_row_hooks"
+_BUILTIN_RUNTIME_HOOKS_ATTR = "_galaxy_builtin_runtime_hooks_installed"
 
 DesktopHook = Callable[[Any], None]
 JobLines = list[tuple[str, str]]
@@ -155,7 +156,24 @@ def _run(window: Any, attribute: str) -> None:
         callback(window)
 
 
+def _install_builtin_runtime_hooks(window_cls: type) -> None:
+    """Install product hooks that must exist even when entrypoint wiring is minimal.
+
+    Keep this list deliberately small. The cleanup batch task center is a direct
+    extension of the already-installed cleanup workbench and needs a shutdown
+    hook as well as an Advanced-panel entry. Installing it here guarantees that
+    source, packaged, and test EngineWindow builds all share the same lifecycle.
+    """
+    if window_cls.__dict__.get(_BUILTIN_RUNTIME_HOOKS_ATTR, False):
+        return
+    from media_cleanup_batch_ui import install_media_cleanup_batch_ui
+
+    install_media_cleanup_batch_ui(window_cls)
+    setattr(window_cls, _BUILTIN_RUNTIME_HOOKS_ATTR, True)
+
+
 def run_after_build_ui_hooks(window: Any) -> None:
+    _install_builtin_runtime_hooks(type(window))
     _run(window, _AFTER_BUILD_ATTR)
 
 
