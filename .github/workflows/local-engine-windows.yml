@@ -27,6 +27,7 @@ on:
       - 'scripts/test-local-managed-tool-registry.py'
       - 'scripts/test-local-ffmpeg-online-installer.py'
       - 'scripts/test-local-ffmpeg-update-status.py'
+      - 'scripts/test-windows-pe-architecture.ps1'
       - '.github/workflows/local-engine-windows.yml'
   push:
     branches:
@@ -55,6 +56,7 @@ on:
       - 'scripts/test-local-managed-tool-registry.py'
       - 'scripts/test-local-ffmpeg-online-installer.py'
       - 'scripts/test-local-ffmpeg-update-status.py'
+      - 'scripts/test-windows-pe-architecture.ps1'
       - '.github/workflows/local-engine-windows.yml'
 
 permissions:
@@ -62,15 +64,43 @@ permissions:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
-    timeout-minutes: 45
+    name: Windows ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            python_arch: x64
+          - arch: arm64
+            runner: windows-11-arm
+            python_arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
+          architecture: ${{ matrix.python_arch }}
           cache: 'pip'
+
+      - name: Validate native runner and Python architecture
+        shell: pwsh
+        run: |
+          $pythonMachine = (python -c "import platform; print(platform.machine())").Trim().ToLowerInvariant()
+          if ('${{ matrix.arch }}' -eq 'arm64') {
+            if ($pythonMachine -notin @('arm64', 'aarch64')) {
+              throw "Expected native ARM64 Python but found '$pythonMachine'"
+            }
+          }
+          else {
+            if ($pythonMachine -notin @('amd64', 'x86_64', 'x64')) {
+              throw "Expected native x64 Python but found '$pythonMachine'"
+            }
+          }
+          Write-Host "Native Python architecture: $pythonMachine"
 
       - name: Install build dependencies
         shell: pwsh
@@ -180,6 +210,10 @@ jobs:
           --add-data "local-engine/VERSION;."
           local-engine/entrypoint.py
 
+      - name: Verify packaged executable architecture
+        shell: pwsh
+        run: ./scripts/test-windows-pe-architecture.ps1 -Architecture '${{ matrix.arch }}' -Path 'dist/GalaxyLocalEngine.exe'
+
       - name: Validate packaged executable
         shell: pwsh
         run: |
@@ -207,7 +241,19 @@ jobs:
 
       - name: Add verified offline FFmpeg and yt-dlp
         shell: pwsh
-        run: ./local-engine/prepare-bundle.ps1 -PackageDir dist/package
+        run: ./local-engine/prepare-bundle.ps1 -PackageDir dist/package -Architecture '${{ matrix.arch }}'
+
+      - name: Verify release package architecture
+        shell: pwsh
+        run: >-
+          ./scripts/test-windows-pe-architecture.ps1
+          -Architecture '${{ matrix.arch }}'
+          -Path @(
+            'dist/package/GalaxyLocalEngine.exe',
+            'dist/package/yt-dlp.exe',
+            'dist/package/ffmpeg/bin/ffmpeg.exe',
+            'dist/package/ffmpeg/bin/ffprobe.exe'
+          )
 
       - name: Run packaged FFmpeg media cleanup regression
         run: python scripts/test-local-media-cleanup-integration.py --ffmpeg-dir dist/package/ffmpeg/bin
@@ -237,7 +283,7 @@ jobs:
       - name: Validate installer and protocol lifecycle
         shell: pwsh
         run: |
-          $testInstall = Join-Path $env:RUNNER_TEMP 'GalaxyLocalEngineTest'
+          $testInstall = Join-Path $env:RUNNER_TEMP ('GalaxyLocalEngineTest-${{ matrix.arch }}')
           & 'dist/package/install.ps1' -InstallDir $testInstall -NoLaunch
 
           $protocolCommandPath = 'HKCU:\Software\Classes\galaxy-downloader\shell\open\command'
@@ -274,12 +320,12 @@ jobs:
 
       - name: Compress Windows package
         shell: pwsh
-        run: Compress-Archive -Force -Path dist/package/* -DestinationPath dist/GalaxyLocalEngine-Windows.zip
+        run: Compress-Archive -Force -Path dist/package/* -DestinationPath 'dist/GalaxyLocalEngine-Windows-${{ matrix.arch }}.zip'
 
       - name: Upload Windows package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: GalaxyLocalEngine-Windows
-          path: dist/GalaxyLocalEngine-Windows.zip
+          name: GalaxyLocalEngine-Windows-${{ matrix.arch }}
+          path: dist/GalaxyLocalEngine-Windows-${{ matrix.arch }}.zip
           if-no-files-found: error
           retention-days: 30
