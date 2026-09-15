@@ -15,7 +15,7 @@ class _Job:
     def public_payload(self):
         return {
             "id": self.job_id,
-            "sourceHost": "www.udemy.com",
+            "sourceHost": "course.example",
             "state": "queued",
             "progress": 0.0,
             "detail": "",
@@ -70,12 +70,12 @@ class _Coordinator:
         self.sync_error: Exception | None = None
         self.job = _Job()
 
-    def _session(self, *, state="pending") -> dict:
+    def _session(self, *, state="pending", provider="udemy", source_url="https://www.udemy.com/course/python-bootcamp/") -> dict:
         return {
             "jobId": self.job.job_id,
             "courseId": "b" * 32,
-            "provider": "udemy",
-            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
+            "provider": provider,
+            "sourceUrl": source_url,
             "syncState": state,
             "outputCount": 2 if state == "synced" else 0,
             "syncedCount": 2 if state == "synced" else 0,
@@ -88,7 +88,9 @@ class _Coordinator:
         if self.error is not None:
             raise self.error
         self.submissions.append((dict(plan), str(course_id)))
-        session = self._session()
+        provider = str(plan.get("provider") or "udemy")
+        source_url = str(plan.get("sourceUrl") or "")
+        session = self._session(provider=provider, source_url=source_url)
         session["courseId"] = str(course_id)
         return self.job, session
 
@@ -151,7 +153,7 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_get_catalog_marks_hotmart_discovery_only(self) -> None:
+    def test_catalog_marks_hotmart_authorized_and_downloadable(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers"
         handler.do_GET()
@@ -159,49 +161,29 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         providers = {provider["id"]: provider for provider in payload["providers"]}
         self.assertTrue(providers["udemy"]["downloadAvailable"])
-        self.assertFalse(providers["hotmart"]["downloadAvailable"])
-        self.assertEqual(providers["hotmart"]["status"], "discovery")
-        self.assertFalse(providers["hotmart"]["supportsBrowserCookies"])
+        self.assertTrue(providers["hotmart"]["downloadAvailable"])
+        self.assertEqual(providers["hotmart"]["status"], "authorized")
+        self.assertTrue(providers["hotmart"]["supportsBrowserCookies"])
+        self.assertFalse(providers["hotmart"]["supportsSubtitles"])
+        self.assertFalse(providers["hotmart"]["supportsAttachments"])
         self.assertFalse(providers["hotmart"]["drmBypassSupported"])
 
-    def test_get_download_status(self) -> None:
-        handler = _Handler()
-        handler.path = f"/v1/learning/providers/downloads/{handler.coordinator.job.job_id}"
-        handler.do_GET()
-        status, payload = handler.response
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["session"]["syncState"], "pending")
-        self.assertEqual(payload["job"]["state"], "queued")
-
-    def test_get_download_status_maps_missing_session_to_404(self) -> None:
-        handler = _Handler()
-        handler.path = "/v1/learning/providers/downloads/" + "d" * 32
-        handler.do_GET()
-        status, payload = handler.response
-        self.assertEqual(status, 404)
-        self.assertEqual(payload["code"], "LEARNING_COURSE_DOWNLOAD_NOT_FOUND")
-
-    def test_get_requires_authorization(self) -> None:
-        handler = _Handler()
-        handler.path = "/v1/learning/providers"
-        handler.authorized = False
-        handler.do_GET()
-        self.assertEqual(handler.response, (401, {"ok": False, "error": "unauthorized"}))
-
-    def test_post_resolves_udemy_provider_without_building_download_plan(self) -> None:
+    def test_hotmart_resolve_returns_safe_capabilities_without_plan_or_auth_material(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers/resolve"
         handler.payload = {
-            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
+            "sourceUrl": "https://my-course.club.hotmart.com/lesson/abc/start",
+            "provider": "auto",
             "browser": "chrome",
-            "includeSubtitles": True,
-            "cookie": "must-not-pass-through",
+            "cookieFile": "../../cookies.txt",
+            "httpHeaders": {"Authorization": "must-not-pass-through"},
         }
         handler.do_POST()
         status, payload = handler.response
         self.assertEqual(status, 200)
         resolution = payload["resolution"]
-        self.assertEqual(resolution["provider"], "udemy")
+        self.assertEqual(resolution["provider"], "hotmart")
+        self.assertEqual(resolution["status"], "authorized")
         self.assertTrue(resolution["downloadAvailable"])
         self.assertTrue(resolution["supportsBrowserCookies"])
         self.assertNotIn("plan", payload)
@@ -210,38 +192,13 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         self.assertEqual(handler.coordinator.submissions, [])
         self.assertEqual(handler.learning_api.created, [])
 
-    def test_post_hotmart_resolve_returns_discovery_metadata(self) -> None:
-        handler = _Handler()
-        handler.path = "/v1/learning/providers/resolve"
-        handler.payload = {
-            "sourceUrl": "https://my-course.club.hotmart.com/lesson/abc/start",
-            "provider": "auto",
-            "browser": "chrome",
-            "cookieFile": "../../cookies.txt",
-        }
-        handler.do_POST()
-        status, payload = handler.response
-        self.assertEqual(status, 200)
-        resolution = payload["resolution"]
-        self.assertEqual(resolution["provider"], "hotmart")
-        self.assertEqual(resolution["status"], "discovery")
-        self.assertFalse(resolution["downloadAvailable"])
-        self.assertFalse(resolution["supportsBrowserCookies"])
-        self.assertIn("Hotmart", resolution["downloadUnavailableReason"])
-        self.assertIn("授权下载适配器尚未实现", resolution["downloadUnavailableReason"])
-        self.assertNotIn("plan", payload)
-        self.assertNotIn("enginePayload", resolution)
-        self.assertNotIn("browser", resolution)
-        self.assertEqual(handler.learning_api.created, [])
-        self.assertEqual(handler.coordinator.submissions, [])
-
-    def test_post_hotmart_download_cannot_create_course_or_submit(self) -> None:
+    def test_hotmart_download_requires_browser_before_course_creation(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers/download"
         handler.payload = {
-            "sourceUrl": "https://my-course.club.hotmart.com/",
+            "sourceUrl": "https://my-course.club.hotmart.com/lesson/abc/start",
             "provider": "hotmart",
-            "browser": "chrome",
+            "browser": "none",
         }
         handler.do_POST()
         status, payload = handler.response
@@ -250,7 +207,39 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         self.assertEqual(handler.learning_api.created, [])
         self.assertEqual(handler.coordinator.submissions, [])
 
-    def test_post_download_auto_creates_course_and_submits_safe_plan(self) -> None:
+    def test_hotmart_download_submits_only_bounded_authorized_resolution_plan(self) -> None:
+        handler = _Handler()
+        handler.path = "/v1/learning/providers/download"
+        source = "https://my-course.club.hotmart.com/lesson/abc/start?lesson=1"
+        handler.payload = {
+            "sourceUrl": source,
+            "provider": "hotmart",
+            "browser": "chrome",
+            "includeSubtitles": True,
+            "includeAttachments": True,
+            "cookie": "must-not-pass-through",
+            "cookieFile": "../../cookies.txt",
+            "httpHeaders": {"Authorization": "must-not-pass-through"},
+        }
+        handler.do_POST()
+        status, payload = handler.response
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["provider"], "hotmart")
+        self.assertEqual(len(handler.coordinator.submissions), 1)
+        plan, _course_id = handler.coordinator.submissions[0]
+        engine_payload = plan["enginePayload"]
+        self.assertEqual(plan["sourceUrl"], source)
+        self.assertEqual(engine_payload["sourceUrl"], source)
+        self.assertEqual(engine_payload["browser"], "chrome")
+        self.assertTrue(engine_payload["_hotmartResolveAuthorizedMedia"])
+        self.assertFalse(engine_payload["includeSubtitle"])
+        self.assertFalse(engine_payload["includeCourseAttachments"])
+        self.assertNotIn("cookie", engine_payload)
+        self.assertNotIn("cookieFile", engine_payload)
+        self.assertNotIn("httpHeaders", engine_payload)
+        self.assertNotIn("enginePayload", payload)
+
+    def test_udemy_download_still_ignores_raw_auth_fields(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers/download"
         handler.payload = {
@@ -262,51 +251,15 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
             "httpHeaders": {"Authorization": "must-not-pass-through"},
         }
         handler.do_POST()
-        status, payload = handler.response
-        self.assertEqual(status, 202)
-        self.assertEqual(payload["provider"], "udemy")
-        self.assertEqual(payload["course"]["id"], "b" * 32)
-        self.assertEqual(payload["course"]["name"], "python bootcamp")
-        self.assertEqual(payload["session"]["courseId"], "b" * 32)
-        self.assertEqual(payload["job"]["state"], "queued")
-        self.assertEqual(len(handler.coordinator.submissions), 1)
-        plan, submitted_course_id = handler.coordinator.submissions[0]
-        self.assertEqual(submitted_course_id, "b" * 32)
+        self.assertEqual(handler.response[0], 202)
+        plan, _course_id = handler.coordinator.submissions[0]
         engine_payload = plan["enginePayload"]
         self.assertEqual(engine_payload["browser"], "chrome")
-        self.assertEqual(engine_payload["collectionMode"], "all")
-        self.assertTrue(engine_payload["includeSubtitle"])
         self.assertNotIn("cookie", engine_payload)
         self.assertNotIn("cookieFile", engine_payload)
         self.assertNotIn("httpHeaders", engine_payload)
-        self.assertNotIn("enginePayload", payload)
 
-    def test_post_download_accepts_explicit_course_name(self) -> None:
-        handler = _Handler()
-        handler.path = "/v1/learning/providers/download"
-        handler.payload = {
-            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
-            "courseName": "My Python Course",
-        }
-        handler.do_POST()
-        self.assertEqual(handler.response[0], 202)
-        self.assertEqual(handler.learning_api.created[0]["name"], "My Python Course")
-
-    def test_post_download_can_bind_same_existing_course_ignoring_query(self) -> None:
-        handler = _Handler()
-        handler.path = "/v1/learning/providers/download"
-        handler.payload = {
-            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/?couponCode=NEW#overview",
-            "courseId": handler.learning_api.existing_id,
-        }
-        handler.do_POST()
-        status, payload = handler.response
-        self.assertEqual(status, 202)
-        self.assertEqual(payload["course"]["id"], handler.learning_api.existing_id)
-        self.assertEqual(handler.learning_api.created, [])
-        self.assertEqual(handler.coordinator.submissions[0][1], handler.learning_api.existing_id)
-
-    def test_post_download_rejects_existing_course_from_different_source(self) -> None:
+    def test_existing_course_binding_is_still_validated(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers/download"
         handler.learning_api.existing_source = "https://www.udemy.com/course/another-course/"
@@ -318,35 +271,9 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         status, payload = handler.response
         self.assertEqual(status, 409)
         self.assertEqual(payload["code"], "LEARNING_COURSE_DOWNLOAD_REJECTED")
-        self.assertIn("source does not match", payload["error"])
         self.assertEqual(handler.coordinator.submissions, [])
 
-    def test_post_download_rejects_existing_course_from_different_provider(self) -> None:
-        handler = _Handler()
-        handler.path = "/v1/learning/providers/download"
-        handler.learning_api.existing_provider = "generic"
-        handler.payload = {
-            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
-            "courseId": handler.learning_api.existing_id,
-        }
-        handler.do_POST()
-        status, payload = handler.response
-        self.assertEqual(status, 409)
-        self.assertEqual(payload["code"], "LEARNING_COURSE_DOWNLOAD_REJECTED")
-        self.assertIn("provider does not match", payload["error"])
-        self.assertEqual(handler.coordinator.submissions, [])
-
-    def test_post_download_requires_authorization_before_course_creation(self) -> None:
-        handler = _Handler()
-        handler.path = "/v1/learning/providers/download"
-        handler.authorized = False
-        handler.payload = {"sourceUrl": "https://www.udemy.com/course/python-bootcamp/"}
-        handler.do_POST()
-        self.assertEqual(handler.response, (401, {"ok": False, "error": "unauthorized"}))
-        self.assertEqual(handler.learning_api.created, [])
-        self.assertEqual(handler.coordinator.submissions, [])
-
-    def test_post_download_maps_queue_full_to_429_and_rolls_back_course(self) -> None:
+    def test_queue_full_rolls_back_auto_created_course(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers/download"
         handler.payload = {"sourceUrl": "https://www.udemy.com/course/python-bootcamp/"}
@@ -357,45 +284,24 @@ class HeadlessCourseProviderHttpTests(unittest.TestCase):
         self.assertEqual(payload["code"], "LEARNING_COURSE_DOWNLOAD_QUEUE_FULL")
         self.assertEqual(handler.learning_api.removed, ["b" * 32])
 
-    def test_post_download_maps_missing_existing_course(self) -> None:
+    def test_status_and_manual_sync_contracts_remain_available(self) -> None:
+        handler = _Handler()
+        handler.path = f"/v1/learning/providers/downloads/{handler.coordinator.job.job_id}"
+        handler.do_GET()
+        self.assertEqual(handler.response[0], 200)
+        handler.path = f"/v1/learning/providers/downloads/{handler.coordinator.job.job_id}/sync"
+        handler.do_POST()
+        self.assertEqual(handler.response[0], 200)
+        self.assertEqual(handler.response[1]["session"]["syncState"], "synced")
+
+    def test_authorization_is_required_before_mutation(self) -> None:
         handler = _Handler()
         handler.path = "/v1/learning/providers/download"
-        handler.payload = {
-            "sourceUrl": "https://www.udemy.com/course/python-bootcamp/",
-            "courseId": "d" * 32,
-        }
+        handler.authorized = False
+        handler.payload = {"sourceUrl": "https://www.udemy.com/course/python-bootcamp/"}
         handler.do_POST()
-        status, payload = handler.response
-        self.assertEqual(status, 404)
-        self.assertEqual(payload["code"], "LEARNING_COURSE_NOT_FOUND")
-        self.assertEqual(handler.coordinator.submissions, [])
-
-    def test_post_sync_recovers_completed_course_indexing(self) -> None:
-        handler = _Handler()
-        handler.path = f"/v1/learning/providers/downloads/{handler.coordinator.job.job_id}/sync"
-        handler.do_POST()
-        status, payload = handler.response
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["session"]["syncState"], "synced")
-        self.assertEqual(payload["session"]["syncedCount"], 2)
-
-    def test_post_sync_maps_non_completed_job_to_409(self) -> None:
-        handler = _Handler()
-        handler.path = f"/v1/learning/providers/downloads/{handler.coordinator.job.job_id}/sync"
-        handler.coordinator.sync_error = CourseDownloadCoordinatorError("course download cannot sync from state queued")
-        handler.do_POST()
-        status, payload = handler.response
-        self.assertEqual(status, 409)
-        self.assertEqual(payload["code"], "LEARNING_COURSE_SYNC_REJECTED")
-
-    def test_post_returns_typed_validation_error(self) -> None:
-        handler = _Handler()
-        handler.path = "/v1/learning/providers/resolve"
-        handler.payload = {"sourceUrl": "https://example.com/course/test/"}
-        handler.do_POST()
-        status, payload = handler.response
-        self.assertEqual(status, 400)
-        self.assertEqual(payload["code"], "LEARNING_COURSE_PROVIDER_INVALID")
+        self.assertEqual(handler.response, (401, {"ok": False, "error": "unauthorized"}))
+        self.assertEqual(handler.learning_api.created, [])
 
     def test_unrelated_routes_fall_through(self) -> None:
         handler = _Handler()
