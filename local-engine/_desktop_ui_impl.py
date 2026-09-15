@@ -6,6 +6,7 @@ import webbrowser
 from tkinter import messagebox, ttk
 from typing import Any, Callable
 
+from desktop_design_tokens import LAYOUT
 from desktop_hooks import run_after_build_ui_hooks, run_queue_row_hooks, run_queue_tick_hooks
 from media_policy import aria2c_available, load_preferences, save_preferences
 from update_check import check_latest_stable
@@ -72,8 +73,8 @@ class ActionButton(tk.Button):
             "relief": "flat",
             "bd": 0,
             "highlightthickness": 0,
-            "padx": 9 if compact else 14,
-            "pady": 5 if compact else 8,
+            "padx": LAYOUT["inline"] if compact else LAYOUT["content"],
+            "pady": LAYOUT["micro"] if compact else LAYOUT["inline"],
             "cursor": "hand2",
         }
         if width is not None:
@@ -128,7 +129,9 @@ def _section_title(master, title: str, subtitle: str | None = None, *, bg=PANEL)
     frame = tk.Frame(master, bg=bg)
     _label(frame, title, size=10, weight="bold", bg=bg).pack(anchor="w")
     if subtitle:
-        _label(frame, subtitle, size=8, color=MUTED, bg=bg).pack(anchor="w", pady=(2, 0))
+        _label(frame, subtitle, size=8, color=MUTED, bg=bg).pack(
+            anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"])
+        )
     return frame
 
 
@@ -162,19 +165,35 @@ def _draw_brand_mark(canvas: tk.Canvas) -> None:
 
 
 def _status_chip(master, label: str, ready: bool, optional: bool = False) -> tk.Frame:
-    frame = tk.Frame(master, bg=PANEL_2, padx=9, pady=5, highlightthickness=1, highlightbackground=BORDER_SOFT)
+    frame = tk.Frame(
+        master,
+        bg=PANEL_2,
+        padx=LAYOUT["inline"],
+        pady=LAYOUT["micro"],
+        highlightthickness=1,
+        highlightbackground=BORDER_SOFT,
+    )
     dot_color = SUCCESS if ready else (SUBTLE if optional else DANGER)
     dot = tk.Canvas(frame, width=8, height=8, bg=PANEL_2, bd=0, highlightthickness=0)
     dot.create_oval(1, 1, 7, 7, fill=dot_color, outline="")
-    dot.pack(side="left", padx=(0, 5))
+    dot.pack(side="left", padx=(LAYOUT["none"], LAYOUT["micro"]))
     _label(frame, label, size=7, weight="bold", color=MUTED, bg=PANEL_2).pack(side="left")
     return frame
 
 
 def _metric(master, title: str, variable: tk.Variable) -> tk.Frame:
-    frame = tk.Frame(master, bg=PANEL_2, padx=12, pady=10, highlightthickness=1, highlightbackground=BORDER_SOFT)
+    frame = tk.Frame(
+        master,
+        bg=PANEL_2,
+        padx=LAYOUT["content"],
+        pady=LAYOUT["inline"],
+        highlightthickness=1,
+        highlightbackground=BORDER_SOFT,
+    )
     _label(frame, title, size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w")
-    _label(frame, variable=variable, size=10, weight="bold", bg=PANEL_2).pack(anchor="w", pady=(3, 0))
+    _label(frame, variable=variable, size=10, weight="bold", bg=PANEL_2).pack(
+        anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"])
+    )
     return frame
 
 
@@ -227,7 +246,7 @@ def install_desktop_ui(engine_module):
             darkcolor=BORDER,
         )
 
-        root = tk.Frame(window, bg=BG, padx=22, pady=18)
+        root = tk.Frame(window, bg=BG, padx=LAYOUT["page"], pady=LAYOUT["panel"])
         root.pack(fill="both", expand=True)
 
         header = tk.Frame(root, bg=BG)
@@ -235,10 +254,10 @@ def install_desktop_ui(engine_module):
         brand = tk.Frame(header, bg=BG)
         brand.pack(side="left", fill="x", expand=True)
         mark = tk.Canvas(brand, width=60, height=60, bg=BG, bd=0, highlightthickness=0)
-        mark.pack(side="left", padx=(0, 12))
+        mark.pack(side="left", padx=(LAYOUT["none"], LAYOUT["content"]))
         _draw_brand_mark(mark)
         brand_text = tk.Frame(brand, bg=BG)
-        brand_text.pack(side="left", pady=(5, 0))
+        brand_text.pack(side="left", pady=(LAYOUT["micro"], LAYOUT["none"]))
         _label(brand_text, "Galaxy Local Engine", size=17, weight="bold", bg=BG).pack(anchor="w")
         _label(
             brand_text,
@@ -246,17 +265,17 @@ def install_desktop_ui(engine_module):
             size=8,
             color=MUTED,
             bg=BG,
-        ).pack(anchor="w", pady=(3, 0))
+        ).pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"]))
 
         header_actions = tk.Frame(header, bg=BG)
-        header_actions.pack(side="right", anchor="n", pady=(8, 0))
+        header_actions.pack(side="right", anchor="n", pady=(LAYOUT["inline"], LAYOUT["none"]))
         ActionButton(
             header_actions,
             text="打开 SparkDownloader",
             command=lambda: webbrowser.open(WEBSITE_URL),
             kind="ghost",
             compact=True,
-        ).pack(side="left", padx=(0, 8))
+        ).pack(side="left", padx=(LAYOUT["none"], LAYOUT["inline"]))
         window._copy_diag_button = ActionButton(
             header_actions,
             text="复制诊断信息",
@@ -267,25 +286,41 @@ def install_desktop_ui(engine_module):
         window._copy_diag_button.pack(side="left")
 
         body = tk.Frame(root, bg=BG)
-        body.pack(fill="both", expand=True, pady=(17, 0))
+        body.pack(fill="both", expand=True, pady=(LAYOUT["section"], LAYOUT["none"]))
         body.grid_columnconfigure(0, weight=7, uniform="layout")
         body.grid_columnconfigure(1, weight=3, uniform="layout")
         body.grid_rowconfigure(0, weight=1)
 
-        main = tk.Frame(body, bg=PANEL, padx=20, pady=18, highlightthickness=1, highlightbackground=BORDER)
-        main.grid(row=0, column=0, sticky="nsew", padx=(0, 9))
-        side = tk.Frame(body, bg=PANEL, padx=16, pady=16, highlightthickness=1, highlightbackground=BORDER)
-        side.grid(row=0, column=1, sticky="nsew", padx=(9, 0))
+        main = tk.Frame(
+            body,
+            bg=PANEL,
+            padx=LAYOUT["panel"],
+            pady=LAYOUT["panel"],
+            highlightthickness=1,
+            highlightbackground=BORDER,
+        )
+        main.grid(row=0, column=0, sticky="nsew", padx=(LAYOUT["none"], LAYOUT["inline"]))
+        side = tk.Frame(
+            body,
+            bg=PANEL,
+            padx=LAYOUT["section"],
+            pady=LAYOUT["section"],
+            highlightthickness=1,
+            highlightbackground=BORDER,
+        )
+        side.grid(row=0, column=1, sticky="nsew", padx=(LAYOUT["inline"], LAYOUT["none"]))
 
         eyebrow = tk.Frame(main, bg=PANEL)
         eyebrow.pack(fill="x")
         _label(eyebrow, "CURRENT JOB", size=7, weight="bold", color=SUBTLE).pack(side="left")
         window._queue_summary_var = tk.StringVar(value="等待 0 项")
-        queue_badge = tk.Frame(eyebrow, bg=PANEL_2, padx=8, pady=4)
+        queue_badge = tk.Frame(eyebrow, bg=PANEL_2, padx=LAYOUT["inline"], pady=LAYOUT["micro"])
         queue_badge.pack(side="right")
         _label(queue_badge, variable=window._queue_summary_var, size=7, weight="bold", color=CYAN, bg=PANEL_2).pack()
 
-        _label(main, variable=window.status_var, size=16, weight="bold").pack(anchor="w", pady=(7, 0))
+        _label(main, variable=window.status_var, size=16, weight="bold").pack(
+            anchor="w", pady=(LAYOUT["inline"], LAYOUT["none"])
+        )
         detail = _label(
             main,
             variable=window.detail_var,
@@ -295,7 +330,7 @@ def install_desktop_ui(engine_module):
             anchor="w",
             wraplength=650,
         )
-        detail.pack(fill="x", pady=(7, 14))
+        detail.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["content"]))
 
         progress = tk.Frame(main, bg=PANEL)
         progress.pack(fill="x")
@@ -306,18 +341,28 @@ def install_desktop_ui(engine_module):
             style="Galaxy.Horizontal.TProgressbar",
         ).pack(fill="x")
         window._percent_text_var = tk.StringVar(value="0%")
-        _label(progress, variable=window._percent_text_var, size=8, weight="bold", color=MUTED).pack(anchor="e", pady=(5, 0))
+        _label(progress, variable=window._percent_text_var, size=8, weight="bold", color=MUTED).pack(
+            anchor="e", pady=(LAYOUT["micro"], LAYOUT["none"])
+        )
 
         stats = tk.Frame(main, bg=PANEL)
-        stats.pack(fill="x", pady=(12, 0))
+        stats.pack(fill="x", pady=(LAYOUT["content"], LAYOUT["none"]))
         metrics = (("速度", window.speed_var), ("剩余时间", window.eta_var), ("已下载", window.size_var))
         for index, (title, variable) in enumerate(metrics):
             stats.grid_columnconfigure(index, weight=1)
             cell = _metric(stats, title, variable)
-            cell.grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 5, 5 if index < 2 else 0))
+            cell.grid(
+                row=0,
+                column=index,
+                sticky="ew",
+                padx=(
+                    LAYOUT["none"] if index == 0 else LAYOUT["micro"],
+                    LAYOUT["micro"] if index < 2 else LAYOUT["none"],
+                ),
+            )
 
         advanced = tk.Frame(main, bg=PANEL)
-        advanced.pack(fill="x", pady=(16, 0))
+        advanced.pack(fill="x", pady=(LAYOUT["section"], LAYOUT["none"]))
         window._advanced_open = False
         toggle_row = tk.Frame(advanced, bg=PANEL)
         toggle_row.pack(fill="x")
@@ -335,17 +380,24 @@ def install_desktop_ui(engine_module):
             bd=0,
             highlightthickness=0,
             cursor="hand2",
-            padx=0,
-            pady=4,
+            padx=LAYOUT["none"],
+            pady=LAYOUT["micro"],
         )
         toggle.pack(side="left")
         window._advanced_summary_var = tk.StringVar(value="片段 · 章节 · 字幕/音轨 · SponsorBlock · aria2c")
         _label(toggle_row, variable=window._advanced_summary_var, size=8, color=SUBTLE).pack(side="right")
-        window._advanced_panel = tk.Frame(advanced, bg=PANEL_2, padx=14, pady=12, highlightthickness=1, highlightbackground=BORDER_SOFT)
+        window._advanced_panel = tk.Frame(
+            advanced,
+            bg=PANEL_2,
+            padx=LAYOUT["content"],
+            pady=LAYOUT["content"],
+            highlightthickness=1,
+            highlightbackground=BORDER_SOFT,
+        )
         _build_advanced_panel(window, engine_module)
 
         actions = tk.Frame(main, bg=PANEL)
-        actions.pack(fill="x", side="bottom", pady=(16, 0))
+        actions.pack(fill="x", side="bottom", pady=(LAYOUT["section"], LAYOUT["none"]))
         window.cancel_button = ActionButton(actions, text="取消当前任务", command=window.cancel, kind="danger")
         window.cancel_button.pack(side="left")
         window.cancel_button.state(["disabled"])
@@ -367,26 +419,34 @@ def install_desktop_ui(engine_module):
         window._queue_clear_button.state(["disabled"])
 
         window._queue_count_var = tk.StringVar(value="当前 0 · 等待 0")
-        _label(side, variable=window._queue_count_var, size=8, weight="bold", color=CYAN).pack(anchor="w", pady=(10, 9))
+        _label(side, variable=window._queue_count_var, size=8, weight="bold", color=CYAN).pack(
+            anchor="w", pady=(LAYOUT["content"], LAYOUT["inline"])
+        )
         window._queue_panel = tk.Frame(side, bg=PANEL)
         window._queue_panel.pack(fill="both", expand=True)
 
         system = tk.Frame(side, bg=PANEL)
-        system.pack(fill="x", side="bottom", pady=(12, 0))
-        _divider(system).pack(fill="x", pady=(0, 12))
+        system.pack(fill="x", side="bottom", pady=(LAYOUT["content"], LAYOUT["none"]))
+        _divider(system).pack(fill="x", pady=(LAYOUT["none"], LAYOUT["content"]))
         _label(system, "运行环境", size=9, weight="bold").pack(anchor="w")
         runtime = tk.Frame(system, bg=PANEL)
-        runtime.pack(fill="x", pady=(8, 12))
+        runtime.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["content"]))
         ffmpeg_ready = engine_module.ffmpeg_dir() is not None
         ytdlp_ready = engine_module.external_ytdlp_path(engine_module.app_dir()) is not None
         aria2_ready = aria2c_available(engine_module)
-        _status_chip(runtime, "FFmpeg", ffmpeg_ready).pack(side="left", padx=(0, 5))
-        _status_chip(runtime, "yt-dlp", ytdlp_ready).pack(side="left", padx=(0, 5))
+        _status_chip(runtime, "FFmpeg", ffmpeg_ready).pack(
+            side="left", padx=(LAYOUT["none"], LAYOUT["micro"])
+        )
+        _status_chip(runtime, "yt-dlp", ytdlp_ready).pack(
+            side="left", padx=(LAYOUT["none"], LAYOUT["micro"])
+        )
         _status_chip(runtime, "aria2", aria2_ready, optional=True).pack(side="left")
 
         _label(system, "版本与更新", size=9, weight="bold").pack(anchor="w")
         window._latest_var = tk.StringVar(value=f"当前 v{engine_module.VERSION} · 未检查")
-        _label(system, variable=window._latest_var, size=8, color=MUTED).pack(anchor="w", pady=(4, 8))
+        _label(system, variable=window._latest_var, size=8, color=MUTED).pack(
+            anchor="w", pady=(LAYOUT["micro"], LAYOUT["inline"])
+        )
         window._update_button = ActionButton(
             system,
             text="检查稳定版更新",
@@ -402,7 +462,7 @@ def install_desktop_ui(engine_module):
             color=SUBTLE,
             wraplength=245,
             justify="left",
-        ).pack(anchor="w", pady=(7, 0))
+        ).pack(anchor="w", pady=(LAYOUT["inline"], LAYOUT["none"]))
 
         run_after_build_ui_hooks(window)
         window._galaxy_ui_tick()
@@ -455,7 +515,14 @@ def _render_queue(window, pending: list[Any]) -> None:
     for child in panel.winfo_children():
         child.destroy()
     if not pending:
-        empty = tk.Frame(panel, bg=PANEL_2, padx=12, pady=15, highlightthickness=1, highlightbackground=BORDER_SOFT)
+        empty = tk.Frame(
+            panel,
+            bg=PANEL_2,
+            padx=LAYOUT["content"],
+            pady=LAYOUT["section"],
+            highlightthickness=1,
+            highlightbackground=BORDER_SOFT,
+        )
         empty.pack(fill="x")
         _label(empty, "队列为空", size=9, weight="bold", bg=PANEL_2).pack(anchor="w")
         _label(
@@ -466,14 +533,21 @@ def _render_queue(window, pending: list[Any]) -> None:
             bg=PANEL_2,
             wraplength=245,
             justify="left",
-        ).pack(anchor="w", pady=(4, 0))
+        ).pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"]))
         return
 
     for index, queued in enumerate(pending[:8], start=1):
-        row = tk.Frame(panel, bg=PANEL_2, padx=10, pady=8, highlightthickness=1, highlightbackground=BORDER_SOFT)
-        row.pack(fill="x", pady=(0, 6))
-        number = tk.Frame(row, bg=PANEL_3, padx=6, pady=4)
-        number.pack(side="left", padx=(0, 8))
+        row = tk.Frame(
+            panel,
+            bg=PANEL_2,
+            padx=LAYOUT["content"],
+            pady=LAYOUT["inline"],
+            highlightthickness=1,
+            highlightbackground=BORDER_SOFT,
+        )
+        row.pack(fill="x", pady=(LAYOUT["none"], LAYOUT["inline"]))
+        number = tk.Frame(row, bg=PANEL_3, padx=LAYOUT["inline"], pady=LAYOUT["micro"])
+        number.pack(side="left", padx=(LAYOUT["none"], LAYOUT["inline"]))
         _label(number, f"{index:02d}", size=7, weight="bold", color=ACCENT_HOVER, bg=PANEL_3).pack()
         text = tk.Frame(row, bg=PANEL_2)
         text.pack(side="left", fill="x", expand=True)
@@ -481,7 +555,9 @@ def _render_queue(window, pending: list[Any]) -> None:
         host = str(getattr(queued, "source_host", "") or "")
         _label(text, label[:34], size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
         if host:
-            _label(text, host[:32], size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(2, 0))
+            _label(text, host[:32], size=7, color=SUBTLE, bg=PANEL_2).pack(
+                anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"])
+            )
         job_id = str(getattr(queued, "job_id", "") or "")
         if job_id:
             cancel = tk.Button(
@@ -497,13 +573,15 @@ def _render_queue(window, pending: list[Any]) -> None:
                 bd=0,
                 highlightthickness=0,
                 cursor="hand2",
-                padx=5,
-                pady=2,
+                padx=LAYOUT["micro"],
+                pady=LAYOUT["micro"],
             )
-            cancel.pack(side="right", padx=(5, 0))
+            cancel.pack(side="right", padx=(LAYOUT["micro"], LAYOUT["none"]))
         run_queue_row_hooks(window, row, queued, index - 1, pending)
     if len(pending) > 8:
-        _label(panel, f"另有 {len(pending) - 8} 项等待", size=8, color=MUTED).pack(anchor="w", padx=3, pady=(1, 0))
+        _label(panel, f"另有 {len(pending) - 8} 项等待", size=8, color=MUTED).pack(
+            anchor="w", padx=LAYOUT["micro"], pady=(LAYOUT["micro"], LAYOUT["none"])
+        )
 
 
 def _cancel_queued_from_ui(window, job_id: str) -> None:
@@ -551,7 +629,9 @@ def _build_advanced_panel(window, engine_module) -> None:
 
     presets = tk.Frame(panel, bg=PANEL_2)
     presets.pack(fill="x")
-    _label(presets, "快捷方案", size=8, weight="bold", bg=PANEL_2).pack(side="left", padx=(0, 9))
+    _label(presets, "快捷方案", size=8, weight="bold", bg=PANEL_2).pack(
+        side="left", padx=(LAYOUT["none"], LAYOUT["inline"])
+    )
     for key, label in (("standard", "标准"), ("course", "课程/播客"), ("clean", "去赞助"), ("fast", "高速")):
         button = ActionButton(
             presets,
@@ -562,10 +642,12 @@ def _build_advanced_panel(window, engine_module) -> None:
         )
         if key == "fast" and not aria2c_available(engine_module):
             button.state(["disabled"])
-        button.pack(side="left", padx=(0, 5))
+        button.pack(side="left", padx=(LAYOUT["none"], LAYOUT["micro"]))
 
     window._preset_status_var = tk.StringVar(value="所有高级项默认关闭；快捷方案只修改下面这些默认值。")
-    _label(panel, variable=window._preset_status_var, size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(6, 10))
+    _label(panel, variable=window._preset_status_var, size=7, color=SUBTLE, bg=PANEL_2).pack(
+        anchor="w", pady=(LAYOUT["inline"], LAYOUT["content"])
+    )
 
     columns = tk.Frame(panel, bg=PANEL_2)
     columns.pack(fill="x")
@@ -573,24 +655,30 @@ def _build_advanced_panel(window, engine_module) -> None:
     columns.grid_columnconfigure(1, weight=1, uniform="advanced")
 
     left = tk.Frame(columns, bg=PANEL_2)
-    left.grid(row=0, column=0, sticky="new", padx=(0, 10))
+    left.grid(row=0, column=0, sticky="new", padx=(LAYOUT["none"], LAYOUT["content"]))
     right = tk.Frame(columns, bg=PANEL_2)
-    right.grid(row=0, column=1, sticky="new", padx=(10, 0))
+    right.grid(row=0, column=1, sticky="new", padx=(LAYOUT["content"], LAYOUT["none"]))
 
     _label(left, "片段与章节", size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
     segment = tk.Frame(left, bg=PANEL_2)
-    segment.pack(fill="x", pady=(6, 0))
+    segment.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     _label(segment, "开始", size=7, color=MUTED, bg=PANEL_2).grid(row=0, column=0, sticky="w")
-    _entry(segment, window._media_pref_vars["segmentStart"], width=11).grid(row=0, column=1, padx=(6, 12))
+    _entry(segment, window._media_pref_vars["segmentStart"], width=11).grid(
+        row=0, column=1, padx=(LAYOUT["inline"], LAYOUT["content"])
+    )
     _label(segment, "结束", size=7, color=MUTED, bg=PANEL_2).grid(row=0, column=2, sticky="w")
-    _entry(segment, window._media_pref_vars["segmentEnd"], width=11).grid(row=0, column=3, padx=(6, 0))
-    _label(left, "例如 01:20 → 03:45；留空表示完整视频。", size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(5, 5))
+    _entry(segment, window._media_pref_vars["segmentEnd"], width=11).grid(
+        row=0, column=3, padx=(LAYOUT["inline"], LAYOUT["none"])
+    )
+    _label(left, "例如 01:20 → 03:45；留空表示完整视频。", size=7, color=SUBTLE, bg=PANEL_2).pack(
+        anchor="w", pady=(LAYOUT["micro"], LAYOUT["micro"])
+    )
     _check(left, "按章节拆分", window._media_pref_vars["splitChapters"]).pack(anchor="w")
 
-    _divider(left, bg=PANEL_2).pack(fill="x", pady=(10, 9))
+    _divider(left, bg=PANEL_2).pack(fill="x", pady=(LAYOUT["content"], LAYOUT["inline"]))
     _label(left, "字幕与音轨", size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
     subtitle = tk.Frame(left, bg=PANEL_2)
-    subtitle.pack(fill="x", pady=(6, 0))
+    subtitle.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     _label(subtitle, "字幕来源", size=7, color=MUTED, bg=PANEL_2).pack(side="left")
     ttk.Combobox(
         subtitle,
@@ -599,16 +687,28 @@ def _build_advanced_panel(window, engine_module) -> None:
         width=9,
         state="readonly",
         style="Galaxy.TCombobox",
-    ).pack(side="left", padx=(6, 0))
+    ).pack(side="left", padx=(LAYOUT["inline"], LAYOUT["none"]))
     language = tk.Frame(left, bg=PANEL_2)
-    language.pack(fill="x", pady=(7, 0))
+    language.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     _label(language, "字幕语言", size=7, color=MUTED, bg=PANEL_2).grid(row=0, column=0, sticky="w")
-    _entry(language, window._media_pref_vars["subtitleLanguages"], width=22).grid(row=0, column=1, padx=(6, 0), sticky="ew")
-    _label(language, "音轨语言", size=7, color=MUTED, bg=PANEL_2).grid(row=1, column=0, sticky="w", pady=(6, 0))
-    _entry(language, window._media_pref_vars["audioLanguages"], width=22).grid(row=1, column=1, padx=(6, 0), pady=(6, 0), sticky="ew")
+    _entry(language, window._media_pref_vars["subtitleLanguages"], width=22).grid(
+        row=0, column=1, padx=(LAYOUT["inline"], LAYOUT["none"]), sticky="ew"
+    )
+    _label(language, "音轨语言", size=7, color=MUTED, bg=PANEL_2).grid(
+        row=1, column=0, sticky="w", pady=(LAYOUT["inline"], LAYOUT["none"])
+    )
+    _entry(language, window._media_pref_vars["audioLanguages"], width=22).grid(
+        row=1,
+        column=1,
+        padx=(LAYOUT["inline"], LAYOUT["none"]),
+        pady=(LAYOUT["inline"], LAYOUT["none"]),
+        sticky="ew",
+    )
 
     _label(right, "SponsorBlock", size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
-    _label(right, "按分类移除区段，默认全部关闭。", size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(2, 6))
+    _label(right, "按分类移除区段，默认全部关闭。", size=7, color=SUBTLE, bg=PANEL_2).pack(
+        anchor="w", pady=(LAYOUT["micro"], LAYOUT["inline"])
+    )
     sponsor_grid = tk.Frame(right, bg=PANEL_2)
     sponsor_grid.pack(fill="x")
     for index, (category, label_text) in enumerate(SPONSOR_LABELS):
@@ -616,20 +716,26 @@ def _build_advanced_panel(window, engine_module) -> None:
             row=index // 2,
             column=index % 2,
             sticky="w",
-            padx=(0, 10),
-            pady=1,
+            padx=(LAYOUT["none"], LAYOUT["content"]),
+            pady=LAYOUT["micro"],
         )
 
-    _divider(right, bg=PANEL_2).pack(fill="x", pady=(10, 9))
+    _divider(right, bg=PANEL_2).pack(fill="x", pady=(LAYOUT["content"], LAYOUT["inline"]))
     _label(right, "下载器", size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
     aria2 = _check(right, "aria2c 多连接加速（yt-dlp 仍负责解析）", window._media_pref_vars["useAria2c"])
-    aria2.pack(anchor="w", pady=(6, 0))
+    aria2.pack(anchor="w", pady=(LAYOUT["inline"], LAYOUT["none"]))
     if not aria2c_available(engine_module):
         aria2.configure(state="disabled", disabledforeground=SUBTLE)
-        _label(right, "未检测到 aria2c；安装后重新启动 Engine 即可启用。", size=7, color=SUBTLE, bg=PANEL_2).pack(anchor="w", pady=(3, 0))
+        _label(
+            right,
+            "未检测到 aria2c；安装后重新启动 Engine 即可启用。",
+            size=7,
+            color=SUBTLE,
+            bg=PANEL_2,
+        ).pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"]))
 
     buttons = tk.Frame(panel, bg=PANEL_2)
-    buttons.pack(fill="x", pady=(12, 0))
+    buttons.pack(fill="x", pady=(LAYOUT["content"], LAYOUT["none"]))
     ActionButton(
         buttons,
         text="恢复默认",
@@ -683,7 +789,7 @@ def _check(master, text: str, variable: tk.BooleanVar) -> tk.Checkbutton:
 def _toggle_advanced(window) -> None:
     window._advanced_open = not bool(getattr(window, "_advanced_open", False))
     if window._advanced_open:
-        window._advanced_panel.pack(fill="x", pady=(8, 0))
+        window._advanced_panel.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
         window._advanced_toggle_var.set("高级下载工作台  ⌄")
     else:
         window._advanced_panel.pack_forget()
