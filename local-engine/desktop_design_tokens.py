@@ -44,6 +44,21 @@ SPACE = MappingProxyType(
     }
 )
 
+# Semantic layout spacing used by page composition. Keep page code on these
+# names instead of introducing one-off pixel gaps; all values resolve to the
+# shared 4px spacing scale above.
+LAYOUT = MappingProxyType(
+    {
+        "none": SPACE["0"],
+        "micro": SPACE["1"],
+        "inline": SPACE["2"],
+        "content": SPACE["3"],
+        "section": SPACE["4"],
+        "panel": SPACE["5"],
+        "page": SPACE["6"],
+    }
+)
+
 RADIUS = MappingProxyType(
     {
         "none": 0,
@@ -144,6 +159,8 @@ def target_padding(line_height: int, *, compact: bool = False) -> int:
 def run_self_test() -> None:
     assert COLOR["focus"] == COLOR["accent_hover"]
     assert SPACE["1"] == 4 and SPACE["10"] == 40
+    assert tuple(LAYOUT.values()) == (0, 4, 8, 12, 16, 20, 24)
+    assert all(value in SPACE.values() for value in LAYOUT.values())
     assert RADIUS["pill"] == 999
     assert TYPE["caption"] < TYPE["body"] < TYPE["title"] < TYPE["brand"] < TYPE["display"]
     assert MOTION["fast_ms"] < MOTION["normal_ms"] < MOTION["slow_ms"]

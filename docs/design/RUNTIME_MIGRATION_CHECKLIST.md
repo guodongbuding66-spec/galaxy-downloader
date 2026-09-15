@@ -10,6 +10,6 @@
 - [x] Exceptional 17/18pt display sizes are represented by named type tokens.
 - [x] Shared action buttons enforce the 44px interaction-target contract from measured font metrics.
 - [x] Shared action buttons expose token-backed visible keyboard focus rings.
-- [ ] Remaining page-level spacing migrated.
+- [x] Remaining core page-level spacing migrated to the shared 4px semantic layout scale.
 - [ ] Transfer/workspace-specific components migrated.
 - [ ] Final motion/accessibility pass completed.
