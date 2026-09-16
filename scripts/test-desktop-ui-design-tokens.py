@@ -79,12 +79,15 @@ def _assert_transfer_workspace_tokenized(source_path: pathlib.Path) -> None:
 def _assert_accessibility_contract() -> None:
     source = (LOCAL_ENGINE / "desktop_accessibility.py").read_text(encoding="utf-8")
     ui_source = (LOCAL_ENGINE / "desktop_ui.py").read_text(encoding="utf-8")
+    hooks_source = (LOCAL_ENGINE / "desktop_hooks.py").read_text(encoding="utf-8")
     assert '"<Escape>"' in source
     assert '"<Map>"' in source
     assert 'protocol("WM_DELETE_WINDOW")' in source
     assert "focus_first_control" in source
     assert "GALAXY_REDUCE_MOTION" in source
-    assert "install_desktop_accessibility(window)" in ui_source
+    assert '"desktop-accessibility"' in hooks_source
+    assert "install_desktop_accessibility" in hooks_source
+    assert "register_after_build_ui_hook" in hooks_source
     assert "takefocus=True" in ui_source
     assert "highlightcolor=FOCUS" in ui_source
 
