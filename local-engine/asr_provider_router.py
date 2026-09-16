@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ai_models import WHISPER_MODELS, whisper_executable
 from ai_workspace import AiArtifactResult, transcribe_media as transcribe_whisper
@@ -51,6 +51,7 @@ AUTO = "auto"
 ASR_PROVIDERS = (WHISPER, FASTER_WHISPER)
 ROUTABLE_ASR_PROVIDERS = (*ASR_PROVIDERS, SENSEVOICE, PARAKEET, QWEN3_ASR)
 PROFILES = ("fast", "balanced", "accurate")
+PROBE_ERROR_CODE = "ASR_PROVIDER_PROBE_FAILED"
 
 
 class AsrProviderRouterError(RuntimeError):
@@ -125,99 +126,176 @@ def _clean_model(value: object, *, provider: str | None = None) -> str:
     return model
 
 
-def _whisper_status(engine_module) -> dict[str, Any]:
-    rows = list_whisper_models(engine_module)
-    installed = [
-        str(row.get("model") or "")
-        for row in rows
-        if isinstance(row, dict) and bool(row.get("installed"))
-    ]
+def _probe_error(exc: Exception) -> dict[str, str]:
+    message = str(exc).strip() or exc.__class__.__name__
     return {
-        "id": WHISPER,
-        "name": "OpenAI Whisper",
-        "runtimeAvailable": whisper_executable(engine_module) is not None,
-        "installedModels": installed,
-        "models": list(WHISPER_MODELS),
+        "code": PROBE_ERROR_CODE,
+        "error": message[-1600:],
+    }
+
+
+def _provider_base(
+    provider: str,
+    name: str,
+    *,
+    models: tuple[str, ...],
+    installer_available: bool | None = None,
+    languages: tuple[str, ...] | None = None,
+    detected_languages: tuple[str, ...] | None = None,
+    language_mode: str = "",
+    supports_mps: bool | None = None,
+    versioned: bool = False,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": provider,
+        "name": name,
+        "runtimeAvailable": False,
+        "installedModels": [],
+        "models": list(models),
         "explicitInstallRequired": True,
         "localFilesOnly": True,
         "supportsCpu": True,
         "supportsGpu": True,
     }
+    if versioned:
+        payload["version"] = ""
+    if installer_available is not None:
+        payload["installerAvailable"] = installer_available
+    if languages is not None:
+        payload["languages"] = list(languages)
+    if detected_languages is not None:
+        payload["detectedLanguages"] = list(detected_languages)
+    if language_mode:
+        payload["languageMode"] = language_mode
+    if supports_mps is not None:
+        payload["supportsMps"] = supports_mps
+    return payload
+
+
+def _safe_probe(base: dict[str, Any], probe: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    try:
+        return probe()
+    except Exception as exc:
+        fallback = dict(base)
+        fallback["probeError"] = _probe_error(exc)
+        return fallback
+
+
+def _whisper_status(engine_module) -> dict[str, Any]:
+    base = _provider_base(
+        WHISPER,
+        "OpenAI Whisper",
+        models=tuple(WHISPER_MODELS),
+    )
+
+    def probe() -> dict[str, Any]:
+        rows = list_whisper_models(engine_module)
+        installed = [
+            str(row.get("model") or "")
+            for row in rows
+            if isinstance(row, dict) and bool(row.get("installed"))
+        ]
+        return {
+            **base,
+            "runtimeAvailable": whisper_executable(engine_module) is not None,
+            "installedModels": installed,
+        }
+
+    return _safe_probe(base, probe)
 
 
 def _faster_status(engine_module) -> dict[str, Any]:
-    status = faster_provider_status(engine_module)
-    return {
-        "id": FASTER_WHISPER,
-        "name": "faster-whisper",
-        "runtimeAvailable": bool(status.available),
-        "version": status.version,
-        "installedModels": list(status.installed_models),
-        "models": list(WHISPER_MODELS),
-        "explicitInstallRequired": True,
-        "localFilesOnly": True,
-        "supportsCpu": True,
-        "supportsGpu": True,
-    }
+    base = _provider_base(
+        FASTER_WHISPER,
+        "faster-whisper",
+        models=tuple(WHISPER_MODELS),
+        versioned=True,
+    )
+
+    def probe() -> dict[str, Any]:
+        status = faster_provider_status(engine_module)
+        return {
+            **base,
+            "runtimeAvailable": bool(status.available),
+            "version": status.version,
+            "installedModels": list(status.installed_models),
+        }
+
+    return _safe_probe(base, probe)
 
 
 def _sensevoice_status(engine_module) -> dict[str, Any]:
-    status = sensevoice_provider_status(engine_module)
-    return {
-        "id": SENSEVOICE,
-        "name": "SenseVoice",
-        "runtimeAvailable": bool(status.available),
-        "installerAvailable": bool(status.installer_available),
-        "version": status.version,
-        "installedModels": list(status.installed_models),
-        "models": list(SENSEVOICE_MODELS),
-        "languages": list(SENSEVOICE_LANGUAGES),
-        "explicitInstallRequired": True,
-        "localFilesOnly": True,
-        "supportsCpu": True,
-        "supportsGpu": True,
-    }
+    base = _provider_base(
+        SENSEVOICE,
+        "SenseVoice",
+        models=tuple(SENSEVOICE_MODELS),
+        installer_available=False,
+        languages=tuple(SENSEVOICE_LANGUAGES),
+        versioned=True,
+    )
+
+    def probe() -> dict[str, Any]:
+        status = sensevoice_provider_status(engine_module)
+        return {
+            **base,
+            "runtimeAvailable": bool(status.available),
+            "installerAvailable": bool(status.installer_available),
+            "version": status.version,
+            "installedModels": list(status.installed_models),
+        }
+
+    return _safe_probe(base, probe)
 
 
 def _parakeet_status(engine_module) -> dict[str, Any]:
-    status = parakeet_provider_status(engine_module)
-    return {
-        "id": PARAKEET,
-        "name": "NVIDIA Parakeet",
-        "runtimeAvailable": bool(status.available),
-        "installerAvailable": bool(status.installer_available),
-        "version": status.version,
-        "installedModels": list(status.installed_models),
-        "models": list(PARAKEET_MODELS),
-        "languages": list(PARAKEET_LANGUAGES),
-        "detectedLanguages": list(PARAKEET_SUPPORTED_LANGUAGES),
-        "languageMode": "automatic-only",
-        "explicitInstallRequired": True,
-        "localFilesOnly": True,
-        "supportsCpu": True,
-        "supportsGpu": True,
-        "supportsMps": False,
-    }
+    base = _provider_base(
+        PARAKEET,
+        "NVIDIA Parakeet",
+        models=tuple(PARAKEET_MODELS),
+        installer_available=False,
+        languages=tuple(PARAKEET_LANGUAGES),
+        detected_languages=tuple(PARAKEET_SUPPORTED_LANGUAGES),
+        language_mode="automatic-only",
+        supports_mps=False,
+        versioned=True,
+    )
+
+    def probe() -> dict[str, Any]:
+        status = parakeet_provider_status(engine_module)
+        return {
+            **base,
+            "runtimeAvailable": bool(status.available),
+            "installerAvailable": bool(status.installer_available),
+            "version": status.version,
+            "installedModels": list(status.installed_models),
+        }
+
+    return _safe_probe(base, probe)
 
 
 def _qwen3_asr_status(engine_module) -> dict[str, Any]:
-    status = qwen3_asr_provider_status(engine_module)
-    return {
-        "id": QWEN3_ASR,
-        "name": "Qwen3-ASR",
-        "runtimeAvailable": bool(status.available),
-        "installerAvailable": bool(status.installer_available),
-        "version": status.version,
-        "installedModels": list(status.installed_models),
-        "models": list(QWEN3_ASR_MODELS),
-        "languages": list(QWEN3_ASR_LANGUAGES),
-        "languageMode": "automatic-or-forced",
-        "explicitInstallRequired": True,
-        "localFilesOnly": True,
-        "supportsCpu": True,
-        "supportsGpu": True,
-        "supportsMps": False,
-    }
+    base = _provider_base(
+        QWEN3_ASR,
+        "Qwen3-ASR",
+        models=tuple(QWEN3_ASR_MODELS),
+        installer_available=False,
+        languages=tuple(QWEN3_ASR_LANGUAGES),
+        language_mode="automatic-or-forced",
+        supports_mps=False,
+        versioned=True,
+    )
+
+    def probe() -> dict[str, Any]:
+        status = qwen3_asr_provider_status(engine_module)
+        return {
+            **base,
+            "runtimeAvailable": bool(status.available),
+            "installerAvailable": bool(status.installer_available),
+            "version": status.version,
+            "installedModels": list(status.installed_models),
+        }
+
+    return _safe_probe(base, probe)
 
 
 def list_asr_providers(engine_module) -> list[dict[str, Any]]:
@@ -226,7 +304,11 @@ def list_asr_providers(engine_module) -> list[dict[str, Any]]:
 
 
 def list_routable_asr_providers(engine_module) -> list[dict[str, Any]]:
-    """Return every provider the unified router can explicitly dispatch."""
+    """Return every provider the unified router can explicitly dispatch.
+
+    A failed provider probe is isolated to that provider. The row remains in the
+    response with runtimeAvailable=False and a structured probeError payload.
+    """
     return [
         _whisper_status(engine_module),
         _faster_status(engine_module),
@@ -252,8 +334,9 @@ def recommend_asr_route(
     statuses = _status_map(engine_module)
 
     if preferred == AUTO:
-        # Preserve the established automatic route. New specialized providers
-        # stay explicit until a separately reviewed default-routing policy exists.
+        # Preserve the established automatic route. A failed faster-whisper
+        # health probe is represented as unavailable, so routing falls back to
+        # classic Whisper instead of aborting the whole recommendation.
         selected = (
             FASTER_WHISPER
             if bool(statuses[FASTER_WHISPER]["runtimeAvailable"])
@@ -329,9 +412,14 @@ def transcribe_with_provider(
     statuses = _status_map(engine_module)
     status = statuses[selected]
     if not bool(status["runtimeAvailable"]):
+        probe_error = status.get("probeError")
+        detail = ""
+        if isinstance(probe_error, dict):
+            detail = str(probe_error.get("error") or "").strip()
+        suffix = f"：{detail}" if detail else ""
         raise AsrProviderRouterError(
             "ASR_PROVIDER_UNAVAILABLE",
-            f"ASR Provider {selected} 当前不可用",
+            f"ASR Provider {selected} 当前不可用{suffix}",
         )
     if requested_model not in set(status["installedModels"]):
         raise AsrProviderRouterError(
@@ -492,6 +580,7 @@ def run_asr_provider_router_self_test() -> None:
                 QWEN3_ASR,
             ]
             assert all(item["runtimeAvailable"] for item in routable)
+            assert all("probeError" not in item for item in routable)
             parakeet_status = routable[-2]
             assert parakeet_status["languageMode"] == "automatic-only"
             assert parakeet_status["languages"] == ["auto"]
@@ -646,41 +735,22 @@ def run_asr_provider_router_self_test() -> None:
                 assert qwen_call.call_args.kwargs["language"] == "zh"
                 assert qwen_call.call_args.kwargs["device"] == "cuda:0"
 
-            try:
-                transcribe_with_provider(
-                    Engine,
-                    "f" * 32,
-                    provider=SENSEVOICE,
-                    model="large-v3",
-                )
-            except AsrProviderRouterError as exc:
-                assert exc.code == "ASR_MODEL_INVALID"
-            else:
-                raise AssertionError("SenseVoice accepted a Whisper-only model")
-
-            try:
-                transcribe_with_provider(
-                    Engine,
-                    "f" * 32,
-                    provider=PARAKEET,
-                    model="large-v3",
-                )
-            except AsrProviderRouterError as exc:
-                assert exc.code == "ASR_MODEL_INVALID"
-            else:
-                raise AssertionError("Parakeet accepted a Whisper-only model")
-
-            try:
-                transcribe_with_provider(
-                    Engine,
-                    "f" * 32,
-                    provider=QWEN3_ASR,
-                    model="large-v3",
-                )
-            except AsrProviderRouterError as exc:
-                assert exc.code == "ASR_MODEL_INVALID"
-            else:
-                raise AssertionError("Qwen3-ASR accepted a Whisper-only model")
+            for provider, bad_model in (
+                (SENSEVOICE, "large-v3"),
+                (PARAKEET, "large-v3"),
+                (QWEN3_ASR, "large-v3"),
+            ):
+                try:
+                    transcribe_with_provider(
+                        Engine,
+                        "f" * 32,
+                        provider=provider,
+                        model=bad_model,
+                    )
+                except AsrProviderRouterError as exc:
+                    assert exc.code == "ASR_MODEL_INVALID"
+                else:
+                    raise AssertionError(f"{provider} accepted a Whisper-only model")
 
         with patch(
             "asr_provider_router.whisper_executable",
@@ -701,41 +771,97 @@ def run_asr_provider_router_self_test() -> None:
             "asr_provider_router.qwen3_asr_provider_status",
             return_value=Qwen3AsrStatus(False, False, "", ()),
         ):
+            for provider, model in (
+                (SENSEVOICE, "small"),
+                (PARAKEET, PARAKEET_MODELS[0]),
+                (QWEN3_ASR, QWEN3_ASR_MODELS[0]),
+            ):
+                try:
+                    transcribe_with_provider(
+                        Engine,
+                        "f" * 32,
+                        provider=provider,
+                        model=model,
+                    )
+                except AsrProviderRouterError as exc:
+                    assert exc.code == "ASR_PROVIDER_UNAVAILABLE"
+                else:
+                    raise AssertionError(f"unavailable {provider} provider was accepted")
+
+        # One broken health probe must not abort provider discovery or auto routing.
+        with patch(
+            "asr_provider_router.whisper_executable",
+            return_value=root / "whisper",
+        ), patch(
+            "asr_provider_router.list_whisper_models",
+            return_value=whisper_rows,
+        ), patch(
+            "asr_provider_router.faster_provider_status",
+            side_effect=RuntimeError("faster-whisper probe exploded"),
+        ), patch(
+            "asr_provider_router.sensevoice_provider_status",
+            return_value=SenseVoiceStatus(True, True, "1.3.29", ("small",)),
+        ), patch(
+            "asr_provider_router.parakeet_provider_status",
+            return_value=ParakeetStatus(True, True, "5.6.0", (PARAKEET_MODELS[0],)),
+        ), patch(
+            "asr_provider_router.qwen3_asr_provider_status",
+            return_value=Qwen3AsrStatus(True, True, "5.13.0", (QWEN3_ASR_MODELS[0],)),
+        ), patch(
+            "asr_provider_router.recommend_whisper_model",
+            return_value="small",
+        ), patch(
+            "asr_provider_router.recommend_faster",
+            return_value={"model": "small", "device": "cpu", "computeType": "int8"},
+        ):
+            routable = list_routable_asr_providers(Engine)
+            assert len(routable) == len(ROUTABLE_ASR_PROVIDERS)
+            failed = next(item for item in routable if item["id"] == FASTER_WHISPER)
+            assert failed["runtimeAvailable"] is False
+            assert failed["installedModels"] == []
+            assert failed["probeError"]["code"] == PROBE_ERROR_CODE
+            assert "probe exploded" in failed["probeError"]["error"]
+
+            automatic = recommend_asr_route(Engine, {"ramGb": 16}, profile="balanced")
+            assert automatic.provider == WHISPER
+            assert automatic.runtime_available is True
+            assert automatic.model_installed is True
+
             try:
                 transcribe_with_provider(
                     Engine,
-                    "e" * 32,
-                    provider=SENSEVOICE,
+                    "b" * 32,
+                    provider=FASTER_WHISPER,
                     model="small",
                 )
             except AsrProviderRouterError as exc:
                 assert exc.code == "ASR_PROVIDER_UNAVAILABLE"
+                assert "probe exploded" in str(exc)
             else:
-                raise AssertionError("unavailable provider was accepted")
+                raise AssertionError("broken explicit provider probe was accepted")
 
-            try:
-                transcribe_with_provider(
-                    Engine,
-                    "f" * 32,
-                    provider=PARAKEET,
-                    model=PARAKEET_MODELS[0],
-                )
-            except AsrProviderRouterError as exc:
-                assert exc.code == "ASR_PROVIDER_UNAVAILABLE"
-            else:
-                raise AssertionError("unavailable Parakeet provider was accepted")
-
-            try:
-                transcribe_with_provider(
-                    Engine,
-                    "f" * 32,
-                    provider=QWEN3_ASR,
-                    model=QWEN3_ASR_MODELS[0],
-                )
-            except AsrProviderRouterError as exc:
-                assert exc.code == "ASR_PROVIDER_UNAVAILABLE"
-            else:
-                raise AssertionError("unavailable Qwen3-ASR provider was accepted")
+        # Whisper has multiple health probes; failures there are isolated too.
+        with patch(
+            "asr_provider_router.list_whisper_models",
+            side_effect=OSError("model registry unreadable"),
+        ), patch(
+            "asr_provider_router.faster_provider_status",
+            return_value=FasterWhisperStatus(False, "", ()),
+        ), patch(
+            "asr_provider_router.sensevoice_provider_status",
+            return_value=SenseVoiceStatus(False, False, "", ()),
+        ), patch(
+            "asr_provider_router.parakeet_provider_status",
+            return_value=ParakeetStatus(False, False, "", ()),
+        ), patch(
+            "asr_provider_router.qwen3_asr_provider_status",
+            return_value=Qwen3AsrStatus(False, False, "", ()),
+        ):
+            rows = list_routable_asr_providers(Engine)
+            whisper_row = next(item for item in rows if item["id"] == WHISPER)
+            assert whisper_row["runtimeAvailable"] is False
+            assert whisper_row["probeError"]["code"] == PROBE_ERROR_CODE
+            assert "registry unreadable" in whisper_row["probeError"]["error"]
 
         try:
             recommend_asr_route(Engine, preferred_provider="../bad")
