@@ -59,6 +59,24 @@ def focus_first_control(dialog: tk.Misc) -> tk.Misc | None:
     return None
 
 
+def _invoke_dialog_close(top: tk.Toplevel) -> None:
+    callback = getattr(top, "_galaxy_escape_handler", None)
+    if callable(callback):
+        callback()
+        return
+    # Respect a dialog's WM_DELETE_WINDOW handler so Escape follows the same
+    # cleanup path as the window close button (important for transfer sessions,
+    # worker handles, temporary servers, and other resource-owning dialogs).
+    try:
+        protocol_command = str(top.protocol("WM_DELETE_WINDOW") or "").strip()
+    except tk.TclError:
+        protocol_command = ""
+    if protocol_command:
+        top.tk.call(protocol_command)
+    else:
+        top.destroy()
+
+
 def close_dialog_from_escape(event: Any) -> str | None:
     """Close the containing Toplevel unless that dialog explicitly opts out."""
     widget = getattr(event, "widget", None)
@@ -73,11 +91,7 @@ def close_dialog_from_escape(event: Any) -> str | None:
     if bool(getattr(top, "_galaxy_escape_disabled", False)):
         return None
     try:
-        callback = getattr(top, "_galaxy_escape_handler", None)
-        if callable(callback):
-            callback()
-        else:
-            top.destroy()
+        _invoke_dialog_close(top)
     except tk.TclError:
         return None
     return "break"
@@ -121,9 +135,6 @@ def install_desktop_accessibility(window: tk.Misc) -> None:
         return
     window._galaxy_accessibility_installed = True  # type: ignore[attr-defined]
     window._galaxy_reduced_motion = reduced_motion_requested()  # type: ignore[attr-defined]
-    # Every Tk Toplevel includes the ``Toplevel`` class bindtag, so these class
-    # bindings cover current and future dialogs without each feature inventing
-    # its own Escape/focus behavior. Per-dialog helpers can override close logic.
     window.bind_class("Toplevel", "<Escape>", close_dialog_from_escape, add="+")
     window.bind_class("Toplevel", "<Map>", _focus_dialog_on_map, add="+")
 
@@ -131,5 +142,7 @@ def install_desktop_accessibility(window: tk.Misc) -> None:
 def run_self_test() -> None:
     assert reduced_motion_requested({"GALAXY_REDUCE_MOTION": "1"})
     assert reduced_motion_requested({"REDUCE_MOTION": "true"})
+    assert reduced_motion_requested({"GALAXY_REDUCE_MOTION": "YES"})
     assert not reduced_motion_requested({})
+    assert not reduced_motion_requested({"GALAXY_REDUCE_MOTION": "0"})
     assert close_dialog_from_escape(object()) is None
