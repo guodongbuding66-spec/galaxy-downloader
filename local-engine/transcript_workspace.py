@@ -17,6 +17,7 @@ MAX_SEGMENTS = 100_000
 MAX_SEGMENT_CHARS = 8_000
 MAX_TRANSCRIPT_BYTES = 16 * 1024 * 1024
 MAX_SEARCH_RESULTS = 500
+MAX_HIGHLIGHTS_PER_SEGMENT = 64
 TIME_RE = re.compile(r"(?P<h>\d{1,2}):(?P<m>\d{2}):(?P<s>\d{2})[,.](?P<ms>\d{3})")
 SPEAKER_PREFIX_RE = re.compile(r"^\s*(?:\[|\()?\s*(speaker\s*[A-Za-z0-9_-]+)\s*(?:\]|\))?\s*[:：-]?\s*", re.I)
 
@@ -221,6 +222,20 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _highlight_ranges(value: object, query: object) -> list[dict[str, int]]:
+    text = str(value or "")
+    needle = str(query or "")
+    if not text or not needle:
+        return []
+    pattern = re.compile(re.escape(needle), re.IGNORECASE)
+    ranges: list[dict[str, int]] = []
+    for match in pattern.finditer(text):
+        ranges.append({"start": match.start(), "end": match.end()})
+        if len(ranges) >= MAX_HIGHLIGHTS_PER_SEGMENT:
+            break
+    return ranges
+
+
 def _optional_seconds(value: object) -> float | None:
     if value in (None, ""):
         return None
@@ -275,17 +290,21 @@ def search_transcript(
             f"SELECT * FROM transcript_segments{where} ORDER BY media_id, start_seconds LIMIT ?",
             params,
         ).fetchall()
-    return [
-        {
-            "mediaId": str(row["media_id"]),
-            "index": int(row["segment_index"]),
-            "startSeconds": float(row["start_seconds"]),
-            "endSeconds": float(row["end_seconds"]),
-            "speaker": str(row["speaker"]),
-            "text": str(row["text"]),
-        }
-        for row in rows
-    ]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        row_text = str(row["text"])
+        result.append(
+            {
+                "mediaId": str(row["media_id"]),
+                "index": int(row["segment_index"]),
+                "startSeconds": float(row["start_seconds"]),
+                "endSeconds": float(row["end_seconds"]),
+                "speaker": str(row["speaker"]),
+                "text": row_text,
+                "highlights": _highlight_ranges(row_text, text),
+            }
+        )
+    return result
 
 
 def relabel_speaker(engine_module, media_id: object, old_label: object, new_label: object) -> int:
@@ -308,7 +327,7 @@ def run_transcript_workspace_self_test() -> None:
     from media_library import search_media_items, sync_media_library
 
     sample = (
-        "1\n00:00:01,000 --> 00:00:02,500\n[Speaker 1] Hello 100% world\n\n"
+        "1\n00:00:01,000 --> 00:00:02,500\n[Speaker 1] Hello 100% world hello\n\n"
         "2\n00:00:03,000 --> 00:00:04,000\nSpeaker 2: Next_line\n\n"
         "3\n00:99:00,000 --> 00:99:01,000\ninvalid time\n"
     )
@@ -317,6 +336,12 @@ def run_transcript_workspace_self_test() -> None:
     assert rows[0].speaker.lower() == "speaker 1"
     assert rows[0].start_seconds == 1.0
     assert rows[1].text == "Next_line"
+    assert _highlight_ranges("Hello hello", "hello") == [
+        {"start": 0, "end": 5},
+        {"start": 6, "end": 11},
+    ]
+    assert _highlight_ranges("<b>literal</b>", "<b>") == [{"start": 0, "end": 3}]
+    assert _highlight_ranges("anything", "") == []
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -362,9 +387,19 @@ def run_transcript_workspace_self_test() -> None:
         path.write_text(sample, encoding="utf-8")
         assert index_transcript(Engine, media_id) == 2
         assert len(transcript_segments(Engine, media_id)) == 2
-        assert len(search_transcript(Engine, "100%", media_id=media_id)) == 1
+        percent_rows = search_transcript(Engine, "100%", media_id=media_id)
+        assert len(percent_rows) == 1
+        assert percent_rows[0]["highlights"] == [{"start": 6, "end": 10}]
+        hello_rows = search_transcript(Engine, "hello", media_id=media_id)
+        assert hello_rows[0]["highlights"] == [
+            {"start": 0, "end": 5},
+            {"start": 17, "end": 22},
+        ]
         assert len(search_transcript(Engine, "Next_", media_id=media_id)) == 1
-        assert len(search_transcript(Engine, "", media_id=media_id, start_seconds=2.6, end_seconds=3.2)) == 1
+        timed = search_transcript(Engine, "", media_id=media_id, start_seconds=2.6, end_seconds=3.2)
+        assert len(timed) == 1 and timed[0]["highlights"] == []
         assert relabel_speaker(Engine, media_id, "Speaker 2", "Host") == 1
-        assert search_transcript(Engine, "", media_id=media_id, speaker="Host")[0]["text"] == "Next_line"
+        speaker_rows = search_transcript(Engine, "", media_id=media_id, speaker="Host")
+        assert speaker_rows[0]["text"] == "Next_line"
+        assert speaker_rows[0]["highlights"] == []
         assert _db_path(Engine).is_file()
