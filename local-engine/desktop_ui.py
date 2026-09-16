@@ -10,9 +10,11 @@ source of truth.
 
 import tkinter as tk
 import tkinter.font as tkfont
+from functools import wraps
 from typing import Callable
 
 import _desktop_ui_impl as _impl
+from desktop_accessibility import install_desktop_accessibility
 from desktop_design_tokens import (
     ACCENT,
     ACCENT_HOVER,
@@ -38,8 +40,6 @@ from desktop_design_tokens import (
     target_padding,
 )
 
-# Rebind the implementation's dynamic module globals before any widgets are
-# constructed. Existing functions/classes resolve these values at call time.
 _RUNTIME_ALIASES = {
     "BG": BG,
     "PANEL": PANEL,
@@ -70,10 +70,6 @@ BUTTON_COMPACT_PAD_X = int(CONTROL["button_compact_pad_x"])
 BUTTON_COMPACT_PAD_Y = int(CONTROL["button_compact_pad_y"])
 FOCUS_RING_WIDTH = int(CONTROL["focus_ring_width"])
 
-# Preserve the legacy numeric call signature while sourcing every currently
-# used Desktop type size from TYPE. This lets page call sites migrate to named
-# tokens independently without leaving 17/18pt display exceptions outside the
-# runtime scale.
 _TYPE_SIZE_BY_LEGACY = {
     7: int(TYPE["caption"]),
     8: int(TYPE["body_sm"]),
@@ -191,7 +187,26 @@ _impl._check = _check
 
 SPONSOR_LABELS = _impl.SPONSOR_LABELS
 WEBSITE_URL = _impl.WEBSITE_URL
-install_desktop_ui = _impl.install_desktop_ui
+_ORIGINAL_INSTALL_DESKTOP_UI = _impl.install_desktop_ui
+_ACCESSIBILITY_WRAPPED_ATTR = "_galaxy_accessibility_build_wrapped"
+
+
+def install_desktop_ui(engine_module):
+    """Install the Desktop workbench plus the global keyboard/motion contract."""
+    window_cls = _ORIGINAL_INSTALL_DESKTOP_UI(engine_module)
+    if window_cls.__dict__.get(_ACCESSIBILITY_WRAPPED_ATTR, False):
+        return window_cls
+    original_build = window_cls._build_ui
+
+    @wraps(original_build)
+    def build_ui_with_accessibility(window, *args, **kwargs):
+        result = original_build(window, *args, **kwargs)
+        install_desktop_accessibility(window)
+        return result
+
+    window_cls._build_ui = build_ui_with_accessibility
+    setattr(window_cls, _ACCESSIBILITY_WRAPPED_ATTR, True)
+    return window_cls
 
 
 def __getattr__(name: str):
@@ -227,6 +242,7 @@ def run_self_test() -> None:
     assert _resolve_type_size("title") == TYPE["title"]
     assert _resolve_type_size(9) == TYPE["body"]
     assert target_padding(16) >= BUTTON_PAD_Y
+    assert callable(install_desktop_accessibility)
 
 
 if __name__ == "__main__":
