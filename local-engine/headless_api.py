@@ -34,12 +34,15 @@ from headless_udemy_attachment_inventory import install_headless_udemy_attachmen
 from headless_web_dashboard import HeadlessWebDashboardMixin
 from headless_whisperx_api import HeadlessWhisperXApi
 from headless_whisperx_http import HeadlessWhisperXHttpMixin
+from hotmart_course_provider import install_headless_hotmart_authorization
 
-# Compose bounded browser authentication first, final-file tracking second,
-# provider-specific safe inventory capture third, and persistent metadata capture
-# last. No layer exposes browser credentials, signed attachment URLs, or absolute
+# Compose bounded browser authentication first, Hotmart's process-local trusted
+# Referer/cookie layer second, final-file tracking third, provider-specific safe
+# inventory capture fourth, and persistent metadata capture last. No layer exposes
+# browser credentials, signed media URLs, signed attachment URLs, or absolute
 # output paths publicly.
 install_headless_browser_cookie_support()
+install_headless_hotmart_authorization()
 install_headless_output_tracking()
 install_headless_udemy_attachment_inventory()
 install_headless_course_metadata_tracking()

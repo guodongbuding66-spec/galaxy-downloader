@@ -12,6 +12,7 @@ from headless_learning_structure import install_headless_learning_structure
 from headless_output_tracking import install_headless_output_tracking
 from headless_service import HeadlessRuntime
 from headless_udemy_attachment_inventory import install_headless_udemy_attachment_inventory
+from hotmart_course_provider import install_headless_hotmart_authorization
 from managed_course_download import build_managed_course_plan, submit_managed_course_download
 
 
@@ -31,6 +32,7 @@ class DesktopCourseDownloadService:
         coordinator=None,
     ) -> None:
         install_headless_browser_cookie_support()
+        install_headless_hotmart_authorization()
         install_headless_output_tracking()
         install_headless_udemy_attachment_inventory()
         install_headless_course_metadata_tracking()
