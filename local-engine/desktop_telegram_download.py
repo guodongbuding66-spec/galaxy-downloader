@@ -6,6 +6,7 @@ from tkinter import ttk
 from typing import Any
 
 import desktop_ui as ui
+from desktop_design_tokens import LAYOUT, font
 from telegram_download import (
     TelegramTransferError,
     browse_public_telegram,
@@ -48,7 +49,7 @@ def _message_values(message: dict[str, Any]) -> tuple[str, str, str, str, str, s
 
 
 def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_module) -> tk.Frame:
-    tab = tk.Frame(notebook, bg=ui.PANEL, padx=16, pady=14)
+    tab = tk.Frame(notebook, bg=ui.PANEL, padx=LAYOUT["section"], pady=LAYOUT["section"])
     notebook.add(tab, text="Telegram 下载")
 
     ui._label(tab, "Telegram 下载 / Chat Browser", size=10, weight="bold").pack(anchor="w")
@@ -57,7 +58,7 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         "公共帖子 / 频道、Chat Browser 与批量媒体下载均通过已配置的 User Session adapter；Bot Token 不用于读取任意频道历史。",
         size=7,
         color=ui.SUBTLE,
-    ).pack(anchor="w", pady=(3, 9))
+    ).pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["inline"]))
 
     status_var = tk.StringVar(value="请输入公共 t.me 链接 / @username，或搜索 User Session 中的 Chat。")
     source_var = tk.StringVar(value="")
@@ -71,8 +72,8 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
     source_card = tk.Frame(
         tab,
         bg=ui.PANEL_2,
-        padx=12,
-        pady=10,
+        padx=LAYOUT["content"],
+        pady=LAYOUT["content"],
         highlightthickness=1,
         highlightbackground=ui.BORDER_SOFT,
     )
@@ -93,12 +94,12 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         highlightthickness=1,
         highlightbackground=ui.BORDER,
         highlightcolor=ui.ACCENT,
-        font=("Segoe UI", 8),
+        font=font("body_sm"),
     )
-    source_entry.pack(fill="x", pady=(3, 0), ipady=6)
+    source_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
 
     limit_field = tk.Frame(public_row, bg=ui.PANEL_2)
-    limit_field.pack(side="left", padx=(10, 0))
+    limit_field.pack(side="left", padx=(LAYOUT["content"], LAYOUT["none"]))
     ui._label(limit_field, "最多消息", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
     limit_spin = tk.Spinbox(
         limit_field,
@@ -114,9 +115,9 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         highlightthickness=1,
         highlightbackground=ui.BORDER,
         highlightcolor=ui.ACCENT,
-        font=("Segoe UI", 8),
+        font=font("body_sm"),
     )
-    limit_spin.pack(pady=(3, 0), ipady=5)
+    limit_spin.pack(pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=5)
 
     public_button = ui.ActionButton(
         public_row,
@@ -125,10 +126,10 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         kind="secondary",
         compact=True,
     )
-    public_button.pack(side="right", padx=(10, 0), pady=(15, 0))
+    public_button.pack(side="right", padx=(LAYOUT["content"], LAYOUT["none"]), pady=(LAYOUT["section"], LAYOUT["none"]))
 
     chat_row = tk.Frame(source_card, bg=ui.PANEL_2)
-    chat_row.pack(fill="x", pady=(9, 0))
+    chat_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     chat_search_field = tk.Frame(chat_row, bg=ui.PANEL_2)
     chat_search_field.pack(side="left", fill="x", expand=True)
     ui._label(chat_search_field, "Chat Browser 搜索", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
@@ -142,9 +143,9 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         highlightthickness=1,
         highlightbackground=ui.BORDER,
         highlightcolor=ui.ACCENT,
-        font=("Segoe UI", 8),
+        font=font("body_sm"),
     )
-    chat_query_entry.pack(fill="x", pady=(3, 0), ipady=6)
+    chat_query_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
 
     search_chats_button = ui.ActionButton(
         chat_row,
@@ -153,13 +154,13 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         kind="ghost",
         compact=True,
     )
-    search_chats_button.pack(side="left", padx=(8, 0), pady=(15, 0))
+    search_chats_button.pack(side="left", padx=(LAYOUT["inline"], LAYOUT["none"]), pady=(LAYOUT["section"], LAYOUT["none"]))
 
     chat_choice_field = tk.Frame(chat_row, bg=ui.PANEL_2)
-    chat_choice_field.pack(side="left", fill="x", expand=True, padx=(10, 0))
+    chat_choice_field.pack(side="left", fill="x", expand=True, padx=(LAYOUT["content"], LAYOUT["none"]))
     ui._label(chat_choice_field, "Chat", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
     chat_combo = ttk.Combobox(chat_choice_field, textvariable=chat_choice_var, state="readonly", width=32)
-    chat_combo.pack(fill="x", pady=(3, 0), ipady=4)
+    chat_combo.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=4)
 
     browse_chat_button = ui.ActionButton(
         chat_row,
@@ -168,10 +169,10 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         kind="secondary",
         compact=True,
     )
-    browse_chat_button.pack(side="right", padx=(8, 0), pady=(15, 0))
+    browse_chat_button.pack(side="right", padx=(LAYOUT["inline"], LAYOUT["none"]), pady=(LAYOUT["section"], LAYOUT["none"]))
 
     filter_row = tk.Frame(source_card, bg=ui.PANEL_2)
-    filter_row.pack(fill="x", pady=(9, 0))
+    filter_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     ui._label(filter_row, "媒体类型", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(side="left")
     filter_controls: list[tk.Checkbutton] = []
     for text, variable in (("图片", image_var), ("视频", video_var), ("文档", document_var)):
@@ -187,7 +188,7 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
             activebackground=ui.PANEL_2,
             activeforeground=ui.TEXT,
             selectcolor=ui.PANEL_3,
-            font=("Segoe UI", 8),
+            font=font("body_sm"),
             bd=0,
             relief="flat",
             highlightthickness=1,
@@ -195,7 +196,7 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
             highlightcolor=ui.ACCENT,
             cursor="hand2",
         )
-        control.pack(side="left", padx=(8, 0))
+        control.pack(side="left", padx=(LAYOUT["inline"], LAYOUT["none"]))
         filter_controls.append(control)
 
     ui._label(
@@ -206,7 +207,7 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         bg=ui.PANEL_2,
     ).pack(side="right")
 
-    result_card = tk.Frame(tab, bg=ui.PANEL, pady=10)
+    result_card = tk.Frame(tab, bg=ui.PANEL, pady=LAYOUT["content"])
     result_card.pack(fill="both", expand=True)
     table_frame = tk.Frame(result_card, bg=ui.PANEL)
     table_frame.pack(fill="both", expand=True)
@@ -219,19 +220,19 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         foreground=ui.TEXT,
         borderwidth=0,
         rowheight=28,
-        font=("Segoe UI", 8),
+        font=font("body_sm"),
     )
     style.configure(
         "GalaxyTelegram.Treeview.Heading",
         background=ui.PANEL_3,
         foreground=ui.MUTED,
         relief="flat",
-        font=("Segoe UI", 8, "bold"),
+        font=font("body_sm", bold=True),
     )
     style.map(
         "GalaxyTelegram.Treeview",
         background=[("selected", ui.ACCENT)],
-        foreground=[("selected", "#ffffff")],
+        foreground=[("selected", ui.TEXT)],
     )
 
     columns = ("id", "type", "name", "size", "date", "text")
@@ -260,7 +261,7 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
     scrollbar.pack(side="right", fill="y")
 
     footer = tk.Frame(tab, bg=ui.PANEL)
-    footer.pack(fill="x", pady=(2, 0))
+    footer.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]))
     ui._label(footer, variable=status_var, size=7, color=ui.MUTED).pack(side="left", fill="x", expand=True)
 
     download_loaded_button = ui.ActionButton(
@@ -278,7 +279,7 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         kind="secondary",
         compact=True,
     )
-    download_selected_button.pack(side="right", padx=(0, 7))
+    download_selected_button.pack(side="right", padx=(LAYOUT["none"], LAYOUT["inline"]))
 
     chat_keys: dict[str, str] = {}
     message_ids: dict[str, int] = {}

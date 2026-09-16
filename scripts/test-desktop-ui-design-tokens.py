@@ -31,27 +31,31 @@ def _contains_raw_spacing_literal(node: ast.AST) -> bool:
     return False
 
 
-def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
-    """Reject direct numeric padx/pady values in the core Desktop page source."""
+def _raw_spacing_violations(source_path: pathlib.Path) -> list[str]:
     source = source_path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(source_path))
     violations: list[str] = []
-
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             for keyword in node.keywords:
-                if keyword.arg in {"padx", "pady"} and _contains_raw_spacing_literal(keyword.value):
+                if keyword.arg in {"padx", "pady", "padding"} and _contains_raw_spacing_literal(keyword.value):
                     violations.append(f"line {getattr(keyword, 'lineno', '?')}: {keyword.arg}")
         elif isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values):
                 if (
                     isinstance(key, ast.Constant)
-                    and key.value in {"padx", "pady"}
+                    and key.value in {"padx", "pady", "padding"}
                     and value is not None
                     and _contains_raw_spacing_literal(value)
                 ):
                     violations.append(f"line {getattr(key, 'lineno', '?')}: {key.value}")
+    return violations
 
+
+def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
+    """Reject direct numeric spacing in the core Desktop page source."""
+    source = source_path.read_text(encoding="utf-8")
+    violations = _raw_spacing_violations(source_path)
     assert not violations, "raw page spacing literals found: " + ", ".join(violations)
     assert 'from desktop_design_tokens import LAYOUT' in source
     assert 'LAYOUT["page"]' in source
@@ -67,6 +71,19 @@ def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
     assert not _contains_raw_spacing_literal(conditional)
     conditional_bad = ast.parse("(4 if index == 0 else SPACE_B)", mode="eval").body
     assert _contains_raw_spacing_literal(conditional_bad)
+
+
+def _assert_transfer_workspace_tokenized(source_path: pathlib.Path) -> None:
+    source = source_path.read_text(encoding="utf-8")
+    violations = _raw_spacing_violations(source_path)
+    assert not violations, f"raw transfer spacing literals found in {source_path.name}: " + ", ".join(violations)
+    assert 'from desktop_design_tokens import LAYOUT, font' in source
+    assert 'LAYOUT["section"]' in source
+    assert 'LAYOUT["content"]' in source
+    assert 'LAYOUT["inline"]' in source
+    assert 'LAYOUT["micro"]' in source
+    assert '"Segoe UI"' not in source, f"direct font family leaked into {source_path.name}"
+    assert "'#ffffff'" not in source and '"#ffffff"' not in source, f"raw color leaked into {source_path.name}"
 
 
 def main() -> None:
@@ -105,9 +122,6 @@ def main() -> None:
     assert impl._entry is ui._entry
     assert impl._check is ui._check
 
-    # Workspaces historically call these helpers through the desktop_ui module.
-    # Unmigrated helpers must delegate to the isolated implementation instead of
-    # disappearing during the facade migration.
     for helper in ("_divider", "_section_title", "_status_chip", "_metric"):
         assert getattr(ui, helper) is getattr(impl, helper), helper
     try:
@@ -135,9 +149,6 @@ def main() -> None:
     assert ui._TYPE_SIZE_BY_LEGACY[17] == tokens.TYPE["brand"]
     assert ui._TYPE_SIZE_BY_LEGACY[18] == tokens.TYPE["display"]
 
-    # Classic Tk buttons do not expose a cross-platform pixel min-height. The
-    # shared padding helper must therefore fill the difference between measured
-    # text line height and the 44px interaction-target token.
     for line_height in (12, 16, 20, 32, 44, 64):
         for compact in (False, True):
             pad_y = tokens.target_padding(line_height, compact=compact)
@@ -156,14 +167,15 @@ def main() -> None:
     assert isinstance(ui.SPONSOR_LABELS, tuple)
     assert ui.WEBSITE_URL.startswith("https://")
 
-    # Runtime semantic colors must stay centralized in desktop_design_tokens.py.
     source = (LOCAL_ENGINE / "desktop_ui.py").read_text(encoding="utf-8")
     for value in tokens.COLOR.values():
         assert value not in source, f"semantic color literal leaked into desktop_ui.py: {value}"
 
     _assert_spacing_is_tokenized(LOCAL_ENGINE / "_desktop_ui_impl.py")
+    for name in ("desktop_transfers.py", "desktop_qr_transfer.py", "desktop_telegram_download.py"):
+        _assert_transfer_workspace_tokenized(LOCAL_ENGINE / name)
 
-    print("Desktop UI design-token facade contract passed")
+    print("Desktop UI design-token facade and transfer-workspace contract passed")
 
 
 if __name__ == "__main__":

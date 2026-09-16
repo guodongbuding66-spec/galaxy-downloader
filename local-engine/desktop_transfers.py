@@ -6,6 +6,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 import desktop_ui as ui
+from desktop_design_tokens import LAYOUT, font
 from desktop_hooks import register_after_build_ui_hook
 from desktop_qr_transfer import build_qr_transfer_tab
 from desktop_telegram_download import build_telegram_download_tab
@@ -30,7 +31,7 @@ def _entry(master, variable, width=30, **kwargs):
     options = {
         "textvariable": variable,
         "width": width,
-        "font": ("Segoe UI", 8),
+        "font": font("body_sm"),
         "bg": ui.BG,
         "fg": ui.TEXT,
         "insertbackground": ui.TEXT,
@@ -70,7 +71,7 @@ def _show_transfer_center(window, engine_module) -> None:
     dialog.configure(bg=ui.BG)
     dialog.transient(window)
 
-    shell = tk.Frame(dialog, bg=ui.BG, padx=20, pady=18)
+    shell = tk.Frame(dialog, bg=ui.BG, padx=LAYOUT["panel"], pady=LAYOUT["panel"])
     shell.pack(fill="both", expand=True)
     ui._label(shell, "传输中心", size=16, weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
@@ -79,26 +80,33 @@ def _show_transfer_center(window, engine_module) -> None:
         size=8,
         color=ui.MUTED,
         bg=ui.BG,
-    ).pack(anchor="w", pady=(4, 12))
+    ).pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["content"]))
 
     status_var = tk.StringVar(value="检测中…")
-    ui._label(shell, variable=status_var, size=8, color=ui.CYAN, bg=ui.BG).pack(anchor="w", pady=(0, 10))
+    ui._label(shell, variable=status_var, size=8, color=ui.CYAN, bg=ui.BG).pack(
+        anchor="w", pady=(LAYOUT["none"], LAYOUT["content"])
+    )
 
     style = ttk.Style(dialog)
     style.configure("Galaxy.TNotebook", background=ui.BG, borderwidth=0)
-    style.configure("Galaxy.TNotebook.Tab", background=ui.PANEL_2, foreground=ui.MUTED, padding=(12, 7))
+    style.configure(
+        "Galaxy.TNotebook.Tab",
+        background=ui.PANEL_2,
+        foreground=ui.MUTED,
+        padding=(LAYOUT["content"], LAYOUT["inline"]),
+    )
     style.map("Galaxy.TNotebook.Tab", background=[("selected", ui.PANEL_3)], foreground=[("selected", ui.TEXT)])
     notebook = ttk.Notebook(shell, style="Galaxy.TNotebook")
     notebook.pack(fill="both", expand=True)
 
     # Torrent
-    torrent_tab = tk.Frame(notebook, bg=ui.PANEL, padx=16, pady=16)
+    torrent_tab = tk.Frame(notebook, bg=ui.PANEL, padx=LAYOUT["section"], pady=LAYOUT["section"])
     notebook.add(torrent_tab, text="Torrent / Magnet")
     torrent_source_var = tk.StringVar()
     torrent_result_var = tk.StringVar(value="就绪")
     ui._label(torrent_tab, "Magnet 链接或 .torrent 文件", size=9, weight="bold").pack(anchor="w")
     torrent_row = tk.Frame(torrent_tab, bg=ui.PANEL)
-    torrent_row.pack(fill="x", pady=(9, 0))
+    torrent_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     _entry(torrent_row, torrent_source_var, 58).pack(side="left", fill="x", expand=True)
 
     def choose_torrent() -> None:
@@ -106,14 +114,18 @@ def _show_transfer_center(window, engine_module) -> None:
         if value:
             torrent_source_var.set(value)
 
-    ui.ActionButton(torrent_row, text="选择文件", command=choose_torrent, kind="ghost", compact=True).pack(side="right", padx=(8, 0))
+    ui.ActionButton(torrent_row, text="选择文件", command=choose_torrent, kind="ghost", compact=True).pack(
+        side="right", padx=(LAYOUT["inline"], LAYOUT["none"])
+    )
     ui._label(
         torrent_tab,
         "默认下载到 downloads/torrents，支持断点续传；完成后 seed-time=0，不会继续长期做种。",
         size=7,
         color=ui.SUBTLE,
-    ).pack(anchor="w", pady=(7, 0))
-    ui._label(torrent_tab, variable=torrent_result_var, size=8, color=ui.MUTED).pack(anchor="w", pady=(12, 0))
+    ).pack(anchor="w", pady=(LAYOUT["inline"], LAYOUT["none"]))
+    ui._label(torrent_tab, variable=torrent_result_var, size=8, color=ui.MUTED).pack(
+        anchor="w", pady=(LAYOUT["content"], LAYOUT["none"])
+    )
 
     def start_torrent() -> None:
         source = torrent_source_var.get().strip()
@@ -134,10 +146,12 @@ def _show_transfer_center(window, engine_module) -> None:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    ui.ActionButton(torrent_tab, text="开始 Torrent 下载", command=start_torrent, kind="secondary", compact=True).pack(anchor="e", pady=(14, 0))
+    ui.ActionButton(torrent_tab, text="开始 Torrent 下载", command=start_torrent, kind="secondary", compact=True).pack(
+        anchor="e", pady=(LAYOUT["section"], LAYOUT["none"])
+    )
 
     # P2P
-    p2p_tab = tk.Frame(notebook, bg=ui.PANEL, padx=16, pady=16)
+    p2p_tab = tk.Frame(notebook, bg=ui.PANEL, padx=LAYOUT["section"], pady=LAYOUT["section"])
     notebook.add(p2p_tab, text="P2P 短码")
     sender_file_var = tk.StringVar()
     sender_code_var = tk.StringVar(value="—")
@@ -148,7 +162,7 @@ def _show_transfer_center(window, engine_module) -> None:
 
     ui._label(p2p_tab, "发送文件", size=9, weight="bold").pack(anchor="w")
     send_row = tk.Frame(p2p_tab, bg=ui.PANEL)
-    send_row.pack(fill="x", pady=(8, 0))
+    send_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     _entry(send_row, sender_file_var, 54).pack(side="left", fill="x", expand=True)
 
     def choose_send_file() -> None:
@@ -156,13 +170,26 @@ def _show_transfer_center(window, engine_module) -> None:
         if value:
             sender_file_var.set(value)
 
-    ui.ActionButton(send_row, text="选择文件", command=choose_send_file, kind="ghost", compact=True).pack(side="right", padx=(8, 0))
+    ui.ActionButton(send_row, text="选择文件", command=choose_send_file, kind="ghost", compact=True).pack(
+        side="right", padx=(LAYOUT["inline"], LAYOUT["none"])
+    )
 
-    code_card = tk.Frame(p2p_tab, bg=ui.PANEL_2, padx=12, pady=10, highlightthickness=1, highlightbackground=ui.BORDER_SOFT)
-    code_card.pack(fill="x", pady=(9, 0))
+    code_card = tk.Frame(
+        p2p_tab,
+        bg=ui.PANEL_2,
+        padx=LAYOUT["content"],
+        pady=LAYOUT["content"],
+        highlightthickness=1,
+        highlightbackground=ui.BORDER_SOFT,
+    )
+    code_card.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     ui._label(code_card, "一次性短码", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
-    ui._label(code_card, variable=sender_code_var, size=18, weight="bold", color=ui.CYAN, bg=ui.PANEL_2).pack(anchor="w", pady=(2, 0))
-    ui._label(code_card, variable=sender_status_var, size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(anchor="w", pady=(4, 0))
+    ui._label(code_card, variable=sender_code_var, size=18, weight="bold", color=ui.CYAN, bg=ui.PANEL_2).pack(
+        anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"])
+    )
+    ui._label(code_card, variable=sender_status_var, size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(
+        anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"])
+    )
 
     def sender_status(message: str) -> None:
         try:
@@ -202,16 +229,20 @@ def _show_transfer_center(window, engine_module) -> None:
         sender_status_var.set("发送端已停止")
 
     send_actions = tk.Frame(p2p_tab, bg=ui.PANEL)
-    send_actions.pack(fill="x", pady=(8, 0))
+    send_actions.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     ui.ActionButton(send_actions, text="停止发送", command=stop_sender, kind="ghost", compact=True).pack(side="right")
-    ui.ActionButton(send_actions, text="创建短码并发送", command=start_sender, kind="secondary", compact=True).pack(side="right", padx=(0, 6))
+    ui.ActionButton(send_actions, text="创建短码并发送", command=start_sender, kind="secondary", compact=True).pack(
+        side="right", padx=(LAYOUT["none"], LAYOUT["inline"])
+    )
 
-    ui._divider(p2p_tab).pack(fill="x", pady=(14, 12))
+    ui._divider(p2p_tab).pack(fill="x", pady=(LAYOUT["section"], LAYOUT["content"]))
     ui._label(p2p_tab, "接收文件", size=9, weight="bold").pack(anchor="w")
     receive_row = tk.Frame(p2p_tab, bg=ui.PANEL)
-    receive_row.pack(fill="x", pady=(8, 0))
+    receive_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     _entry(receive_row, receiver_code_var, 24).pack(side="left")
-    ui._label(receive_row, variable=receiver_status_var, size=7, color=ui.MUTED).pack(side="left", padx=(10, 0))
+    ui._label(receive_row, variable=receiver_status_var, size=7, color=ui.MUTED).pack(
+        side="left", padx=(LAYOUT["content"], LAYOUT["none"])
+    )
 
     def receive() -> None:
         code = receiver_code_var.get().strip().upper()
@@ -242,7 +273,7 @@ def _show_transfer_center(window, engine_module) -> None:
     ui.ActionButton(receive_row, text="接收", command=receive, kind="secondary", compact=True).pack(side="right")
 
     # Telegram
-    telegram_tab = tk.Frame(notebook, bg=ui.PANEL, padx=16, pady=14)
+    telegram_tab = tk.Frame(notebook, bg=ui.PANEL, padx=LAYOUT["section"], pady=LAYOUT["section"])
     notebook.add(telegram_tab, text="Telegram")
     telegram_saved = load_telegram_upload_settings(engine_module)
     telegram_mode_var = tk.StringVar(value=telegram_saved.mode)
@@ -264,8 +295,8 @@ def _show_transfer_center(window, engine_module) -> None:
     settings_card = tk.Frame(
         telegram_tab,
         bg=ui.PANEL_2,
-        padx=12,
-        pady=11,
+        padx=LAYOUT["content"],
+        pady=LAYOUT["content"],
         highlightthickness=1,
         highlightbackground=ui.BORDER_SOFT,
     )
@@ -273,22 +304,22 @@ def _show_transfer_center(window, engine_module) -> None:
     ui._label(settings_card, "Telegram 账户与目标", size=9, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
 
     settings_row = tk.Frame(settings_card, bg=ui.PANEL_2)
-    settings_row.pack(fill="x", pady=(9, 0))
+    settings_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
 
     mode_field = tk.Frame(settings_row, bg=ui.PANEL_2)
     mode_field.pack(side="left")
     ui._label(mode_field, "模式", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
     mode_combo = ttk.Combobox(mode_field, textvariable=telegram_mode_var, values=("bot", "user"), state="readonly", width=10)
-    mode_combo.pack(anchor="w", pady=(3, 0), ipady=4)
+    mode_combo.pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=4)
 
     chat_field = tk.Frame(settings_row, bg=ui.PANEL_2)
-    chat_field.pack(side="left", fill="x", expand=True, padx=(10, 0))
+    chat_field.pack(side="left", fill="x", expand=True, padx=(LAYOUT["content"], LAYOUT["none"]))
     ui._label(chat_field, "Chat ID / @username", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
     chat_entry = _entry(chat_field, telegram_chat_var, 28, bg=ui.PANEL_3)
-    chat_entry.pack(fill="x", pady=(3, 0), ipady=6)
+    chat_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
 
     send_field = tk.Frame(settings_row, bg=ui.PANEL_2)
-    send_field.pack(side="left", padx=(10, 0))
+    send_field.pack(side="left", padx=(LAYOUT["content"], LAYOUT["none"]))
     ui._label(send_field, "发送类型", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
     send_combo = ttk.Combobox(
         send_field,
@@ -297,25 +328,27 @@ def _show_transfer_center(window, engine_module) -> None:
         state="readonly",
         width=12,
     )
-    send_combo.pack(anchor="w", pady=(3, 0), ipady=4)
+    send_combo.pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=4)
 
     adapter_field = tk.Frame(settings_row, bg=ui.PANEL_2)
-    adapter_field.pack(side="left", fill="x", expand=True, padx=(10, 0))
+    adapter_field.pack(side="left", fill="x", expand=True, padx=(LAYOUT["content"], LAYOUT["none"]))
     ui._label(adapter_field, "User adapter", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
     adapter_entry = _entry(adapter_field, telegram_adapter_var, 24, bg=ui.PANEL_3)
-    adapter_entry.pack(fill="x", pady=(3, 0), ipady=6)
+    adapter_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
 
     token_row = tk.Frame(settings_card, bg=ui.PANEL_2)
-    token_row.pack(fill="x", pady=(9, 0))
+    token_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     token_field = tk.Frame(token_row, bg=ui.PANEL_2)
     token_field.pack(side="left", fill="x", expand=True)
     ui._label(token_field, "Bot Token（留空表示保留已保存 Token）", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
     token_entry = _entry(token_field, telegram_token_var, 46, bg=ui.PANEL_3, show="•")
-    token_entry.pack(fill="x", pady=(3, 0), ipady=6)
-    ui._label(token_row, variable=telegram_token_state_var, size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(side="left", padx=(10, 0), pady=(17, 0))
+    token_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
+    ui._label(token_row, variable=telegram_token_state_var, size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(
+        side="left", padx=(LAYOUT["content"], LAYOUT["none"]), pady=(LAYOUT["section"], LAYOUT["none"])
+    )
 
     settings_actions = tk.Frame(token_row, bg=ui.PANEL_2)
-    settings_actions.pack(side="right", padx=(10, 0), pady=(14, 0))
+    settings_actions.pack(side="right", padx=(LAYOUT["content"], LAYOUT["none"]), pady=(LAYOUT["section"], LAYOUT["none"]))
 
     def current_telegram_settings() -> TelegramUploadSettings:
         return _telegram_settings(
@@ -375,9 +408,9 @@ def _show_transfer_center(window, engine_module) -> None:
         kind="ghost",
         compact=True,
     )
-    settings_clear_button.pack(side="left", padx=(6, 0))
+    settings_clear_button.pack(side="left", padx=(LAYOUT["inline"], LAYOUT["none"]))
 
-    upload_card = tk.Frame(telegram_tab, bg=ui.PANEL, pady=12)
+    upload_card = tk.Frame(telegram_tab, bg=ui.PANEL, pady=LAYOUT["content"])
     upload_card.pack(fill="both", expand=True)
     ui._label(upload_card, "上传 / Leech", size=9, weight="bold").pack(anchor="w")
     ui._label(
@@ -385,7 +418,7 @@ def _show_transfer_center(window, engine_module) -> None:
         "Bot 模式使用 Telegram 官方 HTTPS Bot API；超过 50 MB 时可自动拆成 document 分片。User 模式只调用显式配置的本机 adapter。",
         size=7,
         color=ui.SUBTLE,
-    ).pack(anchor="w", pady=(2, 8))
+    ).pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["inline"]))
 
     file_row = tk.Frame(upload_card, bg=ui.PANEL)
     file_row.pack(fill="x")
@@ -422,20 +455,24 @@ def _show_transfer_center(window, engine_module) -> None:
         kind="ghost",
         compact=True,
     )
-    file_choose_button.pack(side="right", padx=(8, 0))
+    file_choose_button.pack(side="right", padx=(LAYOUT["inline"], LAYOUT["none"]))
 
     meta_row = tk.Frame(upload_card, bg=ui.PANEL)
-    meta_row.pack(fill="x", pady=(8, 0))
+    meta_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     name_field = tk.Frame(meta_row, bg=ui.PANEL)
     name_field.pack(side="left", fill="x", expand=True)
     ui._label(name_field, "文件名", size=7, color=ui.SUBTLE).pack(anchor="w")
-    _entry(name_field, telegram_name_var, 32, bg=ui.PANEL_3).pack(fill="x", pady=(3, 0), ipady=6)
+    _entry(name_field, telegram_name_var, 32, bg=ui.PANEL_3).pack(
+        fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6
+    )
     ext_field = tk.Frame(meta_row, bg=ui.PANEL)
-    ext_field.pack(side="left", padx=(10, 0))
+    ext_field.pack(side="left", padx=(LAYOUT["content"], LAYOUT["none"]))
     ui._label(ext_field, "扩展名", size=7, color=ui.SUBTLE).pack(anchor="w")
-    _entry(ext_field, telegram_ext_var, 10, bg=ui.PANEL_3).pack(pady=(3, 0), ipady=6)
+    _entry(ext_field, telegram_ext_var, 10, bg=ui.PANEL_3).pack(
+        pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6
+    )
     thumb_field = tk.Frame(meta_row, bg=ui.PANEL)
-    thumb_field.pack(side="left", fill="x", expand=True, padx=(10, 0))
+    thumb_field.pack(side="left", fill="x", expand=True, padx=(LAYOUT["content"], LAYOUT["none"]))
     ui._label(thumb_field, "JPEG 缩略图（可选）", size=7, color=ui.SUBTLE).pack(anchor="w")
     thumb_entry = _entry(
         thumb_field,
@@ -445,7 +482,7 @@ def _show_transfer_center(window, engine_module) -> None:
         readonlybackground=ui.PANEL_3,
         bg=ui.PANEL_3,
     )
-    thumb_entry.pack(side="left", fill="x", expand=True, pady=(3, 0), ipady=6)
+    thumb_entry.pack(side="left", fill="x", expand=True, pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
 
     def choose_telegram_thumbnail() -> None:
         value = filedialog.askopenfilename(
@@ -463,15 +500,15 @@ def _show_transfer_center(window, engine_module) -> None:
         kind="ghost",
         compact=True,
     )
-    thumbnail_button.pack(side="right", padx=(6, 0), pady=(3, 0))
+    thumbnail_button.pack(side="right", padx=(LAYOUT["inline"], LAYOUT["none"]), pady=(LAYOUT["micro"], LAYOUT["none"]))
 
     caption_row = tk.Frame(upload_card, bg=ui.PANEL)
-    caption_row.pack(fill="x", pady=(8, 0))
+    caption_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     caption_field = tk.Frame(caption_row, bg=ui.PANEL)
     caption_field.pack(side="left", fill="x", expand=True)
     ui._label(caption_field, "Caption（最多 1024 字符）", size=7, color=ui.SUBTLE).pack(anchor="w")
     caption_entry = _entry(caption_field, telegram_caption_var, 56, bg=ui.PANEL_3)
-    caption_entry.pack(fill="x", pady=(3, 0), ipady=6)
+    caption_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
 
     chunk_check = tk.Checkbutton(
         caption_row,
@@ -485,7 +522,7 @@ def _show_transfer_center(window, engine_module) -> None:
         activebackground=ui.PANEL,
         activeforeground=ui.TEXT,
         selectcolor=ui.PANEL_3,
-        font=("Segoe UI", 8, "bold"),
+        font=font("body_sm", bold=True),
         bd=0,
         relief="flat",
         highlightthickness=1,
@@ -493,10 +530,10 @@ def _show_transfer_center(window, engine_module) -> None:
         highlightcolor=ui.ACCENT,
         cursor="hand2",
     )
-    chunk_check.pack(side="left", padx=(10, 0), pady=(16, 0))
+    chunk_check.pack(side="left", padx=(LAYOUT["content"], LAYOUT["none"]), pady=(LAYOUT["section"], LAYOUT["none"]))
 
     upload_footer = tk.Frame(upload_card, bg=ui.PANEL)
-    upload_footer.pack(fill="x", pady=(10, 0))
+    upload_footer.pack(fill="x", pady=(LAYOUT["content"], LAYOUT["none"]))
     ui._label(upload_footer, variable=telegram_status_var, size=7, color=ui.MUTED).pack(side="left", fill="x", expand=True)
 
     telegram_busy_controls: list[object] = [
@@ -583,7 +620,7 @@ def _show_transfer_center(window, engine_module) -> None:
         kind="secondary",
         compact=True,
     )
-    telegram_upload_button.pack(side="right", padx=(8, 0))
+    telegram_upload_button.pack(side="right", padx=(LAYOUT["inline"], LAYOUT["none"]))
     telegram_busy_controls.append(telegram_upload_button)
     mode_combo.bind("<<ComboboxSelected>>", refresh_telegram_mode)
     refresh_telegram_mode()
@@ -604,14 +641,13 @@ def _show_transfer_center(window, engine_module) -> None:
         status_var.set(f"{torrent} · LAN P2P/QR ✓ · {telegram} · discovery UDP {data['p2pDiscoveryPort']}")
 
     footer = tk.Frame(shell, bg=ui.BG)
-    footer.pack(fill="x", pady=(10, 0))
+    footer.pack(fill="x", pady=(LAYOUT["content"], LAYOUT["none"]))
     ui.ActionButton(footer, text="刷新检测", command=refresh_status, kind="ghost", compact=True).pack(side="left")
 
     def close() -> None:
         try:
             qr_tab._galaxy_qr_stop()  # type: ignore[attr-defined]
         except (AttributeError, tk.TclError):
-            # Closing must remain fail-soft if Tk has already destroyed the tab.
             pass
         stop_sender()
         window._transfer_center_window = None
@@ -626,12 +662,14 @@ def _add_transfer_entry(window, engine_module) -> None:
     if panel is None or getattr(window, "_galaxy_transfer_entry_built", False):
         return
     card = tk.Frame(panel, bg=ui.PANEL_2)
-    card.pack(fill="x", pady=(10, 0))
-    ui._divider(card, bg=ui.PANEL_2).pack(fill="x", pady=(0, 9))
+    card.pack(fill="x", pady=(LAYOUT["content"], LAYOUT["none"]))
+    ui._divider(card, bg=ui.PANEL_2).pack(fill="x", pady=(LAYOUT["none"], LAYOUT["inline"]))
     text = tk.Frame(card, bg=ui.PANEL_2)
     text.pack(side="left", fill="x", expand=True)
     ui._label(text, "传输中心", size=8, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
-    ui._label(text, "Magnet/Torrent · 局域网 P2P/QR · Telegram", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w", pady=(2, 0))
+    ui._label(text, "Magnet/Torrent · 局域网 P2P/QR · Telegram", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(
+        anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"])
+    )
     ui.ActionButton(
         card,
         text="打开传输中心",

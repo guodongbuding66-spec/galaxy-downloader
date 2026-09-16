@@ -9,11 +9,12 @@ from tkinter import filedialog, ttk
 from PIL import Image, ImageTk
 
 import desktop_ui as ui
+from desktop_design_tokens import LAYOUT, font
 from qr_transfer import QRTransferSession
 
 
 def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
-    tab = tk.Frame(notebook, bg=ui.PANEL, padx=16, pady=14)
+    tab = tk.Frame(notebook, bg=ui.PANEL, padx=LAYOUT["section"], pady=LAYOUT["section"])
     notebook.add(tab, text="QR 手机接收")
 
     ui._label(tab, "QR Transfer · 手机浏览器直接接收", size=10, weight="bold").pack(anchor="w")
@@ -22,7 +23,7 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
         "选择一个本地文件后生成一次性局域网二维码。手机与电脑需处于同一局域网；文件不经过云端。",
         size=7,
         color=ui.SUBTLE,
-    ).pack(anchor="w", pady=(3, 10))
+    ).pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["content"]))
 
     file_var = tk.StringVar(value="")
     url_var = tk.StringVar(value="")
@@ -33,8 +34,8 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
     source_card = tk.Frame(
         tab,
         bg=ui.PANEL_2,
-        padx=12,
-        pady=11,
+        padx=LAYOUT["content"],
+        pady=LAYOUT["content"],
         highlightthickness=1,
         highlightbackground=ui.BORDER_SOFT,
     )
@@ -42,7 +43,7 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
     ui._label(source_card, "发送文件", size=8, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
 
     source_row = tk.Frame(source_card, bg=ui.PANEL_2)
-    source_row.pack(fill="x", pady=(7, 0))
+    source_row.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
     source_entry = tk.Entry(
         source_row,
         textvariable=file_var,
@@ -54,7 +55,7 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
         highlightthickness=1,
         highlightbackground=ui.BORDER,
         highlightcolor=ui.ACCENT,
-        font=("Segoe UI", 8),
+        font=font("body_sm"),
     )
     source_entry.pack(side="left", fill="x", expand=True, ipady=6)
 
@@ -65,16 +66,16 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
             status_var.set("文件已选择；创建二维码后可用手机浏览器直接接收。")
 
     choose_button = ui.ActionButton(source_row, text="选择文件", command=choose_file, kind="ghost", compact=True)
-    choose_button.pack(side="right", padx=(8, 0))
+    choose_button.pack(side="right", padx=(LAYOUT["inline"], LAYOUT["none"]))
 
     content = tk.Frame(tab, bg=ui.PANEL)
-    content.pack(fill="both", expand=True, pady=(12, 0))
+    content.pack(fill="both", expand=True, pady=(LAYOUT["content"], LAYOUT["none"]))
 
     qr_card = tk.Frame(
         content,
         bg=ui.PANEL_2,
-        padx=14,
-        pady=14,
+        padx=LAYOUT["section"],
+        pady=LAYOUT["section"],
         highlightthickness=1,
         highlightbackground=ui.BORDER_SOFT,
     )
@@ -86,13 +87,13 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
         height=14,
         bg=ui.PANEL_3,
         fg=ui.MUTED,
-        font=("Segoe UI", 8),
+        font=font("body_sm"),
         relief="flat",
         bd=0,
     )
     qr_label.pack()
 
-    detail = tk.Frame(content, bg=ui.PANEL, padx=16)
+    detail = tk.Frame(content, bg=ui.PANEL, padx=LAYOUT["section"])
     detail.pack(side="left", fill="both", expand=True)
     ui._label(detail, "一次性接收地址", size=8, weight="bold").pack(anchor="w")
     url_entry = tk.Entry(
@@ -106,19 +107,21 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
         highlightthickness=1,
         highlightbackground=ui.BORDER,
         highlightcolor=ui.ACCENT,
-        font=("Segoe UI", 8),
+        font=font("body_sm"),
     )
-    url_entry.pack(fill="x", pady=(5, 0), ipady=6)
+    url_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
     ui._label(
         detail,
         "地址包含临时随机令牌。不要公开分享；停止发送、到期或成功下载后都会失效。",
         size=7,
         color=ui.SUBTLE,
-    ).pack(anchor="w", pady=(6, 0))
-    ui._label(detail, variable=status_var, size=8, color=ui.MUTED).pack(anchor="w", pady=(14, 0))
+    ).pack(anchor="w", pady=(LAYOUT["inline"], LAYOUT["none"]))
+    ui._label(detail, variable=status_var, size=8, color=ui.MUTED).pack(
+        anchor="w", pady=(LAYOUT["section"], LAYOUT["none"])
+    )
 
     actions = tk.Frame(detail, bg=ui.PANEL)
-    actions.pack(fill="x", pady=(16, 0))
+    actions.pack(fill="x", pady=(LAYOUT["section"], LAYOUT["none"]))
 
     def stop_transfer(*, update_status: bool = True) -> None:
         session = current_session[0]
@@ -193,7 +196,7 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
     create_button = ui.ActionButton(actions, text="创建二维码", command=create_transfer, kind="secondary", compact=True)
     create_button.pack(side="right")
     stop_button = ui.ActionButton(actions, text="停止发送", command=stop_transfer, kind="ghost", compact=True)
-    stop_button.pack(side="right", padx=(0, 7))
+    stop_button.pack(side="right", padx=(LAYOUT["none"], LAYOUT["inline"]))
 
     tab._galaxy_qr_stop = lambda: stop_transfer(update_status=False)  # type: ignore[attr-defined]
     return tab
