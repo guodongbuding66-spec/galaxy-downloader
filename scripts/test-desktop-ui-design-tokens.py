@@ -12,12 +12,6 @@ if str(LOCAL_ENGINE) not in sys.path:
 
 
 def _contains_raw_spacing_literal(node: ast.AST) -> bool:
-    """Detect numeric values that directly contribute to a padding expression.
-
-    Deliberately do not walk an IfExp condition: a layout expression such as
-    ``TOKEN_A if index == 0 else TOKEN_B`` contains a numeric control-flow
-    literal, but neither padding branch is a magic spacing value.
-    """
     if isinstance(node, ast.Constant):
         return isinstance(node.value, (int, float)) and not isinstance(node.value, bool)
     if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
@@ -53,7 +47,6 @@ def _raw_spacing_violations(source_path: pathlib.Path) -> list[str]:
 
 
 def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
-    """Reject direct numeric spacing in the core Desktop page source."""
     source = source_path.read_text(encoding="utf-8")
     violations = _raw_spacing_violations(source_path)
     assert not violations, "raw page spacing literals found: " + ", ".join(violations)
@@ -63,9 +56,6 @@ def _assert_spacing_is_tokenized(source_path: pathlib.Path) -> None:
     assert 'LAYOUT["content"]' in source
     assert 'LAYOUT["inline"]' in source
     assert 'LAYOUT["micro"]' in source
-
-    # The detector must reject real spacing literals while allowing numeric
-    # constants that exist only in control-flow predicates.
     assert _contains_raw_spacing_literal(ast.parse("4", mode="eval").body)
     conditional = ast.parse("(SPACE_A if index == 0 else SPACE_B)", mode="eval").body
     assert not _contains_raw_spacing_literal(conditional)
@@ -86,13 +76,31 @@ def _assert_transfer_workspace_tokenized(source_path: pathlib.Path) -> None:
     assert "'#ffffff'" not in source and '"#ffffff"' not in source, f"raw color leaked into {source_path.name}"
 
 
+def _assert_accessibility_contract() -> None:
+    source = (LOCAL_ENGINE / "desktop_accessibility.py").read_text(encoding="utf-8")
+    ui_source = (LOCAL_ENGINE / "desktop_ui.py").read_text(encoding="utf-8")
+    hooks_source = (LOCAL_ENGINE / "desktop_hooks.py").read_text(encoding="utf-8")
+    assert '"<Escape>"' in source
+    assert '"<Map>"' in source
+    assert 'protocol("WM_DELETE_WINDOW")' in source
+    assert "focus_first_control" in source
+    assert "GALAXY_REDUCE_MOTION" in source
+    assert '"desktop-accessibility"' in hooks_source
+    assert "install_desktop_accessibility" in hooks_source
+    assert "register_after_build_ui_hook" in hooks_source
+    assert "takefocus=True" in ui_source
+    assert "highlightcolor=FOCUS" in ui_source
+
+
 def main() -> None:
     tokens = importlib.import_module("desktop_design_tokens")
     ui = importlib.import_module("desktop_ui")
     impl = importlib.import_module("_desktop_ui_impl")
+    accessibility = importlib.import_module("desktop_accessibility")
 
     tokens.run_self_test()
     ui.run_self_test()
+    accessibility.run_self_test()
 
     aliases = {
         "BG": "bg",
@@ -174,8 +182,9 @@ def main() -> None:
     _assert_spacing_is_tokenized(LOCAL_ENGINE / "_desktop_ui_impl.py")
     for name in ("desktop_transfers.py", "desktop_qr_transfer.py", "desktop_telegram_download.py"):
         _assert_transfer_workspace_tokenized(LOCAL_ENGINE / name)
+    _assert_accessibility_contract()
 
-    print("Desktop UI design-token facade and transfer-workspace contract passed")
+    print("Desktop UI design-token, focus, Escape-dialog, and reduced-motion contracts passed")
 
 
 if __name__ == "__main__":

@@ -160,16 +160,31 @@ def _install_builtin_runtime_hooks(window_cls: type) -> None:
     """Install product hooks when the full Local Engine package is importable.
 
     ``desktop_hooks`` is intentionally unit-testable as a standalone registry
-    module, so an isolated import may not put the sibling Local Engine modules
-    on ``sys.path``. That special case stays fail-soft. Missing dependencies of
-    an otherwise importable feature are not swallowed.
+    module, so isolated imports may not put sibling Local Engine modules on
+    ``sys.path``. Those cases stay fail-soft; dependency failures inside an
+    otherwise importable feature are not swallowed.
     """
     if window_cls.__dict__.get(_BUILTIN_RUNTIME_HOOKS_ATTR, False):
         return
+
+    try:
+        from desktop_accessibility import install_desktop_accessibility
+    except ModuleNotFoundError as exc:
+        if exc.name != "desktop_accessibility":
+            raise
+    else:
+        register_after_build_ui_hook(
+            window_cls,
+            "desktop-accessibility",
+            install_desktop_accessibility,
+            order=-1000,
+        )
+
     try:
         from media_cleanup_batch_ui import install_media_cleanup_batch_ui
     except ModuleNotFoundError as exc:
         if exc.name == "media_cleanup_batch_ui":
+            setattr(window_cls, _BUILTIN_RUNTIME_HOOKS_ATTR, True)
             return
         raise
 

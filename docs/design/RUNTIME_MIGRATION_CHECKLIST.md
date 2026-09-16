@@ -12,4 +12,4 @@
 - [x] Shared action buttons expose token-backed visible keyboard focus rings.
 - [x] Remaining core page-level spacing migrated to the shared 4px semantic layout scale.
 - [x] Transfer/workspace-specific components migrated (Transfer Center, QR Transfer, Telegram Download).
-- [ ] Final motion/accessibility pass completed.
+- [x] Final motion/accessibility pass completed: global Escape-close follows each dialog's `WM_DELETE_WINDOW` cleanup path, initial keyboard focus is assigned on Toplevel map, shared controls expose visible focus rings, and reduced-motion preference is available through the Desktop runtime contract.
