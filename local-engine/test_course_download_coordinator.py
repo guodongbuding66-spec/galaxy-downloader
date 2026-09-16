@@ -200,6 +200,7 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             page_url = "https://my-course.club.hotmart.com/lesson/abc/start?lesson=1"
+            stable_page_url = "https://my-course.club.hotmart.com/lesson/abc/start"
             signed_media = "https://cdn.example.com/master.m3u8?Policy=abc&Signature=xyz&Key-Pair-Id=123"
             learning_api, course_id, downloads = self._learning(
                 root,
@@ -227,7 +228,7 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
 
             self.assertEqual(resolver_calls, [(page_url, "chrome")])
             self.assertEqual(session["provider"], "hotmart")
-            self.assertEqual(session["sourceUrl"], page_url)
+            self.assertEqual(session["sourceUrl"], stable_page_url)
             payload = runtime.submissions[-1]
             self.assertEqual(payload["sourceUrl"], signed_media)
             self.assertNotEqual(payload["sourceUrl"], session["sourceUrl"])
@@ -244,7 +245,7 @@ class CourseDownloadCoordinatorTests(unittest.TestCase):
             runtime.terminal(job.job_id, "completed")
 
             final = self._wait_state(coordinator, job.job_id, "synced")
-            self.assertEqual(final["session"]["sourceUrl"], page_url)
+            self.assertEqual(final["session"]["sourceUrl"], stable_page_url)
             self.assertEqual(final["session"]["syncedCount"], 1)
             self._wait_authorization_revoked(token)
             items = list_course_items(learning_api.context, course_id)
