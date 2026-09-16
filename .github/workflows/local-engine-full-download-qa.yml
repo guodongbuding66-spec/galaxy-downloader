@@ -1,0 +1,137 @@
+name: Local Engine 33-Platform Full Download QA
+
+on:
+  push:
+    branches:
+      - 'qa/33-platform-full-download'
+    paths:
+      - 'scripts/local-engine-full-download-qa.py'
+      - 'scripts/platform-smoke.py'
+      - 'local-engine/install.ps1'
+      - 'local-engine/external_ytdlp.py'
+      - 'local-engine/wechat_channels.py'
+      - '.github/workflows/local-engine-full-download-qa.yml'
+  pull_request:
+    paths:
+      - 'scripts/local-engine-full-download-qa.py'
+      - 'scripts/platform-smoke.py'
+      - 'local-engine/install.ps1'
+      - 'local-engine/external_ytdlp.py'
+      - 'local-engine/wechat_channels.py'
+      - '.github/workflows/local-engine-full-download-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-engine-full-download-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-download-windows:
+    runs-on: windows-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install fixture discovery dependency
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check --no-cache-dir "yt-dlp[default]>=2026.8.0,<2027"
+
+      - name: Compile QA sources
+        shell: pwsh
+        run: python -m py_compile scripts/local-engine-full-download-qa.py scripts/platform-smoke.py
+
+      - name: Download and install the actual v0.4.6 Windows release
+        id: release
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'GalaxyLocalEngine-Windows.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'GalaxyLocalEngine-v0.4.6'
+          $url = 'https://github.com/guodongbuding66-spec/galaxy-downloader/releases/download/local-engine-v0.4.6/GalaxyLocalEngine-Windows.zip'
+
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          if ((Get-Item $zip).Length -lt 100MB) {
+            throw 'Downloaded v0.4.6 release ZIP is unexpectedly small.'
+          }
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+
+          $installer = Get-ChildItem -Path $extract -Recurse -Filter install.ps1 | Select-Object -First 1
+          if (-not $installer) { throw 'install.ps1 not found in v0.4.6 release ZIP' }
+          $root = Split-Path -Parent $installer.FullName
+          & $installer.FullName -NoLaunch
+
+          $ytDlp = Join-Path $root 'yt-dlp.exe'
+          $ffprobe = Join-Path $root 'ffmpeg\bin\ffprobe.exe'
+          $ffmpeg = Join-Path $root 'ffmpeg\bin\ffmpeg.exe'
+          $versionFile = Join-Path $root 'VERSION'
+          foreach ($required in @($ytDlp, $ffprobe, $ffmpeg, $versionFile)) {
+            if (-not (Test-Path $required)) { throw "Release validation missing: $required" }
+          }
+
+          $engineVersion = (Get-Content $versionFile -Raw).Trim()
+          if ($engineVersion -ne '0.4.6') { throw "Expected Local Engine 0.4.6, found $engineVersion" }
+          $ytVersion = (& $ytDlp --version | Select-Object -Last 1).Trim()
+          if (-not $ytVersion) { throw 'Bundled yt-dlp.exe did not report a version' }
+          & $ffprobe -version | Select-Object -First 1
+
+          "YT_DLP_EXE=$ytDlp" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "FFPROBE_EXE=$ffprobe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "DIAG_INSTALL_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "version=$engineVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "yt_version=$ytVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Testing Galaxy Local Engine $engineVersion / yt-dlp $ytVersion"
+
+      - name: Download and validate all 33 platform fixtures
+        shell: pwsh
+        env:
+          PLATFORM_SMOKE_FIXTURES_JSON: ${{ secrets.PLATFORM_SMOKE_FIXTURES_JSON }}
+        run: |
+          python scripts/local-engine-full-download-qa.py `
+            --yt-dlp "$env:YT_DLP_EXE" `
+            --ffprobe "$env:FFPROBE_EXE" `
+            --output-dir artifacts/full-download-qa `
+            --workers 3 `
+            --timeout 150 `
+            --max-candidates 3 `
+            --max-file-mb 120
+
+      - name: Publish matrix to job summary
+        if: always()
+        shell: pwsh
+        run: |
+          $report = 'artifacts/full-download-qa/full-download-qa.md'
+          if (Test-Path $report) {
+            Get-Content $report -Raw | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            'Full-download QA report was not generated.' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+
+      - name: Upload full-download report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-engine-33-platform-full-download-qa
+          path: artifacts/full-download-qa/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Cleanup diagnostic install
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:DIAG_INSTALL_DIR -and (Test-Path 'local-engine/uninstall.ps1')) {
+            & 'local-engine/uninstall.ps1' -InstallDir $env:DIAG_INSTALL_DIR
+          }
+          if ($env:DIAG_INSTALL_DIR) {
+            Remove-Item -Recurse -Force $env:DIAG_INSTALL_DIR -ErrorAction SilentlyContinue
+          }
