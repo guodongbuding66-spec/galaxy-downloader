@@ -110,9 +110,6 @@ class ActionButton(_impl.ActionButton):
         try:
             line_height = int(tkfont.Font(master=self, font=button_font).metrics("linespace"))
         except (tk.TclError, RuntimeError):
-            # Keep construction resilient on unusual Tk builds. The fallback is
-            # deterministic and still drives target_padding through the token
-            # contract rather than adding a second hard-coded padding value.
             line_height = max(1, int(TYPE["body_sm" if compact else "body"]) * 2)
         self.configure(
             font=button_font,
@@ -145,10 +142,6 @@ def _label(
     bg=PANEL,
     **kwargs,
 ):
-    # Resolve named typography before delegating to the legacy constructor.
-    # `_desktop_ui_impl._label` feeds `size` directly into Tk, so passing a
-    # semantic name such as "body_sm" through unchanged fails during real UI
-    # construction even though a later configure() would have been valid.
     token_size = _resolve_type_size(size)
     widget = _ORIGINAL_LABEL(
         master,
@@ -166,19 +159,28 @@ def _label(
 
 def _entry(master, variable: tk.Variable, width: int) -> tk.Entry:
     widget = _ORIGINAL_ENTRY(master, variable, width)
-    widget.configure(font=font("body_sm"))
+    widget.configure(
+        font=font("body_sm"),
+        takefocus=True,
+        highlightthickness=FOCUS_RING_WIDTH,
+        highlightbackground=BORDER,
+        highlightcolor=FOCUS,
+    )
     return widget
 
 
 def _check(master, text: str, variable: tk.BooleanVar) -> tk.Checkbutton:
     widget = _ORIGINAL_CHECK(master, text, variable)
-    widget.configure(font=font("body_sm"))
+    widget.configure(
+        font=font("body_sm"),
+        takefocus=True,
+        highlightthickness=FOCUS_RING_WIDTH,
+        highlightbackground=PANEL_2,
+        highlightcolor=FOCUS,
+    )
     return widget
 
 
-# Capture legacy helpers once, then replace the implementation globals. All
-# existing implementation functions resolve these names dynamically, so every
-# current workspace receives token-backed controls without a call-site rewrite.
 _ORIGINAL_LABEL = _impl._label
 _ORIGINAL_ENTRY = _impl._entry
 _ORIGINAL_CHECK = _impl._check
@@ -193,14 +195,6 @@ install_desktop_ui = _impl.install_desktop_ui
 
 
 def __getattr__(name: str):
-    """Delegate legacy helpers that have not migrated to token wrappers yet.
-
-    Existing Desktop workspaces historically imported ``desktop_ui`` as a
-    helper module and called internal helpers such as ``_divider``. Keeping a
-    single delegation point preserves that contract while avoiding duplicate
-    implementations in this facade. Token-overridden names above always win.
-    """
-
     try:
         return getattr(_impl, name)
     except AttributeError as exc:
@@ -217,6 +211,7 @@ def run_self_test() -> None:
     assert FONT_FAMILY == TYPE["family"]
     assert FOCUS_RING_WIDTH == CONTROL["focus_ring_width"]
     assert CONTROL["target_min"] >= 44
+    assert FOCUS_RING_WIDTH >= 2
     assert _impl.ActionButton is ActionButton
     assert _impl._label is _label
     assert _impl._entry is _entry
