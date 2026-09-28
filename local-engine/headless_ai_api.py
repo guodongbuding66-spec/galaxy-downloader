@@ -12,6 +12,7 @@ from ai_history import (
     get_ai_run,
     list_ai_runs,
 )
+from ai_provider_runtime import test_provider_connection
 from ai_provider_registry import (
     AiProviderConfigError,
     delete_ai_provider,
@@ -171,6 +172,21 @@ class HeadlessAiApi:
         except Exception as exc:
             raise _translate_error(exc) from exc
         return {"providers": rows, "count": len(rows)}
+
+    def test_provider(self, provider_id: object) -> dict[str, Any]:
+        clean = _clean_id(provider_id, _PROVIDER_ID_RE, "provider", "AI_INVALID_PROVIDER_ID")
+        try:
+            result = test_provider_connection(self.context, clean)
+        except Exception as exc:
+            raise _translate_error(exc) from exc
+        if not isinstance(result, Mapping):
+            raise HeadlessAiApiError(
+                "invalid provider test result",
+                code="AI_PROVIDER_TEST_INVALID",
+            )
+        rendered = dict(result)
+        rendered["detail"] = str(rendered.get("detail") or "")[:500]
+        return {"test": rendered}
 
     def save_provider(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         try:
