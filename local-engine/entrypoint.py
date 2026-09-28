@@ -14,6 +14,7 @@ from batch_submission import run_batch_submission_self_test
 from bridge_submission_policy import StructuredLocalBridge
 from desktop_ai import install_desktop_ai, run_desktop_ai_self_test
 from desktop_asr import install_desktop_asr, run_desktop_asr_self_test
+from desktop_transcript import install_desktop_transcript, run_desktop_transcript_self_test
 from desktop_download_workbench import (
     install_desktop_download_workbench,
     run_desktop_download_workbench_self_test,
@@ -209,6 +210,7 @@ install_desktop_tools(engine)
 install_desktop_platform_features(engine)
 install_desktop_ai(engine)
 install_desktop_asr(engine)
+install_desktop_transcript(engine)
 install_desktop_reader(engine)
 install_desktop_learning(engine)
 install_desktop_music(engine)
@@ -336,6 +338,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_tools_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_ai_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_asr_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_transcript_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_reader_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_learning_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_music_installed", False) is True
@@ -398,6 +401,7 @@ def _run_image_self_test() -> None:
     run_desktop_platform_features_self_test()
     run_desktop_ai_self_test()
     run_desktop_asr_self_test()
+    run_desktop_transcript_self_test()
     run_desktop_reader_self_test()
     run_desktop_learning_self_test()
     run_desktop_music_self_test()
