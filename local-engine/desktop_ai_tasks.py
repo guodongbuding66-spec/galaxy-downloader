@@ -750,7 +750,7 @@ def _show_ai_tasks(window, engine_module) -> None:
     def refresh_async(*, force: bool = False) -> None:
         if refresh_state["closed"]:
             return
-        if refresh_state["busy"] and not force:
+        if refresh_state["busy"]:
             return
         refresh_state["busy"] = True
 
