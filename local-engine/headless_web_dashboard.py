@@ -31,6 +31,8 @@ _DASHBOARD_ASSETS = {
     "/dashboard/learning-search.css": ("learning-search.css", "text/css; charset=utf-8"),
     "/dashboard/music-player.js": ("music-player.js", "text/javascript; charset=utf-8"),
     "/dashboard/music-player.css": ("music-player.css", "text/css; charset=utf-8"),
+    "/dashboard/transcript-player.js": ("transcript-player.js", "text/javascript; charset=utf-8"),
+    "/dashboard/transcript-player.css": ("transcript-player.css", "text/css; charset=utf-8"),
 }
 _LEARNING_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning.css">'
 _LEARNING_SCRIPT_TAG = '<script src="/dashboard/learning.js" defer></script>'
@@ -46,6 +48,8 @@ _SEARCH_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning-search.css
 _SEARCH_SCRIPT_TAG = '<script src="/dashboard/learning-search.js" defer></script>'
 _MUSIC_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/music-player.css">'
 _MUSIC_SCRIPT_TAG = '<script src="/dashboard/music-player.js" defer></script>'
+_TRANSCRIPT_PLAYER_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/transcript-player.css">'
+_TRANSCRIPT_PLAYER_SCRIPT_TAG = '<script src="/dashboard/transcript-player.js" defer></script>'
 _GALLERY_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/gallery-dl.css">'
 _GALLERY_SCRIPT_TAG = '<script src="/dashboard/gallery-dl.js" defer></script>'
 
@@ -65,6 +69,7 @@ def _with_learning_assets(body: bytes, file_name: str) -> bytes:
         _NOTES_STYLE_TAG,
         _SEARCH_STYLE_TAG,
         _MUSIC_STYLE_TAG,
+        _TRANSCRIPT_PLAYER_STYLE_TAG,
         _GALLERY_STYLE_TAG,
     ):
         if style_tag not in html:
@@ -77,6 +82,7 @@ def _with_learning_assets(body: bytes, file_name: str) -> bytes:
         _NOTES_SCRIPT_TAG,
         _SEARCH_SCRIPT_TAG,
         _MUSIC_SCRIPT_TAG,
+        _TRANSCRIPT_PLAYER_SCRIPT_TAG,
         _GALLERY_SCRIPT_TAG,
     ):
         if script_tag not in html:
