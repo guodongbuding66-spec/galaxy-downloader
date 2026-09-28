@@ -264,9 +264,13 @@
 
   function transcriptRowMarkup(row) {
     const mediaId = row.mediaId || state.selectedMediaId
+    const seekMediaId = String(mediaId || '')
+    const seekStart = Math.max(0, Number(row.startSeconds) || 0)
+    const seekEnd = Math.max(seekStart, Number(row.endSeconds) || seekStart)
+    const seekAttrs = seekMediaId ? `data-transcript-seek="${esc(seekStart)}" data-transcript-end="${esc(seekEnd)}" data-transcript-media-id="${esc(seekMediaId)}" aria-label="Seek ${esc(mediaTitle(seekMediaId))} to ${esc(formatTimestamp(seekStart))}"` : 'disabled'
     const mediaLabel = row.mediaId && !state.selectedMediaId ? `<span class="segment-media">${esc(mediaTitle(mediaId))}</span>` : ''
     const speaker = row.speaker ? `<button class="speaker-chip" data-speaker-fill="${esc(row.speaker)}" type="button">${esc(row.speaker)}</button>` : '<span class="muted">No speaker</span>'
-    return `<article class="segment"><div class="segment-time"><button class="time-button" type="button" disabled title="Web Dashboard has no media streaming endpoint yet">${esc(formatTimestamp(row.startSeconds))}</button><span>→ ${esc(formatTimestamp(row.endSeconds))}</span></div><div class="segment-body"><div class="segment-meta">${speaker}${mediaLabel}</div><p>${esc(row.text || '')}</p></div></article>`
+    return `<article class="segment"><div class="segment-time"><button class="time-button" type="button" ${seekAttrs}>${esc(formatTimestamp(row.startSeconds))}</button><span>→ ${esc(formatTimestamp(row.endSeconds))}</span></div><div class="segment-body"><div class="segment-meta">${speaker}${mediaLabel}</div><p>${esc(row.text || '')}</p></div></article>`
   }
 
   function renderTranscriptRows(message = '') {

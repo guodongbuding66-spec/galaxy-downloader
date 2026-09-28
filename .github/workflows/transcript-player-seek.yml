@@ -1,0 +1,63 @@
+name: Transcript Player Seek
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/headless_media_playback_http.py'
+      - 'local-engine/headless_api.py'
+      - 'local-engine/headless_web_dashboard.py'
+      - 'local-engine/web-dashboard/app.js'
+      - 'local-engine/web-dashboard/transcript-player.js'
+      - 'local-engine/web-dashboard/transcript-player.css'
+      - 'local-engine/test_headless_media_playback_http.py'
+      - 'local-engine/test_headless_transcript_player_ui.py'
+      - '.github/workflows/transcript-player-seek.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/headless_media_playback_http.py'
+      - 'local-engine/headless_api.py'
+      - 'local-engine/headless_web_dashboard.py'
+      - 'local-engine/web-dashboard/app.js'
+      - 'local-engine/web-dashboard/transcript-player.js'
+      - 'local-engine/web-dashboard/transcript-player.css'
+      - 'local-engine/test_headless_media_playback_http.py'
+      - 'local-engine/test_headless_transcript_player_ui.py'
+      - '.github/workflows/transcript-player-seek.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install local engine requirements
+        run: python -m pip install -r local-engine/requirements.txt
+
+      - name: Compile transcript player contract
+        run: python -m py_compile local-engine/headless_media_playback_http.py local-engine/headless_api.py local-engine/headless_web_dashboard.py local-engine/test_headless_media_playback_http.py local-engine/test_headless_transcript_player_ui.py
+
+      - name: Run media playback HTTP tests
+        run: python local-engine/test_headless_media_playback_http.py
+
+      - name: Run Transcript player UI tests
+        run: python local-engine/test_headless_transcript_player_ui.py
