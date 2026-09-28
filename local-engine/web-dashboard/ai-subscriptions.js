@@ -5,6 +5,7 @@
   const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]))
   const state = {
     providers: [],
+    providerTests: {},
     prompts: [],
     queue: { active: [], waiting: [], activeCount: 0, waitingCount: 0 },
     history: [],
@@ -97,11 +98,24 @@
     $('aiTaskMedia').innerHTML = '<option value="">Text task</option>' + state.media.map((item) => `<option value="${esc(item.id)}">${esc(item.title || item.fileName || item.id)}</option>`).join('')
   }
 
+  function providerTestStatus(providerId) {
+    const result = state.providerTests[providerId]
+    if (!result) return ''
+    if (result.state === 'testing') return '<span class="ops-status">Testing…</span>'
+    const success = result.state === 'success'
+    const label = success ? `Connected · ${result.code || 'OK'}` : (result.code || 'Failed')
+    return `<span class="ops-status ${success ? 'ok' : 'bad'}" title="${esc(result.detail || '')}">${esc(label)}</span>`
+  }
+
   function renderAIProviders() {
     $('aiProviderCount').textContent = String(state.providers.length)
     const ready = state.providers.filter((provider) => provider.enabled && (provider.hasApiKey || provider.allowLocal)).length
     $('aiProviderReady').textContent = `${ready} ready`
-    $('aiProviderList').innerHTML = state.providers.length ? state.providers.map((provider) => `<article class="ops-row"><div class="ops-row-main"><strong>${esc(provider.name || provider.id)}</strong><span>${esc(provider.id)} · ${esc(provider.protocol || '')} · ${esc(provider.model || 'model not set')}</span><span>${esc(provider.baseUrl || 'endpoint not set')}</span></div><div class="ops-row-meta"><span class="ops-status ${provider.enabled ? 'ok' : 'muted-status'}">${provider.enabled ? 'Enabled' : 'Disabled'}</span><span class="ops-status ${provider.hasApiKey || provider.allowLocal ? 'ok' : 'warn'}">${provider.hasApiKey ? 'Credential ready' : provider.allowLocal ? 'Local' : 'No credential'}</span></div><div class="ops-row-actions"><button class="action" data-ai-provider-edit="${esc(provider.id)}" type="button">Edit</button>${provider.custom ? `<button class="action danger-text" data-ai-provider-delete="${esc(provider.id)}" type="button">Delete</button>` : `<button class="action" data-ai-provider-reset="${esc(provider.id)}" type="button">Reset</button>`}</div></article>`).join('') : '<div class="empty">No providers configured.</div>'
+    $('aiProviderList').innerHTML = state.providers.length ? state.providers.map((provider) => {
+      const test = state.providerTests[provider.id]
+      const testing = test?.state === 'testing'
+      return `<article class="ops-row"><div class="ops-row-main"><strong>${esc(provider.name || provider.id)}</strong><span>${esc(provider.id)} · ${esc(provider.protocol || '')} · ${esc(provider.model || 'model not set')}</span><span>${esc(provider.baseUrl || 'endpoint not set')}</span></div><div class="ops-row-meta"><span class="ops-status ${provider.enabled ? 'ok' : 'muted-status'}">${provider.enabled ? 'Enabled' : 'Disabled'}</span><span class="ops-status ${provider.hasApiKey || provider.allowLocal ? 'ok' : 'warn'}">${provider.hasApiKey ? 'Credential ready' : provider.allowLocal ? 'Local' : 'No credential'}</span>${providerTestStatus(provider.id)}</div><div class="ops-row-actions"><button class="action" data-ai-provider-test="${esc(provider.id)}" type="button"${testing ? ' disabled' : ''}>${testing ? 'Testing…' : 'Test'}</button><button class="action" data-ai-provider-edit="${esc(provider.id)}" type="button">Edit</button>${provider.custom ? `<button class="action danger-text" data-ai-provider-delete="${esc(provider.id)}" type="button">Delete</button>` : `<button class="action" data-ai-provider-reset="${esc(provider.id)}" type="button">Reset</button>`}</div></article>`
+    }).join('') : '<div class="empty">No providers configured.</div>'
   }
 
   function renderAIPrompts() {
@@ -141,6 +155,10 @@
         api('/v1/media?limit=100&offset=0'),
       ])
       state.providers = Array.isArray(providers.providers) ? providers.providers : []
+      const currentProviderIds = new Set(state.providers.map((provider) => provider.id))
+      for (const providerId of Object.keys(state.providerTests)) {
+        if (!currentProviderIds.has(providerId)) delete state.providerTests[providerId]
+      }
       state.prompts = Array.isArray(prompts.prompts) ? prompts.prompts : []
       state.queue = queue
       state.history = Array.isArray(history.runs) ? history.runs : []
@@ -193,6 +211,29 @@
     await postJson('/v1/ai/providers', payload)
     closeProviderEditor()
     await loadAI()
+  }
+
+  async function testProvider(providerId) {
+    const clean = String(providerId || '')
+    if (!clean) return
+    state.providerTests[clean] = { state: 'testing', code: '', detail: 'Testing connection…' }
+    renderAIProviders()
+    try {
+      const result = await postJson(`/v1/ai/providers/${encodeURIComponent(clean)}/test`)
+      const test = result?.test && typeof result.test === 'object' ? result.test : {}
+      state.providerTests[clean] = {
+        state: test.success ? 'success' : 'failed',
+        code: String(test.code || (test.success ? 'OK' : 'PROVIDER_ERROR')),
+        detail: String(test.detail || ''),
+      }
+    } catch (error) {
+      state.providerTests[clean] = {
+        state: 'failed',
+        code: 'REQUEST_FAILED',
+        detail: error instanceof Error ? error.message : 'Provider test request failed',
+      }
+    }
+    renderAIProviders()
   }
 
   function editPrompt(promptId = '') {
@@ -415,6 +456,8 @@
     if (coreView) closeOpsViews()
 
     try {
+      const providerTest = event.target.closest('[data-ai-provider-test]')
+      if (providerTest) await testProvider(providerTest.dataset.aiProviderTest)
       const providerEdit = event.target.closest('[data-ai-provider-edit]')
       if (providerEdit) editProvider(providerEdit.dataset.aiProviderEdit)
       const providerReset = event.target.closest('[data-ai-provider-reset]')
