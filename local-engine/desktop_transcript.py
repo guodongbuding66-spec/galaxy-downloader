@@ -736,12 +736,21 @@ def run_desktop_transcript_self_test() -> None:
     assert _format_bytes(1024) == "1.0 KB"
     assert FORMAT_BY_LABEL["Markdown"] == "md"
     assert set(FORMAT_LABELS) == set(EXPORT_FORMATS)
+
+
+def run_desktop_transcript_search_self_test() -> None:
     assert _format_timestamp(65.25) == "01:05.250"
     assert _format_timestamp(3661.5) == "01:01:01.500"
     assert _parse_filter_seconds("90.5") == 90.5
     assert _parse_filter_seconds("01:30.5") == 90.5
     assert _parse_filter_seconds("1:02:03") == 3723.0
     assert _parse_filter_seconds("") is None
+    try:
+        _parse_filter_seconds("01:99")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid transcript time filter was accepted")
     assert _highlight_chunks("Hello world", [{"start": 6, "end": 11}]) == [
         ("Hello ", False),
         ("world", True),
