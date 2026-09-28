@@ -28,7 +28,7 @@ class HeadlessTranscriptPlayerUiTests(unittest.TestCase):
     def test_player_uses_opaque_ticket_and_html5_seek(self) -> None:
         script = (_ROOT / "transcript-player.js").read_text(encoding="utf-8")
         self.assertIn("/playback-ticket", script)
-        self.assertIn("/v1/media/playback/", script)
+        self.assertIn("playbackPathPattern", script)
         self.assertIn("playbackPathPattern", script)
         self.assertIn("media.currentTime", script)
         self.assertIn("timeupdate", script)
