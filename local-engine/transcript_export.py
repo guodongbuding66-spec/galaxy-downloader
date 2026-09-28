@@ -263,6 +263,52 @@ def export_transcript(
     return TranscriptExportResult(clean_id, format_name, str(target), count, size)
 
 
+
+def export_transcript_to_path(
+    engine_module,
+    media_id: object,
+    target: Path | str,
+    *,
+    format: object = "",
+    include_speaker: bool = True,
+) -> TranscriptExportResult:
+    """Export to an explicit user-selected local path.
+
+    Unlike export_transcript(), this does not choose a Galaxy-managed directory.
+    The caller must have obtained the destination through an explicit local user
+    action such as a native Save As dialog.
+    """
+
+    try:
+        clean_id = _clean_media_id(media_id)
+    except TranscriptWorkspaceError as exc:
+        raise TranscriptExportError(str(exc)) from exc
+
+    output = Path(target).expanduser()
+    if "\x00" in str(output) or not output.name or output.name in {".", ".."}:
+        raise TranscriptExportError("Transcript 导出目标无效")
+
+    selected = _clean_format(format or output.suffix)
+    if output.suffix.lower() != f".{selected}":
+        raise TranscriptExportError("Transcript 导出文件扩展名与所选格式不一致")
+
+    parent = output.parent
+    if not parent.exists() or not parent.is_dir() or parent.is_symlink():
+        raise TranscriptExportError("Transcript 导出目标目录无效")
+    if output.exists() and (output.is_symlink() or not output.is_file()):
+        raise TranscriptExportError("Transcript 导出目标必须是普通文件")
+    if output.is_symlink():
+        raise TranscriptExportError("Transcript 导出目标不能是符号链接")
+
+    count, size = _write_export(
+        output,
+        engine_module=engine_module,
+        media_id=clean_id,
+        format_name=selected,
+        include_speaker=bool(include_speaker),
+    )
+    return TranscriptExportResult(clean_id, selected, str(output), count, size)
+
 def run_transcript_export_self_test() -> None:
     import tempfile
 
@@ -336,6 +382,29 @@ def run_transcript_export_self_test() -> None:
         duplicate = export_transcript(Engine, media_id, format="txt", basename="Demo Export")
         assert duplicate.path != outputs["txt"].path
         assert Path(duplicate.path).parent == downloads / "Galaxy Exports" / "Transcripts"
+
+        explicit_target = root / "Transcript Save As.srt"
+        explicit = export_transcript_to_path(
+            Engine,
+            media_id,
+            explicit_target,
+            format="srt",
+            include_speaker=False,
+        )
+        assert Path(explicit.path) == explicit_target
+        assert explicit.segment_count == 2
+        assert "[Host]" not in explicit_target.read_text(encoding="utf-8")
+        try:
+            export_transcript_to_path(
+                Engine,
+                media_id,
+                root / "bad.txt",
+                format="json",
+            )
+        except TranscriptExportError:
+            pass
+        else:
+            raise AssertionError("mismatched Save As extension was accepted")
 
         try:
             export_transcript(Engine, media_id, format="../../bad")
