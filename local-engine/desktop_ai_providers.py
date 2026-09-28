@@ -295,7 +295,7 @@ def _show_provider_workspace(window, engine_module) -> None:
         sync_buttons()
 
     def new_provider() -> None:
-        tree.selection_remove(tree.selection())
+        tree.selection_remove(*tree.selection())
         load_editor(None)
         status_var.set("新建 Custom Provider；ID 保存后不可修改。")
         sync_buttons()
@@ -319,8 +319,8 @@ def _show_provider_workspace(window, engine_module) -> None:
             status_var.set(f"保存失败：{exc}")
             return
         tests.pop(saved.id, None)
-        status_var.set(f"已保存 {saved.name}")
         refresh(saved.id)
+        status_var.set(f"已保存 {saved.name}")
 
     def reset_or_delete() -> None:
         row = selected()
@@ -337,13 +337,13 @@ def _show_provider_workspace(window, engine_module) -> None:
                     return
                 delete_ai_provider(engine_module, provider_id)
                 tests.pop(provider_id, None)
-                status_var.set(f"已删除 {provider_id}")
                 refresh()
+                status_var.set(f"已删除 {provider_id}")
             else:
                 reset_ai_provider(engine_module, provider_id)
                 tests.pop(provider_id, None)
-                status_var.set(f"已恢复 {provider_id} 默认配置")
                 refresh(provider_id)
+                status_var.set(f"已恢复 {provider_id} 默认配置")
         except AiProviderConfigError as exc:
             status_var.set(f"操作失败：{exc}")
 
@@ -369,11 +369,11 @@ def _show_provider_workspace(window, engine_module) -> None:
                 tests[provider_id] = dict(result)
                 detail = str(result.get("detail") or "")
                 code = str(result.get("code") or "")
+                refresh(provider_id)
                 status_var.set(
                     f"{'连接成功' if result.get('success') else '连接失败'} · {code}"
                     + (f" · {detail[:180]}" if detail else "")
                 )
-                refresh(provider_id)
             dialog.after(0, finish)
 
         threading.Thread(target=worker, daemon=True).start()
