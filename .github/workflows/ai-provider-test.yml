@@ -52,6 +52,9 @@ jobs:
       - name: Compile Provider Test contract
         run: python -m py_compile local-engine/ai_provider_runtime.py local-engine/headless_ai_api.py local-engine/headless_ai_http.py scripts/test-local-ai-provider-test.py scripts/test-local-headless-ai-http.py
 
+      - name: Check Dashboard JavaScript syntax
+        run: node --check local-engine/web-dashboard/ai-subscriptions.js
+
       - name: Run Provider Test contract
         run: python scripts/test-local-ai-provider-test.py
 
