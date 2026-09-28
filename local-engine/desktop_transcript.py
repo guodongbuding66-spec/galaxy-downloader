@@ -13,7 +13,7 @@ from ai_workspace import transcript_path
 from desktop_hooks import register_after_build_ui_hook, register_desktop_presenter, show_desktop_presenter
 from media_library import list_media_items, sync_media_library
 from transcript_export import EXPORT_FORMATS, TranscriptExportError, export_transcript_to_path
-from transcript_workspace import TranscriptWorkspaceError, index_transcript
+from transcript_workspace import TranscriptWorkspaceError, index_transcript, search_transcript
 
 FORMAT_LABELS = {
     "txt": "TXT",
@@ -77,6 +77,82 @@ def _has_transcript(engine_module, media_id: object) -> bool:
         return False
 
 
+
+def _format_timestamp(value: object) -> str:
+    try:
+        seconds = max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        seconds = 0.0
+    total_ms = int(round(seconds * 1000.0))
+    hours, remainder = divmod(total_ms, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    whole_seconds, milliseconds = divmod(remainder, 1000)
+    if hours:
+        return f"{hours:02}:{minutes:02}:{whole_seconds:02}.{milliseconds:03}"
+    return f"{minutes:02}:{whole_seconds:02}.{milliseconds:03}"
+
+
+def _parse_filter_seconds(value: object) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parts = text.split(":")
+    try:
+        if len(parts) == 1:
+            seconds = float(parts[0])
+        elif len(parts) == 2:
+            minutes = int(parts[0])
+            tail = float(parts[1])
+            if minutes < 0 or not 0 <= tail < 60:
+                raise ValueError
+            seconds = minutes * 60 + tail
+        elif len(parts) == 3:
+            hours = int(parts[0])
+            minutes = int(parts[1])
+            tail = float(parts[2])
+            if hours < 0 or not 0 <= minutes < 60 or not 0 <= tail < 60:
+                raise ValueError
+            seconds = hours * 3600 + minutes * 60 + tail
+        else:
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise ValueError("时间请输入秒数、MM:SS 或 HH:MM:SS") from exc
+    if seconds < 0:
+        raise ValueError("时间不能为负数")
+    return seconds
+
+
+def _highlight_chunks(text: object, ranges: object) -> list[tuple[str, bool]]:
+    value = str(text or "")
+    clean_ranges: list[tuple[int, int]] = []
+    for raw in ranges if isinstance(ranges, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            start = max(0, int(raw.get("start", 0)))
+            end = min(len(value), int(raw.get("end", 0)))
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        if clean_ranges and start < clean_ranges[-1][1]:
+            start = clean_ranges[-1][1]
+        if end > start:
+            clean_ranges.append((start, end))
+
+    chunks: list[tuple[str, bool]] = []
+    cursor = 0
+    for start, end in clean_ranges:
+        if start > cursor:
+            chunks.append((value[cursor:start], False))
+        chunks.append((value[start:end], True))
+        cursor = end
+    if cursor < len(value):
+        chunks.append((value[cursor:], False))
+    if not chunks and value:
+        chunks.append((value, False))
+    return chunks
+
 def _show_transcript_workspace(window, engine_module) -> None:
     existing = getattr(window, "_transcript_workspace_window", None)
     if _window_exists(existing):
@@ -87,8 +163,8 @@ def _show_transcript_workspace(window, engine_module) -> None:
     dialog = tk.Toplevel(window)
     window._transcript_workspace_window = dialog
     dialog.title("Transcript · Galaxy Local Engine")
-    dialog.geometry("980x650")
-    dialog.minsize(820, 540)
+    dialog.geometry("1040x790")
+    dialog.minsize(900, 650)
     dialog.configure(bg=ui.BG)
     dialog.transient(window)
 
@@ -97,7 +173,7 @@ def _show_transcript_workspace(window, engine_module) -> None:
     ui._label(shell, "Transcript", size="title", weight="bold", bg=ui.BG).pack(anchor="w")
     ui._label(
         shell,
-        "选择已经生成字幕的本地媒体，并显式导出 TXT、Markdown、SRT、VTT、JSON 或 CSV。导出位置由你选择。",
+        "选择已经生成字幕的本地媒体，在当前 Transcript 内按全文、Speaker 和时间范围搜索，并可导出 TXT、Markdown、SRT、VTT、JSON 或 CSV。",
         size="body_sm",
         color=ui.MUTED,
         bg=ui.BG,
@@ -151,6 +227,102 @@ def _show_transcript_workspace(window, engine_module) -> None:
     scrollbar.pack(side="right", fill="y")
     tree.pack(side="left", fill="both", expand=True)
 
+    search_card = tk.Frame(
+        shell,
+        bg=ui.PANEL,
+        padx=12,
+        pady=12,
+        highlightthickness=1,
+        highlightbackground=ui.BORDER,
+    )
+    search_card.pack(fill="x", pady=(10, 0))
+    ui._label(search_card, "Transcript Search", size="title_sm", weight="bold").pack(anchor="w")
+    ui._label(
+        search_card,
+        "搜索范围始终是当前选中的媒体；搜索前会刷新该 Transcript 的本地索引。",
+        size="body_sm",
+        color=ui.MUTED,
+    ).pack(anchor="w", pady=(2, 8))
+
+    search_query_var = tk.StringVar()
+    speaker_var = tk.StringVar()
+    start_var = tk.StringVar()
+    end_var = tk.StringVar()
+    search_status_var = tk.StringVar(value="选择带 Transcript 的媒体后即可搜索。")
+
+    query_row = tk.Frame(search_card, bg=ui.PANEL)
+    query_row.pack(fill="x")
+    ui._label(query_row, "全文", size="body_sm", color=ui.MUTED).pack(side="left")
+    query_entry = ui._entry(query_row, search_query_var, 48)
+    query_entry.pack(side="left", fill="x", expand=True, padx=(8, 8))
+
+    filter_row = tk.Frame(search_card, bg=ui.PANEL)
+    filter_row.pack(fill="x", pady=(8, 0))
+    ui._label(filter_row, "Speaker", size="body_sm", color=ui.MUTED).pack(side="left")
+    speaker_entry = ui._entry(filter_row, speaker_var, 14)
+    speaker_entry.pack(side="left", padx=(6, 12))
+    ui._label(filter_row, "开始", size="body_sm", color=ui.MUTED).pack(side="left")
+    start_entry = ui._entry(filter_row, start_var, 10)
+    start_entry.pack(side="left", padx=(6, 4))
+    ui._label(filter_row, "结束", size="body_sm", color=ui.MUTED).pack(side="left", padx=(8, 0))
+    end_entry = ui._entry(filter_row, end_var, 10)
+    end_entry.pack(side="left", padx=(6, 8))
+    ui._label(
+        filter_row,
+        "支持秒数 / MM:SS / HH:MM:SS",
+        size="caption",
+        color=ui.SUBTLE,
+    ).pack(side="left", padx=(4, 0))
+
+    result_frame = tk.Frame(search_card, bg=ui.PANEL)
+    result_frame.pack(fill="x", pady=(8, 0))
+    search_result = tk.Text(
+        result_frame,
+        height=7,
+        wrap="word",
+        bg=ui.PANEL_2,
+        fg=ui.TEXT,
+        insertbackground=ui.TEXT,
+        relief="flat",
+        borderwidth=0,
+        padx=10,
+        pady=8,
+        font=(ui.FONT_FAMILY, ui.TYPE["body_sm"]),
+        takefocus=True,
+        state="disabled",
+    )
+    search_scroll = ttk.Scrollbar(result_frame, orient="vertical", command=search_result.yview)
+    search_result.configure(yscrollcommand=search_scroll.set)
+    search_scroll.pack(side="right", fill="y")
+    search_result.pack(side="left", fill="x", expand=True)
+    search_result.tag_configure("meta", foreground=ui.MUTED)
+    search_result.tag_configure("match", foreground=ui.ACCENT, background=ui.PANEL_3)
+
+    search_footer = tk.Frame(search_card, bg=ui.PANEL)
+    search_footer.pack(fill="x", pady=(8, 0))
+    ui._label(
+        search_footer,
+        variable=search_status_var,
+        size="body_sm",
+        color=ui.MUTED,
+    ).pack(side="left")
+    search_button = ui.ActionButton(
+        query_row,
+        text="搜索",
+        command=lambda: run_search(),
+        kind="primary",
+        compact=True,
+    )
+    search_button.pack(side="right")
+    search_button.state(["disabled"])
+    ui.ActionButton(
+        search_footer,
+        text="清除筛选",
+        command=lambda: clear_search(),
+        kind="ghost",
+        compact=True,
+    ).pack(side="right")
+
     controls = tk.Frame(
         shell,
         bg=ui.PANEL,
@@ -192,6 +364,7 @@ def _show_transcript_workspace(window, engine_module) -> None:
     last_export: dict[str, Path | None] = {"path": None}
     export_button: ui.ActionButton | None = None
     open_button: ui.ActionButton | None = None
+    search_generation = {"value": 0}
 
     def selected() -> dict[str, Any] | None:
         selection = tree.selection()
@@ -202,19 +375,119 @@ def _show_transcript_workspace(window, engine_module) -> None:
 
     def selection_changed(_event=None) -> None:
         item = selected()
+        search_generation["value"] += 1
+        render_search_results([])
         if item is None:
             if export_button is not None:
                 export_button.state(["disabled"])
+            search_button.state(["disabled"])
+            search_status_var.set("选择带 Transcript 的媒体后即可搜索。")
             return
         ready = bool(item.get("transcriptAvailable"))
         name_var.set(_suggest_export_name(item, selected_format()))
         if export_button is not None:
             export_button.state(["!disabled"] if ready else ["disabled"])
+        search_button.state(["!disabled"] if ready else ["disabled"])
+        search_status_var.set(
+            "可搜索当前 Transcript。"
+            if ready
+            else "当前媒体尚未生成 Transcript。"
+        )
         status_var.set(
             "可导出 Transcript。"
             if ready
             else "所选媒体尚未生成 Transcript；请先在 ASR / AI 工作台生成字幕。"
         )
+
+    def render_search_results(rows: list[dict[str, Any]]) -> None:
+        search_result.configure(state="normal")
+        search_result.delete("1.0", "end")
+        for row in rows:
+            timestamp = _format_timestamp(row.get("startSeconds"))
+            speaker = str(row.get("speaker") or "").strip()
+            meta = f"{timestamp}"
+            if speaker:
+                meta += f" · {speaker}"
+            search_result.insert("end", meta + "\n", "meta")
+            for chunk, matched in _highlight_chunks(row.get("text"), row.get("highlights")):
+                search_result.insert("end", chunk, "match" if matched else ())
+            search_result.insert("end", "\n\n")
+        search_result.configure(state="disabled")
+
+    def clear_search() -> None:
+        search_generation["value"] += 1
+        search_query_var.set("")
+        speaker_var.set("")
+        start_var.set("")
+        end_var.set("")
+        render_search_results([])
+        item = selected()
+        search_status_var.set(
+            "可搜索当前 Transcript。"
+            if item and item.get("transcriptAvailable")
+            else "选择带 Transcript 的媒体后即可搜索。"
+        )
+
+    def run_search() -> None:
+        item = selected()
+        if not item or not item.get("transcriptAvailable"):
+            search_status_var.set("请先选择一个已经生成 Transcript 的媒体。")
+            return
+        try:
+            start_seconds = _parse_filter_seconds(start_var.get())
+            end_seconds = _parse_filter_seconds(end_var.get())
+        except ValueError as exc:
+            search_status_var.set(str(exc))
+            return
+        if start_seconds is not None and end_seconds is not None and end_seconds < start_seconds:
+            search_status_var.set("结束时间不能早于开始时间。")
+            return
+
+        media_id = str(item.get("id") or "")
+        query = search_query_var.get()
+        speaker = speaker_var.get()
+        search_generation["value"] += 1
+        generation = search_generation["value"]
+        search_button.state(["disabled"])
+        search_status_var.set("正在刷新索引并搜索…")
+
+        def finish(rows: list[dict[str, Any]] | None, error: str = "") -> None:
+            if not _window_exists(dialog) or generation != search_generation["value"]:
+                return
+            current = selected()
+            if not current or str(current.get("id") or "") != media_id:
+                return
+            search_button.state(["!disabled"])
+            if error:
+                render_search_results([])
+                search_status_var.set(error)
+                return
+            result_rows = rows or []
+            render_search_results(result_rows)
+            if result_rows:
+                search_status_var.set(f"找到 {len(result_rows)} 个匹配片段；匹配文本已高亮。")
+            else:
+                search_status_var.set("当前 Transcript 中没有匹配片段。")
+
+        def worker() -> None:
+            try:
+                count = index_transcript(engine_module, media_id)
+                if count <= 0:
+                    raise TranscriptWorkspaceError("Transcript 尚未建立可搜索的索引")
+                rows = search_transcript(
+                    engine_module,
+                    query,
+                    media_id=media_id,
+                    speaker=speaker,
+                    start_seconds=start_seconds,
+                    end_seconds=end_seconds,
+                    limit=100,
+                )
+                dialog.after(0, lambda: finish(rows))
+            except (TranscriptWorkspaceError, OSError, RuntimeError, ValueError) as exc:
+                dialog.after(0, lambda exc=exc: finish(None, f"Transcript 搜索失败：{exc}"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def format_changed(_event=None) -> None:
         item = selected()
@@ -406,6 +679,10 @@ def _show_transcript_workspace(window, engine_module) -> None:
 
     tree.bind("<<TreeviewSelect>>", selection_changed)
     format_box.bind("<<ComboboxSelected>>", format_changed)
+    query_entry.bind("<Return>", lambda _event: run_search())
+    speaker_entry.bind("<Return>", lambda _event: run_search())
+    start_entry.bind("<Return>", lambda _event: run_search())
+    end_entry.bind("<Return>", lambda _event: run_search())
 
     def close() -> None:
         window._transcript_workspace_window = None
@@ -459,3 +736,18 @@ def run_desktop_transcript_self_test() -> None:
     assert _format_bytes(1024) == "1.0 KB"
     assert FORMAT_BY_LABEL["Markdown"] == "md"
     assert set(FORMAT_LABELS) == set(EXPORT_FORMATS)
+    assert _format_timestamp(65.25) == "01:05.250"
+    assert _format_timestamp(3661.5) == "01:01:01.500"
+    assert _parse_filter_seconds("90.5") == 90.5
+    assert _parse_filter_seconds("01:30.5") == 90.5
+    assert _parse_filter_seconds("1:02:03") == 3723.0
+    assert _parse_filter_seconds("") is None
+    assert _highlight_chunks("Hello world", [{"start": 6, "end": 11}]) == [
+        ("Hello ", False),
+        ("world", True),
+    ]
+    assert _highlight_chunks("abcdef", [{"start": 1, "end": 4}, {"start": 3, "end": 6}]) == [
+        ("a", False),
+        ("bcd", True),
+        ("ef", True),
+    ]
