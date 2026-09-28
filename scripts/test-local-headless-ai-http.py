@@ -8,6 +8,7 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENGINE = ROOT / "local-engine"
@@ -169,6 +170,46 @@ def run() -> None:
             assert code == 200 and provider["provider"]["id"] == "http-local"
             assert provider["provider"]["hasApiKey"] is True
             _assert_public(provider, roots=(state, data, downloads), secret=secret)
+
+            with patch(
+                "headless_ai_api.test_provider_connection",
+                return_value={
+                    "success": False,
+                    "code": "AUTH",
+                    "detail": "credential rejected",
+                    "httpStatus": 401,
+                    "providerId": "http-local",
+                    "model": "local-model",
+                },
+            ):
+                code, tested = _request_json(
+                    base + "/v1/ai/providers/http-local/test",
+                    method="POST",
+                    token=token,
+                )
+            assert code == 200 and tested["ok"] is True
+            assert tested["test"]["success"] is False
+            assert tested["test"]["code"] == "AUTH"
+            assert tested["test"]["httpStatus"] == 401
+            _assert_public(tested, roots=(state, data, downloads), secret=secret)
+
+            with patch(
+                "headless_ai_api.test_provider_connection",
+                return_value={
+                    "success": True,
+                    "code": "OK",
+                    "detail": "OK",
+                    "providerId": "http-local",
+                    "model": "local-model",
+                },
+            ):
+                code, tested_ok = _request_json(
+                    base + "/v1/ai/providers/http-local/test",
+                    method="POST",
+                    token=token,
+                )
+            assert code == 200 and tested_ok["test"]["success"] is True
+            assert tested_ok["test"]["code"] == "OK"
 
             code, prompt = _request_json(
                 base + "/v1/ai/prompts",
