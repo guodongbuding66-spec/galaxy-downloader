@@ -16,6 +16,7 @@ from headless_gallery_dl_api import HeadlessGalleryDlApi
 from headless_gallery_dl_http import HeadlessGalleryDlHttpMixin
 from headless_learning_media_http import HeadlessLearningMediaHttpMixin
 from headless_learning_resume_http import HeadlessLearningResumeHttpMixin
+from headless_media_playback_http import HeadlessMediaPlaybackHttpMixin
 from headless_learning_structure import install_headless_learning_structure
 from headless_music_media_http import HeadlessMusicMediaHttpMixin
 from headless_music_player_http import HeadlessMusicPlayerHttpMixin
@@ -63,6 +64,7 @@ class GalaxyApiRequestHandler(
     HeadlessLearningMediaHttpMixin,
     HeadlessLearningResumeHttpMixin,
     HeadlessCourseProvidersHttpMixin,
+    HeadlessMediaPlaybackHttpMixin,
     HeadlessMusicMediaHttpMixin,
     HeadlessMusicPlayerHttpMixin,
     HeadlessReaderEpubHttpMixin,
