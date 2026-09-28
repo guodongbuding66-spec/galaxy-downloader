@@ -202,9 +202,12 @@ def _show_transcript_workspace(window, engine_module) -> None:
 
     def selection_changed(_event=None) -> None:
         item = selected()
-        ready = bool(item and item.get("transcriptAvailable"))
-        if item:
-            name_var.set(_suggest_export_name(item, selected_format()))
+        if item is None:
+            if export_button is not None:
+                export_button.state(["disabled"])
+            return
+        ready = bool(item.get("transcriptAvailable"))
+        name_var.set(_suggest_export_name(item, selected_format()))
         if export_button is not None:
             export_button.state(["!disabled"] if ready else ["disabled"])
         status_var.set(
