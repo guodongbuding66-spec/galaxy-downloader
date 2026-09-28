@@ -14,6 +14,7 @@ from batch_submission import run_batch_submission_self_test
 from bridge_submission_policy import StructuredLocalBridge
 from desktop_ai import install_desktop_ai, run_desktop_ai_self_test
 from desktop_ai_providers import install_desktop_ai_providers, run_desktop_ai_providers_self_test
+from desktop_ai_tasks import install_desktop_ai_tasks, run_desktop_ai_tasks_self_test
 from desktop_asr import install_desktop_asr, run_desktop_asr_self_test
 from desktop_transcript import install_desktop_transcript, run_desktop_transcript_self_test
 from desktop_download_workbench import (
@@ -211,6 +212,7 @@ install_desktop_tools(engine)
 install_desktop_platform_features(engine)
 install_desktop_ai(engine)
 install_desktop_ai_providers(engine)
+install_desktop_ai_tasks(engine)
 install_desktop_asr(engine)
 install_desktop_transcript(engine)
 install_desktop_reader(engine)
@@ -340,6 +342,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_tools_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_ai_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_ai_providers_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_ai_tasks_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_asr_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_transcript_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_reader_installed", False) is True
@@ -404,6 +407,7 @@ def _run_image_self_test() -> None:
     run_desktop_platform_features_self_test()
     run_desktop_ai_self_test()
     run_desktop_ai_providers_self_test()
+    run_desktop_ai_tasks_self_test()
     run_desktop_asr_self_test()
     run_desktop_transcript_self_test()
     run_desktop_reader_self_test()
