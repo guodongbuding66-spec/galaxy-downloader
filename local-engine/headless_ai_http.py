@@ -113,6 +113,10 @@ class AiGalaxyApiRequestHandler(GalaxyApiRequestHandler):
             if len(parts) == 5 and parts[:3] == ["v1", "ai", "providers"]:
                 provider_id = parts[3]
                 action = parts[4]
+                if action == "test":
+                    result = self.ai_api.test_provider(provider_id)  # type: ignore[union-attr]
+                    self._json(200, {"ok": True, **result})
+                    return
                 if action == "reset":
                     result = self.ai_api.reset_provider(provider_id)  # type: ignore[union-attr]
                     self._json(200, {"ok": True, **result})
