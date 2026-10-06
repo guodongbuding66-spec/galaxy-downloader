@@ -43,6 +43,7 @@ from document_policy import (
 )
 from dynamic_document import parse_dynamic_web_document
 from exact_format_policy import install_exact_format_policy, run_exact_format_policy_self_test
+from download_profile_policy import install_download_profile_policy, run_download_profile_policy_self_test
 from failure_policy import run_failure_policy_self_test
 from gallery_dl_bridge import GalleryDlLocalBridge, install_gallery_dl_bridge, run_gallery_dl_bridge_self_test
 from gallery_dl_executor import install_gallery_dl_executor, run_gallery_dl_executor_self_test
@@ -182,6 +183,7 @@ install_media_policy(engine)
 install_nfo_sidecar_policy(engine)
 install_exact_format_policy(engine)
 install_workspace_policy(engine)
+install_download_profile_policy(engine)
 install_recovery_policy(engine)
 install_batch_identity_policy(engine)
 install_pause_resume_policy(engine)
@@ -366,6 +368,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine, "_galaxy_nfo_sidecar_policy_installed", False) is True
     assert getattr(engine, "_galaxy_exact_format_policy_installed", False) is True
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
+    assert getattr(engine, "_galaxy_download_profile_policy_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True
     assert getattr(engine, "_galaxy_batch_identity_installed", False) is True
     assert getattr(engine, "_galaxy_pause_resume_installed", False) is True
@@ -398,6 +401,7 @@ def _run_image_self_test() -> None:
     run_recovery_display_self_test()
     run_history_self_test()
     run_workspace_self_test()
+    run_download_profile_policy_self_test()
     run_runtime_health_self_test()
     run_runtime_paths_policy_self_test()
     run_runtime_storage_self_test()
