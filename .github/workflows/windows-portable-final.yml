@@ -1,0 +1,92 @@
+name: Windows Portable Final
+
+on:
+  push:
+    branches:
+      - finalize-backup-restore-windows
+    paths:
+      - "local-engine/**"
+      - ".github/workflows/windows-portable-final.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: local-engine/requirements.txt
+
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check -r local-engine/requirements.txt
+
+      - name: Cache portable tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            local-engine/yt-dlp.exe
+            local-engine/ffmpeg.exe
+            local-engine/ffprobe.exe
+          key: galaxy-portable-tools-v1
+
+      - name: Download yt-dlp executable
+        run: |
+          if (-not (Test-Path local-engine/yt-dlp.exe)) {
+            Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "local-engine/yt-dlp.exe"
+          }
+          if (-not (Test-Path local-engine/yt-dlp.exe)) { throw "yt-dlp.exe download failed" }
+
+      - name: Install FFmpeg
+        run: |
+          choco install ffmpeg -y --no-progress
+          $ffmpeg = (Get-Command ffmpeg.exe -ErrorAction Stop).Source
+          $ffprobe = (Get-Command ffprobe.exe -ErrorAction Stop).Source
+          Copy-Item -Force $ffmpeg local-engine/ffmpeg.exe
+          Copy-Item -Force $ffprobe local-engine/ffprobe.exe
+
+      - name: Build and verify frozen portable package
+        run: ./local-engine/build-windows-portable.ps1 -SkipInstall
+
+      - name: Verify expected artifacts
+        run: |
+          $root = "local-engine/.release/windows-portable"
+          $required = @(
+            "$root/GalaxyLocalEngine-Portable/GalaxyLocalEngine.exe",
+            "$root/GalaxyLocalEngine-Portable/GalaxyStateTool.exe",
+            "$root/GalaxyLocalEngine-Portable/portable.flag",
+            "$root/GalaxyLocalEngine-Portable/yt-dlp.exe",
+            "$root/GalaxyLocalEngine-Portable/ffmpeg.exe",
+            "$root/GalaxyLocalEngine-Portable/ffprobe.exe",
+            "$root/GalaxyLocalEngine-Portable-Windows-x64.zip",
+            "$root/SHA256SUMS.txt",
+            "$root/build-manifest.json"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Missing release artifact: $path" }
+          }
+          Get-Content "$root/build-manifest.json"
+          Get-Content "$root/SHA256SUMS.txt"
+
+      - name: Upload final portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GalaxyLocalEngine-Portable-Windows-x64
+          path: |
+            local-engine/.release/windows-portable/GalaxyLocalEngine-Portable-Windows-x64.zip
+            local-engine/.release/windows-portable/SHA256SUMS.txt
+            local-engine/.release/windows-portable/build-manifest.json
+          if-no-files-found: error
+          retention-days: 30
