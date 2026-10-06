@@ -213,6 +213,8 @@ def run() -> None:
         assert install_download_profile_policy(engine) is engine.Job
 
     assert payload_explicit_fields({"videoQuality": "best", "browser": "none"}) == ()
+    assert payload_explicit_fields({"subtitleMode": "manual"}) == ("subtitle",)
+    assert payload_explicit_fields({"subtitleLanguages": ["en", "ja"]}) == ("subtitle",)
     source = (LOCAL_ENGINE / "download_profile_policy.py").read_text(encoding="utf-8")
     assert "subprocess" not in source
     assert "os.system" not in source

@@ -67,13 +67,27 @@ def _legacy_payload_explicit_fields(payload: Mapping[str, Any]) -> tuple[str, ..
     audio = str(payload.get("audioQuality") or "best").strip() or "best"
     browser = str(payload.get("browser") or "none").strip().lower() or "none"
     subtitle_language = str(payload.get("subtitleLanguage") or "").strip()
+    subtitle_mode = str(payload.get("subtitleMode") or "both").strip().lower() or "both"
+    subtitle_languages = payload.get("subtitleLanguages")
+    has_subtitle_languages = bool(
+        subtitle_languages.strip()
+        if isinstance(subtitle_languages, str)
+        else subtitle_languages
+        if isinstance(subtitle_languages, (list, tuple, set))
+        else False
+    )
     if video != "best" or payload.get("videoFormatId"):
         result.append("video")
     if audio != "best" or payload.get("audioFormatId"):
         result.append("audio")
     if browser != "none":
         result.append("browser")
-    if bool(payload.get("includeSubtitle", False)) or subtitle_language:
+    if (
+        bool(payload.get("includeSubtitle", False))
+        or subtitle_language
+        or subtitle_mode != "both"
+        or has_subtitle_languages
+    ):
         result.append("subtitle")
     if bool(payload.get("skipPreviouslyDownloaded", False)):
         result.append("archive")
