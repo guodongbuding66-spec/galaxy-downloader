@@ -1,0 +1,61 @@
+name: Desktop Profile Manager Hardening
+
+on:
+  push:
+    branches:
+      - phase5-desktop-profile-manager
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[profile-manager-hardening]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase5-desktop-profile-manager
+
+      - name: Bound Desktop Profile import reads
+        shell: python
+        run: |
+          from pathlib import Path
+
+          manager = Path('local-engine/desktop_profile_manager.py')
+          text = manager.read_text(encoding='utf-8')
+          old_import = 'from download_profiles import (\n    DownloadProfileError,\n'
+          new_import = 'from download_profiles import (\n    MAX_IMPORT_BYTES,\n    DownloadProfileError,\n'
+          if new_import not in text:
+              if old_import not in text:
+                  raise SystemExit('download_profiles import anchor missing')
+              text = text.replace(old_import, new_import, 1)
+
+          old_read = '''        try:\n            content = Path(path).read_bytes()\n            imported = import_profiles(engine_module, content, replace=replace)\n'''
+          new_read = '''        try:\n            source_path = Path(path)\n            with source_path.open("rb") as handle:\n                content = handle.read(MAX_IMPORT_BYTES + 1)\n            if len(content) > MAX_IMPORT_BYTES:\n                raise DownloadProfileError("profile import payload size is invalid")\n            imported = import_profiles(engine_module, content, replace=replace)\n'''
+          if new_read not in text:
+              if old_read not in text:
+                  raise SystemExit('profile import read anchor missing')
+              text = text.replace(old_read, new_read, 1)
+          manager.write_text(text, encoding='utf-8')
+
+          test = Path('scripts/test-local-desktop-profile-manager.py')
+          test_text = test.read_text(encoding='utf-8')
+          old_required = '        "list_profiles",\n'
+          new_required = '        "MAX_IMPORT_BYTES",\n        "list_profiles",\n'
+          if new_required not in test_text:
+              if old_required not in test_text:
+                  raise SystemExit('test required-source anchor missing')
+              test_text = test_text.replace(old_required, new_required, 1)
+          test.write_text(test_text, encoding='utf-8')
+
+      - name: Commit bounded import hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add local-engine/desktop_profile_manager.py scripts/test-local-desktop-profile-manager.py
+          git commit -m "fix(desktop): bound profile import reads [profile-manager-hardening]"
+          git push origin HEAD:phase5-desktop-profile-manager
