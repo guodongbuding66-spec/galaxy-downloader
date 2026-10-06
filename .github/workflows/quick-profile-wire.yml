@@ -1,0 +1,86 @@
+name: Quick Profile Wire
+
+on:
+  push:
+    branches:
+      - phase5-download-profile-application
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    if: ${{ !contains(github.event.head_commit.message, '[quick-profile-wire]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase5-download-profile-application
+
+      - name: Add manual profile selector to Quick Download
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('local-engine/desktop_quick_download.py')
+          text = path.read_text(encoding='utf-8')
+
+          changes = [
+              (
+                  'from desktop_hooks import register_after_build_ui_hook\n',
+                  'from desktop_hooks import register_after_build_ui_hook\nfrom download_profiles import DownloadProfileError, list_profiles\n',
+              ),
+              (
+                  '_BROWSER_BY_KEY = {value: label for label, value in _BROWSER_LABELS.items()}\n',
+                  '_BROWSER_BY_KEY = {value: label for label, value in _BROWSER_LABELS.items()}\n_AUTO_PROFILE_LABEL = "Auto match"\n',
+              ),
+              (
+                  '    browser: str = "none",\n) -> dict[str, Any]:\n',
+                  '    browser: str = "none",\n    download_profile_id: str | None = None,\n) -> dict[str, Any]:\n',
+              ),
+              (
+                  '    if video is not None:\n',
+                  '    if download_profile_id:\n        payload["downloadProfileId"] = str(download_profile_id)\n\n    if video is not None:\n',
+              ),
+              (
+                  '    browser = _browser_key(window._quick_browser_var.get())\n    try:\n        payload = build_quick_download_payload(\n            preview,\n            selected_video_id=video_id,\n            selected_audio_id=audio_id,\n            browser=browser,\n        )\n',
+                  '    browser = _browser_key(window._quick_browser_var.get())\n    profile_id = getattr(window, "_quick_profile_ids", {}).get(window._quick_profile_var.get(), "")\n    try:\n        payload = build_quick_download_payload(\n            preview,\n            selected_video_id=video_id,\n            selected_audio_id=audio_id,\n            browser=browser,\n            download_profile_id=profile_id or None,\n        )\n',
+              ),
+              (
+                  'def _paste_quick_url(window) -> None:\n',
+                  '''def _refresh_quick_profiles(window, engine_module) -> None:\n    current_id = getattr(window, "_quick_profile_ids", {}).get(\n        getattr(window, "_quick_profile_var", tk.StringVar()).get(), ""\n    )\n    labels: dict[str, str] = {_AUTO_PROFILE_LABEL: ""}\n    try:\n        profiles = list_profiles(engine_module)\n    except DownloadProfileError as exc:\n        window._quick_state_var.set(f"Profiles 读取失败：{exc}")\n        profiles = []\n    for profile in profiles:\n        name = _text(profile.get("name"), "Profile")\n        profile_id = _text(profile.get("id"))\n        label = name\n        suffix = 2\n        while label in labels:\n            label = f"{name} ({suffix})"\n            suffix += 1\n        labels[label] = profile_id\n    window._quick_profile_ids = labels\n    window._quick_profile_combo.configure(values=tuple(labels))\n    selected = next((label for label, pid in labels.items() if pid and pid == current_id), _AUTO_PROFILE_LABEL)\n    window._quick_profile_var.set(selected)\n\n\ndef _paste_quick_url(window) -> None:\n''',
+              ),
+              (
+                  '    ui._label(\n        options,\n        "默认不读取浏览器 Cookie；只有你主动选择登录浏览器并解析时才尝试。",\n        size=7,\n        color=ui.SUBTLE,\n        bg=ui.PANEL_2,\n    ).pack(side="left")\n',
+                  '''    ui._label(options, "Profile", size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(side="left", padx=(8, 0))\n    window._quick_profile_var = tk.StringVar(value=_AUTO_PROFILE_LABEL)\n    window._quick_profile_ids = {_AUTO_PROFILE_LABEL: ""}\n    window._quick_profile_combo = ttk.Combobox(\n        options,\n        textvariable=window._quick_profile_var,\n        values=(_AUTO_PROFILE_LABEL,),\n        state="readonly",\n        width=20,\n        style="Galaxy.TCombobox",\n    )\n    window._quick_profile_combo.pack(side="left", padx=(7, 5))\n    ui.ActionButton(\n        options,\n        text="刷新",\n        command=lambda: _refresh_quick_profiles(window, engine_module),\n        kind="ghost",\n        compact=True,\n    ).pack(side="left")\n    ui._label(\n        options,\n        "Auto match 按 URL Pattern；手动 Profile 优先。浏览器 Cookie 仍只在主动选择后读取。",\n        size=7,\n        color=ui.SUBTLE,\n        bg=ui.PANEL_2,\n    ).pack(side="left", padx=(8, 0))\n''',
+              ),
+              (
+                  '    window._quick_parse_generation = 0\n',
+                  '    window._quick_parse_generation = 0\n    _refresh_quick_profiles(window, engine_module)\n',
+              ),
+              (
+                  '    assert payload["audioFormatId"] == "251"\n    assert "downloadUrl" not in str(payload)\n',
+                  '    assert payload["audioFormatId"] == "251"\n    assert "downloadProfileId" not in payload\n    profiled = build_quick_download_payload(\n        preview,\n        selected_video_id="video:137",\n        selected_audio_id="audio:251",\n        download_profile_id="a" * 32,\n    )\n    assert profiled["downloadProfileId"] == "a" * 32\n    assert profiled["videoFormatId"] == "137"\n    assert "downloadUrl" not in str(payload)\n',
+              ),
+          ]
+
+          for old, new in changes:
+              if new in text:
+                  continue
+              if old not in text:
+                  raise SystemExit(f'quick profile wire anchor not found: {old[:120]!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+      - name: Compile Quick Download integration
+        run: python -m py_compile local-engine/desktop_quick_download.py
+
+      - name: Commit Quick Download integration
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add local-engine/desktop_quick_download.py
+          git commit -m "feat(profiles): add Quick Download profile selector [quick-profile-wire]"
+          git push origin HEAD:phase5-download-profile-application
