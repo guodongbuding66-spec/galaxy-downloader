@@ -1,0 +1,76 @@
+name: Production 33-Platform QA
+
+on:
+  push:
+    branches:
+      - 'qa/33-platform-full-download'
+    paths:
+      - 'scripts/platform-smoke.py'
+      - '.github/workflows/production-33-platform-qa.yml'
+  pull_request:
+    paths:
+      - 'scripts/platform-smoke.py'
+      - '.github/workflows/production-33-platform-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-33-platform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install current yt-dlp fixture discovery
+        run: python -m pip install --disable-pip-version-check --no-cache-dir "yt-dlp[default]>=2026.8.0,<2027"
+
+      - name: Compile smoke runner
+        run: python -m py_compile scripts/platform-smoke.py
+
+      - name: Exercise production parse and media download routes for all 33 entries
+        env:
+          PLATFORM_SMOKE_API_BASE: https://downloader-api.bhwa233.com
+          PLATFORM_SMOKE_WORKERS: '3'
+          PLATFORM_SMOKE_TIMEOUT: '35'
+          PLATFORM_SMOKE_FIXTURES_JSON: >-
+            {"threads":"https://www.threads.net/t/CuXnwmrMIZL","wechat":"https://weixin.qq.com/sph/Axv548mzBF","kuaishou":"https://www.kuaishou.com/f/X3t3Ee6o1L7gqHe"}
+        run: python scripts/platform-smoke.py --strict --output-dir production-33-platform-artifacts
+
+      - name: Enforce exactly 33 reported entries and zero SKIP
+        if: always()
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          path = Path("production-33-platform-artifacts/platform-smoke.json")
+          if not path.exists():
+              raise SystemExit("platform-smoke.json was not generated")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          results = data.get("results") or []
+          if len(results) != 33:
+              raise SystemExit(f"expected 33 platform results, got {len(results)}")
+          skipped = [item.get("platform") for item in results if item.get("status") == "SKIP"]
+          if skipped:
+              raise SystemExit(f"SKIP is forbidden in 33-platform QA: {skipped}")
+          print("33 platform entries reported; zero SKIP")
+
+      - name: Publish matrix
+        if: always()
+        run: cat production-33-platform-artifacts/platform-smoke.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload production matrix
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-33-platform-qa
+          path: production-33-platform-artifacts/
+          if-no-files-found: warn
+          retention-days: 30
