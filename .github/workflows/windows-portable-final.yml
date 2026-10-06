@@ -33,6 +33,14 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install --disable-pip-version-check -r local-engine/requirements.txt
 
+      - name: State backup source self-test
+        working-directory: local-engine
+        run: python state_tool.py --self-test
+
+      - name: Full entrypoint source self-test
+        working-directory: local-engine
+        run: python entrypoint.py --self-test
+
       - name: Cache portable tools
         uses: actions/cache@v4
         with:
