@@ -6,6 +6,7 @@ on:
     paths:
       - 'local-engine/download_profiles.py'
       - 'local-engine/download_profile_policy.py'
+      - 'local-engine/desktop_quick_download.py'
       - 'local-engine/entrypoint.py'
       - 'scripts/test-local-download-profile-policy.py'
       - '.github/workflows/download-profile-application.yml'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'local-engine/download_profiles.py'
       - 'local-engine/download_profile_policy.py'
+      - 'local-engine/desktop_quick_download.py'
       - 'local-engine/entrypoint.py'
       - 'scripts/test-local-download-profile-policy.py'
       - '.github/workflows/download-profile-application.yml'
@@ -43,7 +45,7 @@ jobs:
           python-version: '3.12'
 
       - name: Compile profile application contract
-        run: python -m py_compile local-engine/download_profile_policy.py local-engine/entrypoint.py scripts/test-local-download-profile-policy.py
+        run: python -m py_compile local-engine/download_profile_policy.py local-engine/desktop_quick_download.py local-engine/entrypoint.py scripts/test-local-download-profile-policy.py
 
       - name: Run profile application contract
         run: python scripts/test-local-download-profile-policy.py
