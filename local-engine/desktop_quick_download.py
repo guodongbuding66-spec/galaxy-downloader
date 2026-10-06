@@ -371,9 +371,9 @@ def _parse_quick_url(window, engine_module) -> None:
 
 
 def _refresh_quick_profiles(window, engine_module) -> None:
-    current_id = getattr(window, "_quick_profile_ids", {}).get(
-        getattr(window, "_quick_profile_var", tk.StringVar()).get(), ""
-    )
+    profile_var = getattr(window, "_quick_profile_var", None)
+    current_label = profile_var.get() if profile_var is not None else _AUTO_PROFILE_LABEL
+    current_id = getattr(window, "_quick_profile_ids", {}).get(current_label, "")
     labels: dict[str, str] = {_AUTO_PROFILE_LABEL: ""}
     try:
         profiles = list_profiles(engine_module)
