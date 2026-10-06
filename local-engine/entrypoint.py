@@ -28,6 +28,7 @@ from desktop_manager import install_desktop_manager
 from desktop_marketplace import install_desktop_marketplace, run_desktop_marketplace_self_test
 from desktop_music import install_desktop_music, run_desktop_music_self_test
 from desktop_platform_features import install_desktop_platform_features, run_desktop_platform_features_self_test
+from desktop_profile_manager import install_desktop_profile_manager, run_desktop_profile_manager_self_test
 from desktop_quick_download import install_desktop_quick_download, run_desktop_quick_download_self_test
 from desktop_reader import install_desktop_reader, run_desktop_reader_self_test
 from desktop_runtime import install_desktop_runtime
@@ -210,6 +211,7 @@ install_desktop_tools(engine)
 # media-library/subscription state, bandwidth controls, clipboard, tray and the
 # global hotkey are available to every advanced surface.
 install_desktop_platform_features(engine)
+install_desktop_profile_manager(engine)
 install_desktop_ai(engine)
 install_desktop_ai_providers(engine)
 install_desktop_ai_tasks(engine)
@@ -351,6 +353,7 @@ def _run_image_self_test() -> None:
     assert getattr(engine.EngineWindow, "_galaxy_desktop_marketplace_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_desktop_transfers_installed", False) is True
     assert getattr(engine, "_galaxy_desktop_platform_features_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_desktop_profile_manager_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_media_cleanup_workbench_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_recovery_display_installed", False) is True
     assert getattr(engine.EngineWindow, "_galaxy_task_center_installed", False) is True
@@ -405,6 +408,7 @@ def _run_image_self_test() -> None:
     run_desktop_download_workbench_self_test()
     run_desktop_gallery_dl_self_test()
     run_desktop_platform_features_self_test()
+    run_desktop_profile_manager_self_test()
     run_desktop_ai_self_test()
     run_desktop_ai_providers_self_test()
     run_desktop_ai_tasks_self_test()
