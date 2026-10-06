@@ -8,6 +8,7 @@ from typing import Any, Mapping
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook
 from download_profiles import (
+    MAX_IMPORT_BYTES,
     DownloadProfileError,
     create_profile,
     delete_profile,
@@ -495,7 +496,11 @@ def _show_profile_workspace(window, engine_module) -> None:
             parent=dialog,
         )
         try:
-            content = Path(path).read_bytes()
+            source_path = Path(path)
+            with source_path.open("rb") as handle:
+                content = handle.read(MAX_IMPORT_BYTES + 1)
+            if len(content) > MAX_IMPORT_BYTES:
+                raise DownloadProfileError("profile import payload size is invalid")
             imported = import_profiles(engine_module, content, replace=replace)
         except (DownloadProfileError, OSError) as exc:
             status_var.set(f"导入失败：{exc}")

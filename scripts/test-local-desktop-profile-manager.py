@@ -97,6 +97,7 @@ def run() -> None:
 
     source = (LOCAL_ENGINE / "desktop_profile_manager.py").read_text(encoding="utf-8")
     for required in (
+        "MAX_IMPORT_BYTES",
         "list_profiles",
         "create_profile",
         "update_profile",
