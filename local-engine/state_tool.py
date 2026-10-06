@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
-from platform_paths import get_paths
+from platform_paths import resolve_platform_paths
 from state_backup import (
     StateBackupError,
     create_state_backup,
@@ -15,18 +16,22 @@ from state_backup import (
 )
 
 
+def _paths():
+    return resolve_platform_paths().ensure_runtime_dirs()
+
+
 class RuntimeStateContext:
     @staticmethod
     def app_dir() -> Path:
-        return get_paths().program_dir
+        return _paths().program_dir
 
     @staticmethod
     def data_dir() -> Path:
-        return get_paths().data_dir
+        return _paths().data_dir
 
     @staticmethod
     def state_dir() -> Path:
-        return get_paths().state_dir
+        return _paths().state_dir
 
 
 def _print_result(result: dict[str, object]) -> None:
@@ -154,13 +159,10 @@ def main(argv: list[str] | None = None) -> int:
             _print_result(restore_state_backup(RuntimeStateContext, args.restore))
             return 0
         return _run_gui()
-    except (StateBackupError, OSError, sqlite3.Error) as exc:  # type: ignore[name-defined]
+    except (StateBackupError, OSError, sqlite3.Error) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
 
 if __name__ == "__main__":
-    # Imported lazily so the GUI path stays small, while CLI errors still classify SQLite failures.
-    import sqlite3
-
     raise SystemExit(main())
