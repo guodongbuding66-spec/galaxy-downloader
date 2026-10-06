@@ -59,14 +59,38 @@ jobs:
 
       - name: Install FFmpeg
         run: |
-          choco install ffmpeg -y --no-progress
-          $ffmpeg = (Get-Command ffmpeg.exe -ErrorAction Stop).Source
-          $ffprobe = (Get-Command ffprobe.exe -ErrorAction Stop).Source
-          Copy-Item -Force $ffmpeg local-engine/ffmpeg.exe
-          Copy-Item -Force $ffprobe local-engine/ffprobe.exe
+          if (-not (Test-Path local-engine/ffmpeg.exe) -or -not (Test-Path local-engine/ffprobe.exe)) {
+            choco install ffmpeg -y --no-progress
+            $ffmpeg = (Get-Command ffmpeg.exe -ErrorAction Stop).Source
+            $ffprobe = (Get-Command ffprobe.exe -ErrorAction Stop).Source
+            Copy-Item -Force $ffmpeg local-engine/ffmpeg.exe
+            Copy-Item -Force $ffprobe local-engine/ffprobe.exe
+          }
 
-      - name: Build and verify frozen portable package
-        run: ./local-engine/build-windows-portable.ps1 -SkipInstall
+      - name: Prepare frozen output
+        run: |
+          $root = "local-engine/.release/windows-portable"
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          New-Item -ItemType Directory -Force -Path "$root/dist", "$root/work", "$root/spec" | Out-Null
+
+      - name: PyInstaller main application
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name GalaxyLocalEngine `
+            --distpath local-engine/.release/windows-portable/dist `
+            --workpath local-engine/.release/windows-portable/work `
+            --specpath local-engine/.release/windows-portable/spec `
+            local-engine/entrypoint.py
+
+      - name: PyInstaller backup restore utility
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name GalaxyStateTool `
+            --distpath local-engine/.release/windows-portable/dist `
+            --workpath local-engine/.release/windows-portable/work `
+            --specpath local-engine/.release/windows-portable/spec `
+            local-engine/state_tool.py
+
+      - name: Verify frozen executables and roundtrip
+        run: ./local-engine/verify-windows-portable.ps1
 
       - name: Verify expected artifacts
         run: |
