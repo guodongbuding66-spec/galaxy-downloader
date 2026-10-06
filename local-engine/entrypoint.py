@@ -35,6 +35,7 @@ from desktop_runtime import install_desktop_runtime
 from desktop_tools import install_desktop_tools
 from desktop_transfers import install_desktop_transfers, run_desktop_transfers_self_test
 from desktop_ui import install_desktop_ui
+from download_profile_policy import install_download_profile_policy, run_download_profile_policy_self_test
 from document_policy import (
     install_document_policy,
     parse_web_document,
@@ -169,7 +170,9 @@ engine._validated_source_url = validated_public_http_url
 # those media behaviors so metadata uses the exact same source/cookies/collection
 # request while its temporary JSON remains isolated. Exact format selection is
 # installed after both so an explicit format_id still wins over generic media
-# preferences. Workspace owns persistent output/transport defaults; recovery then
+# preferences. Workspace owns persistent output/transport defaults. Download
+# Profiles then supply per-URL/per-manual job defaults while preserving explicit
+# request fields; recovery then
 # adds optional per-job transport overrides without mutating those defaults. The
 # queue captures that final Job type; queue/history/runtime policies wrap
 # execution; presentation is installed last before the first Tk instance exists.
@@ -182,6 +185,7 @@ install_media_policy(engine)
 install_nfo_sidecar_policy(engine)
 install_exact_format_policy(engine)
 install_workspace_policy(engine)
+install_download_profile_policy(engine)
 install_recovery_policy(engine)
 install_batch_identity_policy(engine)
 install_pause_resume_policy(engine)
@@ -366,6 +370,8 @@ def _run_image_self_test() -> None:
     assert getattr(engine, "_galaxy_nfo_sidecar_policy_installed", False) is True
     assert getattr(engine, "_galaxy_exact_format_policy_installed", False) is True
     assert getattr(engine, "_galaxy_workspace_policy_installed", False) is True
+    assert getattr(engine, "_galaxy_download_profile_policy_installed", False) is True
+    assert getattr(engine.EngineWindow, "_galaxy_download_profile_policy_installed", False) is True
     assert getattr(engine, "_galaxy_recovery_policy_installed", False) is True
     assert getattr(engine, "_galaxy_batch_identity_installed", False) is True
     assert getattr(engine, "_galaxy_pause_resume_installed", False) is True
@@ -398,6 +404,7 @@ def _run_image_self_test() -> None:
     run_recovery_display_self_test()
     run_history_self_test()
     run_workspace_self_test()
+    run_download_profile_policy_self_test()
     run_runtime_health_self_test()
     run_runtime_paths_policy_self_test()
     run_runtime_storage_self_test()
