@@ -38,9 +38,9 @@ def _regular(path: Path) -> bool:
 def _digest(path: Path) -> tuple[str, int]:
     h = hashlib.sha256()
     size = 0
-    with path.open("rb") as f:
+    with path.open("rb") as handle:
         while True:
-            block = f.read(_CHUNK)
+            block = handle.read(_CHUNK)
             if not block:
                 break
             h.update(block)
@@ -53,11 +53,13 @@ def _snapshot(source: Path, destination: Path) -> None:
     if source.suffix.lower() not in SQLITE_SUFFIXES:
         shutil.copy2(source, destination)
         return
-    # sqlite3 online backup gives a consistent snapshot even while WAL pages are active.
-    # A direct filesystem path is portable across Windows/macOS/Linux and avoids file: URI differences.
-    with sqlite3.connect(str(source), timeout=10.0) as source_db:
-        with sqlite3.connect(str(destination), timeout=10.0) as destination_db:
-            source_db.backup(destination_db)
+    source_db = sqlite3.connect(str(source), timeout=10.0)
+    destination_db = sqlite3.connect(str(destination), timeout=10.0)
+    try:
+        source_db.backup(destination_db)
+    finally:
+        destination_db.close()
+        source_db.close()
 
 
 def create_state_backup(engine_module, archive_path: str | os.PathLike[str]) -> dict[str, object]:
@@ -159,7 +161,9 @@ def _manifest(archive: zipfile.ZipFile) -> dict[str, object]:
     for record in records:
         if not isinstance(record, dict):
             raise StateBackupError("Invalid backup file record.")
-        name, size, sha256 = record.get("name"), record.get("size"), record.get("sha256")
+        name = record.get("name")
+        size = record.get("size")
+        sha256 = record.get("sha256")
         if not isinstance(name, str) or name not in allowed or name in names:
             raise StateBackupError(f"Unexpected backup state file: {name!r}")
         if not isinstance(size, int) or not 0 <= size <= MAX_MEMBER_BYTES:
@@ -240,7 +244,8 @@ def restore_state_backup(engine_module, archive_path: str | os.PathLike[str]) ->
 
     with tempfile.TemporaryDirectory(prefix="galaxy-state-restore-", dir=str(state_root.parent)) as temp_dir:
         root = Path(temp_dir)
-        stage, rollback = root / "stage", root / "rollback"
+        stage = root / "stage"
+        rollback = root / "rollback"
         stage.mkdir()
         rollback.mkdir()
         payload, staged = _validate_and_stage(source, stage)
@@ -287,6 +292,25 @@ def restore_state_backup(engine_module, archive_path: str | os.PathLike[str]) ->
     }
 
 
+def _sqlite_exec(path: Path, statements: list[str]) -> None:
+    db = sqlite3.connect(str(path))
+    try:
+        for statement in statements:
+            db.execute(statement)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _sqlite_scalar(path: Path, query: str) -> object:
+    db = sqlite3.connect(str(path))
+    try:
+        row = db.execute(query).fetchone()
+        return None if row is None else row[0]
+    finally:
+        db.close()
+
+
 def run_state_backup_self_test() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -297,15 +321,16 @@ def run_state_backup_self_test() -> None:
         (state / "telegram-upload-secret.json").write_text('{"botToken":"NEVER"}', encoding="utf-8")
         (state / "unknown-secret.txt").write_text("NEVER", encoding="utf-8")
         (state / "engine.log").write_text("diagnostic", encoding="utf-8")
-        with sqlite3.connect(str(state / "media-library.sqlite3")) as db:
-            db.execute("create table item(value text)")
-            db.execute("insert into item values ('before')")
-            db.commit()
+        _sqlite_exec(
+            state / "media-library.sqlite3",
+            ["create table item(value text)", "insert into item values ('before')"],
+        )
 
         class Engine:
             @staticmethod
             def app_dir() -> Path:
                 return root
+
             @staticmethod
             def state_dir() -> Path:
                 return state
@@ -323,9 +348,7 @@ def run_state_backup_self_test() -> None:
         (state / "workspace-options.json").write_text('{"historyEnabled":false}', encoding="utf-8")
         (state / "download-profiles.json").unlink()
         (state / "desktop-features.json").write_text("{}", encoding="utf-8")
-        with sqlite3.connect(str(state / "media-library.sqlite3")) as db:
-            db.execute("update item set value='after'")
-            db.commit()
+        _sqlite_exec(state / "media-library.sqlite3", ["update item set value='after'"])
 
         assert restore_state_backup(Engine, backup)["restored"] is True
         assert (state / "workspace-options.json").read_text(encoding="utf-8") == '{"historyEnabled":true}'
@@ -334,8 +357,7 @@ def run_state_backup_self_test() -> None:
         assert (state / "telegram-upload-secret.json").read_text(encoding="utf-8") == '{"botToken":"NEVER"}'
         assert (state / "unknown-secret.txt").read_text(encoding="utf-8") == "NEVER"
         assert (state / "engine.log").read_text(encoding="utf-8") == "diagnostic"
-        with sqlite3.connect(str(state / "media-library.sqlite3")) as db:
-            assert db.execute("select value from item").fetchone()[0] == "before"
+        assert _sqlite_scalar(state / "media-library.sqlite3", "select value from item") == "before"
 
         corrupt = root / "corrupt.zip"
         shutil.copy2(backup, corrupt)
