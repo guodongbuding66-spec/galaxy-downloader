@@ -91,11 +91,17 @@ def profile_output_template(engine_module, job: Any, current: object = "") -> st
     filename = _safe_filename_template(getattr(job, "profile_filename", ""))
     if not directory and not filename:
         return str(current or "")
-    root = Path(engine_module.default_download_dir())
+    current_path = Path(str(current or "")) if current else None
     if directory:
-        root = root.joinpath(*directory.replace("\\", "/").split("/"))
+        root = Path(engine_module.default_download_dir()).joinpath(
+            *directory.replace("\\", "/").split("/")
+        )
+    elif current_path is not None:
+        root = current_path.parent
+    else:
+        root = Path(engine_module.default_download_dir())
     if not filename:
-        current_name = Path(str(current or "")).name
+        current_name = current_path.name if current_path is not None else ""
         filename = current_name or "%(title).180B [%(id)s].%(ext)s"
     return str(root / filename)
 
@@ -142,13 +148,22 @@ def apply_profile_to_external_command(engine_module, job: Any, command: list[str
     container = str(getattr(job, "profile_container", "") or "").strip().lower()
     if container:
         _replace_flag_value(command, "--merge-output-format", container)
-    output = profile_output_template(engine_module, job, "")
+    current_output = ""
+    try:
+        output_index = command.index("-o")
+    except ValueError:
+        output_index = -1
+    if output_index >= 0 and output_index + 1 < len(command):
+        current_output = command[output_index + 1]
+    output = profile_output_template(engine_module, job, current_output)
     if output:
         _replace_flag_value(command, "-o", output)
-    _remove_flag_value(command, "--limit-rate")
-    limit = _rate_limit_bytes(job)
-    if limit is not None:
-        _insert_before_source(command, ["--limit-rate", str(limit)])
+    raw_limit = getattr(job, "profile_rate_limit_mib", None)
+    if raw_limit not in {None, ""}:
+        _remove_flag_value(command, "--limit-rate")
+        limit = _rate_limit_bytes(job)
+        if limit is not None:
+            _insert_before_source(command, ["--limit-rate", str(limit)])
 
     _remove_flag_value(command, "--remux-video")
     _remove_flag_value(command, "--recode-video")
