@@ -1,0 +1,60 @@
+name: Download Profile Policy Hardening
+
+on:
+  push:
+    branches:
+      - phase5-profile-job-defaults
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[profile-policy-hardening]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase5-profile-job-defaults
+
+      - name: Preserve advanced legacy subtitle choices
+        shell: python
+        run: |
+          from pathlib import Path
+
+          policy = Path('local-engine/download_profile_policy.py')
+          text = policy.read_text(encoding='utf-8')
+          old = '''    subtitle_language = str(payload.get("subtitleLanguage") or "").strip()\n    if video != "best" or payload.get("videoFormatId"):\n'''
+          new = '''    subtitle_language = str(payload.get("subtitleLanguage") or "").strip()\n    subtitle_mode = str(payload.get("subtitleMode") or "both").strip().lower() or "both"\n    subtitle_languages = payload.get("subtitleLanguages")\n    has_subtitle_languages = bool(\n        subtitle_languages.strip()\n        if isinstance(subtitle_languages, str)\n        else subtitle_languages\n        if isinstance(subtitle_languages, (list, tuple, set))\n        else False\n    )\n    if video != "best" or payload.get("videoFormatId"):\n'''
+          if new not in text:
+              if old not in text:
+                  raise SystemExit('subtitle inference anchor missing')
+              text = text.replace(old, new, 1)
+          old_condition = '''    if bool(payload.get("includeSubtitle", False)) or subtitle_language:\n        result.append("subtitle")\n'''
+          new_condition = '''    if (\n        bool(payload.get("includeSubtitle", False))\n        or subtitle_language\n        or subtitle_mode != "both"\n        or has_subtitle_languages\n    ):\n        result.append("subtitle")\n'''
+          if new_condition not in text:
+              if old_condition not in text:
+                  raise SystemExit('subtitle explicit condition anchor missing')
+              text = text.replace(old_condition, new_condition, 1)
+          policy.write_text(text, encoding='utf-8')
+
+          test = Path('scripts/test-local-download-profile-policy.py')
+          test_text = test.read_text(encoding='utf-8')
+          anchor = '''    assert payload_explicit_fields({"videoQuality": "best", "browser": "none"}) == ()\n'''
+          replacement = '''    assert payload_explicit_fields({"videoQuality": "best", "browser": "none"}) == ()\n    assert payload_explicit_fields({"subtitleMode": "manual"}) == ("subtitle",)\n    assert payload_explicit_fields({"subtitleLanguages": ["en", "ja"]}) == ("subtitle",)\n'''
+          if replacement not in test_text:
+              if anchor not in test_text:
+                  raise SystemExit('subtitle precedence test anchor missing')
+              test_text = test_text.replace(anchor, replacement, 1)
+          test.write_text(test_text, encoding='utf-8')
+
+      - name: Commit subtitle precedence hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add local-engine/download_profile_policy.py scripts/test-local-download-profile-policy.py
+          git commit -m "fix(profiles): preserve advanced subtitle overrides [profile-policy-hardening]"
+          git push origin HEAD:phase5-profile-job-defaults
