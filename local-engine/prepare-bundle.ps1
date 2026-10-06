@@ -86,13 +86,13 @@ if (-not (Test-Path $FfmpegExe) -or -not (Test-Path $FfprobeExe)) {
         if ($Architecture -eq 'arm64') {
             # Do not use BtbN's floating /latest asset for the release bundle.
             # This exact native ARM64 build passed Galaxy's full media-cleanup
-            # integration regression on Windows ARM64 on 2026-09-16. Pinning the
+            # release verification on Windows ARM64 on 2026-10-06. Pinning the
             # immutable release tag and publisher SHA-256 makes release inputs
             # reproducible; upgrades must deliberately update all three values
             # and pass the same integration gate before promotion.
-            $FfmpegRelease = 'autobuild-2026-09-15-13-18'
-            $FfmpegAsset = 'ffmpeg-N-126574-g912208af28-winarm64-gpl.zip'
-            $ExpectedHash = '0098a3ebb44eff47a4b8ffecc17d259180b77a138e98971d60eabc8f7c68c90b'
+            $FfmpegRelease = 'autobuild-2026-10-05-13-07'
+            $FfmpegAsset = 'ffmpeg-N-127203-ga35c879992-winarm64-gpl.zip'
+            $ExpectedHash = '0fd1cdb7b3d3ceab81e7e9675bc2046fbc447399d5b2b958ef01779f2a1fd3ae'
             $FfmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$FfmpegRelease/$FfmpegAsset"
             Invoke-WebRequest -UseBasicParsing -Uri $FfmpegUrl -OutFile $ZipPath
         }
