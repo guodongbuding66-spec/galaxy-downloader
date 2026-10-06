@@ -1,0 +1,51 @@
+name: Download Profile Application
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'local-engine/download_profiles.py'
+      - 'local-engine/download_profile_policy.py'
+      - 'local-engine/desktop_quick_download.py'
+      - 'local-engine/entrypoint.py'
+      - 'scripts/test-local-download-profile-policy.py'
+      - '.github/workflows/download-profile-application.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'local-engine/download_profiles.py'
+      - 'local-engine/download_profile_policy.py'
+      - 'local-engine/desktop_quick_download.py'
+      - 'local-engine/entrypoint.py'
+      - 'scripts/test-local-download-profile-policy.py'
+      - '.github/workflows/download-profile-application.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Compile profile application contract
+        run: python -m py_compile local-engine/download_profile_policy.py local-engine/desktop_quick_download.py local-engine/entrypoint.py scripts/test-local-download-profile-policy.py
+
+      - name: Run profile application contract
+        run: python scripts/test-local-download-profile-policy.py

@@ -9,6 +9,7 @@ from typing import Any
 import bridge
 import desktop_ui as ui
 from desktop_hooks import register_after_build_ui_hook
+from download_profiles import DownloadProfileError, list_profiles
 
 _BROWSER_LABELS = {
     "不使用浏览器登录": "none",
@@ -18,6 +19,7 @@ _BROWSER_LABELS = {
     "Brave": "brave",
 }
 _BROWSER_BY_KEY = {value: label for label, value in _BROWSER_LABELS.items()}
+_AUTO_PROFILE_LABEL = "Auto match"
 
 
 @dataclass(frozen=True)
@@ -150,6 +152,7 @@ def build_quick_download_payload(
     selected_video_id: str | None,
     selected_audio_id: str | None,
     browser: str = "none",
+    download_profile_id: str | None = None,
 ) -> dict[str, Any]:
     video = _option_by_id(preview.video_options, selected_video_id)
     audio = _option_by_id(preview.audio_options, selected_audio_id)
@@ -169,6 +172,9 @@ def build_quick_download_payload(
         "skipPreviouslyDownloaded": False,
         "displayTitle": preview.title[:120],
     }
+
+    if download_profile_id:
+        payload["downloadProfileId"] = str(download_profile_id)
 
     if video is not None:
         video_format_id = _text(video.get("formatId"))
@@ -260,12 +266,14 @@ def _submit_quick_download(window, engine_module) -> None:
     video_id = getattr(window, "_quick_video_display", {}).get(window._quick_video_var.get())
     audio_id = getattr(window, "_quick_audio_display", {}).get(window._quick_audio_var.get())
     browser = _browser_key(window._quick_browser_var.get())
+    profile_id = getattr(window, "_quick_profile_ids", {}).get(window._quick_profile_var.get(), "")
     try:
         payload = build_quick_download_payload(
             preview,
             selected_video_id=video_id,
             selected_audio_id=audio_id,
             browser=browser,
+            download_profile_id=profile_id or None,
         )
     except ValueError as exc:
         _show_parse_error(window, str(exc))
@@ -362,6 +370,31 @@ def _parse_quick_url(window, engine_module) -> None:
     threading.Thread(target=worker, name="GalaxyQuickParse", daemon=True).start()
 
 
+def _refresh_quick_profiles(window, engine_module) -> None:
+    profile_var = getattr(window, "_quick_profile_var", None)
+    current_label = profile_var.get() if profile_var is not None else _AUTO_PROFILE_LABEL
+    current_id = getattr(window, "_quick_profile_ids", {}).get(current_label, "")
+    labels: dict[str, str] = {_AUTO_PROFILE_LABEL: ""}
+    try:
+        profiles = list_profiles(engine_module)
+    except DownloadProfileError as exc:
+        window._quick_state_var.set(f"Profiles 读取失败：{exc}")
+        profiles = []
+    for profile in profiles:
+        name = _text(profile.get("name"), "Profile")
+        profile_id = _text(profile.get("id"))
+        label = name
+        suffix = 2
+        while label in labels:
+            label = f"{name} ({suffix})"
+            suffix += 1
+        labels[label] = profile_id
+    window._quick_profile_ids = labels
+    window._quick_profile_combo.configure(values=tuple(labels))
+    selected = next((label for label, pid in labels.items() if pid and pid == current_id), _AUTO_PROFILE_LABEL)
+    window._quick_profile_var.set(selected)
+
+
 def _paste_quick_url(window) -> None:
     try:
         value = _text(window.clipboard_get())
@@ -429,13 +462,32 @@ def _build_quick_panel(window, engine_module) -> None:
         width=18,
         style="Galaxy.TCombobox",
     ).pack(side="left", padx=(7, 10))
+    ui._label(options, "Profile", size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(side="left", padx=(8, 0))
+    window._quick_profile_var = tk.StringVar(value=_AUTO_PROFILE_LABEL)
+    window._quick_profile_ids = {_AUTO_PROFILE_LABEL: ""}
+    window._quick_profile_combo = ttk.Combobox(
+        options,
+        textvariable=window._quick_profile_var,
+        values=(_AUTO_PROFILE_LABEL,),
+        state="readonly",
+        width=20,
+        style="Galaxy.TCombobox",
+    )
+    window._quick_profile_combo.pack(side="left", padx=(7, 5))
+    ui.ActionButton(
+        options,
+        text="刷新",
+        command=lambda: _refresh_quick_profiles(window, engine_module),
+        kind="ghost",
+        compact=True,
+    ).pack(side="left")
     ui._label(
         options,
-        "默认不读取浏览器 Cookie；只有你主动选择登录浏览器并解析时才尝试。",
+        "Auto match 按 URL Pattern；手动 Profile 优先。浏览器 Cookie 仍只在主动选择后读取。",
         size=7,
         color=ui.SUBTLE,
         bg=ui.PANEL_2,
-    ).pack(side="left")
+    ).pack(side="left", padx=(8, 0))
 
     window._quick_state_var = tk.StringVar(value="粘贴链接后点击解析。普通启动和剪贴板读取不会自动联网。")
     ui._label(
@@ -491,6 +543,7 @@ def _build_quick_panel(window, engine_module) -> None:
     window._quick_video_display = {}
     window._quick_audio_display = {}
     window._quick_parse_generation = 0
+    _refresh_quick_profiles(window, engine_module)
 
 
 def install_desktop_quick_download(engine_module):
@@ -547,4 +600,13 @@ def run_desktop_quick_download_self_test() -> None:
     )
     assert payload["videoFormatId"] == "137"
     assert payload["audioFormatId"] == "251"
+    assert "downloadProfileId" not in payload
+    profiled = build_quick_download_payload(
+        preview,
+        selected_video_id="video:137",
+        selected_audio_id="audio:251",
+        download_profile_id="a" * 32,
+    )
+    assert profiled["downloadProfileId"] == "a" * 32
+    assert profiled["videoFormatId"] == "137"
     assert "downloadUrl" not in str(payload)
