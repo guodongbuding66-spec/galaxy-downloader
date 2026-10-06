@@ -1,0 +1,50 @@
+name: Profile Policy Precedence Fix
+
+on:
+  push:
+    branches:
+      - phase5-download-profile-application
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[profile-precedence-fix]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase5-download-profile-application
+
+      - name: Preserve workspace defaults for unset profile fields
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('local-engine/download_profile_policy.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''def profile_output_template(engine_module, job: Any, current: object = "") -> str:\n    directory = str(getattr(job, "profile_directory", "") or "").strip()\n    filename = _safe_filename_template(getattr(job, "profile_filename", ""))\n    if not directory and not filename:\n        return str(current or "")\n    root = Path(engine_module.default_download_dir())\n    if directory:\n        root = root.joinpath(*directory.replace("\\\\", "/").split("/"))\n    if not filename:\n        current_name = Path(str(current or "")).name\n        filename = current_name or "%(title).180B [%(id)s].%(ext)s"\n    return str(root / filename)\n'''
+          new = '''def profile_output_template(engine_module, job: Any, current: object = "") -> str:\n    directory = str(getattr(job, "profile_directory", "") or "").strip()\n    filename = _safe_filename_template(getattr(job, "profile_filename", ""))\n    if not directory and not filename:\n        return str(current or "")\n    current_path = Path(str(current or "")) if current else None\n    if directory:\n        root = Path(engine_module.default_download_dir()).joinpath(\n            *directory.replace("\\\\", "/").split("/")\n        )\n    elif current_path is not None:\n        root = current_path.parent\n    else:\n        root = Path(engine_module.default_download_dir())\n    if not filename:\n        current_name = current_path.name if current_path is not None else ""\n        filename = current_name or "%(title).180B [%(id)s].%(ext)s"\n    return str(root / filename)\n'''
+          if old not in text:
+              raise SystemExit('profile_output_template block not found')
+          text = text.replace(old, new, 1)
+          old = '''    output = profile_output_template(engine_module, job, "")\n    if output:\n        _replace_flag_value(command, "-o", output)\n    _remove_flag_value(command, "--limit-rate")\n    limit = _rate_limit_bytes(job)\n    if limit is not None:\n        _insert_before_source(command, ["--limit-rate", str(limit)])\n'''
+          new = '''    current_output = ""\n    try:\n        output_index = command.index("-o")\n    except ValueError:\n        output_index = -1\n    if output_index >= 0 and output_index + 1 < len(command):\n        current_output = command[output_index + 1]\n    output = profile_output_template(engine_module, job, current_output)\n    if output:\n        _replace_flag_value(command, "-o", output)\n    raw_limit = getattr(job, "profile_rate_limit_mib", None)\n    if raw_limit not in {None, ""}:\n        _remove_flag_value(command, "--limit-rate")\n        limit = _rate_limit_bytes(job)\n        if limit is not None:\n            _insert_before_source(command, ["--limit-rate", str(limit)])\n'''
+          if old not in text:
+              raise SystemExit('external output/rate block not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+      - name: Compile policy
+        run: python -m py_compile local-engine/download_profile_policy.py
+
+      - name: Commit precedence fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add local-engine/download_profile_policy.py
+          git commit -m "fix(profiles): preserve workspace defaults for unset fields [profile-precedence-fix]"
+          git push origin HEAD:phase5-download-profile-application
