@@ -1,0 +1,47 @@
+name: ARM64 FFmpeg Pin Refresh
+
+on:
+  push:
+    branches:
+      - fix-windows-arm64-ffmpeg-20261005
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: ${{ !contains(github.event.head_commit.message, '[arm64-pin-refresh]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: fix-windows-arm64-ffmpeg-20261005
+
+      - name: Replace retired BtbN asset with retained verified build
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('local-engine/prepare-bundle.ps1')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              "autobuild-2026-09-15-13-18": "autobuild-2026-10-05-13-07",
+              "ffmpeg-N-126574-g912208af28-winarm64-gpl.zip": "ffmpeg-N-127203-ga35c879992-winarm64-gpl.zip",
+              "0098a3ebb44eff47a4b8ffecc17d259180b77a138e98971d60eabc8f7c68c90b": "0fd1cdb7b3d3ceab81e7e9675bc2046fbc447399d5b2b958ef01779f2a1fd3ae",
+              "integration regression on Windows ARM64 on 2026-09-16.": "release verification on Windows ARM64 on 2026-10-06.",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'expected pin text not found: {old}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+      - name: Commit refreshed immutable pin
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add local-engine/prepare-bundle.ps1
+          git commit -m "fix(windows): refresh retained ARM64 FFmpeg pin [arm64-pin-refresh]"
+          git push origin HEAD:fix-windows-arm64-ffmpeg-20261005
