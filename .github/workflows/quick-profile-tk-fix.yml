@@ -1,0 +1,44 @@
+name: Quick Profile Tk Fix
+
+on:
+  push:
+    branches:
+      - phase5-download-profile-application
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[quick-profile-tk-fix]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase5-download-profile-application
+
+      - name: Remove implicit Tk default-root dependency
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('local-engine/desktop_quick_download.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''def _refresh_quick_profiles(window, engine_module) -> None:\n    current_id = getattr(window, "_quick_profile_ids", {}).get(\n        getattr(window, "_quick_profile_var", tk.StringVar()).get(), ""\n    )\n'''
+          new = '''def _refresh_quick_profiles(window, engine_module) -> None:\n    profile_var = getattr(window, "_quick_profile_var", None)\n    current_label = profile_var.get() if profile_var is not None else _AUTO_PROFILE_LABEL\n    current_id = getattr(window, "_quick_profile_ids", {}).get(current_label, "")\n'''
+          if old not in text:
+              raise SystemExit('Quick Profile refresh anchor not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+      - name: Compile Quick Download
+        run: python -m py_compile local-engine/desktop_quick_download.py
+
+      - name: Commit hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add local-engine/desktop_quick_download.py
+          git commit -m "fix(profiles): avoid implicit Tk root during profile refresh [quick-profile-tk-fix]"
+          git push origin HEAD:phase5-download-profile-application
