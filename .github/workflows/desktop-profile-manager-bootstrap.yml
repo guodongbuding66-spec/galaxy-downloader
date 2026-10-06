@@ -1,0 +1,64 @@
+name: Desktop Profile Manager Bootstrap
+
+on:
+  push:
+    branches:
+      - phase5-desktop-profile-manager
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[profile-manager-bootstrap]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase5-desktop-profile-manager
+
+      - name: Install Profile Manager in production entrypoint
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('local-engine/entrypoint.py')
+          text = path.read_text(encoding='utf-8')
+          replacements = (
+              (
+                  'from desktop_platform_features import install_desktop_platform_features, run_desktop_platform_features_self_test\n',
+                  'from desktop_platform_features import install_desktop_platform_features, run_desktop_platform_features_self_test\n'
+                  'from desktop_profile_manager import install_desktop_profile_manager, run_desktop_profile_manager_self_test\n',
+              ),
+              (
+                  'install_desktop_platform_features(engine)\ninstall_desktop_ai(engine)\n',
+                  'install_desktop_platform_features(engine)\ninstall_desktop_profile_manager(engine)\ninstall_desktop_ai(engine)\n',
+              ),
+              (
+                  '    assert getattr(engine, "_galaxy_desktop_platform_features_installed", False) is True\n',
+                  '    assert getattr(engine, "_galaxy_desktop_platform_features_installed", False) is True\n'
+                  '    assert getattr(engine.EngineWindow, "_galaxy_desktop_profile_manager_installed", False) is True\n',
+              ),
+              (
+                  '    run_desktop_platform_features_self_test()\n    run_desktop_ai_self_test()\n',
+                  '    run_desktop_platform_features_self_test()\n    run_desktop_profile_manager_self_test()\n    run_desktop_ai_self_test()\n',
+              ),
+          )
+          for old, new in replacements:
+              if new in text:
+                  continue
+              if old not in text:
+                  raise SystemExit(f'entrypoint anchor not found: {old!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+      - name: Commit entrypoint integration
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add local-engine/entrypoint.py
+          git commit -m "feat(desktop): install profile manager [profile-manager-bootstrap]"
+          git push origin HEAD:phase5-desktop-profile-manager
