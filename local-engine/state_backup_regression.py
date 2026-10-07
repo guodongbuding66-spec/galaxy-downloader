@@ -167,6 +167,36 @@ class BackupRegression(unittest.TestCase):
         self.rewrite(edit)
         self.reject_without_changes()
 
+    def test_actual_extra_state_sources_roundtrip(self):
+        for name in ('media-options.json', 'bandwidth-options.json'):
+            (self.state / name).write_bytes(b'{"configured":true}')
+        gallery = self.state / 'gallery-dl'
+        gallery.mkdir()
+        database = gallery / 'archive.sqlite3'
+        backup._sqlite_exec(database, ['CREATE TABLE seen(id TEXT)', "INSERT INTO seen VALUES ('media-1')"])
+        backup.create_state_backup(self.context, self.path)
+        (self.state / 'media-options.json').unlink()
+        (self.state / 'bandwidth-options.json').write_bytes(b'{}')
+        database.unlink()
+        gallery.rmdir()
+        backup.restore_state_backup(self.context, self.path)
+        self.assertEqual((self.state / 'media-options.json').read_bytes(), b'{"configured":true}')
+        self.assertEqual((self.state / 'bandwidth-options.json').read_bytes(), b'{"configured":true}')
+        self.assertEqual(backup._sqlite_scalar(database, 'SELECT id FROM seen'), 'media-1')
+
+    def test_nested_symlink_directory_rejected(self):
+        outside = self.root / 'outside'
+        outside.mkdir()
+        try:
+            (self.state / 'gallery-dl').symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest('OS does not permit symlink creation')
+        with self.assertRaises(backup.StateBackupError):
+            backup.create_state_backup(self.context, self.path)
+        with self.assertRaises(backup.StateBackupError):
+            backup.restore_state_backup(self.context, self.path)
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_symlink_not_replaced(self):
         outside = self.root / 'outside.json'
         outside.write_bytes(b'outside')

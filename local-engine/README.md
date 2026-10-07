@@ -1,5 +1,18 @@
 # Galaxy Local Engine
 
+## 本次便携包：状态备份与恢复
+
+完整解压 `GalaxyLocalEngine-Portable-Windows-x64.zip` 后，双击 `install.cmd` 注册网页唤起协议，再运行 `GalaxyLocalEngine.exe`。`_internal` 是必需运行目录，请勿移除；包内自带 yt-dlp、FFmpeg、FFprobe，无需另装 Python。
+
+双击同目录的 `GalaxyStateTool.exe`，可以创建、验证和恢复 `.galaxy-state.zip`。恢复前必须关闭主程序，工具检测到本地引擎端口仍被占用时会拒绝恢复。
+
+备份保存实际 `state` 中的已登记设置和数据库，包括下载 Profile、媒体选项、带宽选项、历史、可恢复任务、订阅、媒体库、转录、学习、阅读、音乐、AI 和插件设置，以及 `gallery-dl/archive.sqlite3`。SQLite 使用一致性快照；归档经过大小和 SHA-256 校验。恢复为完整快照：快照未包含的已登记状态会被移除，恢复写入失败会回滚，回滚失败则保留恢复副本并提示位置。
+
+备份不包含下载的媒体文件、模型或插件程序、缓存、`engine.log`、Telegram secret sidecar 和未知文件。请保管好备份，其中可能含个人历史、源链接和用户设置；媒体文件应另行复制。
+
+命令行参数：`--backup PATH`、`--validate PATH`、`--restore PATH`、`--self-test`。打包验收运行源代码测试、冻结程序异常回归、桌面界面启动、Backup/Validate/Restore 往返、离线工具启动和安装协议注册；成功产物附带构建清单及 SHA-256。
+
+
 Galaxy Local Engine 是 Galaxy Downloader 的 Windows 本地下载引擎。它在用户电脑上运行 `yt-dlp + FFmpeg`，用于处理浏览器直连不稳定、需要登录 Cookie、存在反爬或 IP 绑定限制的平台。
 
 > 普通用户请优先阅读安装包中的 **`使用说明.txt`**。

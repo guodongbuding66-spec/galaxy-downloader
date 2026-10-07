@@ -15,7 +15,7 @@ from runtime_storage import KNOWN_STATE_FILES, state_dir as runtime_state_dir
 BACKUP_SCHEMA = "galaxy-local-engine-state-backup/v1"
 MANIFEST_NAME = "manifest.json"
 STATE_PREFIX = "state/"
-CURRENT_STATE_FILES = tuple(dict.fromkeys((*KNOWN_STATE_FILES, "download-profiles.json")))
+CURRENT_STATE_FILES = tuple(dict.fromkeys((*KNOWN_STATE_FILES, "download-profiles.json", "media-options.json", "bandwidth-options.json", "gallery-dl/archive.sqlite3")))
 EXCLUDED_BACKUP_FILES = frozenset({"engine.log"})
 SQLITE_SUFFIXES = frozenset({".sqlite", ".sqlite3", ".db"})
 MAX_MANIFEST_BYTES = 1024 * 1024
@@ -34,6 +34,18 @@ def backup_file_names() -> tuple[str, ...]:
 
 def _regular(path: Path) -> bool:
     return path.is_file() and not path.is_symlink()
+
+
+def _state_file(root: Path, name: str) -> Path:
+    candidate = root / name
+    parent = candidate.parent
+    while True:
+        if parent.is_symlink():
+            raise StateBackupError(f"State directory must not be a symlink: {parent}")
+        if parent == root:
+            break
+        parent = parent.parent
+    return candidate
 
 
 def _digest(path: Path) -> tuple[str, int]:
@@ -78,8 +90,8 @@ def create_state_backup(engine_module, archive_path: str | os.PathLike[str]) -> 
         stage.mkdir()
         records: list[dict[str, object]] = []
         for name in backup_file_names():
-            source = state_root / name
-            if not source.exists():
+            source = _state_file(state_root, name)
+            if not source.exists() and not source.is_symlink():
                 continue
             if not _regular(source):
                 raise StateBackupError(f"Refusing to back up non-regular state file: {name}")
@@ -207,6 +219,8 @@ def _read_and_stage(path: Path, stage: Path | None = None) -> tuple[dict[str, ob
             h = hashlib.sha256()
             size = 0
             destination = stage / name if stage is not None else None
+            if destination is not None:
+                destination.parent.mkdir(parents=True, exist_ok=True)
             output = destination.open("wb") if destination is not None else None
             try:
                 with archive.open(info) as source:
@@ -280,11 +294,12 @@ def restore_state_backup(engine_module, archive_path: str | os.PathLike[str]) ->
                 managed.extend(name + suffix for suffix in ("-wal", "-shm", "-journal"))
         existing: list[str] = []
         for name in managed:
-            current = state_root / name
-            if not current.exists():
+            current = _state_file(state_root, name)
+            if not current.exists() and not current.is_symlink():
                 continue
             if not _regular(current):
                 raise StateBackupError(f"Refusing to replace non-regular state file: {name}")
+            (rollback / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(current, rollback / name)
             existing.append(name)
 
@@ -293,8 +308,9 @@ def restore_state_backup(engine_module, archive_path: str | os.PathLike[str]) ->
             # Remove closed-database sidecars so old WAL pages cannot overwrite
             # the restored database on its next open. Roll them back on failure.
             for name in managed:
-                target = state_root / name
+                target = _state_file(state_root, name)
                 if name in staged:
+                    target.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(staged[name], target)
                     touched.append(name)
                 elif target.exists():
@@ -311,8 +327,7 @@ def restore_state_backup(engine_module, archive_path: str | os.PathLike[str]) ->
             except Exception as rollback_exc:
                 # Keep recovery copies after the temporary directory exits.
                 recovery = Path(tempfile.mkdtemp(prefix="galaxy-state-recovery-", dir=str(state_root.parent)))
-                for candidate in rollback.iterdir():
-                    shutil.copy2(candidate, recovery / candidate.name)
+                shutil.copytree(rollback, recovery, dirs_exist_ok=True)
                 raise StateBackupError(
                     f"State restore failed and rollback also failed: {rollback_exc}. "
                     f"Recovery copies retained at: {recovery}"
