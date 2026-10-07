@@ -49,13 +49,37 @@ function Invoke-CheckedProcess {
         [string[]]$Arguments = @(),
         [int]$TimeoutSeconds = 180
     )
-    $Process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -PassThru
-    if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
-        try { Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue } catch {}
-        throw "Process timed out after $TimeoutSeconds seconds: $FilePath $($Arguments -join ' ')"
+
+    $StdoutPath = [System.IO.Path]::GetTempFileName()
+    $StderrPath = [System.IO.Path]::GetTempFileName()
+    try {
+        $Process = Start-Process `
+            -FilePath $FilePath `
+            -ArgumentList $Arguments `
+            -PassThru `
+            -RedirectStandardOutput $StdoutPath `
+            -RedirectStandardError $StderrPath
+
+        if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue } catch {}
+            $Stdout = if (Test-Path $StdoutPath) { Get-Content -Raw -Path $StdoutPath -ErrorAction SilentlyContinue } else { "" }
+            $Stderr = if (Test-Path $StderrPath) { Get-Content -Raw -Path $StderrPath -ErrorAction SilentlyContinue } else { "" }
+            if ($Stdout) { Write-Host "--- process stdout ---`n$Stdout" }
+            if ($Stderr) { Write-Host "--- process stderr ---`n$Stderr" }
+            throw "Process timed out after $TimeoutSeconds seconds: $FilePath $($Arguments -join ' ')"
+        }
+
+        $Stdout = if (Test-Path $StdoutPath) { Get-Content -Raw -Path $StdoutPath -ErrorAction SilentlyContinue } else { "" }
+        $Stderr = if (Test-Path $StderrPath) { Get-Content -Raw -Path $StderrPath -ErrorAction SilentlyContinue } else { "" }
+        if ($Stdout) { Write-Host "--- process stdout ---`n$Stdout" }
+        if ($Stderr) { Write-Host "--- process stderr ---`n$Stderr" }
+
+        if ($Process.ExitCode -ne 0) {
+            throw "Process failed with exit code $($Process.ExitCode): $FilePath $($Arguments -join ' ')"
+        }
     }
-    if ($Process.ExitCode -ne 0) {
-        throw "Process failed with exit code $($Process.ExitCode): $FilePath $($Arguments -join ' ')"
+    finally {
+        Remove-Item -Force -ErrorAction SilentlyContinue $StdoutPath, $StderrPath
     }
 }
 
