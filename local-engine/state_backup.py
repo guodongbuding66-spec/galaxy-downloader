@@ -18,6 +18,7 @@ STATE_PREFIX = "state/"
 CURRENT_STATE_FILES = tuple(dict.fromkeys((*KNOWN_STATE_FILES, "download-profiles.json")))
 EXCLUDED_BACKUP_FILES = frozenset({"engine.log"})
 SQLITE_SUFFIXES = frozenset({".sqlite", ".sqlite3", ".db"})
+MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_MEMBER_BYTES = 4 * 1024**3
 MAX_TOTAL_BYTES = 16 * 1024**3
 _CHUNK = 1024 * 1024
@@ -67,6 +68,9 @@ def create_state_backup(engine_module, archive_path: str | os.PathLike[str]) -> 
     destination = Path(archive_path).expanduser()
     if not destination.name:
         raise StateBackupError("Backup path must name a file.")
+    protected = {state_root / name for name in backup_file_names()}
+    if destination.resolve(strict=False) in {item.resolve(strict=False) for item in protected}:
+        raise StateBackupError("Backup destination must not overwrite an application state file.")
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="galaxy-state-backup-") as temporary_dir:
@@ -101,6 +105,7 @@ def create_state_backup(engine_module, archive_path: str | os.PathLike[str]) -> 
                 for record in records:
                     name = str(record["name"])
                     archive.write(stage / name, STATE_PREFIX + name)
+            validate_state_backup(tmp)
             os.replace(tmp, destination)
         except Exception:
             try:
@@ -144,6 +149,8 @@ def _manifest(archive: zipfile.ZipFile) -> dict[str, object]:
 
     if MANIFEST_NAME not in seen:
         raise StateBackupError("Backup manifest is missing.")
+    if archive.getinfo(MANIFEST_NAME).file_size > MAX_MANIFEST_BYTES:
+        raise StateBackupError("Backup manifest is too large.")
     try:
         payload = json.loads(archive.read(MANIFEST_NAME).decode("utf-8"))
     except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -166,9 +173,9 @@ def _manifest(archive: zipfile.ZipFile) -> dict[str, object]:
         sha256 = record.get("sha256")
         if not isinstance(name, str) or name not in allowed or name in names:
             raise StateBackupError(f"Unexpected backup state file: {name!r}")
-        if not isinstance(size, int) or not 0 <= size <= MAX_MEMBER_BYTES:
+        if type(size) is not int or not 0 <= size <= MAX_MEMBER_BYTES:
             raise StateBackupError(f"Invalid backup size for {name}.")
-        if not isinstance(sha256, str) or len(sha256) != 64:
+        if not isinstance(sha256, str) or len(sha256) != 64 or any(c not in "0123456789abcdefABCDEF" for c in sha256):
             raise StateBackupError(f"Invalid backup checksum for {name}.")
         if STATE_PREFIX + name not in seen:
             raise StateBackupError(f"Missing backup member: {STATE_PREFIX + name}")
@@ -180,7 +187,7 @@ def _manifest(archive: zipfile.ZipFile) -> dict[str, object]:
     return payload
 
 
-def _validate_and_stage(path: Path, stage: Path | None = None) -> tuple[dict[str, object], dict[str, Path]]:
+def _read_and_stage(path: Path, stage: Path | None = None) -> tuple[dict[str, object], dict[str, Path]]:
     try:
         archive = zipfile.ZipFile(path, "r", allowZip64=True)
     except (OSError, zipfile.BadZipFile) as exc:
@@ -223,6 +230,13 @@ def _validate_and_stage(path: Path, stage: Path | None = None) -> tuple[dict[str
     return payload, staged
 
 
+def _validate_and_stage(path: Path, stage: Path | None = None) -> tuple[dict[str, object], dict[str, Path]]:
+    try:
+        return _read_and_stage(path, stage)
+    except (zipfile.BadZipFile, RuntimeError, EOFError) as exc:
+        raise StateBackupError("Backup archive is corrupt or unreadable.") from exc
+
+
 def validate_state_backup(archive_path: str | os.PathLike[str]) -> dict[str, object]:
     source = Path(archive_path).expanduser()
     payload, _ = _validate_and_stage(source)
@@ -250,8 +264,22 @@ def restore_state_backup(engine_module, archive_path: str | os.PathLike[str]) ->
         rollback.mkdir()
         payload, staged = _validate_and_stage(source, stage)
 
-        existing: list[str] = []
+        # Check SQLite content before touching live files, even with a valid hash.
+        for name, candidate in staged.items():
+            if candidate.suffix.lower() in SQLITE_SUFFIXES:
+                try:
+                    result = _sqlite_scalar(candidate, "PRAGMA quick_check")
+                except sqlite3.Error as exc:
+                    raise StateBackupError(f"Invalid SQLite backup: {name}") from exc
+                if result != "ok":
+                    raise StateBackupError(f"SQLite backup integrity check failed: {name}")
+
+        managed = list(backup_file_names())
         for name in backup_file_names():
+            if Path(name).suffix.lower() in SQLITE_SUFFIXES:
+                managed.extend(name + suffix for suffix in ("-wal", "-shm", "-journal"))
+        existing: list[str] = []
+        for name in managed:
             current = state_root / name
             if not current.exists():
                 continue
@@ -260,24 +288,34 @@ def restore_state_backup(engine_module, archive_path: str | os.PathLike[str]) ->
             shutil.copy2(current, rollback / name)
             existing.append(name)
 
+        touched: list[str] = []
         try:
-            for name in backup_file_names():
+            # Remove closed-database sidecars so old WAL pages cannot overwrite
+            # the restored database on its next open. Roll them back on failure.
+            for name in managed:
                 target = state_root / name
                 if name in staged:
                     os.replace(staged[name], target)
+                    touched.append(name)
                 elif target.exists():
                     target.unlink()
+                    touched.append(name)
         except Exception as exc:
             try:
-                for name in backup_file_names():
+                for name in reversed(touched):
                     target = state_root / name
-                    if target.exists():
+                    if name in existing:
+                        os.replace(rollback / name, target)
+                    elif target.exists():
                         target.unlink()
-                for name in existing:
-                    os.replace(rollback / name, state_root / name)
             except Exception as rollback_exc:
+                # Keep recovery copies after the temporary directory exits.
+                recovery = Path(tempfile.mkdtemp(prefix="galaxy-state-recovery-", dir=str(state_root.parent)))
+                for candidate in rollback.iterdir():
+                    shutil.copy2(candidate, recovery / candidate.name)
                 raise StateBackupError(
-                    f"State restore failed and rollback also failed: {rollback_exc}"
+                    f"State restore failed and rollback also failed: {rollback_exc}. "
+                    f"Recovery copies retained at: {recovery}"
                 ) from exc
             raise StateBackupError("State restore failed; previous state was restored.") from exc
 

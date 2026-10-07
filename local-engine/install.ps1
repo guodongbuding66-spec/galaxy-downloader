@@ -34,8 +34,10 @@ $InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
 $EngineSource = Join-Path $SourceDir 'GalaxyLocalEngine.exe'
 $YtDlpSource = Join-Path $SourceDir 'yt-dlp.exe'
 $FfmpegSourceDir = Join-Path $SourceDir 'ffmpeg'
-$FfmpegSource = Join-Path $FfmpegSourceDir 'bin\ffmpeg.exe'
-$FfprobeSource = Join-Path $FfmpegSourceDir 'bin\ffprobe.exe'
+$FfmpegSource = Join-Path $SourceDir 'ffmpeg.exe'
+$FfprobeSource = Join-Path $SourceDir 'ffprobe.exe'
+if (-not (Test-Path $FfmpegSource)) { $FfmpegSource = Join-Path $FfmpegSourceDir 'bin\ffmpeg.exe' }
+if (-not (Test-Path $FfprobeSource)) { $FfprobeSource = Join-Path $FfmpegSourceDir 'bin\ffprobe.exe' }
 
 $RequiredSources = @(
     $EngineSource,
@@ -69,9 +71,14 @@ if (-not (Same-Path $SourceDir $InstallDir)) {
     Write-Step 'Copying the portable package to the selected install folder'
     Copy-Item -Force $EngineSource (Join-Path $InstallDir 'GalaxyLocalEngine.exe')
     Copy-Item -Force $YtDlpSource (Join-Path $InstallDir 'yt-dlp.exe')
-    Copy-Item -Recurse -Force $FfmpegSourceDir (Join-Path $InstallDir 'ffmpeg')
+    Copy-Item -Force $FfmpegSource (Join-Path $InstallDir 'ffmpeg.exe')
+    Copy-Item -Force $FfprobeSource (Join-Path $InstallDir 'ffprobe.exe')
+    foreach ($directory in @('_internal', 'assets', 'static', 'web-dashboard')) {
+        $source = Join-Path $SourceDir $directory
+        if (Test-Path $source) { Copy-Item -Recurse -Force $source (Join-Path $InstallDir $directory) }
+    }
 
-    foreach ($name in @('install.cmd', 'install.ps1', 'uninstall.cmd', 'uninstall.ps1', 'README.md', '使用说明.txt', 'VERSION')) {
+    foreach ($name in @('install.cmd', 'install.ps1', 'uninstall.cmd', 'uninstall.ps1', 'README.md', '使用说明.txt', 'VERSION', 'GalaxyStateTool.exe', 'portable.flag')) {
         $source = Join-Path $SourceDir $name
         if (Test-Path $source) {
             Copy-Item -Force $source (Join-Path $InstallDir $name)
@@ -81,8 +88,10 @@ if (-not (Same-Path $SourceDir $InstallDir)) {
 
 $EngineExe = Join-Path $InstallDir 'GalaxyLocalEngine.exe'
 $ExternalYtDlp = Join-Path $InstallDir 'yt-dlp.exe'
-$FfmpegExe = Join-Path $InstallDir 'ffmpeg\bin\ffmpeg.exe'
-$FfprobeExe = Join-Path $InstallDir 'ffmpeg\bin\ffprobe.exe'
+$FfmpegExe = Join-Path $InstallDir 'ffmpeg.exe'
+$FfprobeExe = Join-Path $InstallDir 'ffprobe.exe'
+if (-not (Test-Path $FfmpegExe)) { $FfmpegExe = Join-Path $InstallDir 'ffmpeg\bin\ffmpeg.exe' }
+if (-not (Test-Path $FfprobeExe)) { $FfprobeExe = Join-Path $InstallDir 'ffmpeg\bin\ffprobe.exe' }
 
 foreach ($required in @($EngineExe, $ExternalYtDlp, $FfmpegExe, $FfprobeExe)) {
     if (-not (Test-Path $required)) {

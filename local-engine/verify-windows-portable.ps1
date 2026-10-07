@@ -7,7 +7,8 @@ Set-StrictMode -Version Latest
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
-$OutputRoot = [System.IO.Path]::GetFullPath((Join-Path $ScriptDir $OutputRoot))
+if (-not [IO.Path]::IsPathRooted($OutputRoot)) { $OutputRoot = Join-Path $ScriptDir $OutputRoot }
+$OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $DistRoot = Join-Path $OutputRoot "dist"
 $PackageRoot = Join-Path $OutputRoot "GalaxyLocalEngine-Portable"
 $ZipPath = Join-Path $OutputRoot "GalaxyLocalEngine-Portable-Windows-x64.zip"
@@ -25,6 +26,10 @@ Copy-Item -Recurse -Force $MainDist $PackageRoot
 Copy-Item -Force $StateSourceExe (Join-Path $PackageRoot "GalaxyStateTool.exe")
 Set-Content -Path (Join-Path $PackageRoot "portable.flag") -Value "1" -Encoding ASCII
 
+foreach ($name in @("install.cmd", "install.ps1", "uninstall.cmd", "uninstall.ps1", "README.md", "使用说明.txt", "VERSION")) {
+    Copy-Item -Force (Join-Path $ScriptDir $name) (Join-Path $PackageRoot $name)
+}
+
 foreach ($DataDir in @("assets", "static", "web-dashboard")) {
     $Source = Join-Path $ScriptDir $DataDir
     if (Test-Path $Source) { Copy-Item -Recurse -Force $Source (Join-Path $PackageRoot $DataDir) }
@@ -36,8 +41,7 @@ foreach ($Tool in @("yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe")) {
         Copy-Item -Force $Local (Join-Path $PackageRoot $Tool)
         continue
     }
-    $Resolved = Get-Command $Tool -ErrorAction SilentlyContinue
-    if ($Resolved) { Copy-Item -Force $Resolved.Source (Join-Path $PackageRoot $Tool) }
+    throw "Missing portable tool: $Local. Supply real executables before verification."
 }
 
 $MainExe = Join-Path $PackageRoot "GalaxyLocalEngine.exe"
@@ -50,12 +54,15 @@ function Invoke-CheckedProcess {
         [int]$TimeoutSeconds = 180
     )
 
+    $DiagnosticPath = [System.IO.Path]::GetTempFileName()
+    $OldDiagnostic = $env:GALAXY_DIAGNOSTIC_LOG
+    $env:GALAXY_DIAGNOSTIC_LOG = $DiagnosticPath
     $StdoutPath = [System.IO.Path]::GetTempFileName()
     $StderrPath = [System.IO.Path]::GetTempFileName()
     try {
         $Process = Start-Process `
             -FilePath $FilePath `
-            -ArgumentList $Arguments `
+            -ArgumentList ($Arguments | ForEach-Object { '"' + $_ + '"' }) `
             -PassThru `
             -RedirectStandardOutput $StdoutPath `
             -RedirectStandardError $StderrPath
@@ -79,14 +86,33 @@ function Invoke-CheckedProcess {
         }
     }
     finally {
-        Remove-Item -Force -ErrorAction SilentlyContinue $StdoutPath, $StderrPath
+        $Diagnostic = Get-Content -Raw $DiagnosticPath -ErrorAction SilentlyContinue
+        if ($Diagnostic) { Write-Host "Process diagnostic:`n$Diagnostic" }
+        $env:GALAXY_DIAGNOSTIC_LOG = $OldDiagnostic
+        Remove-Item -Force -ErrorAction SilentlyContinue $StdoutPath, $StderrPath, $DiagnosticPath
     }
 }
+
+# Run tool binaries without Chocolatey/Python on PATH so shims cannot pass.
+$OriginalPath = $env:PATH
+try {
+    $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
+    Invoke-CheckedProcess -FilePath (Join-Path $PackageRoot "yt-dlp.exe") -Arguments @("--version")
+    Invoke-CheckedProcess -FilePath (Join-Path $PackageRoot "ffmpeg.exe") -Arguments @("-version")
+    Invoke-CheckedProcess -FilePath (Join-Path $PackageRoot "ffprobe.exe") -Arguments @("-version")
+} finally { $env:PATH = $OriginalPath }
 
 Write-Host "[verify] frozen GalaxyStateTool self-test"
 Invoke-CheckedProcess -FilePath $StateExe -Arguments @("--self-test")
 Write-Host "[verify] frozen GalaxyLocalEngine self-test"
 Invoke-CheckedProcess -FilePath $MainExe -Arguments @("--self-test") -TimeoutSeconds 300
+Write-Host "[verify] frozen desktop UI construction"
+Invoke-CheckedProcess -FilePath $MainExe -Arguments @("--ui-smoke-test") -TimeoutSeconds 120
+Write-Host "[verify] portable installer in-place"
+& (Join-Path $PackageRoot "install.ps1") -NoLaunch
+$Registered = (Get-Item "HKCU:/Software/Classes/galaxy-downloader/shell/open/command").GetValue("")
+if ($Registered -ne ('"' + $MainExe + '" "%1"')) { throw "Protocol registration points to wrong executable" }
+& (Join-Path $PackageRoot "uninstall.ps1")
 
 $StateDir = Join-Path $PackageRoot "state"
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
@@ -112,6 +138,10 @@ $Secret = Get-Content -Raw -Path (Join-Path $StateDir "telegram-upload-secret.js
 if ($Secret -notmatch 'CI-SECRET-MUST-STAY-LOCAL') { throw "Secret sidecar was unexpectedly modified" }
 
 Remove-Item -Recurse -Force $StateDir
+foreach ($runtimeDir in @("cache", "downloads")) {
+    $runtimePath = Join-Path $PackageRoot $runtimeDir
+    if (Test-Path $runtimePath) { Remove-Item -Recurse -Force $runtimePath }
+}
 Remove-Item -Force $BackupPath
 
 Compress-Archive -Path (Join-Path $PackageRoot "*") -DestinationPath $ZipPath -CompressionLevel Optimal
@@ -123,6 +153,9 @@ Set-Content -Path $ChecksumsPath -Value $Hashes -Encoding ASCII
 
 $Manifest = [ordered]@{
     schema = "galaxy-local-engine-windows-build/v1"
+    sourceCommit = (& git rev-parse HEAD).Trim()
+    engineVersion = (Get-Content (Join-Path $ScriptDir "VERSION") -Raw).Trim()
+    architecture = "x64"
     builtUtc = [DateTime]::UtcNow.ToString("o")
     mainExe = "GalaxyLocalEngine.exe"
     stateToolExe = "GalaxyStateTool.exe"
@@ -130,6 +163,9 @@ $Manifest = [ordered]@{
     sourceSelfTest = $true
     frozenSelfTest = $true
     backupRestoreRoundtrip = $true
+    frozenUiSmoke = $true
+    portableTools = $true
+    installerProtocol = $true
 }
 $Manifest | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $OutputRoot "build-manifest.json") -Encoding UTF8
 

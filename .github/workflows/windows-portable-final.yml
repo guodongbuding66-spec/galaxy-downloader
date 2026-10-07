@@ -48,7 +48,7 @@ jobs:
             local-engine/yt-dlp.exe
             local-engine/ffmpeg.exe
             local-engine/ffprobe.exe
-          key: galaxy-portable-tools-v1
+          key: galaxy-portable-tools-v2-real-binaries
 
       - name: Download yt-dlp executable
         run: |
@@ -61,10 +61,14 @@ jobs:
         run: |
           if (-not (Test-Path local-engine/ffmpeg.exe) -or -not (Test-Path local-engine/ffprobe.exe)) {
             choco install ffmpeg -y --no-progress
-            $ffmpeg = (Get-Command ffmpeg.exe -ErrorAction Stop).Source
-            $ffprobe = (Get-Command ffprobe.exe -ErrorAction Stop).Source
-            Copy-Item -Force $ffmpeg local-engine/ffmpeg.exe
-            Copy-Item -Force $ffprobe local-engine/ffprobe.exe
+            if ($LASTEXITCODE -ne 0) { throw "FFmpeg installation failed" }
+            # Chocolatey bin contains machine-specific shims, not portable binaries.
+            foreach ($tool in @("ffmpeg.exe", "ffprobe.exe")) {
+              $binary = Get-ChildItem "$env:ChocolateyInstall/lib/ffmpeg/tools" -Recurse -File -Filter $tool |
+                Where-Object { $_.Length -gt 1MB } | Select-Object -First 1
+              if (-not $binary) { throw "Real FFmpeg binary missing: $tool" }
+              Copy-Item -Force $binary.FullName "local-engine/$tool"
+            }
           }
 
       - name: Prepare frozen output
@@ -75,8 +79,10 @@ jobs:
 
       - name: PyInstaller main application
         run: |
+          $versionFile = (Resolve-Path "local-engine/VERSION").Path
+          $stdioHook = (Resolve-Path "local-engine/frozen_stdio.py").Path
           python -m PyInstaller --noconfirm --clean --onedir --windowed --name GalaxyLocalEngine `
-            --add-data "local-engine/VERSION;." `
+            --add-data "${versionFile};." --runtime-hook $stdioHook `
             --distpath local-engine/.release/windows-portable/dist `
             --workpath local-engine/.release/windows-portable/work `
             --specpath local-engine/.release/windows-portable/spec `
@@ -84,7 +90,8 @@ jobs:
 
       - name: PyInstaller backup restore utility
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name GalaxyStateTool `
+          $stdioHook = (Resolve-Path "local-engine/frozen_stdio.py").Path
+          python -m PyInstaller --runtime-hook $stdioHook --noconfirm --clean --onefile --windowed --name GalaxyStateTool `
             --distpath local-engine/.release/windows-portable/dist `
             --workpath local-engine/.release/windows-portable/work `
             --specpath local-engine/.release/windows-portable/spec `
@@ -100,6 +107,9 @@ jobs:
             "$root/GalaxyLocalEngine-Portable/GalaxyLocalEngine.exe",
             "$root/GalaxyLocalEngine-Portable/GalaxyStateTool.exe",
             "$root/GalaxyLocalEngine-Portable/portable.flag",
+            "$root/GalaxyLocalEngine-Portable/install.cmd",
+            "$root/GalaxyLocalEngine-Portable/install.ps1",
+            "$root/GalaxyLocalEngine-Portable/_internal/VERSION",
             "$root/GalaxyLocalEngine-Portable/yt-dlp.exe",
             "$root/GalaxyLocalEngine-Portable/ffmpeg.exe",
             "$root/GalaxyLocalEngine-Portable/ffprobe.exe",

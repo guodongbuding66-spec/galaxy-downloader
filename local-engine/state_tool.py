@@ -3,10 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import os
+import socket
 import sys
 from pathlib import Path
 
 from platform_paths import resolve_platform_paths
+from state_backup_regression import run_state_backup_regression
 from state_backup import (
     StateBackupError,
     create_state_backup,
@@ -32,6 +35,16 @@ class RuntimeStateContext:
     @staticmethod
     def state_dir() -> Path:
         return _paths().state_dir
+
+
+def _restore(source: str) -> dict[str, object]:
+    # Restoring underneath a live engine can corrupt open databases/cached state.
+    port = int(os.environ.get("GALAXY_LOCAL_BRIDGE_PORT", "17836"))
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.45)
+        if probe.connect_ex(("127.0.0.1", port)) == 0:
+            raise StateBackupError("Close Galaxy Local Engine before restoring state.")
+    return restore_state_backup(RuntimeStateContext, source)
 
 
 def _print_result(result: dict[str, object]) -> None:
@@ -102,7 +115,7 @@ def _run_gui() -> int:
         ):
             return
         try:
-            result = restore_state_backup(RuntimeStateContext, source)
+            result = _restore(source)
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Galaxy Local Engine", f"恢复失败；程序已尝试回滚原状态：\n{exc}", parent=root)
             return
@@ -147,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.self_test:
             run_state_backup_self_test()
-            _print_result({"ok": True, "selfTest": "state-backup"})
+            _print_result({"ok": True, "selfTest": "state-backup", "regression": run_state_backup_regression()})
             return 0
         if args.backup:
             _print_result(create_state_backup(RuntimeStateContext, args.backup))
@@ -156,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             _print_result(validate_state_backup(args.validate))
             return 0
         if args.restore:
-            _print_result(restore_state_backup(RuntimeStateContext, args.restore))
+            _print_result(_restore(args.restore))
             return 0
         return _run_gui()
     except (StateBackupError, OSError, sqlite3.Error) as exc:
