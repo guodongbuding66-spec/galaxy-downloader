@@ -73,9 +73,10 @@ jobs:
           if (Test-Path $root) { Remove-Item -Recurse -Force $root }
           New-Item -ItemType Directory -Force -Path "$root/dist", "$root/work", "$root/spec" | Out-Null
 
-      - name: PyInstaller main application (diagnostic console)
+      - name: PyInstaller main application
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --console --name GalaxyLocalEngine `
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name GalaxyLocalEngine `
+            --add-data "local-engine/VERSION;." `
             --distpath local-engine/.release/windows-portable/dist `
             --workpath local-engine/.release/windows-portable/work `
             --specpath local-engine/.release/windows-portable/spec `
