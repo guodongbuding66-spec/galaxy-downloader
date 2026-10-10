@@ -70,7 +70,7 @@ describe('local media engine capabilities', () => {
   })
 
   it('pins the website and GitHub mirror to the exact required Local Engine release', () => {
-    const expectedRelease = '0.15.0'
+    const expectedRelease = '0.15.1'
     expect(LOCAL_ENGINE_REQUIRED_VERSION).toBe(expectedRelease)
     expect(LOCAL_ENGINE_RELEASE_TAG).toBe(`local-engine-v${expectedRelease}`)
     expect(LOCAL_ENGINE_RELEASE_URL).toContain(`version=${expectedRelease}`)
