@@ -250,13 +250,13 @@ def _compact_gallery_fallback(window) -> None:
 
 
 def _stabilize_queue_header_controls(window) -> None:
-    """Rebuild queue actions in a deterministic two-row toolbar.
+    """Move queue actions below the title so late presenter buttons cannot squeeze them.
 
-    V1.7's readable type exposes a structural bug in the old narrow rail: every
-    presenter button packed into the same header row. At ~1020px the Transcript
-    action was physically squeezed to 24px even though its text needs ~62px.
-    Recreate the queue/header actions under a dedicated toolbar so every visible
-    control keeps a real 44px target and label fit.
+    The V1.7 rail is intentionally compact. Packing every action into the title
+    row made buttons collapse to 20-30px at a 1020px viewport. The toolbar now
+    lives as a sibling *below* the header, so the title row and toolbar no longer
+    compete for width. Every visible action keeps its 44px target and readable
+    label even if later modules add header controls.
     """
     pause = getattr(window, "_queue_pause_button", None)
     history = getattr(window, "_history_button", None)
@@ -265,6 +265,7 @@ def _stabilize_queue_header_controls(window) -> None:
     if pause is None or history is None or clear is None or getattr(window, "_galaxy_queue_header_stable", False):
         return
     head = clear.master
+    rail = head.master
 
     frames = [child for child in head.winfo_children() if isinstance(child, tk.Frame)]
     copy = frames[0] if frames else None
@@ -284,8 +285,8 @@ def _stabilize_queue_header_controls(window) -> None:
         pass
     copy.pack(fill="x", anchor="w")
 
-    toolbar = tk.Frame(head, bg=ui.PANEL)
-    toolbar.pack(fill="x", pady=(10, 0))
+    toolbar = tk.Frame(rail, bg=ui.PANEL)
+    toolbar.pack(fill="x", pady=(10, 0), after=head)
 
     def toggle_pause() -> None:
         toggle = getattr(window, "toggle_queue_paused", None)
