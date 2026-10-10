@@ -4,6 +4,7 @@ import io
 import json
 import re
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -63,8 +64,6 @@ def _image_size(url: str) -> tuple[int, int, int]:
         width, height = _dimensions(payload)
         return width, height, status
     except (UnidentifiedImageError, OSError):
-        # A few image formats keep essential metadata beyond the first range.
-        # Retry once without Range, with a strict byte cap.
         with _request(url, range_probe=False) as response:
             status = int(getattr(response, "status", 200) or 200)
             content_type = str(response.headers.get("Content-Type") or "")
@@ -127,6 +126,60 @@ def _best_variant(seed: str) -> tuple[dict[str, object] | None, list[dict[str, o
     return best, attempts
 
 
+def _production_parser_result() -> dict[str, object]:
+    """Exercise the same hybrid parser used by the native EXE URL field."""
+    try:
+        import entrypoint  # noqa: F401  installs production policies
+        import bridge
+
+        result = bridge.parse_with_bundled_ytdlp(PRODUCT_URL, "none")
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)[:500], "imageCount": 0}
+
+    data = result.get("data") if isinstance(result, dict) else None
+    images = data.get("images") if isinstance(data, dict) and isinstance(data.get("images"), list) else []
+    return {
+        "success": bool(isinstance(result, dict) and result.get("success")),
+        "code": result.get("code") if isinstance(result, dict) else None,
+        "error": result.get("error") if isinstance(result, dict) else "invalid parser result",
+        "platform": data.get("platform") if isinstance(data, dict) else None,
+        "documentType": data.get("documentType") if isinstance(data, dict) else None,
+        "imageCount": len(images),
+        "firstImage": (
+            (images[0].get("downloadUrl") or images[0].get("url"))
+            if images and isinstance(images[0], dict)
+            else (images[0] if images else None)
+        ),
+    }
+
+
+def _production_download_result() -> dict[str, object]:
+    """Download through production image_download after the V1.7 policy patch."""
+    try:
+        import image_download
+        from image_archive_policy import install_image_archive_policy
+
+        install_image_archive_policy(image_download)
+        with tempfile.TemporaryDirectory(prefix="galaxy-homedepot-live-") as tmp:
+            target, byte_count = image_download._download_one(
+                KNOWN_MAIN,
+                Path(tmp),
+                "homedepot-live",
+                PRODUCT_URL,
+            )
+            with Image.open(target) as image:
+                width, height = image.size
+            return {
+                "success": True,
+                "width": int(width),
+                "height": int(height),
+                "bytes": int(byte_count),
+                "suffix": target.suffix.lower(),
+            }
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)[:500]}
+
+
 def main() -> int:
     page_images = [url for url in _page_images() if is_home_depot_image(url)]
     seeds = [KNOWN_MAIN]
@@ -140,12 +193,16 @@ def main() -> int:
         results.append({"seed": seed, "best": best, "attempts": attempts})
 
     first = results[0]["best"] if results else None
+    parser_result = _production_parser_result()
+    downloader_result = _production_download_result()
     summary = {
         "productUrl": PRODUCT_URL,
         "pageImageCount": len(page_images),
         "seedCount": len(seeds),
         "mainSeed": KNOWN_MAIN,
         "mainBest": first,
+        "productionParser": parser_result,
+        "productionDownloader": downloader_result,
         "results": results,
     }
     Path("homedepot-live-result.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -163,7 +220,30 @@ def main() -> int:
         print(f"FAIL: live resolver did not improve beyond the public 600px derivative ({width}x{height})", file=sys.stderr)
         return 4
 
-    print(f"PASS: Home Depot main asset resolves beyond thumbnail/600px: {width}x{height}")
+    if not downloader_result.get("success"):
+        print(f"FAIL: production image downloader failed: {downloader_result.get('error')}", file=sys.stderr)
+        return 5
+    saved_w = int(downloader_result.get("width") or 0)
+    saved_h = int(downloader_result.get("height") or 0)
+    if max(saved_w, saved_h) <= 600:
+        print(f"FAIL: production downloader saved only {saved_w}x{saved_h}", file=sys.stderr)
+        return 6
+
+    # The exact product URL must be tested through the production parser too.
+    # If the site changes its anti-bot behavior this should fail visibly rather
+    # than silently claiming the URL workflow still works.
+    if not parser_result.get("success") or int(parser_result.get("imageCount") or 0) < 1:
+        print(
+            "FAIL: native production parser could not discover images from the exact Home Depot product URL: "
+            f"{parser_result}",
+            file=sys.stderr,
+        )
+        return 7
+
+    print(
+        "PASS: exact Home Depot URL parsed and production downloader saved "
+        f"{saved_w}x{saved_h}; best public CDN pixels {width}x{height}"
+    )
     return 0
 
 
