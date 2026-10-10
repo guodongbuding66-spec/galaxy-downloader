@@ -99,13 +99,17 @@ def _product_payload(source_url: str, item_id: str, payload: Any, browser: str) 
         media = node.get("media")
         if not isinstance(media, dict) or not isinstance(media.get("images"), list):
             continue
-        node_item = str(node.get("itemId") or "")
+        node_item = str(node.get("itemId") or "").strip()
         identifiers = node.get("identifiers") if isinstance(node.get("identifiers"), dict) else {}
-        identifier_item = str(identifiers.get("itemId") or "") if isinstance(identifiers, dict) else ""
-        if node_item and node_item != item_id and identifier_item and identifier_item != item_id:
+        identifier_item = str(identifiers.get("itemId") or "").strip() if isinstance(identifiers, dict) else ""
+        known_ids = {value for value in (node_item, identifier_item) if value}
+        # A GraphQL response can contain recommendation/cross-sell products.
+        # If the node identifies itself and none of those IDs match the URL's
+        # itemId, never accept its media just because another ID field is blank.
+        if known_ids and item_id not in known_ids:
             continue
         best = node
-        if node_item == item_id or identifier_item == item_id:
+        if item_id in known_ids:
             break
     if best is None:
         return None
@@ -312,6 +316,10 @@ def run_self_test() -> None:
     assert _detail_route("700380885") == "https://www.homedepot.com/p/detail/700380885"
     payload = {
         "data": {
+            "recommendation": {
+                "itemId": "111111111",
+                "media": {"images": [{"url": "https://images.thdstatic.com/productImages/x/svn/wrong_600.jpg"}]},
+            },
             "product": {
                 "itemId": "700380885",
                 "identifiers": {"itemId": "700380885", "productLabel": "Example Shed"},
@@ -321,7 +329,7 @@ def run_self_test() -> None:
                         {"url": "https://images.thdstatic.com/productImages/a/svn/example-64_600.jpg"},
                     ]
                 },
-            }
+            },
         }
     }
     result = _product_payload(sample, "700380885", payload, "none")
@@ -329,6 +337,7 @@ def run_self_test() -> None:
     assert result["data"]["platform"] == "homedepot"
     assert len(result["data"]["images"]) == 1
     assert result["data"]["images"][0]["url"].endswith("_600.jpg")
+    assert "wrong_600" not in result["data"]["images"][0]["url"]
 
 
 if __name__ == "__main__":
