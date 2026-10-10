@@ -269,6 +269,7 @@ def _install_v18_compatibility(native_module, engine_module) -> None:
             )
             button.pack(side="left", padx=(6, 0))
             window._v18_toolbar_original_button = button
+            window._v18_original_images_button = button
             window._original_images_button = button
 
     native_module.run_after_build_ui_hooks = run_hooks_with_legacy_host
