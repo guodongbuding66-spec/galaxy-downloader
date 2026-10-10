@@ -6,7 +6,7 @@ The public product page often renders a small images.thdstatic.com derivative
 (e.g. `_100.jpg` / `_600.jpg`) while higher public CDN variants are available.
 This policy keeps the generic document parser but teaches it to classify Home
 Depot product pages, read high-density srcset/data attributes, collapse multiple
-size variants to one asset identity, and reject Akamai/challenge-page chrome.
+size variants to one asset identity, and reject verified challenge-page chrome.
 Actual HTTP validation and high-resolution fallback remain in
 image_download/image_resolution.
 """
@@ -20,9 +20,13 @@ from image_resolution import dedupe_resolution_variants, parse_srcset
 
 _HOME_DEPOT_HOSTS = ("homedepot.com", "thdstatic.com")
 _HOME_DEPOT_IMAGE_HOST = "images.thdstatic.com"
+# Do not treat the mere word "Akamai" as a challenge: a normal retail page may
+# legitimately reference Akamai infrastructure. Only concrete challenge/error
+# copy or the known challenge-logo path is strong enough evidence.
 _CHALLENGE_RE = re.compile(
-    r"(?:akamai(?:hd)?|akamai-logo|reference\s*#\s*\d+|access\s+denied|"
-    r"request\s+rejected|bot\s+(?:manager|detection)|automated\s+access|"
+    r"(?:akamai(?:hd)?-logo|www\.akamai\.com/site/[^\s\"']*logo|"
+    r"reference\s*#\s*[0-9a-f.:-]+|access\s+denied|request\s+rejected|"
+    r"bot\s+(?:manager|detection)|automated\s+access|"
     r"verify\s+(?:you\s+are|your)\s+(?:a\s+)?human|captcha|security\s+check)",
     re.I,
 )
@@ -127,9 +131,8 @@ def install_home_depot_document_policy() -> None:
         if not _is_home_depot_url(source_url) and not _is_home_depot_url(final_url):
             return result
 
-        # Never turn CDN/challenge page decoration into a successful product
-        # gallery. This was the concrete failure observed in Windows CI where an
-        # Akamai logo was incorrectly returned as the Home Depot product image.
+        # Never turn challenge-page decoration into a successful product
+        # gallery. Windows CI previously reproduced this with an Akamai logo.
         if _looks_like_home_depot_challenge(raw_html, final_url):
             return _challenge_result(browser)
 
@@ -182,7 +185,11 @@ def run_self_test() -> None:
     assert _is_home_depot_product_image("https://images.thdstatic.com/productImages/a/item_600.jpg")
     assert not _is_home_depot_product_image("https://www.akamai.com/site/images/logo.svg")
     assert _looks_like_home_depot_challenge(
-        "<html><img src='https://www.akamai.com/site/images/logo.svg'>Access Denied</html>",
+        "<html><img src='https://www.akamai.com/site/images/akamai-logo1.svg'>Access Denied</html>",
+        "https://www.homedepot.com/p/700380885",
+    )
+    assert not _looks_like_home_depot_challenge(
+        "<html><script src='https://example.akamaihd.net/app.js'></script><img src='https://images.thdstatic.com/productImages/a/item_600.jpg'></html>",
         "https://www.homedepot.com/p/700380885",
     )
     assert parse_srcset("small.jpg 100w, large.jpg 1600w")[0] == "large.jpg"
