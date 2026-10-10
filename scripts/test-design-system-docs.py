@@ -52,10 +52,10 @@ RUNTIME_COLORS = {
     "SUBTLE": ("text_subtle", "#8F9AAA"),
     "ACCENT": ("accent", "#4F7DFF"),
     "ACCENT_HOVER": ("accent_hover", "#6C94FF"),
-    "CYAN": ("info", "#75A7D8"),
+    "CYAN": ("info", "#7AB8E8"),
     "SUCCESS": ("success", "#65BE92"),
     "DANGER": ("danger", "#E27676"),
-    "DANGER_HOVER": ("danger_hover", "#EC8787"),
+    "DANGER_HOVER": ("danger_hover", "#EB8989"),
     "WARNING": ("warning", "#D9A85F"),
 }
 
