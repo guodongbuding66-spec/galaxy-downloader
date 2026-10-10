@@ -1,4 +1,4 @@
-# Galaxy Local Engine 0.15.1
+# Galaxy Local Engine 0.15.2
 
 Windows 便携式本地 yt-dlp + FFmpeg 下载引擎。
 
@@ -12,6 +12,17 @@ Windows 便携式本地 yt-dlp + FFmpeg 下载引擎。
 6. FFmpeg 与 `yt-dlp.exe` 已内置，首次安装无需访问 GitHub，也无需另外下载依赖。
 7. 下载的视频、音频、图片与文档默认保存在解压目录下的 `downloads` 文件夹。
 8. 返回 SparkDownloader，等待显示 **“本地引擎已连接”** 后即可使用。
+
+## 0.15.2
+
+- 原生 Windows 工作台升级到 UI `1.7.0`：继续以 `GalaxyLocalEngine.exe` 自身的 Tk/Windows 界面作为正式入口，不使用 HTML Dashboard 替代 EXE UI。
+- 按 UI Skills 的 `interface-design` / `frontend-design` / `better-ui` 原则重新收敛桌面层级：深石墨工作台、单一低饱和蓝色主操作色、更大的正文/标签/按钮文字、更明确的主工作区与下载队列分区。
+- 修复 Windows 125% / 150% / 200% 显示缩放下文字和控件偏小的问题：不再强制 `tk scaling = 1.0`，改为尊重真实 Windows DPI。
+- 快速下载区新增原生 **“网页原图 / 商品图集”** 操作，不依赖浏览器 Dashboard；商品页可直接在 EXE 内解析并提交原图下载。
+- 为 Home Depot 商品图片增加专用公开 CDN 分辨率恢复：对 `images.thdstatic.com` 的 `_100/_145/_300/_400/_600/...` 派生图去重，并从高分辨率候选向下验证，避免命中 100×100 缩略图后立即停止。
+- Home Depot 页面解析增加 `srcset`、`data-srcset`、zoom/high-res 等商品图库属性提取，同时保留动态 Edge/Chrome CDP 兜底。
+- 对用户提供的 Internet #`700380885` / Model `hh-816` 增加真实公网回归：已验证 `_600.jpg` 对应资产可从公开 THD CDN 获取 **1000×1000** 实际像素版本；该商品公开 CDN 会把 `_1200/_1500/_2000/_2500/_3000/_4000` 请求统一限制为 1000×1000，因此不会把 URL 后缀误报成真实 4000px。
+- 增加 Home Depot 实战 QA、Windows PyInstaller 成品 EXE UI Smoke、原生工作台截图、DPI/设计 Token/原图下载策略自测；不使用 TinyFish 或任何付费浏览器服务。
 
 ## 0.15.1
 
