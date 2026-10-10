@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from image_resolution import build_download_candidates, dedupe_resolution_variants
+import web_document as document_base
+from image_resolution import build_download_candidates, dedupe_resolution_variants, parse_srcset
 
 
 def _platform_from_source(value: object) -> str | None:
@@ -61,17 +62,46 @@ def _metadata(payload: dict[str, Any], archive_path: Path) -> dict[str, Any]:
     }
 
 
-def install_image_archive_policy(image_download_module):
-    """Install image archive metadata plus original-resolution CDN recovery.
+def _install_document_image_resolution_policy() -> None:
+    parser_cls = document_base._DocumentParser
+    if getattr(parser_cls, "_galaxy_resolution_policy_installed", False):
+        return
 
-    Home Depot and similar product galleries often expose a small derivative in
-    the rendered DOM. The downloader now expands a bounded candidate list before
-    the existing HTTP/content validation, so a 100px thumbnail can recover the
-    largest source variant that the CDN actually serves. Unrelated hosts retain
-    the previous candidate behavior.
-    """
+    original_starttag = parser_cls.handle_starttag
+
+    def handle_starttag(parser, tag, attrs):
+        original_starttag(parser, tag, attrs)
+        if tag not in {"img", "source", "picture", "a"}:
+            return
+        values = parser._attrs(attrs)
+        for key in (
+            "srcset",
+            "data-srcset",
+            "data-zoom-image",
+            "data-zoom",
+            "data-hi-res-src",
+            "data-high-res-src",
+            "data-image",
+            "data-original-src",
+            "data-large-image",
+        ):
+            raw = values.get(key)
+            if not raw:
+                continue
+            candidates = parse_srcset(raw) if "srcset" in key else [raw]
+            for candidate in candidates:
+                parser._add_image(candidate, key)
+
+    parser_cls.handle_starttag = handle_starttag
+    parser_cls._galaxy_resolution_policy_installed = True
+
+
+def install_image_archive_policy(image_download_module):
+    """Install archive metadata and original-resolution product-image recovery."""
     if getattr(image_download_module, "_galaxy_image_archive_policy_installed", False):
         return
+
+    _install_document_image_resolution_policy()
 
     original_candidates = image_download_module._image_candidates
     original_dedupe = image_download_module._dedupe_images
@@ -80,8 +110,6 @@ def install_image_archive_policy(image_download_module):
         return build_download_candidates(value, original_candidates(value))
 
     def dedupe_images(values: list[object]) -> list[str]:
-        # First collapse known resolution variants, then retain the stable base
-        # de-duplication behavior for every other site.
         return original_dedupe(dedupe_resolution_variants(values))
 
     image_download_module._image_candidates = image_candidates
@@ -125,14 +153,9 @@ def install_image_archive_policy(image_download_module):
                     suffix += 1
                 archive_path.replace(candidate)
                 final_path = candidate
-            image_download_module._set_state(
-                lastPath=str(final_path),
-                detail=f"Saved to {final_path}",
-            )
+            image_download_module._set_state(lastPath=str(final_path), detail=f"Saved to {final_path}")
         except Exception as exc:  # noqa: BLE001
-            image_download_module._set_state(
-                detail=f"Saved archive, but metadata export failed: {exc}",
-            )
+            image_download_module._set_state(detail=f"Saved archive, but metadata export failed: {exc}")
 
     image_download_module._run_image_job = run_image_job
     image_download_module._galaxy_image_archive_policy_installed = True
