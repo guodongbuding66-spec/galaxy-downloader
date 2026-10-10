@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from image_resolution import build_download_candidates, dedupe_resolution_variants
+
 
 def _platform_from_source(value: object) -> str | None:
     source = str(value or "").strip()
@@ -25,6 +27,7 @@ def _platform_from_source(value: object) -> str | None:
         (("pinterest.com", "pinimg.com"), "pinterest"),
         (("twitter.com", "x.com"), "x"),
         (("bilibili.com", "b23.tv"), "bilibili"),
+        (("homedepot.com", "thdstatic.com"), "homedepot"),
     )
     for suffixes, platform in mappings:
         if any(host == suffix or host.endswith(f".{suffix}") for suffix in suffixes):
@@ -59,14 +62,30 @@ def _metadata(payload: dict[str, Any], archive_path: Path) -> dict[str, Any]:
 
 
 def install_image_archive_policy(image_download_module):
-    """Append metadata.json to packaged image archives and optionally emit CBZ.
+    """Install image archive metadata plus original-resolution CDN recovery.
 
-    CBZ deliberately uses the same stored ZIP payload as the existing image
-    archive path; only the extension changes. This keeps ordering and original
-    files intact while making comic/long-image readers recognize the package.
+    Home Depot and similar product galleries often expose a small derivative in
+    the rendered DOM. The downloader now expands a bounded candidate list before
+    the existing HTTP/content validation, so a 100px thumbnail can recover the
+    largest source variant that the CDN actually serves. Unrelated hosts retain
+    the previous candidate behavior.
     """
     if getattr(image_download_module, "_galaxy_image_archive_policy_installed", False):
         return
+
+    original_candidates = image_download_module._image_candidates
+    original_dedupe = image_download_module._dedupe_images
+
+    def image_candidates(value: str) -> list[str]:
+        return build_download_candidates(value, original_candidates(value))
+
+    def dedupe_images(values: list[object]) -> list[str]:
+        # First collapse known resolution variants, then retain the stable base
+        # de-duplication behavior for every other site.
+        return original_dedupe(dedupe_resolution_variants(values))
+
+    image_download_module._image_candidates = image_candidates
+    image_download_module._dedupe_images = dedupe_images
 
     original_run = image_download_module._run_image_job
 
@@ -111,8 +130,6 @@ def install_image_archive_policy(image_download_module):
                 detail=f"Saved to {final_path}",
             )
         except Exception as exc:  # noqa: BLE001
-            # The images themselves have already been saved. Preserve the archive
-            # and surface a metadata warning rather than deleting user data.
             image_download_module._set_state(
                 detail=f"Saved archive, but metadata export failed: {exc}",
             )
