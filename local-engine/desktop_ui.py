@@ -29,7 +29,6 @@ from desktop_design_tokens import (
     TEXT,
     TYPE,
     WARNING,
-    font,
     target_padding,
 )
 
@@ -74,6 +73,13 @@ _TYPE_SIZE_BY_LEGACY = {
 }
 
 
+def font(size_token: str = "body", *, bold: bool = False):
+    if size_token not in TYPE or size_token == "family":
+        raise KeyError(f"unknown type token: {size_token}")
+    size = int(TYPE[size_token])
+    return (FONT_FAMILY, size, "bold") if bold else (FONT_FAMILY, size)
+
+
 class ActionButton(_impl.ActionButton):
     """Native button with 44px target, visible focus, hover and press feedback."""
 
@@ -115,8 +121,6 @@ class ActionButton(_impl.ActionButton):
 
     def _native_press(self, _event=None) -> None:
         if str(self["state"]) != "disabled":
-            # Tk has no transform scale. A one-pixel inset + sunken relief is the
-            # native equivalent of the UI-Skills 0.96 press compression cue.
             self.configure(bg=self._hover, relief="sunken", padx=max(1, self._normal_padx - 1), pady=max(1, self._normal_pady - 1))
 
     def _native_release(self, event=None) -> None:
@@ -177,10 +181,107 @@ WEBSITE_URL = _impl.WEBSITE_URL
 _BASE_INSTALL_DESKTOP_UI = _impl.install_desktop_ui
 
 
+class _V18TkProxy:
+    """Limit V1.8 compatibility shims to the native shell instead of global tkinter."""
+
+    def __init__(self, module) -> None:
+        self._module = module
+
+    def __getattr__(self, name: str):
+        return getattr(self._module, name)
+
+    def PanedWindow(self, *args, **kwargs):
+        kwargs.pop("highlightthickness", None)
+        return self._module.PanedWindow(*args, **kwargs)
+
+
+def _resolve_windows_ui_font(window) -> str:
+    try:
+        families = {str(item) for item in tkfont.families(window)}
+    except (tk.TclError, RuntimeError):
+        families = set()
+    for candidate in ("Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI"):
+        if candidate in families:
+            return candidate
+    return str(TYPE["family"])
+
+
+def _install_v18_compatibility(native_module, engine_module) -> None:
+    if getattr(native_module, "_galaxy_v18_compatibility_installed", False):
+        return
+
+    native_module.tk = _V18TkProxy(tk)
+
+    original_present = native_module._present
+    presenter_aliases = {
+        "task-center": "history",
+        "runtime": "settings",
+        "profiles": "settings",
+    }
+
+    def present_with_alias(window, slot: str) -> None:
+        original_present(window, presenter_aliases.get(slot, slot))
+
+    native_module._present = present_with_alias
+
+    original_configure_styles = native_module.v17._configure_styles
+
+    def configure_v18_styles(window) -> None:
+        global FONT_FAMILY
+        FONT_FAMILY = _resolve_windows_ui_font(window)
+        native_module.font = font
+        native_module.v17.font = font
+        try:
+            window.option_add("*Font", f"{{{FONT_FAMILY}}} {TYPE['body']}")
+        except tk.TclError:
+            pass
+        original_configure_styles(window)
+
+    native_module.v17._configure_styles = configure_v18_styles
+
+    original_run_hooks = native_module.run_after_build_ui_hooks
+
+    def run_hooks_with_legacy_host(window) -> None:
+        if not hasattr(window, "_copy_diag_button"):
+            host = tk.Frame(window, bg=BG)
+            window._v18_compatibility_actions = host
+            window._copy_diag_button = ActionButton(
+                host,
+                text="复制诊断",
+                command=lambda: _impl._copy_diagnostics(window, engine_module),
+                kind="ghost",
+                compact=True,
+            )
+        original_run_hooks(window)
+
+        commands = getattr(window, "_v18_toolbar_commands", None)
+        if commands is not None and not hasattr(window, "_v18_toolbar_original_button"):
+            try:
+                commands.master.configure(height=60)
+            except tk.TclError:
+                pass
+            button = ActionButton(
+                commands,
+                text="下载页面原图",
+                command=lambda: __import__("desktop_original_images")._download_original_images(window, engine_module),
+                kind="secondary",
+                compact=True,
+            )
+            button.pack(side="left", padx=(6, 0))
+            window._v18_toolbar_original_button = button
+            window._v18_original_images_button = button
+            window._original_images_button = button
+
+    native_module.run_after_build_ui_hooks = run_hooks_with_legacy_host
+    native_module._galaxy_v18_compatibility_installed = True
+
+
 def install_desktop_ui(engine_module):
     window_cls = _BASE_INSTALL_DESKTOP_UI(engine_module)
-    from desktop_native_v17 import install_native_desktop_v17
-    return install_native_desktop_v17(engine_module, sys.modules[__name__])
+    import desktop_native_v18 as native_v18
+
+    _install_v18_compatibility(native_v18, engine_module)
+    return native_v18.install_native_desktop_v18(engine_module, sys.modules[__name__])
 
 
 def __getattr__(name: str):
@@ -215,7 +316,10 @@ def run_self_test() -> None:
     assert _resolve_type_size("body_sm") == TYPE["body_sm"]
     assert _resolve_type_size("title") == TYPE["title"]
     assert _resolve_type_size(9) == TYPE["body"]
+    assert font("body")[0] == FONT_FAMILY
     assert target_padding(16) >= BUTTON_PAD_Y
+    assert callable(_resolve_windows_ui_font)
+    assert callable(_install_v18_compatibility)
     assert callable(install_desktop_ui)
 
 
