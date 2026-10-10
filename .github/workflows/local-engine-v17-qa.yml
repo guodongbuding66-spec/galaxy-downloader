@@ -47,6 +47,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $env:PYTHONPATH = (Resolve-Path 'local-engine').Path
           python local-engine/image_resolution.py
+          python local-engine/home_depot_graphql.py
+          python local-engine/home_depot_direct.py
           python local-engine/home_depot_policy.py
           python local-engine/desktop_dpi.py
           python local-engine/desktop_original_images.py
@@ -95,7 +97,7 @@ jobs:
           draw.text((88, 397), f"{saved.get('width', '?')} × {saved.get('height', '?')} px · {saved.get('suffix', '?')}", font=body, fill='#F4F6F8')
           draw.text((88, 442), 'Suffix _4000 is only a CDN variant name; decoded pixels are authoritative.', font=small, fill='#B9C1CC')
           if parser.get('realProductAsset'):
-              parser_text, parser_color = 'Exact page parser: product assets discovered', '#66C396'
+              parser_text, parser_color = f"Exact page parser: product assets discovered ({parser.get('imageCount', 0)} image records)", '#66C396'
           elif parser.get('success'):
               parser_text, parser_color = 'Exact page parser: FAIL — non-product asset accepted', '#E47777'
           else:
@@ -104,7 +106,7 @@ jobs:
           passed = max(int(best.get('width') or 0), int(best.get('height') or 0)) > 600 and max(int(saved.get('width') or 0), int(saved.get('height') or 0)) > 600 and not (parser.get('success') and not parser.get('realProductAsset'))
           draw.text((56, 586), 'Result: PASS — escaped thumbnail ceiling and verified production download' if passed else 'Result: FAIL', font=body, fill='#66C396' if passed else '#E47777')
           draw.text((56, 650), 'Public Home Depot / THD resources only · no TinyFish · no paid scraper', font=small, fill='#8793A3')
-          draw.text((56, 688), 'Anonymous page access may be gated; Edge/Chrome login retry remains available in the native app.', font=small, fill='#8793A3')
+          draw.text((56, 688), 'Public GraphQL → local Edge/Chrome traffic → HTML fallback; actual decoded pixels decide image quality.', font=small, fill='#8793A3')
           image.save('qa/homedepot-live-result.png')
           '@ | python -
 
@@ -169,9 +171,6 @@ jobs:
 
           app = engine.EngineWindow(None)
           try:
-              # Hosted Windows runners expose a 1024×768 interactive desktop.
-              # Use a QA-only viewport that fits that desktop; production keeps
-              # the larger V1.7 default/minimum geometry.
               app.minsize(920, 650)
               app.geometry('1000x690+8+8')
               app.update_idletasks()
@@ -182,7 +181,8 @@ jobs:
               app.update()
               root_x, root_y = app.winfo_rootx(), app.winfo_rooty()
               root_w, root_h = app.winfo_width(), app.winfo_height()
-              clipped = []
+              outside = []
+              compressed = []
               def inspect(widget):
                   try:
                       mapped = bool(widget.winfo_ismapped())
@@ -191,23 +191,31 @@ jobs:
                   if mapped and isinstance(widget, tk.Button):
                       x, y = widget.winfo_rootx() - root_x, widget.winfo_rooty() - root_y
                       w, h = widget.winfo_width(), widget.winfo_height()
+                      req_w, req_h = widget.winfo_reqwidth(), widget.winfo_reqheight()
+                      label = str(widget.cget('text'))
                       if x < 0 or y < 0 or x + w > root_w or y + h > root_h:
-                          clipped.append((str(widget.cget('text')), x, y, w, h))
+                          outside.append((label, x, y, w, h))
+                      if w + 1 < req_w or h + 1 < req_h:
+                          compressed.append((label, w, h, req_w, req_h))
                   for child in widget.winfo_children():
                       inspect(child)
               inspect(app)
-              if clipped:
-                  raise RuntimeError(f'Visible native buttons are clipped: {clipped}')
+              if outside:
+                  raise RuntimeError(f'Visible native buttons are outside the workbench: {outside}')
+              if compressed:
+                  raise RuntimeError(f'Visible native button text/targets are compressed: {compressed}')
               original_button = getattr(app, '_original_images_button', None)
               if original_button is None or not original_button.winfo_ismapped():
                   raise RuntimeError('Native original-image action is not visible')
               if str(original_button.cget('text')) != '下载页面原图':
                   raise RuntimeError('Unexpected original-image button copy')
+              if original_button.winfo_width() + 1 < original_button.winfo_reqwidth():
+                  raise RuntimeError('Native original-image button is horizontally clipped')
               shot = ImageGrab.grab(bbox=(root_x, root_y, root_x + root_w, root_y + root_h), all_screens=True)
               if shot.width < 900 or shot.height < 640:
                   raise RuntimeError(f'Native workbench screenshot unexpectedly small: {shot.width}x{shot.height}')
               shot.save('qa/native-workbench-v17.png')
-              print(f'Captured native workbench: {shot.width}x{shot.height}; clipped buttons: 0')
+              print(f'Captured native workbench: {shot.width}x{shot.height}; outside buttons: 0; compressed buttons: 0')
           finally:
               try:
                   app.destroy()
