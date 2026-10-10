@@ -67,7 +67,6 @@ def _install_document_image_resolution_policy() -> None:
     parser_cls = document_base._DocumentParser
     if getattr(parser_cls, "_galaxy_resolution_policy_installed", False):
         return
-
     original_starttag = parser_cls.handle_starttag
 
     def handle_starttag(parser, tag, attrs):
@@ -98,13 +97,10 @@ def _install_document_image_resolution_policy() -> None:
 
 
 def install_image_archive_policy(image_download_module):
-    """Install archive metadata and original-resolution product-image recovery."""
+    """Install archive metadata, commerce image recovery, and the native original-image action."""
     if getattr(image_download_module, "_galaxy_image_archive_policy_installed", False):
         return
 
-    # document_policy is already installed by entrypoint.py. Apply the commerce
-    # specialization afterwards so both static HTML and CDP-rendered pages keep
-    # the generic safety boundary while Home Depot gets product/srcset semantics.
     install_home_depot_document_policy()
     _install_document_image_resolution_policy()
 
@@ -130,7 +126,6 @@ def install_image_archive_policy(image_download_module):
         if archive_format == "cbz":
             next_payload["package"] = True
         next_payload["archiveFormat"] = archive_format
-
         original_run(next_payload)
         state = image_download_module.image_job_status()
         if state.get("status") != "Completed":
@@ -141,14 +136,10 @@ def install_image_archive_policy(image_download_module):
         archive_path = Path(raw_path)
         if not archive_path.exists() or archive_path.suffix.lower() != ".zip":
             return
-
         try:
             metadata = _metadata(next_payload, archive_path)
             with zipfile.ZipFile(archive_path, "a", compression=zipfile.ZIP_STORED) as archive:
-                archive.writestr(
-                    "metadata.json",
-                    json.dumps(metadata, ensure_ascii=False, indent=2).encode("utf-8"),
-                )
+                archive.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2).encode("utf-8"))
             final_path = archive_path
             if archive_format == "cbz":
                 candidate = archive_path.with_suffix(".cbz")
@@ -164,3 +155,15 @@ def install_image_archive_policy(image_download_module):
 
     image_download_module._run_image_job = run_image_job
     image_download_module._galaxy_image_archive_policy_installed = True
+
+    # Register the native UI affordance here because this policy is installed by
+    # entrypoint before EngineWindow builds its UI. Hook order 45 runs after the
+    # Quick Download strip (40), so no HTML/web dashboard is involved.
+    try:
+        import engine
+        from desktop_original_images import install_desktop_original_images
+        install_desktop_original_images(engine)
+    except Exception:
+        # Image download capability must never fail just because the optional UI
+        # affordance cannot be registered in a non-desktop/self-test context.
+        pass
