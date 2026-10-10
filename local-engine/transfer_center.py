@@ -60,13 +60,15 @@ def start_torrent_transfer(
     media/download pipeline and custom URI schemes are rejected.
     """
 
-    executable = find_aria2c(engine_module)
-    if executable is None:
-        raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c。请先安装或配置 aria2c 后重试。")
+    # Validate before tool discovery so malformed Magnet/Torrent input is never
+    # masked by an unrelated "aria2c missing" error on a new installation.
     try:
         classified = require_torrent_source(source)
     except Aria2SourceError as exc:
         raise TransferError(str(exc)) from exc
+    executable = find_aria2c(engine_module)
+    if executable is None:
+        raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c。请先安装或配置 aria2c 后重试。")
     destination = _managed_download_dir(engine_module, "torrents")
     return create_recoverable_aria2_session(
         engine_module,

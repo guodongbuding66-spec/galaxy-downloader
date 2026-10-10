@@ -69,10 +69,10 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
 
     source = tk.StringVar()
     status = tk.StringVar(value="就绪 · 支持实时进度、暂停/继续、失败重试")
-    detail = tk.StringVar(value="aria2c 使用断点续传；关闭此窗口不会中断正在进行的任务。")
+    detail = tk.StringVar(value="aria2c 使用断点续传；关闭程序后任务会进入可恢复状态，不会静默重新下载。")
     pct = tk.DoubleVar(value=0.0)
     ui._label(tab, "Torrent / Magnet", size=11, weight="bold").pack(anchor="w")
-    ui._label(tab, "Magnet 链接或 .torrent 文件；失败最多自动重试 3 次，暂停会保留 aria2 控制文件。",
+    ui._label(tab, "支持 BTIH Magnet、HTTPS .torrent 地址或本地 .torrent 文件；暂停会保留 aria2 断点。",
               size=7, color=ui.SUBTLE, wraplength=760, justify="left").pack(anchor="w", pady=(4, 12))
     row = tk.Frame(tab, bg=ui.PANEL); row.pack(fill="x")
     entry = tk.Entry(row, textvariable=source, font=("Segoe UI", 10), bg=ui.PANEL_3, fg=ui.TEXT,
@@ -114,7 +114,7 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
 
     def start() -> None:
         value = source.get().strip()
-        if not value: status.set("请输入 Magnet 链接或选择 .torrent 文件"); return
+        if not value: status.set("请输入 BTIH Magnet、HTTPS .torrent 地址或选择本地 .torrent 文件"); return
         old = session()
         if old is not None and old.active: status.set("已有 Torrent 任务正在运行"); return
         try:

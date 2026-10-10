@@ -3,16 +3,19 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENGINE = ROOT / "local-engine"
 if str(LOCAL_ENGINE) not in sys.path:
     sys.path.insert(0, str(LOCAL_ENGINE))
 
+import transfer_center  # noqa: E402
 from aria2_recovery import run_aria2_recovery_self_test  # noqa: E402
 from aria2_source_policy import run_aria2_source_policy_self_test  # noqa: E402
 from aria2_task_provider import run_aria2_task_provider_self_test  # noqa: E402
 from aria2_transfer import run_aria2_transfer_self_test  # noqa: E402
+from resume_bridge import run_resume_bridge_self_test  # noqa: E402
 from task_center import run_task_center_self_test  # noqa: E402
 from transfer_center import run_transfer_center_self_test  # noqa: E402
 
@@ -27,7 +30,7 @@ class Aria2TransferTests(unittest.TestCase):
     def test_restart_recovery_uses_existing_resume_store(self) -> None:
         run_aria2_recovery_self_test()
 
-    def test_task_provider_projection_and_actions(self) -> None:
+    def test_task_provider_projection_actions_and_resume_dedupe(self) -> None:
         run_aria2_task_provider_self_test()
 
     def test_task_center_routes_provider_pause_resume(self) -> None:
@@ -44,6 +47,22 @@ class Aria2TransferTests(unittest.TestCase):
             'rows[0].get("kind") == "provider" and "resume" in tuple(rows[0].get("providerActions") or ())',
         ):
             self.assertIn(marker, source)
+
+    def test_invalid_source_wins_over_missing_aria2_error(self) -> None:
+        class FakeEngine:
+            pass
+
+        with patch.object(transfer_center, "find_aria2c", return_value=None):
+            with self.assertRaisesRegex(transfer_center.TransferError, "Magnet"):
+                transfer_center.start_torrent_transfer(FakeEngine, "magnet:?xt=urn:btih:1234")
+            with self.assertRaisesRegex(transfer_center.TransferError, "aria2c"):
+                transfer_center.start_torrent_transfer(
+                    FakeEngine,
+                    "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+                )
+
+    def test_bridge_v5_pause_resume_discard_contract_is_unchanged(self) -> None:
+        run_resume_bridge_self_test()
 
     def test_transfer_facade_preserves_legacy_contract(self) -> None:
         run_transfer_center_self_test()

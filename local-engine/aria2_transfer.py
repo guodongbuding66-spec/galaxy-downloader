@@ -30,6 +30,13 @@ from pathlib import Path
 from typing import Callable, Iterable
 from urllib.parse import urlparse
 
+from aria2_source_policy import (
+    Aria2SourceError,
+    MAX_ARIA2_SOURCE_LENGTH,
+    classify_torrent_source,
+    validate_magnet_uri,
+)
+
 ARIA2_PROGRESS_RE = re.compile(
     r"\((?P<percent>\d+)%\).*?DL:(?P<speed>[^\s\]]+)",
     re.IGNORECASE,
@@ -110,8 +117,28 @@ def parse_aria2_progress(line: object) -> Aria2Progress | None:
     )
 
 
+def _safe_source(value: object) -> str:
+    source = str(value or "")
+    if len(source) > MAX_ARIA2_SOURCE_LENGTH:
+        raise Aria2TransferError(f"aria2 source 过长；最多允许 {MAX_ARIA2_SOURCE_LENGTH} 个字符")
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in source):
+        raise Aria2TransferError("aria2 source 包含控制字符")
+    source = source.strip()
+    if not source:
+        raise Aria2TransferError("aria2 source 不能为空")
+    if source.lower().startswith("magnet:"):
+        try:
+            source = validate_magnet_uri(source)
+        except Aria2SourceError as exc:
+            raise Aria2TransferError(str(exc)) from exc
+    return source
+
+
 def _is_torrent_source(source: str) -> bool:
-    return source.lower().startswith("magnet:") or Path(source).suffix.lower() == ".torrent"
+    try:
+        return classify_torrent_source(source) is not None
+    except Aria2SourceError:
+        return False
 
 
 def _reject_fragment_manifest(source: str) -> None:
@@ -159,9 +186,7 @@ def _safe_headers(values: Iterable[object]) -> tuple[str, ...]:
 
 
 def normalize_options(options: Aria2TransferOptions) -> Aria2TransferOptions:
-    source = str(options.source or "").strip()
-    if not source:
-        raise Aria2TransferError("aria2 source 不能为空")
+    source = _safe_source(options.source)
     _reject_fragment_manifest(source)
     destination = Path(options.destination).expanduser()
     if destination.exists() and destination.is_symlink():
@@ -468,7 +493,9 @@ class Aria2TransferSession:
                 creationflags=_creation_flags(),
             )
         except OSError as exc:
-            return 127, str(exc)
+            if isinstance(exc, FileNotFoundError) or getattr(exc, "errno", None) == 2:
+                return 127, "未检测到 aria2c；请安装或配置 aria2c 后重试。"
+            return 127, f"无法启动 aria2c：{exc}"
         with self._lock:
             self._process = process
         last_line = ""
@@ -518,6 +545,40 @@ def run_aria2_transfer_self_test() -> None:
     assert "--seed-time=0" in command
     assert command[-2] == "--"
     assert command[-1].startswith("magnet:")
+
+    remote_torrent = build_aria2_command(
+        Path("aria2c"),
+        Aria2TransferOptions(
+            source="https://downloads.example.com/demo.torrent?token=abc#fragment",
+            destination=Path("downloads"),
+        ),
+    )
+    assert "--seed-time=0" in remote_torrent
+    assert remote_torrent[-1].endswith("?token=abc#fragment")
+
+    try:
+        normalize_options(
+            Aria2TransferOptions(
+                source="magnet:?xt=urn:btih:1234",
+                destination=Path("downloads"),
+            )
+        )
+    except Aria2TransferError:
+        pass
+    else:
+        raise AssertionError("invalid BTIH magnet was accepted by the base aria2 layer")
+
+    try:
+        normalize_options(
+            Aria2TransferOptions(
+                source="https://example.com/file.zip\nInjected",
+                destination=Path("downloads"),
+            )
+        )
+    except Aria2TransferError:
+        pass
+    else:
+        raise AssertionError("source control characters were accepted")
 
     try:
         normalize_options(
@@ -584,6 +645,24 @@ def run_aria2_transfer_self_test() -> None:
     assert snapshot.state == "completed"
     assert snapshot.attempt == 2
     assert snapshot.progress.percent == 100
+
+    def missing_popen(*_args, **_kwargs):
+        raise FileNotFoundError(2, "aria2c not found")
+
+    missing = Aria2TransferSession(
+        Path("aria2c"),
+        Aria2TransferOptions(
+            source="https://example.com/file3.zip",
+            destination=Path("downloads"),
+            max_attempts=1,
+        ),
+        popen_factory=missing_popen,
+    )
+    missing.start()
+    missing_snapshot = missing.wait(timeout=2)
+    assert missing_snapshot.state == "failed"
+    assert missing_snapshot.returncode == 127
+    assert "aria2c" in missing_snapshot.error and "配置" in missing_snapshot.error
 
     paused = Aria2TransferSession(
         Path("aria2c"),

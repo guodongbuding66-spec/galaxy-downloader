@@ -39,6 +39,17 @@ _SESSIONS: dict[str, "RecoverableAria2TransferSession"] = {}
 _SESSION_CONTEXT: dict[str, int] = {}
 
 
+def _clean_resume_id(value: object) -> str:
+    """Keep persisted IDs compatible with Bridge v5's alphanumeric boundary."""
+
+    job_id = _bounded_text(value, 96)
+    return job_id if job_id and job_id.isalnum() else ""
+
+
+def _new_resume_id() -> str:
+    return f"aria2resume{uuid.uuid4().hex}"
+
+
 def _source_host(source: str, source_kind: str) -> str:
     if source_kind != "torrent_url":
         return ""
@@ -78,7 +89,7 @@ def _safe_destination(engine_module, value: object) -> Path | None:
 
 
 def _clean_aria2_record(store: ResumeStateStore, value: dict[str, Any]) -> dict[str, Any] | None:
-    job_id = _bounded_text(value.get("id"), 96)
+    job_id = _clean_resume_id(value.get("id"))
     state = str(value.get("state") or "").strip().lower()
     if not job_id or state not in {"running", "pausing", "paused", "interrupted"}:
         return None
@@ -268,7 +279,9 @@ def _attach_session(
     resume_id: str | None = None,
     emit: bool = True,
 ) -> str:
-    record_id = str(resume_id or f"aria2-resume-{uuid.uuid4().hex}")
+    record_id = _clean_resume_id(resume_id) if resume_id is not None else _new_resume_id()
+    if not record_id:
+        raise Aria2SourceError("aria2 恢复任务 ID 无效")
     source = str(session.options.source)
     destination = str(session.options.destination)
     created_at = _utc_now()
@@ -547,8 +560,10 @@ def run_aria2_recovery_self_test() -> None:
         assert legacy is not None
 
         magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+        record_id = "aria2resumetest"
+        assert record_id.isalnum()
         aria = store.upsert({
-            "id": "aria2-resume-test",
+            "id": record_id,
             "state": "running",
             "provider": "aria2",
             "source": magnet,
@@ -558,23 +573,52 @@ def run_aria2_recovery_self_test() -> None:
             "progress": 48,
         })
         assert aria is not None and aria["provider"] == "aria2"
+
+        assert store.upsert({
+            "id": "aria2-bad-id",
+            "state": "paused",
+            "provider": "aria2",
+            "source": magnet,
+            "sourceKind": "magnet",
+            "destination": str(downloads / "torrents"),
+        }) is None
+        assert store.upsert({
+            "id": "aria2badstate",
+            "state": "completed",
+            "provider": "aria2",
+            "source": magnet,
+            "sourceKind": "magnet",
+            "destination": str(downloads / "torrents"),
+        }) is None
+        assert store.upsert({
+            "id": "aria2badkind",
+            "state": "paused",
+            "provider": "aria2",
+            "source": magnet,
+            "sourceKind": "torrent_url",
+            "destination": str(downloads / "torrents"),
+        }) is None
+
         recovered = store.recover_after_restart()
-        restored = next(item for item in recovered if item["id"] == "aria2-resume-test")
+        restored = next(item for item in recovered if item["id"] == record_id)
         assert restored["state"] == "interrupted"
         assert restored["sourceKind"] == "magnet"
         assert any(item["id"] == "legacy" for item in recovered)
-        public = next(item for item in store.public_records() if item["id"] == "aria2-resume-test")
+        public = next(item for item in store.public_records() if item["id"] == record_id)
         assert public["provider"] == "aria2" and public["sourceKind"] == "magnet"
         rendered = json.dumps(public)
         assert "urn:btih" not in rendered and "source" not in {key.lower() for key in public}
+
+        generated = _new_resume_id()
+        assert generated.isalnum() and len(generated) <= 96
 
         context = _RecoveryContext(FakeEngine, store, lambda _engine: Path("aria2c"))
         session = _restore_record(context, restored)
         assert session is not None and session.state == "paused"
         with _CONTEXT_LOCK:
-            assert _SESSIONS.get("aria2-resume-test") is session
+            assert _SESSIONS.get(record_id) is session
         session.cancel()
-        assert store.get("aria2-resume-test") is None
+        assert store.get(record_id) is None
 
 
 if __name__ == "__main__":

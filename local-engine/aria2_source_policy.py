@@ -170,13 +170,15 @@ def run_aria2_source_policy_self_test() -> None:
         "magnet:?xt=urn:btih:1234",
         "magnet:?xt=urn:sha1:0123456789abcdef0123456789abcdef01234567",
         "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567\nInjected",
+        f"magnet:?xt=urn:btih:{valid_hex}\x80",
+        "x" * (MAX_ARIA2_SOURCE_LENGTH + 1),
     ):
         try:
             require_torrent_source(invalid)
         except Aria2SourceError:
             pass
         else:
-            raise AssertionError(f"invalid magnet accepted: {invalid!r}")
+            raise AssertionError(f"invalid torrent source accepted: {invalid[:80]!r}")
 
     remote = require_torrent_source("https://downloads.example.com/demo.TORRENT?token=abc#fragment")
     assert remote.kind == "torrent_url"
