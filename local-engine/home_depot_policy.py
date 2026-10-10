@@ -4,11 +4,9 @@ from __future__ import annotations
 
 The public product page often renders a small images.thdstatic.com derivative
 (e.g. `_100.jpg` / `_600.jpg`) while higher public CDN variants are available.
-This policy keeps the generic document parser but teaches it to classify Home
-Depot product pages, read high-density srcset/data attributes, collapse multiple
-size variants to one asset identity, and reject verified challenge-page chrome.
-Actual HTTP validation and high-resolution fallback remain in
-image_download/image_resolution.
+For Home Depot, the policy first observes the product GraphQL response generated
+by the user's local Edge/Chrome page load. This is more reliable than scraping
+Akamai challenge HTML and requires no paid service or remote browser.
 """
 
 import re
@@ -16,13 +14,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 import web_document as base
+from home_depot_graphql import is_home_depot_product_url, parse_home_depot_graphql
 from image_resolution import dedupe_resolution_variants, parse_srcset
 
 _HOME_DEPOT_HOSTS = ("homedepot.com", "thdstatic.com")
 _HOME_DEPOT_IMAGE_HOST = "images.thdstatic.com"
-# Do not treat the mere word "Akamai" as a challenge: a normal retail page may
-# legitimately reference Akamai infrastructure. Only concrete challenge/error
-# copy or the known challenge-logo path is strong enough evidence.
 _CHALLENGE_RE = re.compile(
     r"(?:akamai(?:hd)?-logo|www\.akamai\.com/site/[^\s\"']*logo|"
     r"reference\s*#\s*[0-9a-f.:-]+|access\s+denied|request\s+rejected|"
@@ -66,8 +62,8 @@ def _challenge_result(browser: str) -> dict[str, Any]:
     requested = (browser or "none").strip().lower()
     if requested == "none":
         error = (
-            "Home Depot 阻止了匿名页面解析。请在“登录环境”选择 Microsoft Edge 或 Google Chrome 后重试；"
-            "Galaxy 只在本机读取所选浏览器 Cookie，不会上传 Cookie。"
+            "Home Depot 阻止了匿名页面解析。Galaxy 已尝试本机浏览器商品数据流；如仍失败，请在“登录环境”"
+            "选择 Microsoft Edge 或 Google Chrome 后重试。Cookie 只在本机读取，不会上传。"
         )
     else:
         error = (
@@ -91,6 +87,7 @@ def install_home_depot_document_policy() -> None:
     original_classify = base._classify
     original_starttag = base._DocumentParser.handle_starttag
     original_payload = base._document_payload
+    original_parse_web_document = base.parse_web_document
 
     def classify(source_url: str, raw_html: str) -> tuple[str, str]:
         host = _hostname(source_url)
@@ -131,8 +128,6 @@ def install_home_depot_document_policy() -> None:
         if not _is_home_depot_url(source_url) and not _is_home_depot_url(final_url):
             return result
 
-        # Never turn challenge-page decoration into a successful product
-        # gallery. Windows CI previously reproduced this with an Akamai logo.
         if _looks_like_home_depot_challenge(raw_html, final_url):
             return _challenge_result(browser)
 
@@ -158,9 +153,6 @@ def install_home_depot_document_policy() -> None:
 
         deduped = dedupe_resolution_variants(urls)
         if not deduped:
-            # A Home Depot page without a genuine thdstatic product asset is not
-            # a successful product-gallery parse. Returning None lets the normal
-            # dynamic renderer get a chance to load the real gallery.
             return None
 
         data["platform"] = "homedepot"
@@ -172,9 +164,22 @@ def install_home_depot_document_policy() -> None:
         data["cover"] = deduped[0]
         return result
 
+    def parse_web_document(source_url: str, browser: str = "none") -> dict[str, Any]:
+        # Home Depot's normal HTML path is frequently replaced by Akamai bot
+        # chrome. Observe the same product GraphQL response the storefront itself
+        # requests before falling back to generic HTML parsing.
+        if is_home_depot_product_url(source_url):
+            product = parse_home_depot_graphql(source_url, browser)
+            if product.get("success"):
+                return product
+            if product.get("code") == "BROWSER_COOKIE_UNAVAILABLE":
+                return product
+        return original_parse_web_document(source_url, browser)
+
     base._classify = classify
     base._DocumentParser.handle_starttag = handle_starttag
     base._document_payload = document_payload
+    base.parse_web_document = parse_web_document
     _INSTALLED = True
 
 
@@ -182,6 +187,7 @@ def run_self_test() -> None:
     assert _is_home_depot_url("https://www.homedepot.com/p/700380885")
     assert _is_home_depot_url("https://images.thdstatic.com/productImages/a.jpg")
     assert not _is_home_depot_url("https://example.com/a.jpg")
+    assert is_home_depot_product_url("https://www.homedepot.com/p/Example-hh-816/700380885#overlay")
     assert _is_home_depot_product_image("https://images.thdstatic.com/productImages/a/item_600.jpg")
     assert not _is_home_depot_product_image("https://www.akamai.com/site/images/logo.svg")
     assert _looks_like_home_depot_challenge(
