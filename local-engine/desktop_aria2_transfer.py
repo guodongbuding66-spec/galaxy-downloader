@@ -33,8 +33,16 @@ def torrent_snapshot_text(snapshot: Aria2TransferSnapshot) -> tuple[str, str]:
 
 
 def _enabled(button, value: bool) -> None:
-    try: button.state(["!disabled" if value else "disabled"])
-    except (AttributeError, tk.TclError): pass
+    state = "normal" if value else "disabled"
+    try:
+        button.configure(state=state)
+        return
+    except (AttributeError, tk.TclError):
+        pass
+    try:
+        button.state(["!disabled" if value else "disabled"])
+    except (AttributeError, tk.TclError):
+        pass
 
 
 def _notebook(root: tk.Misc) -> ttk.Notebook | None:
