@@ -26,7 +26,7 @@ MAX_ADVICE_CHARS = 600
 MAX_LABEL_CHARS = 120
 MAX_WHEN_CHARS = 80
 ALLOWED_STATES = frozenset({"active", "queued", "paused", "interrupted", "completed", "failed", "cancelled"})
-ALLOWED_ACTIONS = frozenset({"cancel", "retry"})
+ALLOWED_ACTIONS = frozenset({"cancel", "retry", "pause", "resume"})
 _STATE_ALIASES = {"running": "active", "canceled": "cancelled"}
 
 
@@ -204,7 +204,7 @@ class LocalTaskProviderRegistry:
     def _snapshots(record: _ProviderRecord) -> tuple[LocalTaskSnapshot, ...]:
         try:
             raw = list(record.snapshot())
-        except Exception as exc:  # provider internals must not escape into Task Center
+        except Exception as exc:
             raise LocalTaskProviderError("local task provider snapshot failed") from exc
         if len(raw) > MAX_TASKS_PER_PROVIDER:
             raw = raw[:MAX_TASKS_PER_PROVIDER]
@@ -244,10 +244,7 @@ class LocalTaskProviderRegistry:
         if record.action is None:
             return LocalTaskActionResult(False, False, "这个本机任务不支持操作。")
         try:
-            current = next(
-                (item for item in self._snapshots(record) if item.task_id == clean_task_id),
-                None,
-            )
+            current = next((item for item in self._snapshots(record) if item.task_id == clean_task_id), None)
         except LocalTaskProviderError:
             return LocalTaskActionResult(False, False, "本机任务状态暂时不可用。")
         if current is None:
@@ -260,11 +257,7 @@ class LocalTaskProviderRegistry:
             return LocalTaskActionResult(False, False, "本机任务操作失败。")
         if not isinstance(result, LocalTaskActionResult):
             return LocalTaskActionResult(False, False, "本机任务操作返回了无效结果。")
-        return LocalTaskActionResult(
-            bool(result.ok),
-            bool(result.changed),
-            _public_text(result.message, MAX_DETAIL_CHARS),
-        )
+        return LocalTaskActionResult(bool(result.ok), bool(result.changed), _public_text(result.message, MAX_DETAIL_CHARS))
 
 
 _REGISTRY = LocalTaskProviderRegistry()
@@ -297,12 +290,7 @@ def perform_local_task_action(provider: str, task_id: str, action: str) -> Local
 
 
 def install_local_task_provider_bridge(engine_module, *, task_center_module=None):
-    """Append provider rows to the existing Task Center without replacing its UI.
-
-    The bridge patches only Task Center's row aggregator. Provider callbacks stay
-    inside this module and never become row values. A later workflow may consume
-    `perform_local_task_action()` for explicit Cancel/Retry controls.
-    """
+    """Append provider rows to the existing Task Center without replacing its UI."""
     task_center = task_center_module or importlib.import_module("task_center")
     if not getattr(task_center, "_galaxy_local_task_provider_rows_installed", False):
         original_rows = task_center._task_rows
@@ -323,35 +311,36 @@ def install_local_task_provider_bridge(engine_module, *, task_center_module=None
             except Exception:
                 return text or f"任务 {max(0, int(history_count))}"
 
-        register_history_button_hook(
-            window_cls,
-            "local-task-providers",
-            history_button_hook,
-            order=175,
-        )
+        register_history_button_hook(window_cls, "local-task-providers", history_button_hook, order=175)
         window_cls._galaxy_local_task_provider_bridge_installed = True
     return window_cls
 
 
 def run_local_task_provider_self_test() -> None:
     registry = LocalTaskProviderRegistry()
-    registry.register(
-        "demo",
-        label="Demo",
-        snapshot=lambda: [
-            LocalTaskSnapshot(
-                "task-1",
-                "running",
-                "Demo task",
-                "Demo",
-                progress_percent=25,
-                actions=("cancel",),
-            )
-        ],
-        action=lambda task_id, action: LocalTaskActionResult(task_id == "task-1" and action == "cancel", True, "ok"),
-    )
+    state = {"value": "active"}
+
+    def snapshot():
+        actions = ("pause", "cancel") if state["value"] == "active" else ("resume", "cancel")
+        return [LocalTaskSnapshot("task-1", state["value"], "Demo task", "Demo", progress_percent=25, actions=actions)]
+
+    def action(task_id: str, command: str) -> LocalTaskActionResult:
+        if task_id != "task-1":
+            return LocalTaskActionResult(False, False, "missing")
+        if command == "pause" and state["value"] == "active":
+            state["value"] = "paused"
+            return LocalTaskActionResult(True, True, "paused")
+        if command == "resume" and state["value"] == "paused":
+            state["value"] = "active"
+            return LocalTaskActionResult(True, True, "resumed")
+        return LocalTaskActionResult(False, False, "invalid")
+
+    registry.register("demo", label="Demo", snapshot=snapshot, action=action)
     rows = registry.rows()
     assert len(rows) == 1
     assert rows[0]["state"] == "active"
-    assert rows[0]["when"] == "25.0%"
-    assert registry.perform_action("demo", "task-1", "cancel").ok is True
+    assert rows[0]["providerActions"] == ("pause", "cancel")
+    assert registry.perform_action("demo", "task-1", "pause").ok is True
+    assert registry.rows()[0]["state"] == "paused"
+    assert registry.perform_action("demo", "task-1", "resume").ok is True
+    assert registry.rows()[0]["state"] == "active"
