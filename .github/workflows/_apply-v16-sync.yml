@@ -1,0 +1,53 @@
+name: Apply V1.6 UI sync
+
+on:
+  push:
+    branches:
+      - ui/v1.6-modern-workbench
+    paths:
+      - .github/workflows/_apply-v16-sync.yml
+      - tools/v16-sync.tar.gz.b64
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v16-ui-sync
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out sync branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify and unpack reviewed V1.6 source payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "547783a546d54ae6debfe3bbda304e09a45e1891a71d231ec4737fb72817634b  tools/v16-sync.tar.gz.b64" | sha256sum -c -
+          base64 --decode tools/v16-sync.tar.gz.b64 > /tmp/v16-sync.tar.gz
+          echo "530ea1592cb8d7cda026621e4d35391cc8e074051407a2cf99db40d93714253f  /tmp/v16-sync.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/v16-sync.tar.gz
+
+      - name: Run V1.6 source contract checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/test-local-web-dashboard-v16.py
+          python -m py_compile local-engine/headless_web_dashboard.py scripts/test-local-web-dashboard-v16.py
+          node --check local-engine/web-dashboard/galaxy-v16.js
+
+      - name: Commit synchronized source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm tools/v16-sync.tar.gz.b64 .github/workflows/_apply-v16-sync.yml
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(local-engine): sync V1.6 modern workbench UI"
+          git push origin HEAD:ui/v1.6-modern-workbench
