@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-"""Shared Desktop UI facade backed by the runtime design-token registry.
-
-The native executable is the canonical Galaxy Local Engine surface. The legacy
-implementation remains isolated in ``_desktop_ui_impl`` for behavior helpers;
-V1.6.1 replaces only window composition while preserving those contracts.
-"""
+"""Shared native Desktop UI facade backed by the runtime design-token registry."""
 
 import sys
 import tkinter as tk
@@ -80,7 +75,7 @@ _TYPE_SIZE_BY_LEGACY = {
 
 
 class ActionButton(_impl.ActionButton):
-    """Compatibility button backed by shared type, focus and press feedback."""
+    """Native button with 44px target, visible focus, hover and press feedback."""
 
     def __init__(
         self,
@@ -92,24 +87,21 @@ class ActionButton(_impl.ActionButton):
         width: int | None = None,
         compact: bool = False,
     ) -> None:
-        super().__init__(
-            master,
-            text=text,
-            command=command,
-            kind=kind,
-            width=width,
-            compact=compact,
-        )
+        super().__init__(master, text=text, command=command, kind=kind, width=width, compact=compact)
         button_font = font("body_sm" if compact else "body", bold=True)
         try:
             line_height = int(tkfont.Font(master=self, font=button_font).metrics("linespace"))
         except (tk.TclError, RuntimeError):
             line_height = max(1, int(TYPE["body_sm" if compact else "body"]) * 2)
+        self._normal_padx = BUTTON_COMPACT_PAD_X if compact else BUTTON_PAD_X
+        self._normal_pady = target_padding(line_height, compact=compact)
         self.configure(
             font=button_font,
-            padx=BUTTON_COMPACT_PAD_X if compact else BUTTON_PAD_X,
-            pady=target_padding(line_height, compact=compact),
+            padx=self._normal_padx,
+            pady=self._normal_pady,
             takefocus=True,
+            relief="flat",
+            bd=1,
             highlightthickness=FOCUS_RING_WIDTH,
             highlightbackground=self._base,
             highlightcolor=FOCUS,
@@ -118,21 +110,30 @@ class ActionButton(_impl.ActionButton):
         self.bind("<ButtonRelease-1>", self._native_release, add="+")
         self.bind("<FocusIn>", lambda _event: self.configure(highlightbackground=FOCUS), add="+")
         self.bind("<FocusOut>", lambda _event: self.configure(highlightbackground=self._base), add="+")
+        self.bind("<KeyPress-space>", self._native_press, add="+")
+        self.bind("<KeyRelease-space>", self._native_release, add="+")
 
     def _native_press(self, _event=None) -> None:
         if str(self["state"]) != "disabled":
-            self.configure(bg=self._hover)
+            # Tk has no transform scale. A one-pixel inset + sunken relief is the
+            # native equivalent of the UI-Skills 0.96 press compression cue.
+            self.configure(bg=self._hover, relief="sunken", padx=max(1, self._normal_padx - 1), pady=max(1, self._normal_pady - 1))
 
     def _native_release(self, event=None) -> None:
         if str(self["state"]) == "disabled":
             return
-        inside = False
-        if event is not None:
+        inside = True if event is None or not hasattr(event, "x") else False
+        if event is not None and hasattr(event, "x"):
             try:
                 inside = 0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height()
             except tk.TclError:
                 inside = False
-        self.configure(bg=self._hover if inside else self._base)
+        self.configure(
+            bg=self._hover if inside else self._base,
+            relief="flat",
+            padx=self._normal_padx,
+            pady=self._normal_pady,
+        )
 
 
 def _resolve_type_size(size: int | str) -> int:
@@ -144,53 +145,22 @@ def _resolve_type_size(size: int | str) -> int:
     return int(_TYPE_SIZE_BY_LEGACY.get(numeric, numeric))
 
 
-def _label(
-    master,
-    text: str | None = None,
-    *,
-    variable=None,
-    size=9,
-    weight="normal",
-    color=TEXT,
-    bg=PANEL,
-    **kwargs,
-):
+def _label(master, text: str | None = None, *, variable=None, size=9, weight="normal", color=TEXT, bg=PANEL, **kwargs):
     token_size = _resolve_type_size(size)
-    widget = _ORIGINAL_LABEL(
-        master,
-        text,
-        variable=variable,
-        size=token_size,
-        weight=weight,
-        color=color,
-        bg=bg,
-        **kwargs,
-    )
+    widget = _ORIGINAL_LABEL(master, text, variable=variable, size=token_size, weight=weight, color=color, bg=bg, **kwargs)
     widget.configure(font=(FONT_FAMILY, token_size, weight))
     return widget
 
 
 def _entry(master, variable: tk.Variable, width: int) -> tk.Entry:
     widget = _ORIGINAL_ENTRY(master, variable, width)
-    widget.configure(
-        font=font("body_sm"),
-        takefocus=True,
-        highlightthickness=FOCUS_RING_WIDTH,
-        highlightbackground=BORDER,
-        highlightcolor=FOCUS,
-    )
+    widget.configure(font=font("body_sm"), takefocus=True, highlightthickness=FOCUS_RING_WIDTH, highlightbackground=BORDER, highlightcolor=FOCUS)
     return widget
 
 
 def _check(master, text: str, variable: tk.BooleanVar) -> tk.Checkbutton:
     widget = _ORIGINAL_CHECK(master, text, variable)
-    widget.configure(
-        font=font("body_sm"),
-        takefocus=True,
-        highlightthickness=FOCUS_RING_WIDTH,
-        highlightbackground=PANEL_2,
-        highlightcolor=FOCUS,
-    )
+    widget.configure(font=font("body_sm"), takefocus=True, highlightthickness=FOCUS_RING_WIDTH, highlightbackground=PANEL_2, highlightcolor=FOCUS)
     return widget
 
 
@@ -208,11 +178,9 @@ _BASE_INSTALL_DESKTOP_UI = _impl.install_desktop_ui
 
 
 def install_desktop_ui(engine_module):
-    """Install native desktop behavior, then replace only its visual composition."""
     window_cls = _BASE_INSTALL_DESKTOP_UI(engine_module)
-    from desktop_native_v16 import install_native_desktop_v16
-
-    return install_native_desktop_v16(engine_module, sys.modules[__name__])
+    from desktop_native_v17 import install_native_desktop_v17
+    return install_native_desktop_v17(engine_module, sys.modules[__name__])
 
 
 def __getattr__(name: str):
