@@ -12,12 +12,25 @@ if str(LOCAL_ENGINE) not in sys.path:
 from desktop_qr_transfer import run_desktop_qr_transfer_self_test  # noqa: E402
 
 
+def _transfer_surface_source() -> str:
+    """Read the implementation surface, following the V1.8 compatibility facade."""
+    legacy = LOCAL_ENGINE / "desktop_transfers_legacy.py"
+    target = legacy if legacy.exists() else LOCAL_ENGINE / "desktop_transfers.py"
+    return target.read_text(encoding="utf-8")
+
+
 class DesktopQrTransferTests(unittest.TestCase):
     def test_helpers_self_test(self) -> None:
         run_desktop_qr_transfer_self_test()
 
+    def test_transfer_facade_preserves_legacy_surface(self) -> None:
+        facade = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        if (LOCAL_ENGINE / "desktop_transfers_legacy.py").exists():
+            self.assertIn("import desktop_transfers_legacy as _legacy", facade)
+            self.assertIn("_legacy.install_desktop_transfers(engine_module)", facade)
+
     def test_transfer_center_mounts_qr_tab_and_cleans_up(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _transfer_surface_source()
         self.assertIn("from desktop_qr_transfer import build_qr_transfer_tab", source)
         self.assertIn("qr_tab = build_qr_transfer_tab(notebook, dialog)", source)
         self.assertIn("qr_tab._galaxy_qr_stop()", source)
@@ -66,7 +79,7 @@ class DesktopQrTransferTests(unittest.TestCase):
             self.assertNotIn(forbidden, source)
 
     def test_existing_transfer_workflows_remain_present(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _transfer_surface_source()
         for marker in (
             'notebook.add(torrent_tab, text="Torrent / Magnet")',
             'notebook.add(p2p_tab, text="P2P 短码")',
