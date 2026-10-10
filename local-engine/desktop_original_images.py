@@ -103,24 +103,38 @@ def _build_original_images_strip(window, engine_module) -> None:
         return
     strip = tk.Frame(panel, bg=ui.PANEL_2)
     strip.pack(fill="x", pady=(12, 0))
-    copy = tk.Frame(strip, bg=ui.PANEL_2)
-    copy.pack(side="left", fill="x", expand=True)
-    ui._label(copy, "网页原图 / 商品图集", size="body_sm", weight="bold", bg=ui.PANEL_2).pack(anchor="w")
-    ui._label(
-        copy,
-        "Home Depot 等商品页会自动去重缩略图，并按最大公开 CDN 尺寸向下回退。",
-        size="caption",
-        color=ui.SUBTLE,
-        bg=ui.PANEL_2,
-    ).pack(anchor="w", pady=(2, 0))
+
+    # Keep action buttons in their own right-side group. The old composition
+    # packed a long explanatory label before the buttons, so Tk compressed the
+    # button text at 1000–1100px window widths ("下载页面原图" visibly lost
+    # characters). A short heading + fixed action group stays legible; the
+    # explanatory copy gets the full row below it.
+    head = tk.Frame(strip, bg=ui.PANEL_2)
+    head.pack(fill="x")
+    ui._label(head, "网页原图 / 商品图集", size="body_sm", weight="bold", bg=ui.PANEL_2).pack(side="left", anchor="w")
+    actions = tk.Frame(head, bg=ui.PANEL_2)
+    actions.pack(side="right", anchor="e")
+
     window._original_images_button = ui.ActionButton(
-        strip,
+        actions,
         text="下载页面原图",
         command=lambda: _download_original_images(window, engine_module),
         kind="secondary",
     )
-    window._original_images_button.pack(side="right", padx=(14, 0))
+    window._original_images_button.pack(side="right")
+
+    ui._label(
+        strip,
+        "Home Depot 等商品页会自动去重缩略图，并按实际像素验证最大公开 CDN 尺寸后向下回退。",
+        size="caption",
+        color=ui.SUBTLE,
+        bg=ui.PANEL_2,
+        wraplength=720,
+        justify="left",
+    ).pack(anchor="w", pady=(4, 0))
+
     window._original_images_strip = strip
+    window._original_images_actions = actions
 
 
 def _gallery_option_rows(window) -> list[tk.Misc]:
@@ -155,15 +169,11 @@ def _gallery_option_rows(window) -> list[tk.Misc]:
 
 
 def _compact_gallery_fallback(window) -> None:
-    """Move secondary gallery-dl controls behind progressive disclosure.
-
-    Quick Download is the focal task. gallery-dl remains available for sites
-    where the normal parser has no usable media, but it no longer consumes a
-    permanent card plus five settings rows before the current-task section.
-    """
+    """Move secondary gallery-dl controls behind progressive disclosure."""
     button = getattr(window, "_gallery_dl_fallback_button", None)
     strip = getattr(window, "_original_images_strip", None)
-    if button is None or strip is None or getattr(window, "_galaxy_gallery_compact_installed", False):
+    actions = getattr(window, "_original_images_actions", None)
+    if button is None or strip is None or actions is None or getattr(window, "_galaxy_gallery_compact_installed", False):
         return
 
     rows = _gallery_option_rows(window)
@@ -227,13 +237,13 @@ def _compact_gallery_fallback(window) -> None:
             pass
 
     fallback_toggle = ui.ActionButton(
-        strip,
+        actions,
         text="图库备用",
         command=toggle_fallback,
         kind="ghost",
         compact=True,
     )
-    fallback_toggle.pack(side="right", padx=(8, 0), before=window._original_images_button)
+    fallback_toggle.pack(side="right", padx=(0, 8), before=window._original_images_button)
 
     window._gallery_dl_options_expanded = options_state
     window._gallery_dl_options_toggle = options_toggle
