@@ -7,9 +7,8 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urljoin
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from image_resolution import home_depot_candidates, is_home_depot_image
 
@@ -24,37 +23,58 @@ UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
 )
-MAX_PROBE_BYTES = 8 * 1024 * 1024
+PARTIAL_BYTES = 2 * 1024 * 1024
+FULL_LIMIT = 32 * 1024 * 1024
 IMAGE_RE = re.compile(
     r"https?://images\.thdstatic\.com/productImages/[^\"'<>\\\s]+?\.(?:jpe?g|png|webp|avif)(?:\?[^\"'<>\\\s]*)?",
     re.I,
 )
 
 
-def _request(url: str, *, referer: str = PRODUCT_URL, range_probe: bool = False):
+def _request(url: str, *, range_probe: bool = False):
     headers = {
         "User-Agent": UA,
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Referer": referer,
+        "Referer": PRODUCT_URL,
         "Accept-Encoding": "identity",
     }
     if range_probe:
-        headers["Range"] = f"bytes=0-{MAX_PROBE_BYTES - 1}"
+        headers["Range"] = f"bytes=0-{PARTIAL_BYTES - 1}"
     return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=25)
 
 
+def _dimensions(payload: bytes) -> tuple[int, int]:
+    with Image.open(io.BytesIO(payload)) as image:
+        width, height = image.size
+    return int(width), int(height)
+
+
 def _image_size(url: str) -> tuple[int, int, int]:
+    status = 200
+    content_type = ""
     with _request(url, range_probe=True) as response:
-        payload = response.read(MAX_PROBE_BYTES)
         status = int(getattr(response, "status", 200) or 200)
         content_type = str(response.headers.get("Content-Type") or "")
         if "image/" not in content_type.lower():
             raise ValueError(f"not an image response: {content_type}")
-    with Image.open(io.BytesIO(payload)) as image:
-        width, height = image.size
-        image.verify()
-    return int(width), int(height), status
+        payload = response.read(PARTIAL_BYTES)
+    try:
+        width, height = _dimensions(payload)
+        return width, height, status
+    except (UnidentifiedImageError, OSError):
+        # A few image formats keep essential metadata beyond the first range.
+        # Retry once without Range, with a strict byte cap.
+        with _request(url, range_probe=False) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            content_type = str(response.headers.get("Content-Type") or "")
+            if "image/" not in content_type.lower():
+                raise ValueError(f"not an image response: {content_type}")
+            payload = response.read(FULL_LIMIT + 1)
+        if len(payload) > FULL_LIMIT:
+            raise ValueError("image exceeds live-test byte cap")
+        width, height = _dimensions(payload)
+        return width, height, status
 
 
 def _page_images() -> list[str]:
@@ -72,7 +92,7 @@ def _page_images() -> list[str]:
             html = response.read(12 * 1024 * 1024).decode("utf-8", errors="replace")
     except Exception:
         return []
-    html = html.replace("\\/", "/").replace("\\u002F", "/")
+    html = html.replace("\\/", "/").replace("\\u002F", "/").replace("\\u0026", "&")
     result: list[str] = []
     for match in IMAGE_RE.findall(html):
         value = match.replace("&amp;", "&")
