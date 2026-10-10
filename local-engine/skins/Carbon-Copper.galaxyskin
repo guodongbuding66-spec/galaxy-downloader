@@ -1,0 +1,29 @@
+{
+  "schema": "galaxy-skin",
+  "version": 1,
+  "id": "carbon-copper",
+  "name": "Carbon Copper",
+  "subtitle": "碳黑 · 暖铜",
+  "customName": "Carbon Copper",
+  "base": "obsidian",
+  "accent": "#B99072",
+  "canvas": "#0D0C0B",
+  "surface": "#181614",
+  "text": "#F2EEE8",
+  "brand": "#C8AA88",
+  "radius": 10,
+  "density": "standard",
+  "surfaceOpacity": 0.95,
+  "blur": 16,
+  "fontScale": 1,
+  "sidebarWidth": 232,
+  "fontFamily": "system",
+  "background": {
+    "type": "gradient",
+    "value": "radial-gradient(circle at 74% 18%, rgba(174,112,72,.16), transparent 34%), linear-gradient(150deg, #0d0c0b, #15110f 62%, #0e0d0c)",
+    "opacity": 0.46,
+    "blur": 0,
+    "zoom": 100,
+    "position": "center"
+  }
+}

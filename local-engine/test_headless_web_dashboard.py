@@ -88,7 +88,7 @@ class HeadlessWebDashboardTest(unittest.TestCase):
         self.assertIn("text/html", headers.get("Content-Type", ""))
         self.assertIn("default-src 'self'", headers.get("Content-Security-Policy", ""))
         self.assertEqual(headers.get("X-Frame-Options"), "DENY")
-        self.assertIn(b"Galaxy Dashboard", body)
+        self.assertIn(b"Galaxy Local Engine", body)
         self.assertIn(b"/dashboard/learning-attachments.css", body)
         self.assertIn(b"/dashboard/learning-attachments.js", body)
 

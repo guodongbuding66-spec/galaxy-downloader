@@ -1,0 +1,29 @@
+{
+  "schema": "galaxy-skin",
+  "version": 1,
+  "id": "arctic-ink",
+  "name": "Arctic Ink",
+  "subtitle": "冰川 · 深墨",
+  "customName": "Arctic Ink",
+  "base": "titanium",
+  "accent": "#88B5BE",
+  "canvas": "#091013",
+  "surface": "#121A1E",
+  "text": "#EFF4F4",
+  "brand": "#AABEC2",
+  "radius": 10,
+  "density": "standard",
+  "surfaceOpacity": 0.94,
+  "blur": 20,
+  "fontScale": 1,
+  "sidebarWidth": 232,
+  "fontFamily": "system",
+  "background": {
+    "type": "gradient",
+    "value": "radial-gradient(circle at 74% 8%, rgba(77,142,154,.20), transparent 40%), linear-gradient(145deg, #091013, #0f171b 55%, #0a1013)",
+    "opacity": 0.5,
+    "blur": 0,
+    "zoom": 100,
+    "position": "center"
+  }
+}

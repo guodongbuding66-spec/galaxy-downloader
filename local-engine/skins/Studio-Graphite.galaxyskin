@@ -1,0 +1,29 @@
+{
+  "schema": "galaxy-skin",
+  "version": 1,
+  "id": "studio-graphite",
+  "name": "Studio Graphite",
+  "subtitle": "工作室石墨",
+  "customName": "Studio Graphite",
+  "base": "obsidian",
+  "accent": "#98A7A1",
+  "canvas": "#0B0C0D",
+  "surface": "#151718",
+  "text": "#F2F0EA",
+  "brand": "#BEB6A5",
+  "radius": 10,
+  "density": "standard",
+  "surfaceOpacity": 0.96,
+  "blur": 18,
+  "fontScale": 1,
+  "sidebarWidth": 232,
+  "fontFamily": "system",
+  "background": {
+    "type": "none",
+    "value": "",
+    "opacity": 0.16,
+    "blur": 0,
+    "zoom": 100,
+    "position": "center"
+  }
+}
