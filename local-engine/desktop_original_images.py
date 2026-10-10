@@ -104,11 +104,6 @@ def _build_original_images_strip(window, engine_module) -> None:
     strip = tk.Frame(panel, bg=ui.PANEL_2)
     strip.pack(fill="x", pady=(12, 0))
 
-    # Keep action buttons in their own right-side group. The old composition
-    # packed a long explanatory label before the buttons, so Tk compressed the
-    # button text at 1000–1100px window widths ("下载页面原图" visibly lost
-    # characters). A short heading + fixed action group stays legible; the
-    # explanatory copy gets the full row below it.
     head = tk.Frame(strip, bg=ui.PANEL_2)
     head.pack(fill="x")
     ui._label(head, "网页原图 / 商品图集", size="body_sm", weight="bold", bg=ui.PANEL_2).pack(side="left", anchor="w")
@@ -254,6 +249,43 @@ def _compact_gallery_fallback(window) -> None:
     window._galaxy_gallery_compact_installed = True
 
 
+def _stabilize_queue_header_controls(window) -> None:
+    """Keep queue actions readable instead of letting pack() collapse them.
+
+    The right rail is intentionally narrow. When history, pause and clear were
+    packed into the same horizontal strip as the queue title, Tk could shrink
+    `暂停队列` to only a few pixels. Re-layout the four existing children with a
+    two-row grid while preserving their original widgets and commands.
+    """
+    pause = getattr(window, "_queue_pause_button", None)
+    history = getattr(window, "_history_button", None)
+    clear = getattr(window, "_queue_clear_button", None)
+    if pause is None or history is None or clear is None:
+        return
+    head = clear.master
+    if getattr(window, "_galaxy_queue_header_stable", False):
+        return
+
+    frames = [child for child in head.winfo_children() if isinstance(child, tk.Frame)]
+    copy = frames[0] if frames else None
+    if copy is None:
+        return
+
+    for child in (copy, clear, pause, history):
+        try:
+            child.pack_forget()
+        except tk.TclError:
+            pass
+
+    head.grid_columnconfigure(0, weight=1, minsize=88)
+    head.grid_columnconfigure(1, weight=1, minsize=88)
+    copy.grid(row=0, column=0, sticky="w")
+    clear.grid(row=0, column=1, sticky="e")
+    pause.grid(row=1, column=0, sticky="ew", pady=(10, 0), padx=(0, 4))
+    history.grid(row=1, column=1, sticky="ew", pady=(10, 0), padx=(4, 0))
+    window._galaxy_queue_header_stable = True
+
+
 def install_desktop_original_images(engine_module):
     window_cls = engine_module.EngineWindow
     install_native_dpi_policy(engine_module)
@@ -270,6 +302,12 @@ def install_desktop_original_images(engine_module):
         "desktop-gallery-compact",
         _compact_gallery_fallback,
         order=48,
+    )
+    register_after_build_ui_hook(
+        window_cls,
+        "desktop-queue-header-stability",
+        _stabilize_queue_header_controls,
+        order=220,
     )
     window_cls._galaxy_desktop_original_images_installed = True
     return window_cls
@@ -291,6 +329,7 @@ def run_self_test() -> None:
     assert len(urls) == 2
     assert urls[0].endswith("_100.jpg")
     assert callable(_compact_gallery_fallback)
+    assert callable(_stabilize_queue_header_controls)
 
 
 if __name__ == "__main__":
