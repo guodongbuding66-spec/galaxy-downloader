@@ -122,8 +122,6 @@ def _metric(master, title: str, variable: tk.Variable) -> tk.Frame:
 
 
 def _build_quick_panel_v17(window, engine_module) -> None:
-    # Import lazily so this module can replace the existing hook without
-    # creating an import cycle during desktop_ui installation.
     import desktop_quick_download as quick
 
     main = window.cancel_button.master.master
@@ -295,9 +293,6 @@ def install_native_desktop_v17(engine_module, ui_module):
     if not getattr(window_cls, "_galaxy_desktop_ui_installed", False):
         raise RuntimeError("install_native_desktop_v17 requires install_desktop_ui first")
 
-    # Quick Download registers its hook later, but its lambda resolves this
-    # global at execution time, so replacing the builder here updates the true
-    # native EXE surface without changing download business logic.
     import desktop_quick_download as quick
     quick._build_quick_panel = _build_quick_panel_v17
 
@@ -306,10 +301,8 @@ def install_native_desktop_v17(engine_module, ui_module):
         window.geometry("1320x880")
         window.minsize(1100, 760)
         window.option_add("*Font", "{Segoe UI} 11")
-        try:
-            window.tk.call("tk", "scaling", 1.0)
-        except tk.TclError:
-            pass
+        # Keep the platform's DPI-derived Tk scaling. V1.6 forced 1.0, which
+        # made the native UI physically too small on common 125–200% displays.
 
         _configure_styles(window)
         icon = _make_titlebar_icon(window, 32)
@@ -358,8 +351,8 @@ def install_native_desktop_v17(engine_module, ui_module):
         )
         window._copy_diag_button.pack(side="left")
 
-        body = tk.Frame(shell, bg=ui.BG, padx=28, pady=(0, 26))
-        body.pack(fill="both", expand=True)
+        body = tk.Frame(shell, bg=ui.BG, padx=28)
+        body.pack(fill="both", expand=True, pady=(0, 26))
         body.grid_columnconfigure(0, weight=72, uniform="workbench")
         body.grid_columnconfigure(1, weight=28, uniform="workbench")
         body.grid_rowconfigure(0, weight=1)
