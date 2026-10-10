@@ -1,4 +1,4 @@
-# Galaxy Local Engine 0.15.0
+# Galaxy Local Engine 0.15.1
 
 Windows 便携式本地 yt-dlp + FFmpeg 下载引擎。
 
@@ -12,6 +12,17 @@ Windows 便携式本地 yt-dlp + FFmpeg 下载引擎。
 6. FFmpeg 与 `yt-dlp.exe` 已内置，首次安装无需访问 GitHub，也无需另外下载依赖。
 7. 下载的视频、音频、图片与文档默认保存在解压目录下的 `downloads` 文件夹。
 8. 返回 SparkDownloader，等待显示 **“本地引擎已连接”** 后即可使用。
+
+## 0.15.1
+
+- 修正 V1.6 的界面层级：`GalaxyLocalEngine.exe` 本身重新作为正式 Windows 原生桌面程序，不再把 HTML Dashboard 当作默认启动界面。
+- 原生 Tk 工作台重做为石墨灰界面 + 单一蓝色操作强调色，移除原先偏霓虹的紫色/青色视觉，并放大正文、标签、状态与按钮文字。
+- 原生主窗口改为“下载工作区 + 运行侧栏”布局；快速下载仍通过既有 Desktop Hook 插入主工作区，不改变解析、队列、下载、恢复等业务逻辑。
+- 按钮增加明确的 Hover / Press / Keyboard Focus 状态，保留 44px 最小交互目标。
+- Windows EXE 图标重做为新的 `G + 下载箭头` 几何标识；正式 PyInstaller 构建通过 `--icon` 直接写入 `GalaxyLocalEngine.exe` PE 资源。
+- 标题栏图标与 EXE 图标使用同一视觉语言，不再使用旧的轨道/紫青色图案。
+- 版本修正为 Engine `0.15.1` / UI `1.6.1`，Windows UI Smoke 会同时验证源码 Tk 窗口和最终 PyInstaller 成品 EXE 可以正常构建与关闭。
+- HTML / Headless Dashboard 保留为独立能力，但不再代表 `GalaxyLocalEngine.exe` 的默认用户界面。
 
 ## 0.15.0
 
