@@ -2,9 +2,10 @@ from __future__ import annotations
 
 """Resolve Home Depot product media from the storefront's own browser traffic.
 
-This is deliberately local and free: Edge/Chrome loads the public product page,
-and Galaxy observes the product GraphQL response that the page itself requests.
-No proxy, paid scraper, captcha bypass, or private Home Depot credential is used.
+This is deliberately local and free: Edge/Chrome loads Home Depot's compact
+public product-detail route, and Galaxy observes the product GraphQL response
+that the page itself requests. No proxy, paid scraper, captcha bypass, or
+private Home Depot credential is used.
 """
 
 import base64
@@ -14,7 +15,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -44,6 +44,10 @@ def item_id_from_url(value: object) -> str | None:
         return None
     matches = _ITEM_ID_RE.findall(parsed.path.rstrip("/") + "/")
     return matches[-1] if matches else None
+
+
+def _detail_route(item_id: str) -> str:
+    return f"https://www.homedepot.com/p/detail/{item_id}"
 
 
 def _is_product_image(value: object) -> bool:
@@ -208,6 +212,7 @@ def parse_home_depot_graphql(source_url: str, browser: str = "none") -> dict[str
             "details": {"resolver": "homedepot-browser-graphql"},
         }
 
+    navigation_url = _detail_route(item_id)
     last_error: Exception | None = None
     for browser_name, executable in candidates:
         profile_dir = tempfile.mkdtemp(prefix="galaxy-homedepot-")
@@ -246,7 +251,7 @@ def parse_home_depot_graphql(source_url: str, browser: str = "none") -> dict[str
             client.call("Fetch.enable", {"patterns": [{"urlPattern": "http://*"}, {"urlPattern": "https://*"}]})
             client.call("Network.setExtraHTTPHeaders", {"headers": {"Accept-Language": "en-US,en;q=0.9"}})
             dynamic._install_browser_cookies(client, source_url, browser)
-            client.call("Page.navigate", {"url": source_url}, timeout=5.0)
+            client.call("Page.navigate", {"url": navigation_url}, timeout=5.0)
 
             deadline = time.monotonic() + dynamic.CDP_NAVIGATION_TIMEOUT_SECONDS
             tried: set[str] = set()
@@ -271,6 +276,7 @@ def parse_home_depot_graphql(source_url: str, browser: str = "none") -> dict[str
                         details = result.setdefault("details", {})
                         if isinstance(details, dict):
                             details["browser"] = browser_name
+                            details["navigationUrl"] = navigation_url
                         return result
                 time.sleep(0.2)
             last_error = dynamic.DynamicDocumentError("Home Depot product GraphQL response was not observed")
@@ -295,7 +301,7 @@ def parse_home_depot_graphql(source_url: str, browser: str = "none") -> dict[str
         "code": "DYNAMIC_RENDER_FAILED",
         "status": 502,
         "error": str(last_error or "Home Depot browser GraphQL resolver failed"),
-        "details": {"resolver": "homedepot-browser-graphql"},
+        "details": {"resolver": "homedepot-browser-graphql", "navigationUrl": navigation_url},
     }
 
 
@@ -303,6 +309,7 @@ def run_self_test() -> None:
     sample = "https://www.homedepot.com/p/Example-hh-816/700380885#overlay"
     assert is_home_depot_product_url(sample)
     assert item_id_from_url(sample) == "700380885"
+    assert _detail_route("700380885") == "https://www.homedepot.com/p/detail/700380885"
     payload = {
         "data": {
             "product": {
