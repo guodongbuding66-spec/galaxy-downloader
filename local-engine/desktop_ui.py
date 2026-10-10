@@ -175,9 +175,39 @@ WEBSITE_URL = _impl.WEBSITE_URL
 _BASE_INSTALL_DESKTOP_UI = _impl.install_desktop_ui
 
 
-def _install_v18_legacy_action_host(native_module, engine_module) -> None:
-    if getattr(native_module, "_galaxy_v18_legacy_action_host_installed", False):
+class _V18TkProxy:
+    """Limit V1.8 compatibility shims to the native shell instead of global tkinter."""
+
+    def __init__(self, module) -> None:
+        self._module = module
+
+    def __getattr__(self, name: str):
+        return getattr(self._module, name)
+
+    def PanedWindow(self, *args, **kwargs):
+        # Classic Tk panedwindow rejects highlightthickness on Windows/Tk 8.6.
+        kwargs.pop("highlightthickness", None)
+        return self._module.PanedWindow(*args, **kwargs)
+
+
+def _install_v18_compatibility(native_module, engine_module) -> None:
+    if getattr(native_module, "_galaxy_v18_compatibility_installed", False):
         return
+
+    native_module.tk = _V18TkProxy(tk)
+
+    original_present = native_module._present
+    presenter_aliases = {
+        "task-center": "history",
+        "runtime": "settings",
+        "profiles": "settings",
+    }
+
+    def present_with_alias(window, slot: str) -> None:
+        original_present(window, presenter_aliases.get(slot, slot))
+
+    native_module._present = present_with_alias
+
     original_run_hooks = native_module.run_after_build_ui_hooks
 
     def run_hooks_with_legacy_host(window) -> None:
@@ -194,14 +224,14 @@ def _install_v18_legacy_action_host(native_module, engine_module) -> None:
         original_run_hooks(window)
 
     native_module.run_after_build_ui_hooks = run_hooks_with_legacy_host
-    native_module._galaxy_v18_legacy_action_host_installed = True
+    native_module._galaxy_v18_compatibility_installed = True
 
 
 def install_desktop_ui(engine_module):
     window_cls = _BASE_INSTALL_DESKTOP_UI(engine_module)
     import desktop_native_v18 as native_v18
 
-    _install_v18_legacy_action_host(native_v18, engine_module)
+    _install_v18_compatibility(native_v18, engine_module)
     return native_v18.install_native_desktop_v18(engine_module, sys.modules[__name__])
 
 
@@ -238,7 +268,7 @@ def run_self_test() -> None:
     assert _resolve_type_size("title") == TYPE["title"]
     assert _resolve_type_size(9) == TYPE["body"]
     assert target_padding(16) >= BUTTON_PAD_Y
-    assert callable(_install_v18_legacy_action_host)
+    assert callable(_install_v18_compatibility)
     assert callable(install_desktop_ui)
 
 
