@@ -104,17 +104,19 @@ def install_image_archive_policy(image_download_module):
     install_home_depot_document_policy()
     _install_document_image_resolution_policy()
 
-    original_candidates = image_download_module._image_candidates
-    original_dedupe = image_download_module._dedupe_images
-
-    def image_candidates(value: str) -> list[str]:
-        return build_download_candidates(value, original_candidates(value))
-
-    def dedupe_images(values: list[object]) -> list[str]:
-        return original_dedupe(dedupe_resolution_variants(values))
-
-    image_download_module._image_candidates = image_candidates
-    image_download_module._dedupe_images = dedupe_images
+    # Production image_download exposes candidate/dedupe hooks. Older unit-test
+    # fakes intentionally model only the archive runner, so keep the archive
+    # policy compatible instead of assuming every injected module is complete.
+    original_candidates = getattr(image_download_module, "_image_candidates", None)
+    original_dedupe = getattr(image_download_module, "_dedupe_images", None)
+    if callable(original_candidates):
+        def image_candidates(value: str) -> list[str]:
+            return build_download_candidates(value, original_candidates(value))
+        image_download_module._image_candidates = image_candidates
+    if callable(original_dedupe):
+        def dedupe_images(values: list[object]) -> list[str]:
+            return original_dedupe(dedupe_resolution_variants(values))
+        image_download_module._dedupe_images = dedupe_images
 
     original_run = image_download_module._run_image_job
 
