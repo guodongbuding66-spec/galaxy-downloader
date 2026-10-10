@@ -185,7 +185,6 @@ class _V18TkProxy:
         return getattr(self._module, name)
 
     def PanedWindow(self, *args, **kwargs):
-        # Classic Tk panedwindow rejects highlightthickness on Windows/Tk 8.6.
         kwargs.pop("highlightthickness", None)
         return self._module.PanedWindow(*args, **kwargs)
 
@@ -222,6 +221,23 @@ def _install_v18_compatibility(native_module, engine_module) -> None:
                 compact=True,
             )
         original_run_hooks(window)
+
+        commands = getattr(window, "_v18_toolbar_commands", None)
+        if commands is not None and not hasattr(window, "_v18_toolbar_original_button"):
+            try:
+                commands.master.configure(height=60)
+            except tk.TclError:
+                pass
+            button = ActionButton(
+                commands,
+                text="下载页面原图",
+                command=lambda: __import__("desktop_original_images")._download_original_images(window, engine_module),
+                kind="secondary",
+                compact=True,
+            )
+            button.pack(side="left", padx=(6, 0))
+            window._v18_toolbar_original_button = button
+            window._original_images_button = button
 
     native_module.run_after_build_ui_hooks = run_hooks_with_legacy_host
     native_module._galaxy_v18_compatibility_installed = True
