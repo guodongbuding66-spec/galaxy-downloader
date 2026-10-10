@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import web_document as document_base
+from home_depot_policy import install_home_depot_document_policy
 from image_resolution import build_download_candidates, dedupe_resolution_variants, parse_srcset
 
 
@@ -101,6 +102,10 @@ def install_image_archive_policy(image_download_module):
     if getattr(image_download_module, "_galaxy_image_archive_policy_installed", False):
         return
 
+    # document_policy is already installed by entrypoint.py. Apply the commerce
+    # specialization afterwards so both static HTML and CDP-rendered pages keep
+    # the generic safety boundary while Home Depot gets product/srcset semantics.
+    install_home_depot_document_policy()
     _install_document_image_resolution_policy()
 
     original_candidates = image_download_module._image_candidates
