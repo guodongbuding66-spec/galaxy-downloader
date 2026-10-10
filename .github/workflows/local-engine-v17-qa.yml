@@ -121,6 +121,7 @@ jobs:
       - name: Capture public Home Depot page with Edge
         shell: pwsh
         continue-on-error: true
+        timeout-minutes: 2
         run: |
           $ErrorActionPreference = 'Continue'
           $edgeCandidates = @(
@@ -164,6 +165,7 @@ jobs:
 
       - name: Capture and validate native Tk workbench
         shell: pwsh
+        timeout-minutes: 3
         run: |
           $ErrorActionPreference = 'Stop'
           $env:PYTHONPATH = (Resolve-Path 'local-engine').Path
@@ -214,10 +216,13 @@ jobs:
           if str(original_button.cget('text')) != '下载页面原图':
               raise RuntimeError('Unexpected original-image button copy')
 
-          try:
-              shot = ImageGrab.grab(window=app.winfo_id())
-          except (TypeError, OSError):
-              shot = ImageGrab.grab(bbox=(root_x, root_y, root_x + root_w, root_y + root_h), all_screens=True)
+          # HWND capture can hang on Windows service desktops. BBox capture is
+          # deterministic for the Tk root and still verifies the actual rendered
+          # pixels rather than a mockup.
+          shot = ImageGrab.grab(
+              bbox=(root_x, root_y, root_x + root_w, root_y + root_h),
+              all_screens=True,
+          )
           if shot.width < 900 or shot.height < 650:
               raise RuntimeError(f'Native workbench screenshot unexpectedly small: {shot.width}x{shot.height}')
           shot.save('qa/native-workbench-v17.png')
