@@ -2,12 +2,12 @@ from __future__ import annotations
 
 """Shared Desktop UI facade backed by the runtime design-token registry.
 
-The original implementation stays isolated in ``_desktop_ui_impl`` so this
-migration can preserve the public module contract while moving runtime palette,
-typography, interaction metrics, and primary button spacing to one semantic
-source of truth.
+The native executable is the canonical Galaxy Local Engine surface. The legacy
+implementation remains isolated in ``_desktop_ui_impl`` for behavior helpers;
+V1.6.1 replaces only window composition while preserving those contracts.
 """
 
+import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from typing import Callable
@@ -80,7 +80,7 @@ _TYPE_SIZE_BY_LEGACY = {
 
 
 class ActionButton(_impl.ActionButton):
-    """Compatibility button backed by shared type, target, and focus tokens."""
+    """Compatibility button backed by shared type, focus and press feedback."""
 
     def __init__(
         self,
@@ -114,6 +114,25 @@ class ActionButton(_impl.ActionButton):
             highlightbackground=self._base,
             highlightcolor=FOCUS,
         )
+        self.bind("<ButtonPress-1>", self._native_press, add="+")
+        self.bind("<ButtonRelease-1>", self._native_release, add="+")
+        self.bind("<FocusIn>", lambda _event: self.configure(highlightbackground=FOCUS), add="+")
+        self.bind("<FocusOut>", lambda _event: self.configure(highlightbackground=self._base), add="+")
+
+    def _native_press(self, _event=None) -> None:
+        if str(self["state"]) != "disabled":
+            self.configure(bg=self._hover)
+
+    def _native_release(self, event=None) -> None:
+        if str(self["state"]) == "disabled":
+            return
+        inside = False
+        if event is not None:
+            try:
+                inside = 0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height()
+            except tk.TclError:
+                inside = False
+        self.configure(bg=self._hover if inside else self._base)
 
 
 def _resolve_type_size(size: int | str) -> int:
@@ -185,7 +204,15 @@ _impl._check = _check
 
 SPONSOR_LABELS = _impl.SPONSOR_LABELS
 WEBSITE_URL = _impl.WEBSITE_URL
-install_desktop_ui = _impl.install_desktop_ui
+_BASE_INSTALL_DESKTOP_UI = _impl.install_desktop_ui
+
+
+def install_desktop_ui(engine_module):
+    """Install native desktop behavior, then replace only its visual composition."""
+    window_cls = _BASE_INSTALL_DESKTOP_UI(engine_module)
+    from desktop_native_v16 import install_native_desktop_v16
+
+    return install_native_desktop_v16(engine_module, sys.modules[__name__])
 
 
 def __getattr__(name: str):
@@ -221,6 +248,7 @@ def run_self_test() -> None:
     assert _resolve_type_size("title") == TYPE["title"]
     assert _resolve_type_size(9) == TYPE["body"]
     assert target_padding(16) >= BUTTON_PAD_Y
+    assert callable(install_desktop_ui)
 
 
 if __name__ == "__main__":
