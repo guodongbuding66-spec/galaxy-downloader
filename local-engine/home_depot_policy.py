@@ -2,9 +2,11 @@ from __future__ import annotations
 
 """Home Depot product-page image recovery policy.
 
-The storefront commonly exposes small image derivatives in HTML while larger
-public CDN variants exist. Galaxy first observes Home Depot's own product GraphQL
-response during a local Edge/Chrome page load, then falls back to generic HTML.
+Resolution order is deliberately local/free:
+1. Home Depot's public storefront GraphQL operation (no browser, no credentials).
+2. Observe the same GraphQL response from a local Edge/Chrome page load.
+3. Generic HTML/dynamic-document fallback.
+
 No paid scraper, proxy service, captcha bypass, or remote browser is required.
 """
 
@@ -13,6 +15,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import web_document as base
+from home_depot_direct import parse_home_depot_direct
 from home_depot_graphql import is_home_depot_product_url, parse_home_depot_graphql
 from image_resolution import dedupe_resolution_variants, parse_srcset
 
@@ -61,8 +64,8 @@ def _challenge_result(browser: str) -> dict[str, Any]:
     requested = (browser or "none").strip().lower()
     if requested == "none":
         error = (
-            "Home Depot 阻止了匿名 HTML 页面解析。Galaxy 已尝试本机 Edge/Chrome 商品数据流；如仍失败，"
-            "请在“登录环境”选择 Microsoft Edge 或 Google Chrome 后重试。Cookie 只在本机读取，不会上传。"
+            "Home Depot 阻止了匿名 HTML 页面解析。Galaxy 已先尝试公开商品数据接口和本机 Edge/Chrome 商品数据流；"
+            "如仍失败，请在“登录环境”选择 Microsoft Edge 或 Google Chrome 后重试。Cookie 只在本机读取，不会上传。"
         )
     else:
         error = (
@@ -165,14 +168,16 @@ def install_home_depot_document_policy() -> None:
 
     def parse_web_document(source_url: str, browser: str = "none") -> dict[str, Any]:
         if is_home_depot_product_url(source_url):
-            # Home Depot currently blocks direct programmatic gateway fetches.
-            # Navigating to /p/detail/<itemId> and observing the page's own
-            # productClientOnlyProduct response is both faster and more robust.
+            direct = parse_home_depot_direct(source_url, browser)
+            if direct.get("success"):
+                return direct
+
             product = parse_home_depot_graphql(source_url, browser)
             if product.get("success"):
                 return product
             if product.get("code") == "BROWSER_COOKIE_UNAVAILABLE":
                 return product
+
         return original_parse_web_document(source_url, browser)
 
     base._classify = classify
