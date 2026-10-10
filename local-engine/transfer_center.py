@@ -12,6 +12,8 @@ from typing import Callable, Iterable
 from urllib.parse import urlparse
 
 import transfer_center_legacy as _legacy
+from aria2_recovery import create_recoverable_aria2_session
+from aria2_source_policy import Aria2SourceError, require_torrent_source
 from aria2_transfer import (
     Aria2TransferOptions,
     Aria2TransferSession,
@@ -50,27 +52,33 @@ def start_torrent_transfer(
     on_update: Callable[[Aria2TransferSnapshot], None] | None = None,
     max_attempts: int = 3,
 ) -> Aria2TransferSession:
-    """Create a non-blocking Torrent/Magnet transfer session.
+    """Create a non-blocking, validated Torrent/Magnet transfer session.
 
-    The returned object exposes ``pause()``, ``resume()``, ``retry()``,
-    ``cancel()``, ``snapshot()`` and ``set_listener()``. Partial files are kept
-    on pause so aria2 can continue them on the next process run.
+    Accepted torrent sources are deliberately narrow: a valid BTIH Magnet URI,
+    an HTTPS URL whose path ends in ``.torrent``, or an existing local
+    ``.torrent`` file. Ordinary HTTP/HTTPS links remain on Galaxy's existing
+    media/download pipeline and custom URI schemes are rejected.
     """
 
     executable = find_aria2c(engine_module)
     if executable is None:
-        raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c")
-    normalized = _torrent_source(source)
+        raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c。请先安装或配置 aria2c 后重试。")
+    try:
+        classified = require_torrent_source(source)
+    except Aria2SourceError as exc:
+        raise TransferError(str(exc)) from exc
     destination = _managed_download_dir(engine_module, "torrents")
-    return Aria2TransferSession(
+    return create_recoverable_aria2_session(
+        engine_module,
         Path(executable),
         Aria2TransferOptions(
-            source=normalized,
+            source=classified.source,
             destination=destination,
             connections=16,
             seed_time_minutes=0,
             max_attempts=max_attempts,
         ),
+        source_kind=classified.kind,
         on_update=on_update,
     )
 
@@ -135,6 +143,8 @@ def transfer_status(engine_module) -> dict[str, object]:
             "aria2Progress": True,
             "aria2PauseResume": True,
             "aria2Retry": True,
+            "aria2RestartRecovery": True,
+            "aria2StrictTorrentSources": True,
             "aria2MaxConnections": 16,
             "aria2FragmentManifestExternalDownloader": False,
         }
