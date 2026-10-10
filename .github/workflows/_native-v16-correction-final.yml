@@ -1,0 +1,68 @@
+name: Finalize native V1.6 correction
+
+on:
+  push:
+    branches:
+      - fix/v1.6-native-desktop-ui
+    paths:
+      - .github/workflows/_native-v16-correction-final.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch release pin and compile contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          ts = Path('src/lib/local-engine.ts')
+          text = ts.read_text(encoding='utf-8')
+          old = "export const LOCAL_ENGINE_REQUIRED_VERSION = '0.15.0'"
+          new = "export const LOCAL_ENGINE_REQUIRED_VERSION = '0.15.1'"
+          if old in text:
+              text = text.replace(old, new, 1)
+          if new not in text:
+              raise SystemExit('website Local Engine pin was not updated to 0.15.1')
+          ts.write_text(text, encoding='utf-8')
+
+          for name in ('.github/workflows/local-engine-windows.yml', '.github/workflows/local-engine-release.yml'):
+              path = Path(name)
+              body = path.read_text(encoding='utf-8')
+              marker = '          local-engine/desktop_ui.py'
+              if 'local-engine/desktop_native_v16.py' not in body:
+                  if marker not in body:
+                      raise SystemExit(f'missing desktop_ui compile marker in {name}')
+                  body = body.replace(marker, marker + ' \\\n          local-engine/desktop_native_v16.py', 1)
+              path.write_text(body, encoding='utf-8')
+          PY
+
+      - name: Validate source correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "pillow>=11,<12"
+          python -m py_compile local-engine/desktop_native_v16.py local-engine/desktop_ui.py local-engine/desktop_design_tokens.py local-engine/generate_icon.py
+          python local-engine/desktop_design_tokens.py
+          python local-engine/generate_icon.py --output /tmp/GalaxyLocalEngine.ico --png-output /tmp/GalaxyLocalEngine.png
+          python scripts/test-local-release-notes.py
+
+      - name: Commit correction and remove one-shot workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -f .github/workflows/_native-v16-correction-final.yml .github/workflows/_native-v16-correction.yml
+          git add src/lib/local-engine.ts .github/workflows/local-engine-windows.yml .github/workflows/local-engine-release.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(local-engine): bind V1.6.1 to native Windows package"
+          git push origin HEAD:fix/v1.6-native-desktop-ui
