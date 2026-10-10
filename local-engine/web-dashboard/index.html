@@ -1,110 +1,161 @@
-<!doctype html>
+<!DOCTYPE html>
+
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>Galaxy Dashboard</title>
-  <link rel="stylesheet" href="/dashboard/styles.css">
-  <link rel="stylesheet" href="/dashboard/ai-subscriptions.css">
-  <link rel="stylesheet" href="/dashboard/plugins.css">
-</head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="dark" name="color-scheme"/>
+<title>Galaxy Local Engine</title>
+<link href="/dashboard/styles.css" rel="stylesheet"/><link href="/dashboard/galaxy-v16.css" rel="stylesheet"/>
+<link href="/dashboard/ai-subscriptions.css" rel="stylesheet"/>
+<link href="/dashboard/plugins.css" rel="stylesheet"/>
+<link href="/dashboard/gallery-dl.css" rel="stylesheet"/><link href="/dashboard/assets/galaxy-icon.svg" rel="icon" type="image/svg+xml"/></head>
 <body>
-  <div class="shell">
-    <aside class="sidebar" aria-label="主导航">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">G</span><span>Galaxy</span></div>
-      <nav>
-        <button class="nav-item is-active" data-view="dashboard" type="button">Dashboard</button>
-        <button class="nav-item" data-view="downloads" type="button">Downloads</button>
-        <button class="nav-item" data-view="library" type="button">Library</button>
-        <button class="nav-item" data-view="transcript" type="button">Transcript</button>
-        <button class="nav-item" data-ops-view="ai" type="button">AI</button>
-        <button class="nav-item" data-ops-view="subscriptions" type="button">Subscriptions</button>
-      </nav>
-      <div class="sidebar-meta"><span class="status-dot" id="connectionDot"></span><span id="connectionLabel">Connecting</span></div>
-    </aside>
-
-    <main class="main">
-      <header class="topbar">
-        <div><p class="eyebrow">HEADLESS / NAS</p><h1 id="viewTitle">Dashboard</h1></div>
-        <div class="topbar-actions"><button class="button secondary" id="refreshButton" type="button">Refresh</button><button class="button secondary" id="credentialsButton" type="button">Credentials</button></div>
-      </header>
-
-      <div class="notice is-hidden" id="errorNotice" role="alert"><span id="errorText"></span><button class="link-button" id="retryButton" type="button">Retry</button></div>
-
-      <section class="credentials is-hidden" id="credentialsPanel" aria-labelledby="credentialsTitle">
-        <div><h2 id="credentialsTitle">Bearer token</h2><p>远程 Headless 模式需要凭证。Token 仅保存在当前标签页的 sessionStorage。</p></div>
-        <form id="credentialsForm"><label for="tokenInput">Token</label><div class="credential-row"><input id="tokenInput" name="token" type="password" autocomplete="off" spellcheck="false"><button class="button primary" type="submit">Connect</button><button class="button secondary" id="clearTokenButton" type="button">Clear</button></div></form>
-      </section>
-
-      <section id="dashboardView" class="view">
-        <div class="metrics" aria-label="任务摘要">
-          <article class="metric"><span>Engine</span><strong id="metricEngine">—</strong><small id="metricEngineDetail">Checking</small></article>
-          <article class="metric"><span>Active</span><strong id="metricActive">0</strong><small>preparing / downloading</small></article>
-          <article class="metric"><span>Queued</span><strong id="metricQueued">0</strong><small>waiting to start</small></article>
-          <article class="metric"><span>Failed</span><strong id="metricFailed">0</strong><small>needs attention</small></article>
-          <article class="metric"><span>Completed</span><strong id="metricCompleted">0</strong><small>finished jobs</small></article>
-        </div>
-        <section class="panel">
-          <div class="panel-header"><div><h2>Recent downloads</h2><p>最近 8 个 Headless 下载任务</p></div><button class="link-button" data-view-jump="downloads" type="button">View all</button></div>
-          <div id="recentJobs" class="recent-list"><div class="empty">Loading…</div></div>
-        </section>
-      </section>
-
-      <section id="downloadsView" class="view is-hidden">
-        <section class="panel downloads-panel">
-          <div class="panel-header downloads-header">
-            <div><h2>Downloads</h2><p id="downloadCount">0 jobs</p></div>
-            <div class="toolbar" aria-label="下载批量操作"><button class="button secondary" id="pauseAllButton" type="button">Pause All</button><button class="button secondary" id="resumeAllButton" type="button">Resume All</button><button class="button secondary" id="retryFailedButton" type="button">Retry Failed</button><button class="button secondary" type="button" disabled title="Current Headless API has no clear-completed contract">Clear Completed</button></div>
-          </div>
-          <div class="table-wrap"><table><thead><tr><th data-sort-header="state"><button class="table-sort" data-sort="state" type="button">Status</button></th><th data-sort-header="title"><button class="table-sort" data-sort="title" type="button">Title</button></th><th data-sort-header="progress"><button class="table-sort" data-sort="progress" type="button">Progress</button></th><th>Speed</th><th>ETA</th><th>Size</th><th data-sort-header="sourceHost"><button class="table-sort" data-sort="sourceHost" type="button">Source</button></th><th data-sort-header="createdAt"><button class="table-sort" data-sort="createdAt" type="button">Added</button></th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="downloadsBody"><tr><td colspan="9"><div class="empty">Loading…</div></td></tr></tbody></table></div>
-        </section>
-      </section>
-
-      <section id="libraryView" class="view is-hidden">
-        <div class="metrics library-metrics" aria-label="媒体库摘要">
-          <article class="metric"><span>Total</span><strong id="libraryTotal">0</strong><small>indexed media</small></article><article class="metric"><span>Available</span><strong id="libraryAvailable">0</strong><small>present on disk</small></article><article class="metric"><span>Missing</span><strong id="libraryMissing">0</strong><small>file unavailable</small></article><article class="metric"><span>Video</span><strong id="libraryVideo">0</strong><small>video items</small></article><article class="metric"><span>Audio</span><strong id="libraryAudio">0</strong><small>audio items</small></article>
-        </div>
-        <section class="panel">
-          <div class="panel-header library-header"><div><h2>Media Library</h2><p id="libraryCount">0 items</p></div><div class="toolbar"><button class="button secondary" id="librarySyncButton" type="button">Sync Library</button></div></div>
-          <form class="filterbar" id="libraryFilterForm"><label class="field grow" for="librarySearch"><span>Search</span><input id="librarySearch" type="search" placeholder="Title, filename, source or tag" autocomplete="off"></label><label class="field" for="libraryType"><span>Type</span><select id="libraryType"><option value="">All types</option><option value="video">Video</option><option value="audio">Audio</option><option value="image">Image</option><option value="other">Other</option></select></label><button class="button primary filter-submit" type="submit">Apply</button><button class="button secondary filter-submit" id="libraryResetButton" type="button">Reset</button></form>
-          <div class="table-wrap"><table><thead><tr><th>Title</th><th>Type</th><th>Duration</th><th>Size</th><th>Source</th><th>Finished</th><th>File</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="libraryBody"><tr><td colspan="8"><div class="empty">Load Library to begin.</div></td></tr></tbody></table></div>
-          <div class="pager"><button class="button secondary" id="libraryPrevButton" type="button">Previous</button><span id="libraryPageLabel" class="numeric">Page 1</span><button class="button secondary" id="libraryNextButton" type="button">Next</button></div>
-        </section>
-      </section>
-
-      <section id="transcriptView" class="view is-hidden">
-        <section class="panel transcript-panel">
-          <div class="panel-header transcript-header"><div><h2 id="transcriptTitle">Transcript</h2><p id="transcriptMeta">Select a Library item or search all indexed transcripts.</p></div><div class="toolbar"><button class="button secondary" id="transcriptIndexButton" type="button" disabled>Index Transcript</button><select id="transcriptExportFormat" aria-label="Export format"><option>txt</option><option>md</option><option>srt</option><option>vtt</option><option>json</option><option>csv</option></select><button class="button secondary" id="transcriptExportButton" type="button" disabled>Export</button></div></div>
-          <form class="filterbar transcript-filter" id="transcriptSearchForm"><label class="field grow" for="transcriptSearch"><span>Search text</span><input id="transcriptSearch" type="search" placeholder="Search transcript text" autocomplete="off"></label><label class="field" for="transcriptSpeaker"><span>Speaker</span><input id="transcriptSpeaker" type="text" placeholder="Optional" autocomplete="off"></label><button class="button primary filter-submit" type="submit">Search</button><button class="button secondary filter-submit" id="transcriptClearButton" type="button">Clear</button></form>
-          <div class="transcript-workspace"><aside class="transcript-media-list" aria-label="媒体选择"><div class="subhead"><strong>Media</strong><span id="transcriptMediaCount">0</span></div><div id="transcriptMediaList" class="media-list"><div class="empty small-empty">Open Library first.</div></div></aside><div class="transcript-content"><div class="transcript-tools"><form id="speakerRelabelForm" class="relabel-form"><label class="field" for="oldSpeaker"><span>Old speaker</span><input id="oldSpeaker" type="text" autocomplete="off"></label><label class="field" for="newSpeaker"><span>New speaker</span><input id="newSpeaker" type="text" autocomplete="off"></label><button class="button secondary filter-submit" id="speakerRelabelButton" type="submit" disabled>Relabel</button></form></div><div id="transcriptResults" class="segments"><div class="empty">Select a media item or run a global transcript search.</div></div></div></div>
-        </section>
-      </section>
-
-      <section id="aiView" class="view is-hidden ops-view">
-        <div class="metrics" aria-label="AI 摘要"><article class="metric"><span>Providers</span><strong id="aiProviderCount">0</strong><small id="aiProviderReady">0 ready</small></article><article class="metric"><span>Active</span><strong id="aiActiveCount">0</strong><small>AI tasks</small></article><article class="metric"><span>Waiting</span><strong id="aiWaitingCount">0</strong><small>queued tasks</small></article><article class="metric"><span>Prompts</span><strong id="aiPromptCount">0</strong><small>templates</small></article><article class="metric"><span>History</span><strong id="aiHistoryCount">0</strong><small>recent runs</small></article></div>
-        <div class="ops-grid two-col">
-          <section class="panel"><div class="panel-header"><div><h2>AI Task</h2><p>Submit text or an indexed media transcript.</p></div><button class="button secondary" id="aiRefreshButton" type="button">Refresh AI</button></div><form id="aiTaskForm" class="ops-form"><label class="field"><span>Provider</span><select id="aiTaskProvider" required></select></label><label class="field"><span>Prompt</span><select id="aiTaskPrompt"><option value="">Raw instructions</option></select></label><label class="field"><span>Transcript media</span><select id="aiTaskMedia"><option value="">Text task</option></select></label><label class="field"><span>Label</span><input id="aiTaskLabel" maxlength="120" autocomplete="off"></label><label class="field full"><span>Content</span><textarea id="aiTaskContent" rows="6" maxlength="450000" placeholder="Required for text tasks"></textarea></label><label class="field full"><span>Raw instructions</span><textarea id="aiTaskInstructions" rows="3" maxlength="20000" placeholder="Required only when no Prompt is selected"></textarea></label><label class="field full"><span>Extra instruction</span><textarea id="aiTaskExtra" rows="2" maxlength="4000"></textarea></label><div class="form-actions full"><button class="button primary" type="submit">Submit</button></div></form></section>
-          <section class="panel"><div class="panel-header"><div><h2>Queue</h2><p id="aiQueueMeta">0 active · 0 waiting</p></div></div><div id="aiQueueList" class="ops-list"><div class="empty">No AI tasks.</div></div></section>
-        </div>
-
-        <div class="ops-grid two-col section-gap">
-          <section class="panel"><div class="panel-header"><div><h2>Providers</h2><p>Credential values stay in environment variables; the Dashboard stores references only.</p></div><button class="button secondary" id="aiProviderNewButton" type="button">New Provider</button></div><div id="aiProviderList" class="ops-list"><div class="empty">Loading providers…</div></div><form id="aiProviderForm" class="ops-form ops-editor is-hidden"><input id="aiProviderOriginalId" type="hidden"><label class="field"><span>ID</span><input id="aiProviderId" pattern="[a-z][a-z0-9_-]{0,39}" required></label><label class="field"><span>Name</span><input id="aiProviderName" maxlength="80" required></label><label class="field"><span>Protocol</span><select id="aiProviderProtocol"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option><option value="azure-openai">Azure OpenAI</option><option value="ollama">Ollama</option></select></label><label class="field"><span>Model</span><input id="aiProviderModel" maxlength="160"></label><label class="field full"><span>Base URL</span><input id="aiProviderBaseUrl" type="url" maxlength="1200"></label><label class="field"><span>Credential reference</span><input id="aiProviderCredential" placeholder="env:OPENAI_API_KEY" pattern="env:[A-Z_][A-Z0-9_]*|^$"></label><label class="field"><span>Timeout seconds</span><input id="aiProviderTimeout" type="number" min="5" max="600" value="180"></label><label class="check-field"><input id="aiProviderEnabled" type="checkbox" checked><span>Enabled</span></label><label class="check-field"><input id="aiProviderAllowLocal" type="checkbox"><span>Allow loopback HTTP</span></label><div class="form-actions full"><button class="button primary" type="submit">Save Provider</button><button class="button secondary" id="aiProviderCancelButton" type="button">Cancel</button></div></form></section>
-          <section class="panel"><div class="panel-header"><div><h2>Prompts</h2><p>Built-in prompts can be overridden and reset.</p></div><div class="toolbar"><button class="button secondary" id="aiPromptResetButton" type="button">Restore Defaults</button><button class="button secondary" id="aiPromptNewButton" type="button">New Prompt</button></div></div><div id="aiPromptList" class="ops-list"><div class="empty">Loading prompts…</div></div><form id="aiPromptForm" class="ops-form ops-editor is-hidden"><label class="field"><span>ID</span><input id="aiPromptId" pattern="[a-z][a-z0-9_-]{0,63}" required></label><label class="field"><span>Title</span><input id="aiPromptTitle" maxlength="120" required></label><label class="field"><span>Icon key</span><input id="aiPromptIcon" maxlength="40" value="sparkles"></label><label class="field full"><span>Instructions</span><textarea id="aiPromptInstructions" rows="7" maxlength="20000" required></textarea></label><div class="form-actions full"><button class="button primary" type="submit">Save Prompt</button><button class="button secondary" id="aiPromptCancelButton" type="button">Cancel</button></div></form></section>
-        </div>
-
-        <section class="panel section-gap"><div class="panel-header"><div><h2>AI History</h2><p id="aiHistoryMeta">Recent immutable runs</p></div><div class="toolbar"><select id="aiHistoryStatus" aria-label="History status"><option value="">All statuses</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select><button class="button secondary" id="aiHistoryApplyButton" type="button">Filter</button><button class="button secondary danger-button" id="aiHistoryClearButton" type="button">Clear History</button></div></div><div id="aiHistoryList" class="ops-list"><div class="empty">No AI history.</div></div><div id="aiHistoryDetail" class="history-detail is-hidden"></div></section>
-      </section>
-
-      <section id="subscriptionsView" class="view is-hidden ops-view">
-        <div class="metrics" aria-label="订阅摘要"><article class="metric"><span>Total</span><strong id="subsTotal">0</strong><small>subscriptions</small></article><article class="metric"><span>Enabled</span><strong id="subsEnabled">0</strong><small>scheduled</small></article><article class="metric"><span>Auto download</span><strong id="subsAuto">0</strong><small>enabled</small></article><article class="metric"><span>Errors</span><strong id="subsErrors">0</strong><small>last check</small></article><article class="metric"><span>Selected items</span><strong id="subsItemTotal">0</strong><small>tracked entries</small></article></div>
-        <section class="panel"><div class="panel-header"><div><h2>Subscriptions</h2><p>Channel / playlist monitoring with review and reconcile controls.</p></div><div class="toolbar"><button class="button secondary" id="subsRefreshButton" type="button">Refresh</button><button class="button primary" id="subsNewButton" type="button">New Subscription</button></div></div><div class="subscription-workspace"><aside class="subscription-list-wrap"><div id="subsList" class="ops-list"><div class="empty">No subscriptions.</div></div></aside><div class="subscription-detail"><div id="subsEmpty" class="empty">Select a subscription or create one.</div><div id="subsEditor" class="is-hidden"><form id="subsForm" class="ops-form"><input id="subsId" type="hidden"><label class="field full"><span>Source URL</span><input id="subsSourceUrl" type="url" required maxlength="1200"></label><label class="field"><span>Title</span><input id="subsTitle" maxlength="180"></label><label class="field"><span>Browser</span><select id="subsBrowser"><option value="none">None</option><option value="edge">Edge</option><option value="chrome">Chrome</option><option value="firefox">Firefox</option><option value="brave">Brave</option><option value="chromium">Chromium</option><option value="opera">Opera</option><option value="vivaldi">Vivaldi</option></select></label><label class="field"><span>Interval</span><select id="subsInterval"><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hour</option><option value="180">3 hours</option><option value="360">6 hours</option><option value="720">12 hours</option><option value="1440">24 hours</option></select></label><label class="field"><span>Video quality</span><input id="subsVideoQuality" maxlength="40" value="best"></label><label class="field"><span>Audio quality</span><input id="subsAudioQuality" maxlength="40" value="best"></label><label class="check-field"><input id="subsEnabledField" type="checkbox" checked><span>Enabled</span></label><label class="check-field"><input id="subsAutoField" type="checkbox"><span>Auto download</span></label><label class="check-field"><input id="subsIncludeAudio" type="checkbox" checked><span>Include audio</span></label><div class="form-actions full"><button class="button primary" type="submit">Save Subscription</button><button class="button secondary" id="subsCancelButton" type="button">Cancel</button><button class="button secondary danger-button is-hidden" id="subsDeleteButton" type="button">Delete</button></div></form>
-          <div id="subsOperational" class="is-hidden"><div class="ops-divider"></div><div class="panel-header inline-header"><div><h2>Rules</h2><p id="subsCountsMeta">No item counts loaded.</p></div><button class="button secondary" id="subsReconcileButton" type="button">Reconcile</button></div><form id="subsRulesForm" class="ops-form"><label class="field full"><span>Include keywords</span><input id="subsIncludeKeywords" placeholder="comma separated"></label><label class="field full"><span>Exclude keywords</span><input id="subsExcludeKeywords" placeholder="comma separated"></label><label class="field"><span>Latest N</span><input id="subsLatestN" type="number" min="0" max="200" value="0"></label><label class="field"><span>Tags</span><input id="subsTags" placeholder="comma separated"></label><label class="field"><span>Profile</span><input id="subsProfile" maxlength="100"></label><label class="field"><span>Filename</span><input id="subsFilename" maxlength="240"></label><label class="check-field"><input id="subsManualReview" type="checkbox"><span>Manual review</span></label><label class="check-field"><input id="subsRulesAuto" type="checkbox"><span>Rule auto download</span></label><div class="form-actions full"><button class="button secondary" type="submit">Save Rules</button></div></form><div class="ops-divider"></div><div class="panel-header inline-header"><div><h2>Items</h2><p>Tracked subscription entries</p></div><select id="subsItemState" aria-label="Item state"><option value="">All states</option><option value="waiting">Waiting</option><option value="approved">Approved</option><option value="queued">Queued</option><option value="downloading">Downloading</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="skipped">Skipped</option></select></div><div id="subsItems" class="ops-list"><div class="empty">No items loaded.</div></div></div></div></div></div></section>
-      </section>
-    </main>
-  </div>
-  <script src="/dashboard/app.js" defer></script>
-  <script src="/dashboard/ai-subscriptions.js" defer></script>
-  <script src="/dashboard/plugins.js" defer></script>
-</body>
+<div class="shell">
+<aside aria-label="主导航" class="sidebar">
+<div class="brand"><span aria-hidden="true" class="brand-mark"><svg aria-hidden="true" viewbox="0 0 64 64"><rect fill="#181A1E" height="60" rx="14" width="60" x="2" y="2"></rect><path d="M42.5 18.3A19 19 0 1 0 45 43" fill="none" stroke="#F3F4F6" stroke-linecap="round" stroke-width="6"></path><path d="M32 19v22m0 0-8-8m8 8 8-8" fill="none" stroke="#F3F4F6" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"></path><path d="M23 48h18" fill="none" stroke="#6F8FFF" stroke-linecap="round" stroke-width="5"></path><path d="M45 28h6v10" fill="none" stroke="#6F8FFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"></path></svg></span><span class="brand-copy"><strong>Galaxy Local Engine</strong><small>本地下载工作台</small></span></div>
+<nav>
+<p class="nav-label">工作台</p>
+<button class="nav-item is-active" data-view="dashboard" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h4A1.5 1.5 0 0 1 11 5.5v4A1.5 1.5 0 0 1 9.5 11h-4A1.5 1.5 0 0 1 4 9.5v-4Zm9 0A1.5 1.5 0 0 1 14.5 4h4A1.5 1.5 0 0 1 20 5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4A1.5 1.5 0 0 1 13 9.5v-4Zm-9 9A1.5 1.5 0 0 1 5.5 13h4a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 9.5 20h-4A1.5 1.5 0 0 1 4 18.5v-4Zm9 0a1.5 1.5 0 0 1 1.5-1.5h4a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a1.5 1.5 0 0 1-1.5-1.5v-4Z"></path></svg><span class="nav-text">快速下载</span></button>
+<button class="nav-item" data-view="downloads" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 18v2h14v-2"></path></svg><span class="nav-text">下载队列</span></button>
+<button class="nav-item" data-view="library" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z"></path><path d="M8 4v16M12 8h5M12 12h5M12 16h3"></path></svg><span class="nav-text">媒体库</span></button>
+<button class="nav-item" data-view="transcript" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"></path><path d="M8 9h8M8 13h5M8 17h7"></path></svg><span class="nav-text">字幕与转写</span></button>
+<p class="nav-label">自动化</p>
+<button class="nav-item" data-ops-view="ai" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3Z"></path><path d="m18.5 13 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3Z"></path><path d="m6 14 .9 2.9L10 18l-3.1.9L6 22l-.9-3.1L2 18l3.1-1.1L6 14Z"></path></svg><span class="nav-text">AI 工具</span></button>
+<button class="nav-item" data-ops-view="subscriptions" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M6 8a6 6 0 0 1 10.4-4.1M18 16a6 6 0 0 1-10.4 4.1"></path><path d="M16 2v4h-4M8 22v-4h4"></path><circle cx="12" cy="12" r="3"></circle></svg><span class="nav-text">订阅监控</span></button>
+</nav>
+<div class="sidebar-meta"><span class="status-dot" id="connectionDot"></span><span id="connectionLabel">正在连接</span></div><div class="sidebar-footnote">Local Bridge · 127.0.0.1</div>
+</aside>
+<main class="main">
+<header class="topbar"><div class="topbar-copy"><h1 id="viewTitle">下载</h1><p class="page-subtitle" id="pageSubtitle">粘贴链接，解析资源，加入本地下载队列。</p></div><div class="topbar-actions"><button class="button secondary" id="refreshButton" type="button">刷新</button><button class="button secondary" id="credentialsButton" type="button">连接设置</button></div></header>
+<div class="notice is-hidden" id="errorNotice" role="alert"><span id="errorText"></span><button class="link-button" id="retryButton" type="button">重试</button></div>
+<section aria-labelledby="credentialsTitle" class="credentials is-hidden" id="credentialsPanel">
+<div><h2 id="credentialsTitle">访问令牌</h2><p>远程 Headless 模式需要凭证。Token 仅保存在当前标签页的 sessionStorage。</p></div>
+<form id="credentialsForm"><label for="tokenInput">Token</label><div class="credential-row"><input autocomplete="off" id="tokenInput" name="token" spellcheck="false" type="password"/><button class="button primary" type="submit">连接</button><button class="button secondary" id="clearTokenButton" type="button">清除</button></div></form>
+</section>
+<section class="view" id="dashboardView">
+<section aria-labelledby="quickDownloadTitle" class="quick-panel" id="quickDownloadPanel">
+<div class="quick-panel-head">
+<div>
+<h2 id="quickDownloadTitle">新建下载</h2>
+<p>从网页或直链读取媒体信息；解析完成后选择需要的质量与资源。</p>
+</div>
+<div aria-label="支持能力" class="quick-support">
+<span>yt-dlp</span><span>FFmpeg</span><span>Cookie</span>
+</div>
+</div>
+<form class="quick-download-form" id="quickDownloadForm" novalidate="">
+<label class="quick-url-field" for="quickSourceUrl">
+<span class="quick-field-label">媒体链接</span>
+<div class="quick-url-control">
+<input autocomplete="off" id="quickSourceUrl" inputmode="url" placeholder="https://www.youtube.com/watch?v=… 或其他媒体页面" required="" spellcheck="false" type="url"/>
+<button aria-label="从剪贴板粘贴" class="icon-button" id="quickPasteButton" title="从剪贴板粘贴" type="button">
+<svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 5.5h6M9 3h6a2 2 0 0 1 2 2v1h1.5A1.5 1.5 0 0 1 20 7.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19.5v-12A1.5 1.5 0 0 1 5.5 6H7V5a2 2 0 0 1 2-2Z"></path><path d="M7 6h10v3H7z"></path></svg>
+</button>
+</div>
+<span class="quick-field-help" id="quickUrlHelp">仅接受 http / https 公网链接。受 DRM 保护的内容不会绕过加密。</span>
+</label>
+<div aria-live="polite" class="quick-source-insight is-hidden" id="quickSourceInsight">
+<div class="source-insight-main"><span aria-hidden="true" class="source-favicon" id="quickSourceInitial">?</span><span class="source-insight-copy"><strong id="quickSourceName">来源识别</strong><span id="quickSourceHost">输入链接后自动识别站点与建议引擎</span></span></div>
+<div class="source-insight-tags"><span class="source-tag recommended" id="quickSourceEngine">自动识别</span><span class="source-tag" id="quickSourceCookie">通常无需登录</span><button class="source-tag recommended" hidden="" id="quickSourceGallery" type="button"></button></div>
+</div><section aria-labelledby="mediaPreviewHeading" class="media-preview" id="mediaPreview">
+<div class="media-preview-head">
+<div class="media-preview-title"><span aria-hidden="true" class="media-preview-icon"><svg fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"></path><path d="m10 8 5 3-5 3V8ZM8 20h8"></path></svg></span><span class="media-preview-copy"><strong id="mediaPreviewHeading">媒体解析预览</strong><span>先查看真实清晰度、帧率、编码与预计大小，再决定下载质量。</span></span></div>
+<div class="media-preview-actions"><span class="preview-helper-state" data-state="checking" id="previewHelperState">检测解析服务…</span><button class="button secondary preview-inspect-button" id="quickInspectButton" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4M11 8v6M8 11h6"></path></svg><span>解析链接</span></button></div>
+</div>
+<div class="media-preview-body">
+<div class="preview-state" id="previewIdle"><span aria-hidden="true" class="preview-state-icon"><svg fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 12h16M12 4v16"></path></svg></span><span>输入链接后点击 <strong>解析链接</strong>；也可按 <strong>Ctrl + Enter</strong>。解析不会开始下载。</span></div>
+<div class="preview-state preview-loading is-hidden" id="previewLoading"><span aria-hidden="true" class="preview-state-icon"><svg fill="none" stroke="currentColor" viewbox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg></span><span><strong>正在读取媒体信息…</strong> 本地 yt-dlp 会分析页面与可用格式，通常几秒内完成。</span></div>
+<div class="preview-state is-hidden" data-tone="warn" id="previewError"><span aria-hidden="true" class="preview-state-icon"><svg fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 3 2.8 19h18.4L12 3Z"></path><path d="M12 9v4M12 16.5v.5"></path></svg></span><span id="previewErrorCopy"></span></div>
+<div class="preview-result is-hidden" id="previewResult">
+<div class="preview-hero"><img alt="媒体缩略图" class="preview-thumb" hidden="" id="previewThumbnail"/><div class="preview-thumb-fallback" id="previewThumbFallback"><svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 5h16v14H4z"></path><path d="m8 14 3-3 2 2 2-2 2 3"></path></svg></div><div class="preview-meta"><h3 id="previewTitle">媒体标题</h3><div class="preview-meta-line"><span class="preview-meta-chip is-accent" id="previewBest">格式已解析</span><span class="preview-meta-chip" id="previewSource">来源</span><span class="preview-meta-chip" id="previewDuration">时长未知</span></div><div class="preview-meta-line" id="previewMetaNote">选择下方清晰度只会同步“质量档位”；最终封装与音视频合并仍由本地 yt-dlp + FFmpeg 完成。</div></div><div class="preview-summary"><strong id="previewFormatSummary">0</strong><span id="previewFormatSummaryLabel">个视频格式</span></div></div>
+<div class="preview-format-toolbar"><div aria-label="媒体格式筛选" class="preview-filters" role="group"><button class="preview-filter is-active" data-preview-filter="recommended" type="button">推荐</button><button class="preview-filter" data-preview-filter="4k" type="button">4K+</button><button class="preview-filter" data-preview-filter="2k" type="button">2K</button><button class="preview-filter" data-preview-filter="1080" type="button">1080p</button><button class="preview-filter" data-preview-filter="image" type="button">图片</button><button class="preview-filter" data-preview-filter="audio" type="button">音频</button><button class="preview-filter" data-preview-filter="all" type="button">全部</button></div><span class="preview-format-count" id="previewFormatCount">0 个可选项</span></div>
+<div aria-label="可用媒体格式" class="preview-format-list" id="previewFormatList" role="listbox"></div>
+<div class="preview-selection"><div class="preview-selection-copy" id="previewSelectionCopy">选择一个清晰度后，可同步到下方下载设置。</div><div class="preview-selection-actions"><button class="button secondary" disabled="" id="previewApplyButton" type="button">应用此清晰度</button><button class="button primary" id="previewDownloadButton" type="button">按当前设置下载</button></div></div>
+<div class="preview-accuracy-note" id="previewAccuracyNote"><strong>说明：</strong>V1.5 不伪造“精确格式下载”。现有 Galaxy 协议仍按质量档位工作，因此格式预览用于决策，应用后映射到 4K / 2K / 1080p / 720p / 最高质量。</div>
+</div>
+</div>
+</section>
+<div class="quick-options-grid">
+<label class="quick-option-field" for="quickVideoQuality"><span>视频质量</span><select id="quickVideoQuality"><option value="best">自动 · 最高质量</option><option value="2160">4K · 2160p</option><option value="1440">2K · 1440p</option><option value="1080">Full HD · 1080p</option><option value="720">HD · 720p</option></select></label>
+<label class="quick-option-field" for="quickBrowser"><span>登录状态</span><select id="quickBrowser"><option value="none">不读取 Cookie</option><option value="edge">Microsoft Edge</option><option value="chrome">Google Chrome</option><option value="firefox">Mozilla Firefox</option><option value="brave">Brave</option></select></label>
+<div aria-label="下载附加内容" class="quick-toggles">
+<label class="switch-row"><input checked="" id="quickIncludeAudio" type="checkbox"/><span aria-hidden="true" class="switch-ui"></span><span><strong>包含音频</strong><small>自动选择最佳音轨并合并</small></span></label>
+<label class="switch-row"><input id="quickSubtitle" type="checkbox"/><span aria-hidden="true" class="switch-ui"></span><span><strong>字幕</strong><small>优先中文，没有则按源站可用字幕</small></span></label>
+<label class="switch-row"><input id="quickCover" type="checkbox"/><span aria-hidden="true" class="switch-ui"></span><span><strong>封面</strong><small>源站提供时一并保存</small></span></label>
+</div>
+</div>
+<div class="quick-plan" id="quickPlan"><div class="quick-plan-copy" id="quickPlanCopy"><strong>本次下载</strong></div><span class="quick-plan-state">本地处理，不上传媒体文件</span></div>
+<div class="quick-actions">
+<button class="button primary quick-submit" id="quickDownloadButton" type="submit">
+<svg aria-hidden="true" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 19h14"></path></svg>
+<span>开始下载</span>
+</button>
+<button class="button secondary" id="quickOpenGallery" type="button">下载原图 / 图集</button>
+<span aria-live="polite" class="quick-inline-status" id="quickInlineStatus" role="status"></span>
+</div>
+</form>
+</section><div aria-label="任务摘要" class="metrics">
+<article class="metric"><span>引擎</span><strong id="metricEngine">—</strong><small id="metricEngineDetail">检测中</small></article>
+<article class="metric"><span>进行中</span><strong id="metricActive">0</strong><small>准备 / 下载中</small></article>
+<article class="metric"><span>等待中</span><strong id="metricQueued">0</strong><small>等待开始</small></article>
+<article class="metric"><span>失败</span><strong id="metricFailed">0</strong><small>需要处理</small></article>
+<article class="metric"><span>已完成</span><strong id="metricCompleted">0</strong><small>已完成任务</small></article>
+</div>
+<section class="panel">
+<div class="panel-header"><div><h2>最近下载</h2><p>最近 8 个本地下载任务</p></div><button class="link-button" data-view-jump="downloads" type="button">查看全部</button></div>
+<div class="recent-list" id="recentJobs"><div class="empty">正在加载…</div></div>
+</section>
+</section>
+<section class="view is-hidden" id="downloadsView">
+<section class="panel downloads-panel">
+<div class="panel-header downloads-header">
+<div><h2>下载队列</h2><p id="downloadCount">0 个任务</p></div>
+<div aria-label="下载批量操作" class="toolbar"><button class="button secondary" id="pauseAllButton" type="button">全部暂停</button><button class="button secondary" id="resumeAllButton" type="button">全部继续</button><button class="button secondary" id="retryFailedButton" type="button">重试失败项</button><button class="button secondary" disabled="" title="Current Headless API has no clear-completed contract" type="button">清理已完成</button></div>
+</div>
+<div aria-label="下载任务筛选" class="download-filterbar"><label class="field" for="downloadFilterSearch"><span>筛选任务</span><input autocomplete="off" id="downloadFilterSearch" placeholder="标题、来源或任务信息" type="search"/></label><label class="field" for="downloadFilterStatus"><span>状态</span><select id="downloadFilterStatus"><option value="">全部状态</option><option value="downloading">下载中</option><option value="queued">等待中</option><option value="paused">已暂停</option><option value="failed">失败</option><option value="completed">已完成</option></select></label><div class="download-filter-meta" id="downloadFilterMeta">0 项</div></div>
+<div class="table-wrap"><table><thead><tr><th data-sort-header="state"><button class="table-sort" data-sort="state" type="button">状态</button></th><th data-sort-header="title"><button class="table-sort" data-sort="title" type="button">标题</button></th><th data-sort-header="progress"><button class="table-sort" data-sort="progress" type="button">进度</button></th><th>速度</th><th>剩余时间</th><th>大小</th><th data-sort-header="sourceHost"><button class="table-sort" data-sort="sourceHost" type="button">来源</button></th><th data-sort-header="createdAt"><button class="table-sort" data-sort="createdAt" type="button">加入时间</button></th><th><span class="sr-only">操作</span></th></tr></thead><tbody id="downloadsBody"><tr><td colspan="9"><div class="empty">正在加载…</div></td></tr></tbody></table></div>
+</section>
+</section>
+<section class="view is-hidden" id="libraryView">
+<div aria-label="媒体库摘要" class="metrics library-metrics">
+<article class="metric"><span>总计</span><strong id="libraryTotal">0</strong><small>已索引媒体</small></article><article class="metric"><span>可用</span><strong id="libraryAvailable">0</strong><small>本地文件可用</small></article><article class="metric"><span>缺失</span><strong id="libraryMissing">0</strong><small>文件不可用</small></article><article class="metric"><span>视频</span><strong id="libraryVideo">0</strong><small>视频项目</small></article><article class="metric"><span>音频</span><strong id="libraryAudio">0</strong><small>音频项目</small></article>
+</div>
+<section class="panel">
+<div class="panel-header library-header"><div><h2>媒体库</h2><p id="libraryCount">0 项</p></div><div class="toolbar"><button class="button secondary" id="librarySyncButton" type="button">同步媒体库</button></div></div>
+<form class="filterbar" id="libraryFilterForm"><label class="field grow" for="librarySearch"><span>搜索</span><input autocomplete="off" id="librarySearch" placeholder="标题、文件名、来源或标签" type="search"/></label><label class="field" for="libraryType"><span>类型</span><select id="libraryType"><option value="">全部类型</option><option value="video">视频</option><option value="audio">音频</option><option value="image">图片</option><option value="other">其他</option></select></label><button class="button primary filter-submit" type="submit">应用</button><button class="button secondary filter-submit" id="libraryResetButton" type="button">重置</button></form>
+<div class="table-wrap"><table><thead><tr><th>标题</th><th>类型</th><th>时长</th><th>大小</th><th>来源</th><th>完成时间</th><th>文件</th><th><span class="sr-only">操作</span></th></tr></thead><tbody id="libraryBody"><tr><td colspan="8"><div class="empty">打开媒体库开始浏览。</div></td></tr></tbody></table></div>
+<div class="pager"><button class="button secondary" id="libraryPrevButton" type="button">上一页</button><span class="numeric" id="libraryPageLabel">第 1 页</span><button class="button secondary" id="libraryNextButton" type="button">下一页</button></div>
+</section>
+</section>
+<section class="view is-hidden" id="transcriptView">
+<section class="panel transcript-panel">
+<div class="panel-header transcript-header"><div><h2 id="transcriptTitle">字幕与转写</h2><p id="transcriptMeta">选择媒体项目，或搜索全部已索引转写。</p></div><div class="toolbar"><button class="button secondary" disabled="" id="transcriptIndexButton" type="button">建立转写索引</button><select aria-label="Export format" id="transcriptExportFormat"><option>txt</option><option>md</option><option>srt</option><option>vtt</option><option>json</option><option>csv</option></select><button class="button secondary" disabled="" id="transcriptExportButton" type="button">导出</button></div></div>
+<form class="filterbar transcript-filter" id="transcriptSearchForm"><label class="field grow" for="transcriptSearch"><span>搜索内容</span><input autocomplete="off" id="transcriptSearch" placeholder="输入要搜索的转写内容" type="search"/></label><label class="field" for="transcriptSpeaker"><span>说话人</span><input autocomplete="off" id="transcriptSpeaker" placeholder="Optional" type="text"/></label><button class="button primary filter-submit" type="submit">搜索</button><button class="button secondary filter-submit" id="transcriptClearButton" type="button">清除</button></form>
+<div class="transcript-workspace"><aside aria-label="媒体选择" class="transcript-media-list"><div class="subhead"><strong>媒体</strong><span id="transcriptMediaCount">0</span></div><div class="media-list" id="transcriptMediaList"><div class="empty small-empty">请先打开媒体库。</div></div></aside><div class="transcript-content"><div class="transcript-tools"><form class="relabel-form" id="speakerRelabelForm"><label class="field" for="oldSpeaker"><span>原说话人</span><input autocomplete="off" id="oldSpeaker" type="text"/></label><label class="field" for="newSpeaker"><span>新说话人</span><input autocomplete="off" id="newSpeaker" type="text"/></label><button class="button secondary filter-submit" disabled="" id="speakerRelabelButton" type="submit">重新标记</button></form></div><div class="segments" id="transcriptResults"><div class="empty">选择一个媒体项目，或执行全局转写搜索。</div></div></div></div>
+</section>
+</section>
+<section class="view is-hidden ops-view" id="aiView">
+<div aria-label="AI 摘要" class="metrics"><article class="metric"><span>模型服务</span><strong id="aiProviderCount">0</strong><small id="aiProviderReady">0 ready</small></article><article class="metric"><span>进行中</span><strong id="aiActiveCount">0</strong><small>AI tasks</small></article><article class="metric"><span>等待中</span><strong id="aiWaitingCount">0</strong><small>queued tasks</small></article><article class="metric"><span>提示词</span><strong id="aiPromptCount">0</strong><small>templates</small></article><article class="metric"><span>历史</span><strong id="aiHistoryCount">0</strong><small>recent runs</small></article></div>
+<div class="ops-grid two-col">
+<section class="panel"><div class="panel-header"><div><h2>AI 任务</h2><p>提交文本或已索引媒体的转写内容。</p></div><button class="button secondary" id="aiRefreshButton" type="button">刷新 AI</button></div><form class="ops-form" id="aiTaskForm"><label class="field"><span>模型服务</span><select id="aiTaskProvider" required=""></select></label><label class="field"><span>提示词</span><select id="aiTaskPrompt"><option value="">自定义指令</option></select></label><label class="field"><span>转写媒体</span><select id="aiTaskMedia"><option value="">文本任务</option></select></label><label class="field"><span>名称</span><input autocomplete="off" id="aiTaskLabel" maxlength="120"/></label><label class="field full"><span>内容</span><textarea id="aiTaskContent" maxlength="450000" placeholder="Required for text tasks" rows="6"></textarea></label><label class="field full"><span>自定义指令</span><textarea id="aiTaskInstructions" maxlength="20000" placeholder="Required only when no Prompt is selected" rows="3"></textarea></label><label class="field full"><span>补充指令</span><textarea id="aiTaskExtra" maxlength="4000" rows="2"></textarea></label><div class="form-actions full"><button class="button primary" type="submit">提交</button></div></form></section>
+<section class="panel"><div class="panel-header"><div><h2>任务队列</h2><p id="aiQueueMeta">0 active · 0 waiting</p></div></div><div class="ops-list" id="aiQueueList"><div class="empty">暂无 AI 任务。</div></div></section>
+</div>
+<div class="ops-grid two-col section-gap">
+<section class="panel"><div class="panel-header"><div><h2>模型服务</h2><p>凭证值保留在环境变量中，工作台仅保存引用。</p></div><button class="button secondary" id="aiProviderNewButton" type="button">新建模型服务</button></div><div class="ops-list" id="aiProviderList"><div class="empty">正在加载模型服务…</div></div><form class="ops-form ops-editor is-hidden" id="aiProviderForm"><input id="aiProviderOriginalId" type="hidden"/><label class="field"><span>ID</span><input id="aiProviderId" pattern="[a-z][a-z0-9_-]{0,39}" required=""/></label><label class="field"><span>名称</span><input id="aiProviderName" maxlength="80" required=""/></label><label class="field"><span>协议</span><select id="aiProviderProtocol"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option><option value="azure-openai">Azure OpenAI</option><option value="ollama">Ollama</option></select></label><label class="field"><span>模型</span><input id="aiProviderModel" maxlength="160"/></label><label class="field full"><span>接口地址</span><input id="aiProviderBaseUrl" maxlength="1200" type="url"/></label><label class="field"><span>凭证引用</span><input id="aiProviderCredential" pattern="env:[A-Z_][A-Z0-9_]*|^$" placeholder="env:OPENAI_API_KEY"/></label><label class="field"><span>超时秒数</span><input id="aiProviderTimeout" max="600" min="5" type="number" value="180"/></label><label class="check-field"><input checked="" id="aiProviderEnabled" type="checkbox"/><span>启用</span></label><label class="check-field"><input id="aiProviderAllowLocal" type="checkbox"/><span>允许本机 HTTP</span></label><div class="form-actions full"><button class="button primary" type="submit">保存模型服务</button><button class="button secondary" id="aiProviderCancelButton" type="button">取消</button></div></form></section>
+<section class="panel"><div class="panel-header"><div><h2>提示词</h2><p>内置提示词可覆盖，也可随时恢复默认。</p></div><div class="toolbar"><button class="button secondary" id="aiPromptResetButton" type="button">恢复默认</button><button class="button secondary" id="aiPromptNewButton" type="button">新建提示词</button></div></div><div class="ops-list" id="aiPromptList"><div class="empty">正在加载提示词…</div></div><form class="ops-form ops-editor is-hidden" id="aiPromptForm"><label class="field"><span>ID</span><input id="aiPromptId" pattern="[a-z][a-z0-9_-]{0,63}" required=""/></label><label class="field"><span>标题</span><input id="aiPromptTitle" maxlength="120" required=""/></label><label class="field"><span>图标键</span><input id="aiPromptIcon" maxlength="40" value="sparkles"/></label><label class="field full"><span>指令</span><textarea id="aiPromptInstructions" maxlength="20000" required="" rows="7"></textarea></label><div class="form-actions full"><button class="button primary" type="submit">保存提示词</button><button class="button secondary" id="aiPromptCancelButton" type="button">取消</button></div></form></section>
+</div>
+<section class="panel section-gap"><div class="panel-header"><div><h2>AI 历史</h2><p id="aiHistoryMeta">Recent immutable runs</p></div><div class="toolbar"><select aria-label="History status" id="aiHistoryStatus"><option value="">全部状态</option><option value="succeeded">成功</option><option value="failed">失败</option><option value="cancelled">已取消</option></select><button class="button secondary" id="aiHistoryApplyButton" type="button">筛选</button><button class="button secondary danger-button" id="aiHistoryClearButton" type="button">清空历史</button></div></div><div class="ops-list" id="aiHistoryList"><div class="empty">暂无 AI 历史记录。</div></div><div class="history-detail is-hidden" id="aiHistoryDetail"></div></section>
+</section>
+<section class="view is-hidden ops-view" id="subscriptionsView">
+<div aria-label="订阅摘要" class="metrics"><article class="metric"><span>总计</span><strong id="subsTotal">0</strong><small>subscriptions</small></article><article class="metric"><span>启用</span><strong id="subsEnabled">0</strong><small>scheduled</small></article><article class="metric"><span>自动下载</span><strong id="subsAuto">0</strong><small>enabled</small></article><article class="metric"><span>错误</span><strong id="subsErrors">0</strong><small>last check</small></article><article class="metric"><span>已选项目</span><strong id="subsItemTotal">0</strong><small>tracked entries</small></article></div>
+<section class="panel"><div class="panel-header"><div><h2>订阅监控</h2><p>监控频道或播放列表，并按规则审核与自动下载。</p></div><div class="toolbar"><button class="button secondary" id="subsRefreshButton" type="button">刷新</button><button class="button primary" id="subsNewButton" type="button">新建订阅</button></div></div><div class="subscription-workspace"><aside class="subscription-list-wrap"><div class="ops-list" id="subsList"><div class="empty">No subscriptions.</div></div></aside><div class="subscription-detail"><div class="empty" id="subsEmpty">选择一个订阅，或创建新订阅。</div><div class="is-hidden" id="subsEditor"><form class="ops-form" id="subsForm"><input id="subsId" type="hidden"/><label class="field full"><span>来源链接</span><input id="subsSourceUrl" maxlength="1200" required="" type="url"/></label><label class="field"><span>标题</span><input id="subsTitle" maxlength="180"/></label><label class="field"><span>浏览器</span><select id="subsBrowser"><option value="none">None</option><option value="edge">Edge</option><option value="chrome">Chrome</option><option value="firefox">Firefox</option><option value="brave">Brave</option><option value="chromium">Chromium</option><option value="opera">Opera</option><option value="vivaldi">Vivaldi</option></select></label><label class="field"><span>检查间隔</span><select id="subsInterval"><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hour</option><option value="180">3 hours</option><option value="360">6 hours</option><option value="720">12 hours</option><option value="1440">24 hours</option></select></label><label class="field"><span>视频质量</span><input id="subsVideoQuality" maxlength="40" value="best"/></label><label class="field"><span>音频质量</span><input id="subsAudioQuality" maxlength="40" value="best"/></label><label class="check-field"><input checked="" id="subsEnabledField" type="checkbox"/><span>启用</span></label><label class="check-field"><input id="subsAutoField" type="checkbox"/><span>自动下载</span></label><label class="check-field"><input checked="" id="subsIncludeAudio" type="checkbox"/><span>包含音频</span></label><div class="form-actions full"><button class="button primary" type="submit">保存订阅</button><button class="button secondary" id="subsCancelButton" type="button">取消</button><button class="button secondary danger-button is-hidden" id="subsDeleteButton" type="button">删除</button></div></form>
+<div class="is-hidden" id="subsOperational"><div class="ops-divider"></div><div class="panel-header inline-header"><div><h2>规则</h2><p id="subsCountsMeta">尚未加载项目统计。</p></div><button class="button secondary" id="subsReconcileButton" type="button">重新核对</button></div><form class="ops-form" id="subsRulesForm"><label class="field full"><span>包含关键词</span><input id="subsIncludeKeywords" placeholder="comma separated"/></label><label class="field full"><span>排除关键词</span><input id="subsExcludeKeywords" placeholder="comma separated"/></label><label class="field"><span>仅保留最新 N 项</span><input id="subsLatestN" max="200" min="0" type="number" value="0"/></label><label class="field"><span>标签</span><input id="subsTags" placeholder="comma separated"/></label><label class="field"><span>Profile</span><input id="subsProfile" maxlength="100"/></label><label class="field"><span>文件名</span><input id="subsFilename" maxlength="240"/></label><label class="check-field"><input id="subsManualReview" type="checkbox"/><span>人工审核</span></label><label class="check-field"><input id="subsRulesAuto" type="checkbox"/><span>规则自动下载</span></label><div class="form-actions full"><button class="button secondary" type="submit">保存规则</button></div></form><div class="ops-divider"></div><div class="panel-header inline-header"><div><h2>项目</h2><p>已跟踪的订阅项目</p></div><select aria-label="项目状态" id="subsItemState"><option value="">全部状态</option><option value="waiting">等待中</option><option value="approved">已批准</option><option value="queued">等待中</option><option value="downloading">下载中</option><option value="completed">已完成</option><option value="failed">失败</option><option value="skipped">已跳过</option></select></div><div class="ops-list" id="subsItems"><div class="empty">尚未加载项目。</div></div></div></div></div></div></section>
+</section>
+</main>
+</div>
+<script defer="" src="/dashboard/app.js"></script>
+<script defer="" src="/dashboard/ai-subscriptions.js"></script>
+<script defer="" src="/dashboard/plugins.js"></script>
+<script defer="" src="/dashboard/gallery-dl.js"></script><script defer="" src="/dashboard/galaxy-v16.js"></script></body>
 </html>

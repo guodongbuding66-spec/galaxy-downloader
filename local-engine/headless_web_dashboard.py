@@ -33,6 +33,9 @@ _DASHBOARD_ASSETS = {
     "/dashboard/music-player.css": ("music-player.css", "text/css; charset=utf-8"),
     "/dashboard/transcript-player.js": ("transcript-player.js", "text/javascript; charset=utf-8"),
     "/dashboard/transcript-player.css": ("transcript-player.css", "text/css; charset=utf-8"),
+    "/dashboard/galaxy-v16.css": ("galaxy-v16.css", "text/css; charset=utf-8"),
+    "/dashboard/galaxy-v16.js": ("galaxy-v16.js", "text/javascript; charset=utf-8"),
+    "/dashboard/assets/galaxy-icon.svg": ("assets/galaxy-icon.svg", "image/svg+xml; charset=utf-8"),
 }
 _LEARNING_STYLE_TAG = '<link rel="stylesheet" href="/dashboard/learning.css">'
 _LEARNING_SCRIPT_TAG = '<script src="/dashboard/learning.js" defer></script>'
@@ -143,7 +146,7 @@ class HeadlessWebDashboardMixin:
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' http://127.0.0.1:17837; img-src 'self' data: https:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
