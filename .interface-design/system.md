@@ -12,7 +12,7 @@ One capture strip leads the workbench: **paste URL → inspect → choose media/
 ## Rejected defaults
 - No neon, glow, glassmorphism, decorative gradients or “AI dashboard” styling.
 - No grid of equal rounded cards; use a workbench with clear primary/secondary zones.
-- No tiny 7–9pt operational text.
+- No 7–8pt operational text; 9pt is reserved for low-priority metadata only.
 - No forced `tk scaling = 1.0`; respect Windows DPI.
 - No pill chips unless they are real status/filter controls.
 - No oversized marketing headings in the desktop application.
@@ -38,17 +38,20 @@ One capture strip leads the workbench: **paste URL → inspect → choose media/
 - Success: `#65BE92`; warning: `#D9A85F`; danger: `#E27676`.
 - Border: `#334052`; subtle border: `#273241`.
 - Typeface: Segoe UI / Segoe UI Variable when available; Microsoft YaHei UI fallback is acceptable on Chinese Windows.
-- Native type scale: caption 9pt, supporting 10pt, body 11pt, section 13pt, title 18pt, brand 21pt, display 24pt.
+- Native type scale: caption 9pt (metadata only), supporting 10pt, body 11pt, section 13pt, title 18pt, brand 21pt, display 24pt.
 - Depth strategy: borders + surface-color shifts only. No layout shadows.
 - Motion language: native hover/pressed color feedback around 100–150ms where possible; keyboard focus ring always visible; reduced-motion/static cues remain sufficient.
 
 ## Layout
-- Default native window: approximately 1320×880; minimum 1100×760.
+- Preferred native window: approximately 1320×880.
+- Responsive floor: approximately 960×680 when the Windows work area is smaller; never force the window outside the visible display.
+- At constrained widths the secondary header actions wrap below the product identity instead of clipping off-screen.
 - Main workbench / status rail: ~72/28.
 - Capture strip is the first focal block inside the main workbench.
 - Current task and advanced options follow the capture strip.
 - Queue and local runtime components live in the right rail.
 - Original-image action sits with the capture strip and explains maximum-public-resolution fallback.
+- gallery-dl fallback and its low-frequency tuning stay behind progressive disclosure so they do not bury the current task on laptop-height displays.
 
 ## Accessibility / readability gates
 - Never force Tk global scaling to 1.0 on Windows high-DPI displays.
@@ -57,3 +60,4 @@ One capture strip leads the workbench: **paste URL → inspect → choose media/
 - Body text cannot be below the shared body token; legacy hook text is normalized after composition.
 - Status must use text/icon/color together where applicable.
 - Primary actions and dangerous actions must remain visually distinct in monochrome/squint tests.
+- CI must fail when any visible native `Button` extends outside the root window bounds.
