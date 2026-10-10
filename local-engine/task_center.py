@@ -484,13 +484,17 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
             if button is not None:
                 button.state(["!disabled"] if len(queue_ids) == 1 else ["disabled"])
         if active_pause_button is not None:
+            provider_can_pause = bool(provider and "pause" in provider_actions)
             pause_event = getattr(window, "pause_event", None)
-            can_pause = bool(one and one.get("kind") == "active" and getattr(window, "running", False))
-            if pause_event is not None and pause_event.is_set():
+            can_pause = provider_can_pause or bool(one and one.get("kind") == "active" and getattr(window, "running", False))
+            if not provider_can_pause and pause_event is not None and pause_event.is_set():
                 can_pause = False
+            active_pause_button.configure(text="暂停任务" if provider_can_pause else "暂停当前")
             active_pause_button.state(["!disabled"] if can_pause else ["disabled"])
         if resume_button is not None:
-            resume_button.state(["!disabled"] if resume and not bool(getattr(window, "running", False)) else ["disabled"])
+            provider_can_resume = bool(provider and "resume" in provider_actions)
+            can_resume = provider_can_resume or bool(resume and not bool(getattr(window, "running", False)))
+            resume_button.state(["!disabled"] if can_resume else ["disabled"])
         if discard_resume_button is not None:
             discard_resume_button.state(["!disabled"] if resume and not bool(getattr(window, "running", False)) else ["disabled"])
         if details_button is not None:
@@ -586,6 +590,10 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
             refresh(force=True)
 
     def pause_active_selected() -> None:
+        provider = selected_provider()
+        if provider is not None and "pause" in tuple(provider.get("providerActions") or ()):
+            run_provider_action("pause")
+            return
         rows = selected_rows()
         pause = getattr(window, "pause_active_job", None)
         if len(rows) == 1 and rows[0].get("kind") == "active" and callable(pause):
@@ -594,6 +602,10 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
             refresh(force=True)
 
     def resume_selected() -> None:
+        provider = selected_provider()
+        if provider is not None and "resume" in tuple(provider.get("providerActions") or ()):
+            run_provider_action("resume")
+            return
         row = selected_resume()
         resume = getattr(window, "resume_job", None)
         if row and callable(resume):
@@ -743,7 +755,9 @@ def _show_task_center(window, engine_module, initial_filter: str | None = None) 
         rows = selected_rows()
         if len(rows) != 1:
             return
-        if rows[0].get("kind") == "resume":
+        if rows[0].get("kind") == "provider" and "resume" in tuple(rows[0].get("providerActions") or ()):
+            resume_selected()
+        elif rows[0].get("kind") == "resume":
             resume_selected()
         elif rows[0].get("kind") == "history":
             open_file(False)
@@ -821,9 +835,10 @@ def run_task_center_self_test() -> None:
     assert "断点续传" in _row_search_text(resume)
     provider = {
         "kind": "provider",
-        "state": "cancelled",
-        "sourceHost": "gallery-dl",
-        "label": "Gallery · example.com",
-        "providerActions": ("retry",),
+        "state": "paused",
+        "sourceHost": "aria2",
+        "label": "Magnet 下载",
+        "providerActions": ("resume", "cancel"),
     }
-    assert _matches_filter(provider, "cancelled", "gallery") is True
+    assert _matches_filter(provider, "paused", "aria2") is True
+    assert "resume" in provider["providerActions"]
