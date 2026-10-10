@@ -29,7 +29,6 @@ from desktop_design_tokens import (
     TEXT,
     TYPE,
     WARNING,
-    font,
     target_padding,
 )
 
@@ -72,6 +71,13 @@ _TYPE_SIZE_BY_LEGACY = {
     17: int(TYPE["brand"]),
     18: int(TYPE["display"]),
 }
+
+
+def font(size_token: str = "body", *, bold: bool = False):
+    if size_token not in TYPE or size_token == "family":
+        raise KeyError(f"unknown type token: {size_token}")
+    size = int(TYPE[size_token])
+    return (FONT_FAMILY, size, "bold") if bold else (FONT_FAMILY, size)
 
 
 class ActionButton(_impl.ActionButton):
@@ -189,6 +195,17 @@ class _V18TkProxy:
         return self._module.PanedWindow(*args, **kwargs)
 
 
+def _resolve_windows_ui_font(window) -> str:
+    try:
+        families = {str(item) for item in tkfont.families(window)}
+    except (tk.TclError, RuntimeError):
+        families = set()
+    for candidate in ("Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI"):
+        if candidate in families:
+            return candidate
+    return str(TYPE["family"])
+
+
 def _install_v18_compatibility(native_module, engine_module) -> None:
     if getattr(native_module, "_galaxy_v18_compatibility_installed", False):
         return
@@ -206,6 +223,21 @@ def _install_v18_compatibility(native_module, engine_module) -> None:
         original_present(window, presenter_aliases.get(slot, slot))
 
     native_module._present = present_with_alias
+
+    original_configure_styles = native_module.v17._configure_styles
+
+    def configure_v18_styles(window) -> None:
+        global FONT_FAMILY
+        FONT_FAMILY = _resolve_windows_ui_font(window)
+        native_module.font = font
+        native_module.v17.font = font
+        try:
+            window.option_add("*Font", f"{{{FONT_FAMILY}}} {TYPE['body']}")
+        except tk.TclError:
+            pass
+        original_configure_styles(window)
+
+    native_module.v17._configure_styles = configure_v18_styles
 
     original_run_hooks = native_module.run_after_build_ui_hooks
 
@@ -283,7 +315,9 @@ def run_self_test() -> None:
     assert _resolve_type_size("body_sm") == TYPE["body_sm"]
     assert _resolve_type_size("title") == TYPE["title"]
     assert _resolve_type_size(9) == TYPE["body"]
+    assert font("body")[0] == FONT_FAMILY
     assert target_padding(16) >= BUTTON_PAD_Y
+    assert callable(_resolve_windows_ui_font)
     assert callable(_install_v18_compatibility)
     assert callable(install_desktop_ui)
 
