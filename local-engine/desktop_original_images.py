@@ -7,6 +7,7 @@ from typing import Any
 import bridge
 import desktop_quick_download as quick
 import desktop_ui as ui
+from desktop_dpi import install_native_dpi_policy
 from desktop_hooks import register_after_build_ui_hook
 from image_download import start_image_download_job
 
@@ -123,6 +124,10 @@ def _build_original_images_strip(window, engine_module) -> None:
 
 def install_desktop_original_images(engine_module):
     window_cls = engine_module.EngineWindow
+    # DPI policy is independent from Home Depot, but this module is installed
+    # on every native run through image_archive_policy and is therefore a stable
+    # place to restore Windows' real DPI after legacy composition forced 1.0.
+    install_native_dpi_policy(engine_module)
     if getattr(window_cls, "_galaxy_desktop_original_images_installed", False):
         return window_cls
     register_after_build_ui_hook(
