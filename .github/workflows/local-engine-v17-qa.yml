@@ -161,9 +161,16 @@ jobs:
           app.update()
           time.sleep(0.8)
           app.update()
-          x, y = app.winfo_rootx(), app.winfo_rooty()
-          w, h = app.winfo_width(), app.winfo_height()
-          ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True).save('qa/native-workbench-v17.png')
+          try:
+              shot = ImageGrab.grab(window=app.winfo_id())
+          except (TypeError, OSError):
+              x, y = app.winfo_rootx(), app.winfo_rooty()
+              w, h = app.winfo_width(), app.winfo_height()
+              shot = ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True)
+          if shot.width < 1000 or shot.height < 700:
+              raise RuntimeError(f'Native workbench screenshot unexpectedly small: {shot.width}x{shot.height}')
+          shot.save('qa/native-workbench-v17.png')
+          print(f'Captured native workbench: {shot.width}x{shot.height}')
           app.destroy()
           '@ | python -
 
