@@ -1,31 +1,59 @@
-# Galaxy Local Engine — Design System v1.6
+# Galaxy Local Engine — Design System v1.7
 
 ## Intent
-Desktop power tool for people capturing/downloading media all day. It should feel like a serious local utility: calm, compact, trustworthy, fast. Not a futuristic AI dashboard.
+Native Windows utility for people who repeatedly capture product images, videos, audio and documents. It must feel like a serious local tool: readable, calm, operational and trustworthy. The native `GalaxyLocalEngine.exe` is the canonical surface; the HTML dashboard is optional and never substitutes for the EXE UI.
 
 ## Product world
-Capture queue, filesystem, transfer status, codecs, source inspection, local engine, task history.
+Capture strip, product gallery, original-resolution probe, transfer queue, filesystem, codecs, local engine, task history, diagnostics.
 
 ## Signature
-A single “capture strip” leads the workspace: paste URL → inspect → choose resource → download. Everything else is subordinate operational context.
+One capture strip leads the workbench: **paste URL → inspect → choose media/original images → download**. Home Depot/product-page original-image recovery is part of this strip, not a hidden secondary web page.
 
-## Defaults explicitly rejected
-- No neon, glow, glassmorphism or ornamental gradients.
-- No grids of identical rounded cards.
-- No tracked all-caps eyebrow labels as decoration.
-- No pill chips unless they represent actual status/filter state.
-- No oversized marketing typography inside the application.
+## Rejected defaults
+- No neon, glow, glassmorphism, decorative gradients or “AI dashboard” styling.
+- No grid of equal rounded cards; use a workbench with clear primary/secondary zones.
+- No tiny 7–9pt operational text.
+- No forced `tk scaling = 1.0`; respect Windows DPI.
+- No pill chips unless they are real status/filter controls.
+- No oversized marketing headings in the desktop application.
+- No motion-only feedback.
+
+## UI Skills mapping
+- `interface-design`: borders-only depth, 4px spatial grid, semantic tokens, four-level text hierarchy, native/ttk controls before custom widgets.
+- `frontend-design`: distinctive product-specific hierarchy; avoid template SaaS/AI aesthetics.
+- `better-ui`: high-frequency feedback ≤150ms, explicit hover/focus/press states, optical alignment, one icon language, no `transition: all` equivalent behavior.
 
 ## Tokens
-- Grid: 4px base; main spacing 8 / 12 / 16 / 24 / 32.
-- Radius: 4px controls, 6px panels, 8px modal only.
-- Control heights: 34px compact, 38px primary form controls.
-- Canvas: #121315; workspace: #161719; inset: #0F1012.
-- Primary text: #F1F2F4; secondary: #A6A9AE; muted: #70747B.
-- Accent: #6F8FFF. Accent is reserved for focused/current/primary action.
-- Success: #5FAF88; warning: #C99A54; error: #D76A6A.
-- Border: rgba(255,255,255,.075); stronger: rgba(255,255,255,.12).
-- Typeface: Segoe UI Variable / Segoe UI / Microsoft YaHei UI / system UI.
-- Body: 13px; labels: 12px; page title: 20px/650; section title: 14px/650.
-- Shadows: none for layout surfaces; only popovers/dialogs.
-- Motion: color/border/background 120ms; button press 150ms ease-out scale(.96); no transition:all; reduced-motion supported.
+- Grid: 4px base. Normal spacing: 8 / 12 / 16 / 20 / 24 / 32.
+- Radius: native Tk controls stay flat; 4–8px only where the platform primitive supports it.
+- Minimum hit target: 44px; comfortable primary target: 46px.
+- Canvas: `#0E1116`.
+- Workspace: `#141922`.
+- Raised surface: `#1A2130`.
+- Elevated inset: `#202A3A`.
+- Primary text: `#F7F9FC`.
+- Secondary text: `#C2CAD6`.
+- Tertiary text: `#8F9AAA`.
+- Accent: `#4F7DFF`, reserved for primary action/current focus.
+- Success: `#65BE92`; warning: `#D9A85F`; danger: `#E27676`.
+- Border: `#334052`; subtle border: `#273241`.
+- Typeface: Segoe UI / Segoe UI Variable when available; Microsoft YaHei UI fallback is acceptable on Chinese Windows.
+- Native type scale: caption 9pt, supporting 10pt, body 11pt, section 13pt, title 18pt, brand 21pt, display 24pt.
+- Depth strategy: borders + surface-color shifts only. No layout shadows.
+- Motion language: native hover/pressed color feedback around 100–150ms where possible; keyboard focus ring always visible; reduced-motion/static cues remain sufficient.
+
+## Layout
+- Default native window: approximately 1320×880; minimum 1100×760.
+- Main workbench / status rail: ~72/28.
+- Capture strip is the first focal block inside the main workbench.
+- Current task and advanced options follow the capture strip.
+- Queue and local runtime components live in the right rail.
+- Original-image action sits with the capture strip and explains maximum-public-resolution fallback.
+
+## Accessibility / readability gates
+- Never force Tk global scaling to 1.0 on Windows high-DPI displays.
+- Every custom action must be keyboard focusable.
+- Focus ring width ≥2px.
+- Body text cannot be below the shared body token; legacy hook text is normalized after composition.
+- Status must use text/icon/color together where applicable.
+- Primary actions and dangerous actions must remain visually distinct in monochrome/squint tests.
