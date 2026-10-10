@@ -204,7 +204,9 @@ def _install_close_guard(engine_module) -> None:
     window_cls = engine_module.EngineWindow
     if getattr(window_cls, "_galaxy_aria2_close_guard_installed", False):
         return
-    original_close = window_cls.close_app
+    original_close = getattr(window_cls, "close_app", None)
+    if not callable(original_close):
+        return
 
     def close_with_aria2(window) -> None:
         if not aria2_tasks_active():
