@@ -175,10 +175,34 @@ WEBSITE_URL = _impl.WEBSITE_URL
 _BASE_INSTALL_DESKTOP_UI = _impl.install_desktop_ui
 
 
+def _install_v18_legacy_action_host(native_module, engine_module) -> None:
+    if getattr(native_module, "_galaxy_v18_legacy_action_host_installed", False):
+        return
+    original_run_hooks = native_module.run_after_build_ui_hooks
+
+    def run_hooks_with_legacy_host(window) -> None:
+        if not hasattr(window, "_copy_diag_button"):
+            host = tk.Frame(window, bg=BG)
+            window._v18_compatibility_actions = host
+            window._copy_diag_button = ActionButton(
+                host,
+                text="复制诊断",
+                command=lambda: _impl._copy_diagnostics(window, engine_module),
+                kind="ghost",
+                compact=True,
+            )
+        original_run_hooks(window)
+
+    native_module.run_after_build_ui_hooks = run_hooks_with_legacy_host
+    native_module._galaxy_v18_legacy_action_host_installed = True
+
+
 def install_desktop_ui(engine_module):
     window_cls = _BASE_INSTALL_DESKTOP_UI(engine_module)
-    from desktop_native_v18 import install_native_desktop_v18
-    return install_native_desktop_v18(engine_module, sys.modules[__name__])
+    import desktop_native_v18 as native_v18
+
+    _install_v18_legacy_action_host(native_v18, engine_module)
+    return native_v18.install_native_desktop_v18(engine_module, sys.modules[__name__])
 
 
 def __getattr__(name: str):
@@ -214,6 +238,7 @@ def run_self_test() -> None:
     assert _resolve_type_size("title") == TYPE["title"]
     assert _resolve_type_size(9) == TYPE["body"]
     assert target_padding(16) >= BUTTON_PAD_Y
+    assert callable(_install_v18_legacy_action_host)
     assert callable(install_desktop_ui)
 
 
