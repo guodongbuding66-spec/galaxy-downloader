@@ -250,16 +250,18 @@ def _compact_gallery_fallback(window) -> None:
 
 
 def _stabilize_queue_header_controls(window) -> None:
-    """Rebuild queue actions in a dedicated two-row toolbar.
+    """Rebuild queue actions in a deterministic two-row toolbar.
 
-    The right rail is deliberately narrow. Four independent pack(side=right/left)
-    children previously competed with the title and could squeeze `暂停队列` to
-    only a few pixels. Rebuilding only the action widgets under their own frame
-    gives the title a full row and every control a deterministic 44px target.
+    V1.7's readable type exposes a structural bug in the old narrow rail: every
+    presenter button packed into the same header row. At ~1020px the Transcript
+    action was physically squeezed to 24px even though its text needs ~62px.
+    Recreate the queue/header actions under a dedicated toolbar so every visible
+    control keeps a real 44px target and label fit.
     """
     pause = getattr(window, "_queue_pause_button", None)
     history = getattr(window, "_history_button", None)
     clear = getattr(window, "_queue_clear_button", None)
+    transcript = getattr(window, "_transcript_button", None)
     if pause is None or history is None or clear is None or getattr(window, "_galaxy_queue_header_stable", False):
         return
     head = clear.master
@@ -269,10 +271,9 @@ def _stabilize_queue_header_controls(window) -> None:
     if copy is None:
         return
 
-    # Remove the legacy header actions. Their state is represented by the same
-    # window methods/variables below, and the attributes are rebound so existing
-    # queue/history tick code continues to update the new widgets.
-    for widget in (pause, history, clear):
+    for widget in (pause, history, clear, transcript):
+        if widget is None:
+            continue
         try:
             widget.destroy()
         except tk.TclError:
@@ -310,6 +311,16 @@ def _stabilize_queue_header_controls(window) -> None:
         compact=True,
     )
     window._history_button.pack(side="left")
+
+    if transcript is not None:
+        window._transcript_button = ui.ActionButton(
+            secondary,
+            text="Transcript",
+            command=lambda: show_desktop_presenter(window, "transcript"),
+            kind="ghost",
+            compact=True,
+        )
+        window._transcript_button.pack(side="left", padx=(6, 0))
 
     def clear_queue() -> None:
         clear_fn = getattr(window, "clear_queued_jobs", None)
