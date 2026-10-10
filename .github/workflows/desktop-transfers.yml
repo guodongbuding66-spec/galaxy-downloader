@@ -9,6 +9,7 @@ on:
       - 'local-engine/aria2_transfer.py'
       - 'local-engine/aria2_task_provider.py'
       - 'local-engine/local_task_provider.py'
+      - 'local-engine/task_center.py'
       - 'local-engine/transfer_center.py'
       - 'local-engine/transfer_center_legacy.py'
       - 'local-engine/desktop_qr_transfer.py'
@@ -28,6 +29,7 @@ on:
       - 'local-engine/aria2_transfer.py'
       - 'local-engine/aria2_task_provider.py'
       - 'local-engine/local_task_provider.py'
+      - 'local-engine/task_center.py'
       - 'local-engine/transfer_center.py'
       - 'local-engine/transfer_center_legacy.py'
       - 'local-engine/desktop_qr_transfer.py'
@@ -60,6 +62,7 @@ jobs:
           local-engine/aria2_transfer.py
           local-engine/aria2_task_provider.py
           local-engine/local_task_provider.py
+          local-engine/task_center.py
           local-engine/transfer_center.py
           local-engine/transfer_center_legacy.py
           local-engine/desktop_qr_transfer.py
