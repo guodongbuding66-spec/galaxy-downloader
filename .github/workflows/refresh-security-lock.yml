@@ -1,0 +1,44 @@
+name: Refresh Security Lock
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - .github/workflows/refresh-security-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b
+        with:
+          version: 11.8.0
+          runtime: node@22
+          cache: false
+          install: false
+      - name: Refresh lockfile
+        run: pnpm install --lockfile-only --no-frozen-lockfile
+      - name: Verify patched production dependency graph
+        run: pnpm audit --prod --audit-level=high
+      - name: Commit lockfile
+        run: |
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo 'pnpm-lock.yaml already current'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pnpm-lock.yaml
+          git commit -m 'chore(deps): refresh security lockfile'
+          git push origin HEAD:main
