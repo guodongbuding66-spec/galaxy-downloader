@@ -7,6 +7,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 import desktop_ui as ui
+from aria2_task_provider import register_aria2_session
 from aria2_transfer import Aria2Progress, Aria2TransferSnapshot
 from desktop_design_tokens import LAYOUT
 from transfer_center import start_torrent_transfer
@@ -118,6 +119,7 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
         if old is not None and old.active: status.set("已有 Torrent 任务正在运行"); return
         try:
             new = start_torrent_transfer(engine_module, value, on_update=render, max_attempts=3)
+            register_aria2_session(new)
             window._galaxy_aria2_torrent_session = new; new.start()
         except Exception as exc: status.set("启动失败"); detail.set(str(exc)[:240])
     def pause() -> None:
