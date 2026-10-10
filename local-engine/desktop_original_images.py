@@ -120,6 +120,7 @@ def _build_original_images_strip(window, engine_module) -> None:
         kind="secondary",
     )
     window._original_images_button.pack(side="right", padx=(14, 0))
+    window._original_images_strip = strip
 
 
 def _gallery_option_rows(window) -> list[tk.Misc]:
@@ -154,63 +155,92 @@ def _gallery_option_rows(window) -> list[tk.Misc]:
 
 
 def _compact_gallery_fallback(window) -> None:
-    """Keep low-frequency gallery-dl tuning collapsed in the main workbench.
+    """Move secondary gallery-dl controls behind progressive disclosure.
 
-    The previous default exposed Archive, Resume, output, rate and date fields at
-    all times. On laptop-height windows this pushed the current-task area below
-    the fold and made the native utility look like a settings form. The controls
-    remain fully constructed for compatibility and accessibility, but start
-    hidden behind one explicit “高级选项” action.
+    Quick Download is the focal task. gallery-dl remains available for sites
+    where the normal parser has no usable media, but it no longer consumes a
+    permanent card plus five settings rows before the current-task section.
     """
     button = getattr(window, "_gallery_dl_fallback_button", None)
-    if button is None or getattr(window, "_galaxy_gallery_compact_installed", False):
-        return
-    rows = _gallery_option_rows(window)
-    if not rows:
+    strip = getattr(window, "_original_images_strip", None)
+    if button is None or strip is None or getattr(window, "_galaxy_gallery_compact_installed", False):
         return
 
+    rows = _gallery_option_rows(window)
     for row in rows:
         try:
             row.pack_forget()
         except tk.TclError:
             pass
 
-    holder = button.master
-    state = tk.BooleanVar(master=window, value=False)
+    row = button.master
+    card = row.master
+    button.configure(text="开始 gallery-dl")
+    options_state = tk.BooleanVar(master=window, value=False)
 
-    def toggle() -> None:
-        expanded = not bool(state.get())
-        state.set(expanded)
+    def toggle_options() -> None:
+        expanded = not bool(options_state.get())
+        options_state.set(expanded)
         if expanded:
-            for index, row in enumerate(rows):
+            for index, item in enumerate(rows):
                 try:
-                    row.pack(fill="x", pady=((7 if index < 2 else 8), 0))
+                    item.pack(fill="x", pady=((7 if index < 2 else 8), 0))
                 except tk.TclError:
                     pass
-            toggle_button.configure(text="收起高级选项")
+            options_toggle.configure(text="收起高级选项")
         else:
-            for row in rows:
+            for item in rows:
                 try:
-                    row.pack_forget()
+                    item.pack_forget()
                 except tk.TclError:
                     pass
-            toggle_button.configure(text="高级选项")
+            options_toggle.configure(text="高级选项")
         try:
             window.update_idletasks()
         except tk.TclError:
             pass
 
-    toggle_button = ui.ActionButton(
-        holder,
+    options_toggle = ui.ActionButton(
+        row,
         text="高级选项",
-        command=toggle,
+        command=toggle_options,
         kind="ghost",
         compact=True,
     )
-    toggle_button.pack(side="right", padx=(8, 0), before=button)
-    window._gallery_dl_options_expanded = state
-    window._gallery_dl_options_toggle = toggle_button
+    options_toggle.pack(side="right", padx=(8, 0), before=button)
+
+    fallback_state = tk.BooleanVar(master=window, value=False)
+    card.pack_forget()
+
+    def toggle_fallback() -> None:
+        visible = not bool(fallback_state.get())
+        fallback_state.set(visible)
+        if visible:
+            card.pack(fill="x", pady=(10, 0))
+            fallback_toggle.configure(text="收起图库备用")
+        else:
+            card.pack_forget()
+            fallback_toggle.configure(text="图库备用")
+        try:
+            window.update_idletasks()
+        except tk.TclError:
+            pass
+
+    fallback_toggle = ui.ActionButton(
+        strip,
+        text="图库备用",
+        command=toggle_fallback,
+        kind="ghost",
+        compact=True,
+    )
+    fallback_toggle.pack(side="right", padx=(8, 0), before=window._original_images_button)
+
+    window._gallery_dl_options_expanded = options_state
+    window._gallery_dl_options_toggle = options_toggle
     window._gallery_dl_compact_rows = rows
+    window._gallery_dl_fallback_expanded = fallback_state
+    window._gallery_dl_fallback_toggle = fallback_toggle
+    window._gallery_dl_fallback_card = card
     window._galaxy_gallery_compact_installed = True
 
 
