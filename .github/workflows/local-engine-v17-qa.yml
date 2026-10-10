@@ -41,15 +41,18 @@ jobs:
           python -m pip install -r local-engine/requirements.txt
           python -m pip install "pillow>=11,<12" pyinstaller
 
-      - name: Run resolution and native token self-tests
+      - name: Run image, UI, DPI and native self-tests
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $env:PYTHONPATH = (Resolve-Path 'local-engine').Path
           python local-engine/image_resolution.py
+          python local-engine/home_depot_policy.py
+          python local-engine/desktop_dpi.py
+          python local-engine/desktop_original_images.py
           python local-engine/desktop_design_tokens.py
           python local-engine/desktop_ui.py
-          python local-engine/desktop_native_v16.py
+          python local-engine/desktop_native_v17.py
           python local-engine/entrypoint.py --self-test
 
       - name: Live Home Depot original-image test
@@ -88,8 +91,9 @@ jobs:
           draw.text((88, 336), f"{best.get('width', '?')} × {best.get('height', '?')} px", font=title, fill='#65BE92')
           draw.text((88, 390), str(best.get('url') or 'No candidate'), font=small, fill='#C2CAD6')
           draw.text((56, 484), f"Static page image URLs found: {data.get('pageImageCount', 0)}", font=body, fill='#C2CAD6')
-          draw.text((56, 528), 'Result: PASS — resolver escaped the 100/600px derivative ceiling' if max(int(best.get('width') or 0), int(best.get('height') or 0)) > 600 else 'Result: FAIL', font=body, fill='#65BE92' if max(int(best.get('width') or 0), int(best.get('height') or 0)) > 600 else '#E27676')
-          draw.text((56, 630), 'Test uses public Home Depot/THD CDN only. No TinyFish or paid browser service.', font=small, fill='#8F9AAA')
+          passed = max(int(best.get('width') or 0), int(best.get('height') or 0)) > 600
+          draw.text((56, 528), 'Result: PASS — resolver escaped the 100/600px derivative ceiling' if passed else 'Result: FAIL', font=body, fill='#65BE92' if passed else '#E27676')
+          draw.text((56, 630), 'Public Home Depot/THD CDN only · no TinyFish · no paid browser service', font=small, fill='#8F9AAA')
           image.save('qa/homedepot-live-result.png')
           '@ | python -
 
@@ -147,7 +151,7 @@ jobs:
           from pathlib import Path
           from PIL import ImageGrab
           sys.path.insert(0, str(Path('local-engine').resolve()))
-          import entrypoint  # installs the production policies/UI wrappers
+          import entrypoint
           import engine
 
           app = engine.EngineWindow(None)
