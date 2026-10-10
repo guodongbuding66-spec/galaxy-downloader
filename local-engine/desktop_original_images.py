@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import tkinter as tk
 from typing import Any
+from urllib.parse import urlparse
 
 import bridge
 import desktop_quick_download as quick
@@ -10,6 +11,15 @@ import desktop_ui as ui
 from desktop_dpi import install_native_dpi_policy
 from desktop_hooks import register_after_build_ui_hook, show_desktop_presenter
 from image_download import start_image_download_job
+
+
+def _is_home_depot_source(value: object) -> bool:
+    """Match Home Depot by parsed hostname, never by an arbitrary URL substring."""
+    try:
+        host = (urlparse(str(value or "")).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return host == "homedepot.com" or host.endswith(".homedepot.com")
 
 
 def _image_urls(result: object) -> tuple[dict[str, Any], list[str]]:
@@ -82,17 +92,19 @@ def _download_original_images(window, engine_module) -> None:
                 button.state(["!disabled"])
                 window._quick_parse_button.state(["!disabled"])
                 if accepted:
-                    suffix = "；会优先尝试原尺寸/高分辨率 CDN 变体" if "homedepot.com" in source_url.lower() else ""
+                    suffix = "；会优先尝试原尺寸/高分辨率 CDN 变体" if _is_home_depot_source(source_url) else ""
                     window._quick_state_var.set(f"已提交 {count} 张图片到本机原图下载{suffix}。")
                 else:
                     window._quick_state_var.set(f"原图下载未启动：{message or '未知错误'}"[:280])
             except tk.TclError:
-                pass
+                # The window may have been closed while the worker was finishing.
+                return
 
         try:
             window.after(0, finish)
         except tk.TclError:
-            pass
+            # The Tk interpreter can disappear between worker completion and dispatch.
+            return
 
     threading.Thread(target=worker, name="GalaxyOriginalImages", daemon=True).start()
 
@@ -176,7 +188,8 @@ def _compact_gallery_fallback(window) -> None:
         try:
             row.pack_forget()
         except tk.TclError:
-            pass
+            # A legacy gallery row may already have been destroyed by another presenter.
+            continue
 
     row = button.master
     card = row.master
@@ -191,19 +204,22 @@ def _compact_gallery_fallback(window) -> None:
                 try:
                     item.pack(fill="x", pady=((7 if index < 2 else 8), 0))
                 except tk.TclError:
-                    pass
+                    # Ignore stale optional rows while keeping the remaining controls usable.
+                    continue
             options_toggle.configure(text="收起高级选项")
         else:
             for item in rows:
                 try:
                     item.pack_forget()
                 except tk.TclError:
-                    pass
+                    # Ignore stale optional rows while collapsing the rest.
+                    continue
             options_toggle.configure(text="高级选项")
         try:
             window.update_idletasks()
         except tk.TclError:
-            pass
+            # The window can be closed while a disclosure action is being dispatched.
+            return
 
     options_toggle = ui.ActionButton(
         row,
@@ -229,7 +245,8 @@ def _compact_gallery_fallback(window) -> None:
         try:
             window.update_idletasks()
         except tk.TclError:
-            pass
+            # The window can be closed while a disclosure action is being dispatched.
+            return
 
     fallback_toggle = ui.ActionButton(
         actions,
@@ -278,11 +295,13 @@ def _stabilize_queue_header_controls(window) -> None:
         try:
             widget.destroy()
         except tk.TclError:
-            pass
+            # A presenter may already have replaced one of these controls.
+            continue
     try:
         copy.pack_forget()
     except tk.TclError:
-        pass
+        # If the title copy has already been destroyed there is nothing safe to reflow.
+        return
     copy.pack(fill="x", anchor="w")
 
     toolbar = tk.Frame(rail, bg=ui.PANEL)
@@ -385,6 +404,9 @@ def run_self_test() -> None:
     assert data["title"] == "Product"
     assert len(urls) == 2
     assert urls[0].endswith("_100.jpg")
+    assert _is_home_depot_source("https://www.homedepot.com/p/example/700380885")
+    assert not _is_home_depot_source("https://evil.example/?next=homedepot.com")
+    assert not _is_home_depot_source("https://homedepot.com.evil.example/p/700380885")
     assert callable(_compact_gallery_fallback)
     assert callable(_stabilize_queue_header_controls)
 
