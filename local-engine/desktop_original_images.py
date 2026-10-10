@@ -122,11 +122,100 @@ def _build_original_images_strip(window, engine_module) -> None:
     window._original_images_button.pack(side="right", padx=(14, 0))
 
 
+def _gallery_option_rows(window) -> list[tk.Misc]:
+    rows: list[tk.Misc] = []
+    archive = getattr(window, "_gallery_dl_archive_check", None)
+    resume = getattr(window, "_gallery_dl_resume_check", None)
+    output = getattr(window, "_gallery_dl_output_entry", None)
+    rate = getattr(window, "_gallery_dl_rate_entry", None)
+    after = getattr(window, "_gallery_dl_date_after_entry", None)
+
+    for widget in (archive, resume):
+        if widget is not None:
+            rows.append(widget.master)
+    for widget in (output, rate, after):
+        if widget is None:
+            continue
+        parent = widget.master
+        if getattr(parent, "master", None) is not None:
+            parent = parent.master
+        if getattr(parent, "master", None) is not None:
+            parent = parent.master
+        rows.append(parent)
+
+    unique: list[tk.Misc] = []
+    seen: set[int] = set()
+    for row in rows:
+        identity = id(row)
+        if identity not in seen:
+            seen.add(identity)
+            unique.append(row)
+    return unique
+
+
+def _compact_gallery_fallback(window) -> None:
+    """Keep low-frequency gallery-dl tuning collapsed in the main workbench.
+
+    The previous default exposed Archive, Resume, output, rate and date fields at
+    all times. On laptop-height windows this pushed the current-task area below
+    the fold and made the native utility look like a settings form. The controls
+    remain fully constructed for compatibility and accessibility, but start
+    hidden behind one explicit “高级选项” action.
+    """
+    button = getattr(window, "_gallery_dl_fallback_button", None)
+    if button is None or getattr(window, "_galaxy_gallery_compact_installed", False):
+        return
+    rows = _gallery_option_rows(window)
+    if not rows:
+        return
+
+    for row in rows:
+        try:
+            row.pack_forget()
+        except tk.TclError:
+            pass
+
+    holder = button.master
+    state = tk.BooleanVar(master=window, value=False)
+
+    def toggle() -> None:
+        expanded = not bool(state.get())
+        state.set(expanded)
+        if expanded:
+            for index, row in enumerate(rows):
+                try:
+                    row.pack(fill="x", pady=((7 if index < 2 else 8), 0))
+                except tk.TclError:
+                    pass
+            toggle_button.configure(text="收起高级选项")
+        else:
+            for row in rows:
+                try:
+                    row.pack_forget()
+                except tk.TclError:
+                    pass
+            toggle_button.configure(text="高级选项")
+        try:
+            window.update_idletasks()
+        except tk.TclError:
+            pass
+
+    toggle_button = ui.ActionButton(
+        holder,
+        text="高级选项",
+        command=toggle,
+        kind="ghost",
+        compact=True,
+    )
+    toggle_button.pack(side="right", padx=(8, 0), before=button)
+    window._gallery_dl_options_expanded = state
+    window._gallery_dl_options_toggle = toggle_button
+    window._gallery_dl_compact_rows = rows
+    window._galaxy_gallery_compact_installed = True
+
+
 def install_desktop_original_images(engine_module):
     window_cls = engine_module.EngineWindow
-    # DPI policy is independent from Home Depot, but this module is installed
-    # on every native run through image_archive_policy and is therefore a stable
-    # place to restore Windows' real DPI after legacy composition forced 1.0.
     install_native_dpi_policy(engine_module)
     if getattr(window_cls, "_galaxy_desktop_original_images_installed", False):
         return window_cls
@@ -135,6 +224,12 @@ def install_desktop_original_images(engine_module):
         "desktop-original-images",
         lambda window: _build_original_images_strip(window, engine_module),
         order=45,
+    )
+    register_after_build_ui_hook(
+        window_cls,
+        "desktop-gallery-compact",
+        _compact_gallery_fallback,
+        order=48,
     )
     window_cls._galaxy_desktop_original_images_installed = True
     return window_cls
@@ -155,6 +250,7 @@ def run_self_test() -> None:
     assert data["title"] == "Product"
     assert len(urls) == 2
     assert urls[0].endswith("_100.jpg")
+    assert callable(_compact_gallery_fallback)
 
 
 if __name__ == "__main__":
