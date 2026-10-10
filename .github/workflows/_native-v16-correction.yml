@@ -49,6 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python -m pip install "pillow>=11,<12"
           python -m py_compile local-engine/desktop_native_v16.py local-engine/desktop_ui.py local-engine/desktop_design_tokens.py local-engine/generate_icon.py
           python local-engine/desktop_design_tokens.py
           python local-engine/generate_icon.py --output /tmp/GalaxyLocalEngine.ico --png-output /tmp/GalaxyLocalEngine.png
