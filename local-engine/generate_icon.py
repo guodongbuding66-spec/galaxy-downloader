@@ -5,53 +5,48 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-BG = "#0A0F1C"
-VIOLET = "#8A6CFF"
-VIOLET_SOFT = "#B4A5FF"
-CYAN = "#35D4BC"
+TILE = "#17191D"
+BORDER = "#2D3036"
+INK = "#F1F2F4"
+ACCENT = "#6F8FFF"
+
+
+def _scaled(value: float, scale: float) -> int:
+    return round(value * scale)
 
 
 def draw_icon(size: int) -> Image.Image:
-    image = Image.new("RGBA", (size, size), (10, 15, 28, 255))
+    """Render the Galaxy native-workbench mark at one ICO source size."""
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     scale = size / 256
 
-    def box(values: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
-        return tuple(round(value * scale) for value in values)  # type: ignore[return-value]
+    def box(values: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
+        return tuple(_scaled(value, scale) for value in values)  # type: ignore[return-value]
 
-    ring_width = max(2, round(20 * scale))
-    orbit_width = max(1, round(8 * scale))
-    arrow_width = max(2, round(22 * scale))
+    radius = max(2, _scaled(48, scale))
+    border_width = max(1, _scaled(5, scale))
+    draw.rounded_rectangle(box((18, 18, 238, 238)), radius=radius, fill=TILE, outline=BORDER, width=border_width)
 
-    draw.ellipse(box((54, 54, 202, 202)), outline=VIOLET, width=ring_width)
-    draw.arc(box((28, 74, 228, 186)), start=198, end=342, fill=VIOLET_SOFT, width=orbit_width)
-    draw.ellipse(box((194, 70, 216, 92)), fill=CYAN)
+    # Broken G: strong white silhouette with an open upper-right edge.
+    g_width = max(2, _scaled(22, scale))
+    draw.arc(box((53, 52, 190, 190)), start=42, end=322, fill=INK, width=g_width)
+    draw.line(box((133, 132, 190, 132)), fill=INK, width=g_width)
 
-    draw.line(box((128, 62, 128, 137)), fill=CYAN, width=arrow_width)
-    draw.line(box((94, 118, 128, 154)), fill=CYAN, width=arrow_width)
-    draw.line(box((128, 154, 162, 118)), fill=CYAN, width=arrow_width)
-
-    # Tiny lower spark makes the mark identifiable at 32/48px without adding
-    # another generic download-arrow enclosure.
-    draw.polygon(
-        [
-            (round(183 * scale), round(178 * scale)),
-            (round(193 * scale), round(195 * scale)),
-            (round(211 * scale), round(202 * scale)),
-            (round(193 * scale), round(209 * scale)),
-            (round(183 * scale), round(226 * scale)),
-            (round(176 * scale), round(209 * scale)),
-            (round(158 * scale), round(202 * scale)),
-            (round(176 * scale), round(195 * scale)),
-        ],
-        fill=VIOLET_SOFT,
-    )
+    # One blue action accent for download + tray.
+    arrow_width = max(2, _scaled(18, scale))
+    draw.line(box((166, 72, 166, 151)), fill=ACCENT, width=arrow_width)
+    draw.line(box((137, 124, 166, 154)), fill=ACCENT, width=arrow_width)
+    draw.line(box((166, 154, 195, 124)), fill=ACCENT, width=arrow_width)
+    tray_width = max(2, _scaled(14, scale))
+    draw.line(box((132, 184, 200, 184)), fill=ACCENT, width=tray_width)
     return image
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="local-engine/GalaxyLocalEngine.ico")
+    parser.add_argument("--png-output", default="")
     args = parser.parse_args()
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -61,6 +56,10 @@ def main() -> int:
         format="ICO",
         sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
     )
+    if args.png_output:
+        png_target = Path(args.png_output)
+        png_target.parent.mkdir(parents=True, exist_ok=True)
+        base.save(png_target, format="PNG")
     print(target)
     return 0
 
