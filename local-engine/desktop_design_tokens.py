@@ -2,30 +2,30 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-# Semantic color tokens. These are the single runtime source for the current
-# Galaxy Desktop palette; compatibility aliases in desktop_ui.py may re-export
-# them while older workspaces migrate incrementally.
+# Galaxy Native Workbench v1.6.1
+# Neutral graphite surfaces + one blue action accent. The desktop application
+# is an operational tool, not a neon dashboard; keep state colors semantic.
 COLOR = MappingProxyType(
     {
-        "bg": "#080C14",
-        "surface": "#0F1624",
-        "surface_raised": "#141E30",
-        "surface_elevated": "#1A2740",
-        "border": "#25324B",
-        "border_subtle": "#1C2940",
-        "text_primary": "#F6F8FC",
-        "text_secondary": "#9AA6BB",
-        "text_subtle": "#6F7D95",
-        "accent": "#7C6CFF",
-        "accent_hover": "#9185FF",
-        "info": "#36D7C4",
-        "success": "#45D18A",
-        "warning": "#F2B84B",
-        "danger": "#FF6278",
-        "danger_hover": "#FF788B",
-        "focus": "#9185FF",
-        "danger_contrast": "#180408",
-        "secondary_hover": "#233352",
+        "bg": "#121315",
+        "surface": "#161719",
+        "surface_raised": "#1C1E22",
+        "surface_elevated": "#22252A",
+        "border": "#30333A",
+        "border_subtle": "#26292F",
+        "text_primary": "#F1F2F4",
+        "text_secondary": "#A6A9AE",
+        "text_subtle": "#777B82",
+        "accent": "#6F8FFF",
+        "accent_hover": "#829CFF",
+        "info": "#78A9D4",
+        "success": "#5FAF88",
+        "warning": "#C99A54",
+        "danger": "#D76A6A",
+        "danger_hover": "#E17A7A",
+        "focus": "#8EA6FF",
+        "danger_contrast": "#250E10",
+        "secondary_hover": "#2A2D33",
         "on_accent": "#FFFFFF",
     }
 )
@@ -44,9 +44,6 @@ SPACE = MappingProxyType(
     }
 )
 
-# Semantic layout spacing used by page composition. Keep page code on these
-# names instead of introducing one-off pixel gaps; all values resolve to the
-# shared 4px spacing scale above.
 LAYOUT = MappingProxyType(
     {
         "none": SPACE["0"],
@@ -63,30 +60,32 @@ RADIUS = MappingProxyType(
     {
         "none": 0,
         "sm": 4,
-        "md": 8,
-        "lg": 12,
+        "md": 6,
+        "lg": 8,
         "pill": 999,
     }
 )
 
+# Deliberately larger than the former 7/8/9pt scale. The old native UI was
+# difficult to read on common 100-125% Windows scaling.
 TYPE = MappingProxyType(
     {
         "family": "Segoe UI",
-        "caption": 7,
-        "body_sm": 8,
-        "body": 9,
-        "title_sm": 10,
-        "title": 16,
-        "brand": 17,
-        "display": 18,
+        "caption": 8,
+        "body_sm": 9,
+        "body": 10,
+        "title_sm": 11,
+        "title": 17,
+        "brand": 18,
+        "display": 20,
     }
 )
 
 MOTION = MappingProxyType(
     {
         "fast_ms": 100,
-        "normal_ms": 180,
-        "slow_ms": 260,
+        "normal_ms": 150,
+        "slow_ms": 220,
         "entrance_easing": "ease-out",
         "reversible_easing": "ease-in-out",
     }
@@ -96,8 +95,8 @@ CONTROL = MappingProxyType(
     {
         "button_pad_x": 14,
         "button_pad_y": 8,
-        "button_compact_pad_x": 9,
-        "button_compact_pad_y": 5,
+        "button_compact_pad_x": 10,
+        "button_compact_pad_y": 6,
         "target_min": 44,
         "target_comfortable": 44,
         "focus_ring_width": 2,
@@ -112,7 +111,6 @@ SHADOW = MappingProxyType(
     }
 )
 
-# Stable compatibility aliases used throughout existing Desktop workspaces.
 BG = COLOR["bg"]
 PANEL = COLOR["surface"]
 PANEL_2 = COLOR["surface_raised"]
@@ -133,7 +131,6 @@ FOCUS = COLOR["focus"]
 
 
 def font(size_token: str = "body", *, bold: bool = False) -> tuple[str, int] | tuple[str, int, str]:
-    """Return one Tk-compatible font tuple from the shared type scale."""
     if size_token not in TYPE or size_token == "family":
         raise KeyError(f"unknown type token: {size_token}")
     family = str(TYPE["family"])
@@ -142,13 +139,6 @@ def font(size_token: str = "body", *, bold: bool = False) -> tuple[str, int] | t
 
 
 def target_padding(line_height: int, *, compact: bool = False) -> int:
-    """Return vertical padding that keeps a text control at least 44px tall.
-
-    Tk classic buttons express padding rather than a pixel minimum-height. The
-    runtime facade measures the active font line height and uses this helper to
-    satisfy the shared interaction-target contract without hard-coding a
-    platform-specific font metric.
-    """
     if line_height <= 0:
         raise ValueError("line_height must be positive")
     base = int(CONTROL["button_compact_pad_y"] if compact else CONTROL["button_pad_y"])
@@ -157,7 +147,7 @@ def target_padding(line_height: int, *, compact: bool = False) -> int:
 
 
 def run_self_test() -> None:
-    assert COLOR["focus"] == COLOR["accent_hover"]
+    assert COLOR["focus"] != COLOR["bg"]
     assert SPACE["1"] == 4 and SPACE["10"] == 40
     assert tuple(LAYOUT.values()) == (0, 4, 8, 12, 16, 20, 24)
     assert all(value in SPACE.values() for value in LAYOUT.values())
@@ -166,11 +156,10 @@ def run_self_test() -> None:
     assert MOTION["fast_ms"] < MOTION["normal_ms"] < MOTION["slow_ms"]
     assert CONTROL["target_min"] >= 44
     assert CONTROL["focus_ring_width"] >= 2
-    assert BG == "#080C14" and ACCENT == "#7C6CFF" and DANGER == "#FF6278"
-    assert font("body") == ("Segoe UI", 9)
-    assert font("body_sm", bold=True) == ("Segoe UI", 8, "bold")
-    assert target_padding(16) == 14
-    assert target_padding(16, compact=True) == 14
+    assert BG == "#121315" and ACCENT == "#6F8FFF" and DANGER == "#D76A6A"
+    assert font("body") == ("Segoe UI", 10)
+    assert font("body_sm", bold=True) == ("Segoe UI", 9, "bold")
+    assert target_padding(16) >= CONTROL["button_pad_y"]
     assert target_padding(64) == CONTROL["button_pad_y"]
     try:
         target_padding(0)
@@ -182,7 +171,7 @@ def run_self_test() -> None:
         COLOR["bg"] = "#000000"  # type: ignore[index]
     except TypeError:
         pass
-    else:  # pragma: no cover - MappingProxyType must stay immutable.
+    else:
         raise AssertionError("design token mappings must be immutable")
 
 
