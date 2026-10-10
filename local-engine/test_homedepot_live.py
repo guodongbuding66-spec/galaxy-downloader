@@ -1,0 +1,275 @@
+from __future__ import annotations
+
+import io
+import json
+import re
+import sys
+import tempfile
+import urllib.error
+import urllib.request
+from pathlib import Path
+from urllib.parse import urlparse
+
+from PIL import Image, UnidentifiedImageError
+
+from image_resolution import home_depot_candidates, is_home_depot_image
+
+PRODUCT_URL = (
+    "https://www.homedepot.com/p/Unbranded-Gray-9-ft-x-6-ft-Weatherproof-Metal-Garden-Storage-Shed-with-Windows-Flower-Rack-Lockable-Double-Doors-for-Backyard-hh-816/700380885"
+)
+PEP_URLS = (
+    PRODUCT_URL.replace("/p/", "/pep/", 1),
+    "https://www.homedepot.com/pep/700380885",
+)
+KNOWN_MAIN = (
+    "https://images.thdstatic.com/productImages/3c58f1501a4d4ec0801de07367105b70/svn/"
+    "gray-unbranded-metal-sheds-hh-816-64_600.jpg"
+)
+UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
+)
+PARTIAL_BYTES = 2 * 1024 * 1024
+FULL_LIMIT = 32 * 1024 * 1024
+IMAGE_RE = re.compile(
+    r"https?://images\.thdstatic\.com/productImages/[^\"'<>\\\s]+?\.(?:jpe?g|png|webp|avif)(?:\?[^\"'<>\\\s]*)?",
+    re.I,
+)
+
+
+def _request(url: str, *, range_probe: bool = False):
+    headers = {
+        "User-Agent": UA,
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": PRODUCT_URL,
+        "Accept-Encoding": "identity",
+    }
+    if range_probe:
+        headers["Range"] = f"bytes=0-{PARTIAL_BYTES - 1}"
+    return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=25)
+
+
+def _dimensions(payload: bytes) -> tuple[int, int]:
+    with Image.open(io.BytesIO(payload)) as image:
+        width, height = image.size
+    return int(width), int(height)
+
+
+def _image_size(url: str) -> tuple[int, int, int]:
+    status = 200
+    with _request(url, range_probe=True) as response:
+        status = int(getattr(response, "status", 200) or 200)
+        content_type = str(response.headers.get("Content-Type") or "")
+        if "image/" not in content_type.lower():
+            raise ValueError(f"not an image response: {content_type}")
+        payload = response.read(PARTIAL_BYTES)
+    try:
+        width, height = _dimensions(payload)
+        return width, height, status
+    except (UnidentifiedImageError, OSError):
+        with _request(url, range_probe=False) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            content_type = str(response.headers.get("Content-Type") or "")
+            if "image/" not in content_type.lower():
+                raise ValueError(f"not an image response: {content_type}")
+            payload = response.read(FULL_LIMIT + 1)
+        if len(payload) > FULL_LIMIT:
+            raise ValueError("image exceeds live-test byte cap")
+        width, height = _dimensions(payload)
+        return width, height, status
+
+
+def _images_from_page(url: str) -> list[str]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "identity",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            html = response.read(12 * 1024 * 1024).decode("utf-8", errors="replace")
+    except Exception:
+        return []
+    html = html.replace("\\/", "/").replace("\\u002F", "/").replace("\\u0026", "&")
+    result: list[str] = []
+    for match in IMAGE_RE.findall(html):
+        value = match.replace("&amp;", "&")
+        if value not in result:
+            result.append(value)
+    return result
+
+
+def _best_variant(seed: str) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
+    attempts: list[dict[str, object]] = []
+    best: dict[str, object] | None = None
+    for candidate in home_depot_candidates(seed):
+        try:
+            width, height, status = _image_size(candidate)
+        except urllib.error.HTTPError as exc:
+            attempts.append({"url": candidate, "status": exc.code, "ok": False})
+            continue
+        except Exception as exc:
+            attempts.append({"url": candidate, "ok": False, "error": str(exc)[:180]})
+            continue
+        item: dict[str, object] = {
+            "url": candidate,
+            "status": status,
+            "ok": True,
+            "width": width,
+            "height": height,
+            "pixels": width * height,
+        }
+        attempts.append(item)
+        if best is None or int(item["pixels"]) > int(best["pixels"]):
+            best = item
+    return best, attempts
+
+
+def _is_real_thd_asset(value: object) -> bool:
+    try:
+        host = (urlparse(str(value or "")).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return host == "images.thdstatic.com" or host.endswith(".images.thdstatic.com")
+
+
+def _production_parser_result() -> dict[str, object]:
+    """Exercise the exact URL through the same hybrid parser as the native EXE."""
+    try:
+        import entrypoint  # noqa: F401  installs production policies
+        import bridge
+
+        result = bridge.parse_with_bundled_ytdlp(PRODUCT_URL, "none")
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)[:500], "imageCount": 0, "realProductAsset": False}
+
+    data = result.get("data") if isinstance(result, dict) else None
+    images = data.get("images") if isinstance(data, dict) and isinstance(data.get("images"), list) else []
+    first_image = None
+    if images:
+        if isinstance(images[0], dict):
+            first_image = images[0].get("downloadUrl") or images[0].get("url")
+        else:
+            first_image = images[0]
+    return {
+        "success": bool(isinstance(result, dict) and result.get("success")),
+        "code": result.get("code") if isinstance(result, dict) else None,
+        "error": result.get("error") if isinstance(result, dict) else "invalid parser result",
+        "platform": data.get("platform") if isinstance(data, dict) else None,
+        "documentType": data.get("documentType") if isinstance(data, dict) else None,
+        "imageCount": len(images),
+        "firstImage": first_image,
+        "realProductAsset": _is_real_thd_asset(first_image),
+    }
+
+
+def _production_download_result() -> dict[str, object]:
+    """Download through the actual image_download path after the V1.7 policy patch."""
+    try:
+        import image_download
+        from image_archive_policy import install_image_archive_policy
+
+        install_image_archive_policy(image_download)
+        with tempfile.TemporaryDirectory(prefix="galaxy-homedepot-live-") as tmp:
+            target, byte_count = image_download._download_one(
+                KNOWN_MAIN,
+                Path(tmp),
+                "homedepot-live",
+                PRODUCT_URL,
+            )
+            with Image.open(target) as image:
+                width, height = image.size
+            return {
+                "success": True,
+                "width": int(width),
+                "height": int(height),
+                "bytes": int(byte_count),
+                "suffix": target.suffix.lower(),
+            }
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)[:500]}
+
+
+def main() -> int:
+    page_images = [url for url in _images_from_page(PRODUCT_URL) if is_home_depot_image(url)]
+    pep_images = {url: [item for item in _images_from_page(url) if is_home_depot_image(item)] for url in PEP_URLS}
+    seeds = [KNOWN_MAIN]
+    for item in page_images:
+        if item not in seeds:
+            seeds.append(item)
+
+    results = []
+    for seed in seeds[:12]:
+        best, attempts = _best_variant(seed)
+        results.append({"seed": seed, "best": best, "attempts": attempts})
+
+    first = results[0]["best"] if results else None
+    parser_result = _production_parser_result()
+    downloader_result = _production_download_result()
+    summary = {
+        "productUrl": PRODUCT_URL,
+        "pageImageCount": len(page_images),
+        "pepPageImages": {url: len(items) for url, items in pep_images.items()},
+        "seedCount": len(seeds),
+        "mainSeed": KNOWN_MAIN,
+        "mainBest": first,
+        "productionParser": parser_result,
+        "productionDownloader": downloader_result,
+        "results": results,
+    }
+    Path("homedepot-live-result.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print(json.dumps(summary, indent=2))
+
+    if not isinstance(first, dict):
+        print("FAIL: no downloadable Home Depot image candidate", file=sys.stderr)
+        return 2
+    width = int(first.get("width") or 0)
+    height = int(first.get("height") or 0)
+    if min(width, height) <= 100:
+        print(f"FAIL: resolver is still returning thumbnail dimensions {width}x{height}", file=sys.stderr)
+        return 3
+    if max(width, height) <= 600:
+        print(f"FAIL: CDN recovery did not improve beyond 600px ({width}x{height})", file=sys.stderr)
+        return 4
+
+    if not downloader_result.get("success"):
+        print(f"FAIL: production image downloader failed: {downloader_result.get('error')}", file=sys.stderr)
+        return 5
+    saved_w = int(downloader_result.get("width") or 0)
+    saved_h = int(downloader_result.get("height") or 0)
+    if max(saved_w, saved_h) <= 600:
+        print(f"FAIL: production downloader saved only {saved_w}x{saved_h}", file=sys.stderr)
+        return 6
+
+    # Anonymous CI may legitimately hit Home Depot/Akamai bot protection. What
+    # must never happen is reporting challenge-page chrome (for example an
+    # Akamai logo) as a successful product gallery. A successful parse is only
+    # accepted when it contains a real images.thdstatic.com asset.
+    if parser_result.get("success") and not parser_result.get("realProductAsset"):
+        print(f"FAIL: parser returned a non-product asset as Home Depot media: {parser_result}", file=sys.stderr)
+        return 7
+    if not parser_result.get("success"):
+        code = str(parser_result.get("code") or "")
+        if code not in {"AUTH_REQUIRED", "PARSE_FAILED", "DYNAMIC_RENDER_FAILED", "UNSUPPORTED_PLATFORM"}:
+            print(f"FAIL: unexpected exact-URL parser failure: {parser_result}", file=sys.stderr)
+            return 8
+
+    parser_state = (
+        "real product asset discovered"
+        if parser_result.get("realProductAsset")
+        else f"anonymous page gated safely ({parser_result.get('code') or 'blocked'})"
+    )
+    print(
+        "PASS: production downloader saved "
+        f"{saved_w}x{saved_h}; best public CDN pixels {width}x{height}; {parser_state}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

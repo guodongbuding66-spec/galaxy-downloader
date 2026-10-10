@@ -41,22 +41,22 @@ REQUIRED_COMPONENTS = (
 
 # compatibility alias -> (semantic runtime token, approved value)
 RUNTIME_COLORS = {
-    "BG": ("bg", "#121315"),
-    "PANEL": ("surface", "#161719"),
-    "PANEL_2": ("surface_raised", "#1C1E22"),
-    "PANEL_3": ("surface_elevated", "#22252A"),
-    "BORDER": ("border", "#30333A"),
-    "BORDER_SOFT": ("border_subtle", "#26292F"),
-    "TEXT": ("text_primary", "#F1F2F4"),
-    "MUTED": ("text_secondary", "#A6A9AE"),
-    "SUBTLE": ("text_subtle", "#777B82"),
-    "ACCENT": ("accent", "#6F8FFF"),
-    "ACCENT_HOVER": ("accent_hover", "#829CFF"),
-    "CYAN": ("info", "#78A9D4"),
-    "SUCCESS": ("success", "#5FAF88"),
-    "DANGER": ("danger", "#D76A6A"),
-    "DANGER_HOVER": ("danger_hover", "#E17A7A"),
-    "WARNING": ("warning", "#C99A54"),
+    "BG": ("bg", "#0E1116"),
+    "PANEL": ("surface", "#141922"),
+    "PANEL_2": ("surface_raised", "#1A2130"),
+    "PANEL_3": ("surface_elevated", "#202A3A"),
+    "BORDER": ("border", "#334052"),
+    "BORDER_SOFT": ("border_subtle", "#273241"),
+    "TEXT": ("text_primary", "#F7F9FC"),
+    "MUTED": ("text_secondary", "#C2CAD6"),
+    "SUBTLE": ("text_subtle", "#8F9AAA"),
+    "ACCENT": ("accent", "#4F7DFF"),
+    "ACCENT_HOVER": ("accent_hover", "#6C94FF"),
+    "CYAN": ("info", "#7AB8E8"),
+    "SUCCESS": ("success", "#65BE92"),
+    "DANGER": ("danger", "#E27676"),
+    "DANGER_HOVER": ("danger_hover", "#EB8989"),
+    "WARNING": ("warning", "#D9A85F"),
 }
 
 
