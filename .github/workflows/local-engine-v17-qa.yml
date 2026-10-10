@@ -1,0 +1,176 @@
+name: Local Engine V1.7 QA
+
+on:
+  push:
+    branches:
+      - fix/v1.7-homedepot-native-ui
+    paths:
+      - 'local-engine/**'
+      - '.interface-design/**'
+      - '.github/workflows/local-engine-v17-qa.yml'
+  pull_request:
+    paths:
+      - 'local-engine/**'
+      - '.interface-design/**'
+      - '.github/workflows/local-engine-v17-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-engine-v17-qa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-native-and-homedepot:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install test and build dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install -r local-engine/requirements.txt
+          python -m pip install "pillow>=11,<12" pyinstaller
+
+      - name: Run resolution and native token self-tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONPATH = (Resolve-Path 'local-engine').Path
+          python local-engine/image_resolution.py
+          python local-engine/desktop_design_tokens.py
+          python local-engine/desktop_ui.py
+          python local-engine/desktop_native_v16.py
+          python local-engine/entrypoint.py --self-test
+
+      - name: Live Home Depot original-image test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONPATH = (Resolve-Path 'local-engine').Path
+          python local-engine/test_homedepot_live.py
+
+      - name: Render Home Depot test evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path qa | Out-Null
+          @'
+          import json
+          from pathlib import Path
+          from PIL import Image, ImageDraw, ImageFont
+
+          data = json.loads(Path('homedepot-live-result.json').read_text(encoding='utf-8'))
+          best = data.get('mainBest') or {}
+          image = Image.new('RGB', (1280, 720), '#0E1116')
+          draw = ImageDraw.Draw(image)
+          try:
+              title = ImageFont.truetype('C:/Windows/Fonts/segoeuib.ttf', 34)
+              body = ImageFont.truetype('C:/Windows/Fonts/segoeui.ttf', 22)
+              small = ImageFont.truetype('C:/Windows/Fonts/segoeui.ttf', 18)
+          except OSError:
+              title = body = small = ImageFont.load_default()
+          draw.text((56, 48), 'Galaxy Local Engine · Home Depot Live QA', font=title, fill='#F7F9FC')
+          draw.text((56, 112), 'Internet #700380885 · Model hh-816', font=body, fill='#C2CAD6')
+          draw.rounded_rectangle((56, 174, 1224, 430), radius=12, fill='#141922', outline='#334052', width=2)
+          draw.text((88, 204), 'Public page derivative', font=small, fill='#8F9AAA')
+          draw.text((88, 238), '...hh-816-64_600.jpg', font=body, fill='#F7F9FC')
+          draw.text((88, 300), 'Largest verified candidate', font=small, fill='#8F9AAA')
+          draw.text((88, 336), f"{best.get('width', '?')} × {best.get('height', '?')} px", font=title, fill='#65BE92')
+          draw.text((88, 390), str(best.get('url') or 'No candidate'), font=small, fill='#C2CAD6')
+          draw.text((56, 484), f"Static page image URLs found: {data.get('pageImageCount', 0)}", font=body, fill='#C2CAD6')
+          draw.text((56, 528), 'Result: PASS — resolver escaped the 100/600px derivative ceiling' if max(int(best.get('width') or 0), int(best.get('height') or 0)) > 600 else 'Result: FAIL', font=body, fill='#65BE92' if max(int(best.get('width') or 0), int(best.get('height') or 0)) > 600 else '#E27676')
+          draw.text((56, 630), 'Test uses public Home Depot/THD CDN only. No TinyFish or paid browser service.', font=small, fill='#8F9AAA')
+          image.save('qa/homedepot-live-result.png')
+          '@ | python -
+
+      - name: Capture public Home Depot page with Edge
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $edgeCandidates = @(
+            "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe",
+            "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
+          )
+          $edge = $edgeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($edge) {
+            & $edge --headless=new --disable-gpu --hide-scrollbars --window-size=1440,1000 --screenshot="$(Resolve-Path .)\qa\homedepot-page.png" "https://www.homedepot.com/p/700380885"
+          }
+
+      - name: Generate application icon
+        shell: pwsh
+        run: python local-engine/generate_icon.py --output local-engine/GalaxyLocalEngine.ico
+
+      - name: Build native Windows executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --windowed `
+            --name GalaxyLocalEngine `
+            --icon "local-engine/GalaxyLocalEngine.ico" `
+            --collect-all yt_dlp `
+            --add-data "local-engine/VERSION;." `
+            local-engine/entrypoint.py
+
+      - name: Packaged EXE UI smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $process = Start-Process -FilePath 'dist/GalaxyLocalEngine.exe' -ArgumentList '--ui-smoke-test' -PassThru
+          if (-not $process.WaitForExit(25000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw 'Packaged GalaxyLocalEngine.exe UI smoke timed out'
+          }
+          if ($process.ExitCode -ne 0) { throw "Packaged UI smoke exited $($process.ExitCode)" }
+
+      - name: Capture native Tk workbench screenshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONPATH = (Resolve-Path 'local-engine').Path
+          @'
+          import sys, time
+          from pathlib import Path
+          from PIL import ImageGrab
+          sys.path.insert(0, str(Path('local-engine').resolve()))
+          import entrypoint  # installs the production policies/UI wrappers
+          import engine
+
+          app = engine.EngineWindow(None)
+          app.update_idletasks()
+          app.deiconify()
+          app.lift()
+          app.update()
+          time.sleep(0.8)
+          app.update()
+          x, y = app.winfo_rootx(), app.winfo_rooty()
+          w, h = app.winfo_width(), app.winfo_height()
+          ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True).save('qa/native-workbench-v17.png')
+          app.destroy()
+          '@ | python -
+
+      - name: Upload V1.7 QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: galaxy-local-engine-v17-qa
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            qa/*.png
+            homedepot-live-result.json
+            dist/GalaxyLocalEngine.exe
