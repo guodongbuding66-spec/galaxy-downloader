@@ -115,8 +115,6 @@ class ActionButton(_impl.ActionButton):
 
     def _native_press(self, _event=None) -> None:
         if str(self["state"]) != "disabled":
-            # Tk has no transform scale. A one-pixel inset + sunken relief is the
-            # native equivalent of the UI-Skills 0.96 press compression cue.
             self.configure(bg=self._hover, relief="sunken", padx=max(1, self._normal_padx - 1), pady=max(1, self._normal_pady - 1))
 
     def _native_release(self, event=None) -> None:
@@ -179,8 +177,8 @@ _BASE_INSTALL_DESKTOP_UI = _impl.install_desktop_ui
 
 def install_desktop_ui(engine_module):
     window_cls = _BASE_INSTALL_DESKTOP_UI(engine_module)
-    from desktop_native_v17 import install_native_desktop_v17
-    return install_native_desktop_v17(engine_module, sys.modules[__name__])
+    from desktop_native_v18 import install_native_desktop_v18
+    return install_native_desktop_v18(engine_module, sys.modules[__name__])
 
 
 def __getattr__(name: str):
