@@ -16,6 +16,10 @@ from image_resolution import home_depot_candidates, is_home_depot_image
 PRODUCT_URL = (
     "https://www.homedepot.com/p/Unbranded-Gray-9-ft-x-6-ft-Weatherproof-Metal-Garden-Storage-Shed-with-Windows-Flower-Rack-Lockable-Double-Doors-for-Backyard-hh-816/700380885"
 )
+PEP_URLS = (
+    PRODUCT_URL.replace("/p/", "/pep/", 1),
+    "https://www.homedepot.com/pep/700380885",
+)
 KNOWN_MAIN = (
     "https://images.thdstatic.com/productImages/3c58f1501a4d4ec0801de07367105b70/svn/"
     "gray-unbranded-metal-sheds-hh-816-64_600.jpg"
@@ -76,9 +80,9 @@ def _image_size(url: str) -> tuple[int, int, int]:
         return width, height, status
 
 
-def _page_images() -> list[str]:
+def _images_from_page(url: str) -> list[str]:
     request = urllib.request.Request(
-        PRODUCT_URL,
+        url,
         headers={
             "User-Agent": UA,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -98,6 +102,10 @@ def _page_images() -> list[str]:
         if value not in result:
             result.append(value)
     return result
+
+
+def _page_images() -> list[str]:
+    return _images_from_page(PRODUCT_URL)
 
 
 def _best_variant(seed: str) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
@@ -127,9 +135,8 @@ def _best_variant(seed: str) -> tuple[dict[str, object] | None, list[dict[str, o
 
 
 def _production_parser_result() -> dict[str, object]:
-    """Exercise the same hybrid parser used by the native EXE URL field."""
     try:
-        import entrypoint  # noqa: F401  installs production policies
+        import entrypoint  # noqa: F401
         import bridge
 
         result = bridge.parse_with_bundled_ytdlp(PRODUCT_URL, "none")
@@ -154,7 +161,6 @@ def _production_parser_result() -> dict[str, object]:
 
 
 def _production_download_result() -> dict[str, object]:
-    """Download through production image_download after the V1.7 policy patch."""
     try:
         import image_download
         from image_archive_policy import install_image_archive_policy
@@ -182,6 +188,7 @@ def _production_download_result() -> dict[str, object]:
 
 def main() -> int:
     page_images = [url for url in _page_images() if is_home_depot_image(url)]
+    pep_images = {url: [item for item in _images_from_page(url) if is_home_depot_image(item)] for url in PEP_URLS}
     seeds = [KNOWN_MAIN]
     for item in page_images:
         if item not in seeds:
@@ -198,6 +205,8 @@ def main() -> int:
     summary = {
         "productUrl": PRODUCT_URL,
         "pageImageCount": len(page_images),
+        "pepPageImages": {url: len(items) for url, items in pep_images.items()},
+        "pepFirstImages": {url: (items[0] if items else None) for url, items in pep_images.items()},
         "seedCount": len(seeds),
         "mainSeed": KNOWN_MAIN,
         "mainBest": first,
@@ -229,9 +238,6 @@ def main() -> int:
         print(f"FAIL: production downloader saved only {saved_w}x{saved_h}", file=sys.stderr)
         return 6
 
-    # The exact product URL must be tested through the production parser too.
-    # If the site changes its anti-bot behavior this should fail visibly rather
-    # than silently claiming the URL workflow still works.
     if not parser_result.get("success") or int(parser_result.get("imageCount") or 0) < 1:
         print(
             "FAIL: native production parser could not discover images from the exact Home Depot product URL: "
