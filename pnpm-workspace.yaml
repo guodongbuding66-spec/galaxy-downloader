@@ -8,6 +8,8 @@ overrides:
   '@types/react-dom': 19.2.3
   # browserslist <=4.28.6 has high-severity advisories.
   browserslist: 4.28.8
+  # Next's image optimizer can otherwise resolve a vulnerable transitive sharp.
+  sharp: 0.35.5
 
 allowBuilds:
   '@parcel/watcher': false
