@@ -21,12 +21,12 @@ Canonical native Desktop mapping:
 | `color.text.subtle` | `#8F9AAA` | `SUBTLE` |
 | `color.accent` | `#4F7DFF` | `ACCENT` |
 | `color.accent.hover` | `#6C94FF` | `ACCENT_HOVER` |
-| `color.info` | `#75A7D8` | `CYAN` |
+| `color.info` | `#7AB8E8` | `CYAN` |
 | `color.success` | `#65BE92` | `SUCCESS` |
 | `color.warning` | `#D9A85F` | `WARNING` |
 | `color.danger` | `#E27676` | `DANGER` |
-| `color.danger.hover` | `#EC8787` | `DANGER_HOVER` |
-| `color.focus` | `#86A4FF` | dedicated keyboard focus ring |
+| `color.danger.hover` | `#EB8989` | `DANGER_HOVER` |
+| `color.focus` | `#8EACFF` | dedicated keyboard focus ring |
 
 Rules:
 - Primary text/body contrast takes priority over brand color.
