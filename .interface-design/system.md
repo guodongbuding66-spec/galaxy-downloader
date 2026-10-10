@@ -18,10 +18,18 @@ One capture strip leads the workbench: **paste URL → inspect → choose media/
 - No oversized marketing headings in the desktop application.
 - No motion-only feedback.
 
-## UI Skills mapping
-- `interface-design`: borders-only depth, 4px spatial grid, semantic tokens, four-level text hierarchy, native/ttk controls before custom widgets.
-- `frontend-design`: distinctive product-specific hierarchy; avoid template SaaS/AI aesthetics.
-- `better-ui`: high-frequency feedback ≤150ms, explicit hover/focus/press states, optical alignment, one icon language, no `transition: all` equivalent behavior.
+## Installed skill routing
+Start UI work with `.agents/skills/ui-skills-root/SKILL.md`. Load the smallest useful set and never more than three UI skills for one pass.
+
+For a Galaxy native desktop redesign, the default stack is:
+- `interface-design`: workbench architecture, hierarchy, density, navigation, settings and data-heavy product surfaces.
+- `better-ui`: typography, surfaces, borders, optical alignment, interaction states and small polish decisions.
+- `interaction-design`: only when motion, loading feedback, progress, disclosure, hover/press/focus or transition behavior is in scope.
+
+Supporting skills:
+- `last30days`: research recent desktop-utility patterns and user complaints before a major redesign. It is evidence gathering, not a style generator. The project adapter uses free public web/GitHub research only; no TinyFish or paid scraper dependency.
+- `web-artifacts-builder`: optional high-fidelity web prototype for visual/interaction exploration. It is not the shipping product and must never replace the canonical native EXE unless the user explicitly changes the architecture.
+- `frontend-design`: use only when a web prototype needs a more distinctive visual direction; never import web/SaaS conventions blindly into Tk.
 
 ## Tokens
 - Grid: 4px base. Normal spacing: 8 / 12 / 16 / 20 / 24 / 32.
@@ -52,6 +60,9 @@ One capture strip leads the workbench: **paste URL → inspect → choose media/
 - Queue and local runtime components live in the right rail.
 - Original-image action sits with the capture strip and explains maximum-public-resolution fallback.
 - gallery-dl fallback and its low-frequency tuning stay behind progressive disclosure so they do not bury the current task on laptop-height displays.
+
+## Prototype-to-native rule
+A web comp may explore layout or interaction faster, but approval evidence must be translated into native Tk controls/tokens. QA screenshots used for sign-off must include the actual `GalaxyLocalEngine.exe` surface, not only HTML/CSS mocks.
 
 ## Accessibility / readability gates
 - Never force Tk global scaling to 1.0 on Windows high-DPI displays.
