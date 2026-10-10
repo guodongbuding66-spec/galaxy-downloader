@@ -8,7 +8,7 @@ import bridge
 import desktop_quick_download as quick
 import desktop_ui as ui
 from desktop_dpi import install_native_dpi_policy
-from desktop_hooks import register_after_build_ui_hook
+from desktop_hooks import register_after_build_ui_hook, show_desktop_presenter
 from image_download import start_image_download_job
 
 
@@ -250,39 +250,84 @@ def _compact_gallery_fallback(window) -> None:
 
 
 def _stabilize_queue_header_controls(window) -> None:
-    """Keep queue actions readable instead of letting pack() collapse them.
+    """Rebuild queue actions in a dedicated two-row toolbar.
 
-    The right rail is intentionally narrow. When history, pause and clear were
-    packed into the same horizontal strip as the queue title, Tk could shrink
-    `暂停队列` to only a few pixels. Re-layout the four existing children with a
-    two-row grid while preserving their original widgets and commands.
+    The right rail is deliberately narrow. Four independent pack(side=right/left)
+    children previously competed with the title and could squeeze `暂停队列` to
+    only a few pixels. Rebuilding only the action widgets under their own frame
+    gives the title a full row and every control a deterministic 44px target.
     """
     pause = getattr(window, "_queue_pause_button", None)
     history = getattr(window, "_history_button", None)
     clear = getattr(window, "_queue_clear_button", None)
-    if pause is None or history is None or clear is None:
+    if pause is None or history is None or clear is None or getattr(window, "_galaxy_queue_header_stable", False):
         return
     head = clear.master
-    if getattr(window, "_galaxy_queue_header_stable", False):
-        return
 
     frames = [child for child in head.winfo_children() if isinstance(child, tk.Frame)]
     copy = frames[0] if frames else None
     if copy is None:
         return
 
-    for child in (copy, clear, pause, history):
+    # Remove the legacy header actions. Their state is represented by the same
+    # window methods/variables below, and the attributes are rebound so existing
+    # queue/history tick code continues to update the new widgets.
+    for widget in (pause, history, clear):
         try:
-            child.pack_forget()
+            widget.destroy()
         except tk.TclError:
             pass
+    try:
+        copy.pack_forget()
+    except tk.TclError:
+        pass
+    copy.pack(fill="x", anchor="w")
 
-    head.grid_columnconfigure(0, weight=1, minsize=88)
-    head.grid_columnconfigure(1, weight=1, minsize=88)
-    copy.grid(row=0, column=0, sticky="w")
-    clear.grid(row=0, column=1, sticky="e")
-    pause.grid(row=1, column=0, sticky="ew", pady=(10, 0), padx=(0, 4))
-    history.grid(row=1, column=1, sticky="ew", pady=(10, 0), padx=(4, 0))
+    toolbar = tk.Frame(head, bg=ui.PANEL)
+    toolbar.pack(fill="x", pady=(10, 0))
+
+    def toggle_pause() -> None:
+        toggle = getattr(window, "toggle_queue_paused", None)
+        if callable(toggle):
+            toggle()
+
+    window._queue_pause_button = ui.ActionButton(
+        toolbar,
+        text="继续队列" if bool(getattr(window, "queue_paused", False)) else "暂停队列",
+        command=toggle_pause,
+        kind="secondary",
+        compact=True,
+    )
+    window._queue_pause_button.pack(fill="x")
+
+    secondary = tk.Frame(toolbar, bg=ui.PANEL)
+    secondary.pack(fill="x", pady=(7, 0))
+    window._history_button = ui.ActionButton(
+        secondary,
+        text="历史",
+        command=lambda: show_desktop_presenter(window, "history"),
+        kind="ghost",
+        compact=True,
+    )
+    window._history_button.pack(side="left")
+
+    def clear_queue() -> None:
+        clear_fn = getattr(window, "clear_queued_jobs", None)
+        if callable(clear_fn):
+            clear_fn()
+
+    window._queue_clear_button = ui.ActionButton(
+        secondary,
+        text="清空",
+        command=clear_queue,
+        kind="ghost",
+        compact=True,
+    )
+    window._queue_clear_button.pack(side="right")
+    if not getattr(window, "pending_jobs", []):
+        window._queue_clear_button.state(["disabled"])
+
+    window._queue_header_toolbar = toolbar
     window._galaxy_queue_header_stable = True
 
 
