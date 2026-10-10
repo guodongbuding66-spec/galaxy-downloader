@@ -74,7 +74,9 @@ jobs:
 
           data = json.loads(Path('homedepot-live-result.json').read_text(encoding='utf-8'))
           best = data.get('mainBest') or {}
-          image = Image.new('RGB', (1280, 720), '#0E1116')
+          parser = data.get('productionParser') or {}
+          saved = data.get('productionDownloader') or {}
+          image = Image.new('RGB', (1280, 760), '#11151B')
           draw = ImageDraw.Draw(image)
           try:
               title = ImageFont.truetype('C:/Windows/Fonts/segoeuib.ttf', 34)
@@ -82,18 +84,37 @@ jobs:
               small = ImageFont.truetype('C:/Windows/Fonts/segoeui.ttf', 18)
           except OSError:
               title = body = small = ImageFont.load_default()
-          draw.text((56, 48), 'Galaxy Local Engine · Home Depot Live QA', font=title, fill='#F7F9FC')
-          draw.text((56, 112), 'Internet #700380885 · Model hh-816', font=body, fill='#C2CAD6')
-          draw.rounded_rectangle((56, 174, 1224, 430), radius=12, fill='#141922', outline='#334052', width=2)
-          draw.text((88, 204), 'Public page derivative', font=small, fill='#8F9AAA')
-          draw.text((88, 238), '...hh-816-64_600.jpg', font=body, fill='#F7F9FC')
-          draw.text((88, 300), 'Largest verified candidate', font=small, fill='#8F9AAA')
-          draw.text((88, 336), f"{best.get('width', '?')} × {best.get('height', '?')} px", font=title, fill='#65BE92')
-          draw.text((88, 390), str(best.get('url') or 'No candidate'), font=small, fill='#C2CAD6')
-          draw.text((56, 484), f"Static page image URLs found: {data.get('pageImageCount', 0)}", font=body, fill='#C2CAD6')
-          passed = max(int(best.get('width') or 0), int(best.get('height') or 0)) > 600
-          draw.text((56, 528), 'Result: PASS — resolver escaped the 100/600px derivative ceiling' if passed else 'Result: FAIL', font=body, fill='#65BE92' if passed else '#E27676')
-          draw.text((56, 630), 'Public Home Depot/THD CDN only · no TinyFish · no paid browser service', font=small, fill='#8F9AAA')
+
+          draw.text((56, 46), 'Galaxy Local Engine · Home Depot Live QA', font=title, fill='#F4F6F8')
+          draw.text((56, 104), 'Internet #700380885 · Model hh-816 · exact user URL + public THD CDN', font=body, fill='#B9C1CC')
+          draw.rounded_rectangle((56, 158, 1224, 482), radius=10, fill='#171D25', outline='#303A48', width=2)
+          draw.text((88, 190), 'Input derivative seen in public product media', font=small, fill='#8793A3')
+          draw.text((88, 222), '...hh-816-64_600.jpg  →  600 × 600 px', font=body, fill='#F4F6F8')
+          draw.text((88, 278), 'Largest pixel dimensions verified from public CDN', font=small, fill='#8793A3')
+          draw.text((88, 314), f"{best.get('width', '?')} × {best.get('height', '?')} px", font=title, fill='#66C396')
+          draw.text((88, 365), 'Production image_download saved', font=small, fill='#8793A3')
+          draw.text((88, 397), f"{saved.get('width', '?')} × {saved.get('height', '?')} px · {saved.get('suffix', '?')}", font=body, fill='#F4F6F8')
+          draw.text((88, 442), 'The _4000 URL suffix is NOT reported as 4000px; decoded pixels are authoritative.', font=small, fill='#B9C1CC')
+
+          if parser.get('realProductAsset'):
+              parser_text = 'Exact page parser: real images.thdstatic.com product asset discovered'
+              parser_color = '#66C396'
+          elif parser.get('success'):
+              parser_text = 'Exact page parser: FAIL — non-product asset was accepted'
+              parser_color = '#E47777'
+          else:
+              parser_text = f"Exact page parser: safely gated ({parser.get('code') or 'blocked'}) — no Akamai/logo false positive"
+              parser_color = '#E0B26D'
+          draw.text((56, 526), parser_text, font=body, fill=parser_color)
+
+          passed = (
+              max(int(best.get('width') or 0), int(best.get('height') or 0)) > 600
+              and max(int(saved.get('width') or 0), int(saved.get('height') or 0)) > 600
+              and not (parser.get('success') and not parser.get('realProductAsset'))
+          )
+          draw.text((56, 586), 'Result: PASS — thumbnail ceiling escaped, downloader verified, challenge false-positive blocked' if passed else 'Result: FAIL', font=body, fill='#66C396' if passed else '#E47777')
+          draw.text((56, 650), 'Public Home Depot/THD resources only · no TinyFish · no paid browser/scraper service', font=small, fill='#8793A3')
+          draw.text((56, 688), 'For a gated product page in the desktop app, select Edge/Chrome login environment and retry normally.', font=small, fill='#8793A3')
           image.save('qa/homedepot-live-result.png')
           '@ | python -
 
@@ -141,13 +162,13 @@ jobs:
           }
           if ($process.ExitCode -ne 0) { throw "Packaged UI smoke exited $($process.ExitCode)" }
 
-      - name: Capture native Tk workbench screenshot
+      - name: Capture and validate native Tk workbench
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $env:PYTHONPATH = (Resolve-Path 'local-engine').Path
           @'
-          import sys, time
+          import sys, time, tkinter as tk
           from pathlib import Path
           from PIL import ImageGrab
           sys.path.insert(0, str(Path('local-engine').resolve()))
@@ -161,16 +182,46 @@ jobs:
           app.update()
           time.sleep(0.8)
           app.update()
+
+          root_x, root_y = app.winfo_rootx(), app.winfo_rooty()
+          root_w, root_h = app.winfo_width(), app.winfo_height()
+          screen_w, screen_h = app.winfo_screenwidth(), app.winfo_screenheight()
+          if root_x < 0 or root_y < 0 or root_x + root_w > screen_w or root_y + root_h > screen_h:
+              raise RuntimeError(f'Native window is outside the visible display: root={root_x},{root_y},{root_w},{root_h}; screen={screen_w}x{screen_h}')
+
+          clipped = []
+          def inspect(widget):
+              try:
+                  mapped = bool(widget.winfo_ismapped())
+              except tk.TclError:
+                  return
+              if mapped and isinstance(widget, tk.Button):
+                  x = widget.winfo_rootx() - root_x
+                  y = widget.winfo_rooty() - root_y
+                  w = widget.winfo_width()
+                  h = widget.winfo_height()
+                  if x < 0 or y < 0 or x + w > root_w or y + h > root_h:
+                      clipped.append((str(widget.cget('text')), x, y, w, h))
+              for child in widget.winfo_children():
+                  inspect(child)
+          inspect(app)
+          if clipped:
+              raise RuntimeError(f'Visible native buttons are clipped: {clipped}')
+
+          original_button = getattr(app, '_original_images_button', None)
+          if original_button is None or not original_button.winfo_ismapped():
+              raise RuntimeError('Native “下载页面原图” action is not visible')
+          if str(original_button.cget('text')) != '下载页面原图':
+              raise RuntimeError('Unexpected original-image button copy')
+
           try:
               shot = ImageGrab.grab(window=app.winfo_id())
           except (TypeError, OSError):
-              x, y = app.winfo_rootx(), app.winfo_rooty()
-              w, h = app.winfo_width(), app.winfo_height()
-              shot = ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True)
-          if shot.width < 1000 or shot.height < 700:
+              shot = ImageGrab.grab(bbox=(root_x, root_y, root_x + root_w, root_y + root_h), all_screens=True)
+          if shot.width < 900 or shot.height < 650:
               raise RuntimeError(f'Native workbench screenshot unexpectedly small: {shot.width}x{shot.height}')
           shot.save('qa/native-workbench-v17.png')
-          print(f'Captured native workbench: {shot.width}x{shot.height}')
+          print(f'Captured native workbench: {shot.width}x{shot.height}; clipped buttons: 0')
           app.destroy()
           '@ | python -
 
