@@ -162,7 +162,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $env:PYTHONPATH = (Resolve-Path 'local-engine').Path
           @'
-          import sys, time, tkinter as tk
+          import sys, time, tkinter as tk, tkinter.font as tkfont
           from pathlib import Path
           from PIL import ImageGrab
           sys.path.insert(0, str(Path('local-engine').resolve()))
@@ -171,8 +171,12 @@ jobs:
 
           app = engine.EngineWindow(None)
           try:
-              app.minsize(920, 650)
-              app.geometry('1000x690+8+8')
+              # Exercise a compact but supported desktop viewport instead of
+              # forcing the window below its production minimum. UI Skills' key
+              # requirement is a readable label and >=44px target, not exact
+              # equality with Tk's requested geometry.
+              app.minsize(1000, 700)
+              app.geometry('1020x720+2+2')
               app.update_idletasks()
               app.deiconify()
               app.lift()
@@ -182,7 +186,7 @@ jobs:
               root_x, root_y = app.winfo_rootx(), app.winfo_rooty()
               root_w, root_h = app.winfo_width(), app.winfo_height()
               outside = []
-              compressed = []
+              target_failures = []
               def inspect(widget):
                   try:
                       mapped = bool(widget.winfo_ismapped())
@@ -191,31 +195,36 @@ jobs:
                   if mapped and isinstance(widget, tk.Button):
                       x, y = widget.winfo_rootx() - root_x, widget.winfo_rooty() - root_y
                       w, h = widget.winfo_width(), widget.winfo_height()
-                      req_w, req_h = widget.winfo_reqwidth(), widget.winfo_reqheight()
                       label = str(widget.cget('text'))
                       if x < 0 or y < 0 or x + w > root_w or y + h > root_h:
                           outside.append((label, x, y, w, h))
-                      if w + 1 < req_w or h + 1 < req_h:
-                          compressed.append((label, w, h, req_w, req_h))
+                      if label.strip():
+                          try:
+                              measured = tkfont.Font(master=app, font=widget.cget('font')).measure(label)
+                          except tk.TclError:
+                              measured = 0
+                          if h < 44 or w < measured + 12:
+                              target_failures.append((label, w, h, measured))
                   for child in widget.winfo_children():
                       inspect(child)
               inspect(app)
               if outside:
                   raise RuntimeError(f'Visible native buttons are outside the workbench: {outside}')
-              if compressed:
-                  raise RuntimeError(f'Visible native button text/targets are compressed: {compressed}')
+              if target_failures:
+                  raise RuntimeError(f'Visible native buttons fail 44px/text-fit gate: {target_failures}')
               original_button = getattr(app, '_original_images_button', None)
               if original_button is None or not original_button.winfo_ismapped():
                   raise RuntimeError('Native original-image action is not visible')
               if str(original_button.cget('text')) != '下载页面原图':
                   raise RuntimeError('Unexpected original-image button copy')
-              if original_button.winfo_width() + 1 < original_button.winfo_reqwidth():
-                  raise RuntimeError('Native original-image button is horizontally clipped')
+              measured = tkfont.Font(master=app, font=original_button.cget('font')).measure('下载页面原图')
+              if original_button.winfo_height() < 44 or original_button.winfo_width() < measured + 12:
+                  raise RuntimeError('Native original-image button is clipped or below the 44px target')
               shot = ImageGrab.grab(bbox=(root_x, root_y, root_x + root_w, root_y + root_h), all_screens=True)
-              if shot.width < 900 or shot.height < 640:
+              if shot.width < 980 or shot.height < 690:
                   raise RuntimeError(f'Native workbench screenshot unexpectedly small: {shot.width}x{shot.height}')
               shot.save('qa/native-workbench-v17.png')
-              print(f'Captured native workbench: {shot.width}x{shot.height}; outside buttons: 0; compressed buttons: 0')
+              print(f'Captured native workbench: {shot.width}x{shot.height}; outside buttons: 0; target failures: 0')
           finally:
               try:
                   app.destroy()
