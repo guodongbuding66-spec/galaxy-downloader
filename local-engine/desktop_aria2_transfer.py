@@ -84,7 +84,7 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
     detail = tk.StringVar(value="aria2c 使用断点续传；关闭程序后任务会进入可恢复状态，不会静默重新下载。")
     metadata_status = tk.StringVar(value="本地 .torrent、HTTPS torrent 和 Magnet 都可读取文件列表并选择下载项。")
     pct = tk.DoubleVar(value=0.0)
-    metadata_state = {"source": "", "local_source": "", "loading": False}
+    metadata_state = {"source": "", "local_source": "", "loading": False, "restore_selection": ()}
 
     ui._label(tab, "Torrent / Magnet", size=11, weight="bold").pack(anchor="w")
     ui._label(
@@ -150,6 +150,13 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
         children = tree.get_children("")
         if children:
             tree.selection_set(children)
+        saved = tuple(metadata_state.get("restore_selection") or ())
+        if saved:
+            tree.selection_remove(tree.selection())
+            valid = [str(index) for index in saved if tree.exists(str(index))]
+            if valid:
+                tree.selection_set(valid)
+        metadata_state["restore_selection"] = ()
         metadata_state["source"] = wanted
         metadata_state["local_source"] = str(acquired.torrent_path)
         metadata_status.set(
@@ -187,6 +194,7 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
                         return
                     if acquired is None:
                         clear_metadata(error or "读取 Torrent 文件列表失败")
+                        metadata_state["restore_selection"] = ()
                     else:
                         populate_metadata(wanted, acquired)
                     set_preview_controls(True)
@@ -203,6 +211,7 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
     def on_source_changed(*_args) -> None:
         wanted = source.get().strip()
         if metadata_state["source"] and wanted != metadata_state["source"]:
+            metadata_state["restore_selection"] = ()
             clear_metadata("来源已更改；请重新读取文件列表。未读取时开始下载会按全部文件处理。")
 
     source.trace_add("write", on_source_changed)
@@ -297,17 +306,11 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
     if old is not None:
         try:
             old_source = str(old.options.source)
+            metadata_state["restore_selection"] = selected_files_for(old.options)
             source.set(old_source)
-            acquired = preview_torrent_metadata(engine_module, old_source)
-            populate_metadata(old_source, acquired)
-            saved = selected_files_for(old.options)
-            if saved:
-                tree.selection_remove(tree.selection())
-                valid = [str(index) for index in saved if tree.exists(str(index))]
-                if valid:
-                    tree.selection_set(valid)
+            begin_metadata_preview(old_source)
         except Exception:
-            pass
+            metadata_state["restore_selection"] = ()
         old.set_listener(render); render(old.snapshot())
     else:
         for button in (pause_btn, resume_btn, retry_btn, cancel_btn): _enabled(button, False)
