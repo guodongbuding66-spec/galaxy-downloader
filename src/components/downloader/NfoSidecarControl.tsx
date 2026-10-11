@@ -72,16 +72,16 @@ export function NfoSidecarControl({
 
   return (
     <section className="rounded-lg border bg-background/60 p-2.5">
-      <label className={`flex items-start gap-2 text-[10px] ${ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+      <label className={`ui-target flex items-start gap-2 text-xs ${ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
         <input
           type="checkbox"
           checked={ready && Boolean(value.includeNfo)}
           disabled={disabled || !ready}
           onChange={(event) => onChange({ ...value, includeNfo: event.target.checked })}
-          className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+          className="mt-0.5 h-4 w-4 accent-foreground"
         />
         <span>
-          <span className="block text-[11px] font-medium text-foreground">{copy.label}</span>
+          <span className="block text-xs font-medium text-foreground">{copy.label}</span>
           <span className="mt-0.5 block leading-4 text-muted-foreground">{hint}</span>
         </span>
       </label>
