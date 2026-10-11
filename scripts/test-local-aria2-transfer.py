@@ -12,6 +12,11 @@ if str(LOCAL_ENGINE) not in sys.path:
     sys.path.insert(0, str(LOCAL_ENGINE))
 
 import transfer_center  # noqa: E402
+from aria2_bandwidth import (  # noqa: E402
+    aria2_task_bandwidth_for,
+    configure_aria2_bandwidth,
+    run_aria2_bandwidth_self_test,
+)
 from aria2_file_selection import run_aria2_file_selection_self_test, selected_files_for  # noqa: E402
 from aria2_recovery import run_aria2_recovery_self_test  # noqa: E402
 from aria2_source_policy import run_aria2_source_policy_self_test  # noqa: E402
@@ -42,6 +47,9 @@ class Aria2TransferTests(unittest.TestCase):
         run_aria2_file_selection_self_test()
         run_torrent_metadata_self_test()
         run_torrent_metadata_acquisition_self_test()
+
+    def test_bandwidth_global_and_task_adapter(self) -> None:
+        run_aria2_bandwidth_self_test()
 
     def test_transfer_preferences_preserve_existing_network_settings(self) -> None:
         run_transfer_preferences_self_test()
@@ -124,6 +132,63 @@ class Aria2TransferTests(unittest.TestCase):
             command = build_aria2_command(Path("aria2c"), session.options)
             self.assertIn("--select-file=2-3,5", command)
             self.assertLess(command.index("--select-file=2-3,5"), command.index("--"))
+
+    def test_per_task_bandwidth_overrides_global_without_losing_selection(self) -> None:
+        magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            downloads = root / "downloads"
+            downloads.mkdir()
+
+            class FakeEngine:
+                @staticmethod
+                def app_dir() -> Path:
+                    return root
+
+                @staticmethod
+                def state_dir() -> Path:
+                    target = root / "state"
+                    target.mkdir(parents=True, exist_ok=True)
+                    return target
+
+                @staticmethod
+                def default_download_dir() -> Path:
+                    return downloads
+
+            configure_aria2_bandwidth(2048)
+            try:
+                with patch.object(transfer_center, "find_aria2c", return_value=Path("aria2c")):
+                    with patch.object(transfer_center, "_managed_download_dir", return_value=downloads / "torrents"):
+                        limited = transfer_center.start_torrent_transfer(
+                            FakeEngine,
+                            magnet,
+                            selected_files=(2, 3, 5),
+                            bandwidth_limit_kbps=512,
+                        )
+                        unlimited = transfer_center.start_torrent_transfer(
+                            FakeEngine,
+                            magnet,
+                            bandwidth_limit_kbps=0,
+                        )
+                        inherited = transfer_center.start_torrent_transfer(FakeEngine, magnet)
+
+                self.assertEqual(selected_files_for(limited.options), (2, 3, 5))
+                self.assertEqual(aria2_task_bandwidth_for(limited.options), 512)
+                limited_command = build_aria2_command(Path("aria2c"), limited.options)
+                self.assertIn("--select-file=2-3,5", limited_command)
+                self.assertIn("--max-download-limit=512K", limited_command)
+                self.assertNotIn("--max-download-limit=2048K", limited_command)
+
+                self.assertEqual(aria2_task_bandwidth_for(unlimited.options), 0)
+                unlimited_command = build_aria2_command(Path("aria2c"), unlimited.options)
+                self.assertIn("--max-download-limit=0", unlimited_command)
+                self.assertNotIn("--max-download-limit=2048K", unlimited_command)
+
+                self.assertIsNone(aria2_task_bandwidth_for(inherited.options))
+                inherited_command = build_aria2_command(Path("aria2c"), inherited.options)
+                self.assertIn("--max-download-limit=2048K", inherited_command)
+            finally:
+                configure_aria2_bandwidth(0)
 
     def test_remote_torrent_is_localized_before_aria2_session(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
