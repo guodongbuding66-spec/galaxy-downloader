@@ -19,7 +19,11 @@ from aria2_task_provider import run_aria2_task_provider_self_test  # noqa: E402
 from aria2_transfer import build_aria2_command, run_aria2_transfer_self_test  # noqa: E402
 from resume_bridge import run_resume_bridge_self_test  # noqa: E402
 from task_center import run_task_center_self_test  # noqa: E402
-from torrent_metadata import run_torrent_metadata_self_test  # noqa: E402
+from torrent_metadata import TorrentFileEntry, TorrentMetadata, run_torrent_metadata_self_test  # noqa: E402
+from torrent_metadata_acquisition import (  # noqa: E402
+    AcquiredTorrentMetadata,
+    run_torrent_metadata_acquisition_self_test,
+)
 from transfer_center import run_transfer_center_self_test  # noqa: E402
 from transfer_preferences import (  # noqa: E402
     run_transfer_preferences_self_test,
@@ -34,9 +38,10 @@ class Aria2TransferTests(unittest.TestCase):
     def test_strict_magnet_and_torrent_source_policy(self) -> None:
         run_aria2_source_policy_self_test()
 
-    def test_selective_file_adapter_and_local_metadata_parser(self) -> None:
+    def test_selective_file_adapter_and_metadata_layers(self) -> None:
         run_aria2_file_selection_self_test()
         run_torrent_metadata_self_test()
+        run_torrent_metadata_acquisition_self_test()
 
     def test_transfer_preferences_preserve_existing_network_settings(self) -> None:
         run_transfer_preferences_self_test()
@@ -119,6 +124,56 @@ class Aria2TransferTests(unittest.TestCase):
             command = build_aria2_command(Path("aria2c"), session.options)
             self.assertIn("--select-file=2-3,5", command)
             self.assertLess(command.index("--select-file=2-3,5"), command.index("--"))
+
+    def test_remote_torrent_is_localized_before_aria2_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            downloads = root / "downloads"
+            downloads.mkdir()
+            cached = root / "state" / "torrent-metadata" / "verified.torrent"
+            cached.parent.mkdir(parents=True)
+            cached.write_bytes(b"d4:infod6:lengthi5e4:name5:a.binee")
+            metadata = TorrentMetadata("a.bin", (TorrentFileEntry(1, "a.bin", 5),), 5)
+
+            class FakeEngine:
+                @staticmethod
+                def app_dir() -> Path:
+                    return root
+
+                @staticmethod
+                def state_dir() -> Path:
+                    target = root / "state"
+                    target.mkdir(parents=True, exist_ok=True)
+                    return target
+
+                @staticmethod
+                def default_download_dir() -> Path:
+                    return downloads
+
+                @staticmethod
+                def _validated_source_url(value: str) -> str:
+                    return value
+
+            acquired = AcquiredTorrentMetadata(
+                "https://downloads.example.com/demo.torrent",
+                "torrent_url",
+                cached,
+                metadata,
+            )
+            with patch.object(transfer_center, "find_aria2c", return_value=Path("aria2c")):
+                with patch.object(transfer_center, "_managed_download_dir", return_value=downloads / "torrents"):
+                    with patch.object(transfer_center, "acquire_torrent_metadata", return_value=acquired) as acquire:
+                        session = transfer_center.start_torrent_transfer(
+                            FakeEngine,
+                            "https://downloads.example.com/demo.torrent",
+                            selected_files=(1,),
+                        )
+            acquire.assert_called_once()
+            self.assertEqual(Path(session.options.source), cached)
+            self.assertEqual(selected_files_for(session.options), (1,))
+            command = build_aria2_command(Path("aria2c"), session.options)
+            self.assertEqual(command[-1], str(cached))
+            self.assertIn("--select-file=1", command)
 
     def test_invalid_source_wins_over_missing_aria2_error(self) -> None:
         class FakeEngine:
