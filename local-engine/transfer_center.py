@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 import transfer_center_legacy as _legacy
 from aria2_recovery import create_recoverable_aria2_session
-from aria2_source_policy import Aria2SourceError, require_torrent_source
+from aria2_source_policy import Aria2Source, Aria2SourceError, require_torrent_source
 from aria2_transfer import (
     Aria2TransferOptions,
     Aria2TransferSession,
@@ -44,6 +44,32 @@ def _validated_http_source(engine_module, source: object) -> str:
     return text
 
 
+def _validated_torrent_source(engine_module, source: object) -> Aria2Source:
+    """Classify Torrent input and apply Galaxy's public-URL boundary to remote torrents.
+
+    Magnet URIs and local ``.torrent`` files are intentionally left on their
+    dedicated validators. Remote HTTPS ``.torrent`` URLs must additionally pass
+    the same engine URL/SSRF boundary used by the normal HTTP downloader before
+    they may reach aria2c.
+    """
+
+    try:
+        classified = require_torrent_source(source)
+    except Aria2SourceError as exc:
+        raise TransferError(str(exc)) from exc
+    if classified.kind != "torrent_url":
+        return classified
+
+    normalized = _validated_http_source(engine_module, classified.source)
+    try:
+        validated = require_torrent_source(normalized)
+    except Aria2SourceError as exc:
+        raise TransferError(str(exc)) from exc
+    if validated.kind != "torrent_url":
+        raise TransferError("Torrent URL 必须是通过公网地址校验的 HTTPS .torrent 地址")
+    return validated
+
+
 def start_torrent_transfer(
     engine_module,
     source: object,
@@ -55,14 +81,12 @@ def start_torrent_transfer(
 
     Accepted torrent sources are deliberately narrow: a valid BTIH Magnet URI,
     an HTTPS URL whose path ends in ``.torrent``, or an existing local
-    ``.torrent`` file. Ordinary HTTP/HTTPS links remain on Galaxy's existing
-    media/download pipeline and custom URI schemes are rejected.
+    ``.torrent`` file. Remote torrent URLs also reuse Galaxy's existing public
+    HTTP(S) URL/SSRF boundary. Ordinary HTTP/HTTPS links remain on Galaxy's
+    existing media/download pipeline and custom URI schemes are rejected.
     """
 
-    try:
-        classified = require_torrent_source(source)
-    except Aria2SourceError as exc:
-        raise TransferError(str(exc)) from exc
+    classified = _validated_torrent_source(engine_module, source)
     executable = find_aria2c(engine_module)
     if executable is None:
         raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c。请先安装或配置 aria2c 后重试。")
@@ -160,3 +184,48 @@ def run_transfer_center_self_test() -> None:
     assert callable(start_torrent_transfer)
     assert callable(start_aria2_http_transfer)
     assert callable(download_torrent)
+
+    class _BoundaryEngine:
+        calls: list[str] = []
+
+        @staticmethod
+        def _validated_source_url(value: str) -> str:
+            _BoundaryEngine.calls.append(value)
+            host = (urlparse(value).hostname or "").lower()
+            blocked = (
+                host == "localhost"
+                or host == "127.0.0.1"
+                or host.startswith("10.")
+                or host.startswith("192.168.")
+                or host.startswith("169.254.")
+                or host == "172.16.0.1"
+            )
+            if blocked:
+                raise ValueError("仅允许公网 HTTP(S) 下载地址")
+            return value
+
+    public = _validated_torrent_source(_BoundaryEngine, "https://downloads.example.com/demo.torrent")
+    assert public.kind == "torrent_url"
+    assert public.source == "https://downloads.example.com/demo.torrent"
+    assert _BoundaryEngine.calls == ["https://downloads.example.com/demo.torrent"]
+
+    for private_url in (
+        "https://localhost/demo.torrent",
+        "https://127.0.0.1/demo.torrent",
+        "https://10.0.0.1/demo.torrent",
+        "https://192.168.1.10/demo.torrent",
+        "https://172.16.0.1/demo.torrent",
+        "https://169.254.169.254/latest.torrent",
+    ):
+        try:
+            _validated_torrent_source(_BoundaryEngine, private_url)
+        except TransferError:
+            pass
+        else:
+            raise AssertionError(f"private torrent URL escaped engine URL boundary: {private_url}")
+
+    before = len(_BoundaryEngine.calls)
+    valid_hex = "0123456789abcdef0123456789abcdef01234567"
+    magnet = _validated_torrent_source(_BoundaryEngine, f"magnet:?xt=urn:btih:{valid_hex}")
+    assert magnet.kind == "magnet"
+    assert len(_BoundaryEngine.calls) == before
