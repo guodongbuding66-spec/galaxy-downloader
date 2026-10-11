@@ -43,6 +43,7 @@ ARIA2_PROGRESS_RE = re.compile(
 )
 ARIA2_CONNECTIONS_RE = re.compile(r"\bCN:(?P<connections>\d+)", re.IGNORECASE)
 ARIA2_ETA_RE = re.compile(r"\bETA:(?P<eta>[^\s\]]+)", re.IGNORECASE)
+ARIA2_GID_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 SHA256_RE = re.compile(r"^[A-Fa-f0-9]{64}$")
 TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
 ACTIVE_STATES = frozenset({"queued", "running", "retrying", "pausing", "cancelling"})
@@ -70,6 +71,7 @@ class Aria2TransferOptions:
     headers: tuple[str, ...] = ()
     seed_time_minutes: int = 0
     max_attempts: int = 3
+    aria2_gid: str = ""
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,15 @@ def parse_aria2_progress(line: object) -> Aria2Progress | None:
         eta=str(eta_match.group("eta") or "") if eta_match else "",
         connections=connections,
     )
+
+
+def normalize_aria2_gid(value: object, *, allow_empty: bool = True) -> str:
+    text = str(value or "").strip()
+    if not text and allow_empty:
+        return ""
+    if not ARIA2_GID_RE.fullmatch(text) or text == "0000000000000000":
+        raise Aria2TransferError("aria2 GID 必须是非零的 16 位十六进制字符串")
+    return text.lower()
 
 
 def _safe_source(value: object) -> str:
@@ -210,6 +221,7 @@ def normalize_options(options: Aria2TransferOptions) -> Aria2TransferOptions:
         headers=_safe_headers(options.headers),
         seed_time_minutes=seed_time,
         max_attempts=max_attempts,
+        aria2_gid=normalize_aria2_gid(options.aria2_gid),
     )
 
 
@@ -235,6 +247,8 @@ def build_aria2_command(executable: Path, options: Aria2TransferOptions) -> list
         "--download-result=hide",
         "--file-allocation=none",
     ]
+    if opts.aria2_gid:
+        command.append(f"--gid={opts.aria2_gid}")
     if _is_torrent_source(opts.source):
         command.extend(("--bt-seed-unverified=false", f"--seed-time={opts.seed_time_minutes}"))
     if opts.file_name:
@@ -528,6 +542,14 @@ def run_aria2_transfer_self_test() -> None:
     parsed = parse_aria2_progress("[#2089b0 12MiB/100MiB(12%) CN:16 DL:5.0MiB ETA:10s]")
     assert parsed == Aria2Progress(percent=12, speed="5.0MiB", eta="10s", connections=16)
     assert parse_aria2_progress("Download complete") is None
+    assert normalize_aria2_gid("2089B05ECCA3D829") == "2089b05ecca3d829"
+    for invalid_gid in ("0", "2089b0", "0000000000000000", "2089b05ecca3d82z"):
+        try:
+            normalize_aria2_gid(invalid_gid, allow_empty=False)
+        except Aria2TransferError:
+            pass
+        else:
+            raise AssertionError(f"invalid aria2 gid accepted: {invalid_gid}")
 
     options = normalize_options(
         Aria2TransferOptions(
@@ -536,13 +558,16 @@ def run_aria2_transfer_self_test() -> None:
             connections=99,
             max_attempts=99,
             seed_time_minutes=0,
+            aria2_gid="2089B05ECCA3D829",
         )
     )
     assert options.connections == 16
     assert options.max_attempts == 5
+    assert options.aria2_gid == "2089b05ecca3d829"
     command = build_aria2_command(Path("aria2c"), options)
     assert "--continue=true" in command
     assert "--seed-time=0" in command
+    assert "--gid=2089b05ecca3d829" in command
     assert command[-2] == "--"
     assert command[-1].startswith("magnet:")
 
