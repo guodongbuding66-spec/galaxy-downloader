@@ -163,7 +163,7 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
             f"{acquired.metadata.name} · {len(acquired.metadata.files)} 个文件 · {_format_bytes(acquired.metadata.total_length)} · 默认全选，可 Ctrl/Shift 多选。"
         )
 
-    def begin_metadata_preview(value: str | None = None) -> None:
+    def begin_metadata_preview(value: str | None = None, *, auto_start: bool = False) -> None:
         wanted = str(value if value is not None else source.get()).strip()
         if not wanted:
             clear_metadata("请先输入 Magnet / HTTPS .torrent 地址或选择本地 .torrent 文件。")
@@ -198,6 +198,8 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
                     else:
                         populate_metadata(wanted, acquired)
                     set_preview_controls(True)
+                    if acquired is not None and auto_start:
+                        start()
                 except tk.TclError:
                     pass
 
@@ -276,6 +278,11 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
         old = session()
         if old is not None and old.active:
             status.set("已有 Torrent 任务正在运行")
+            return
+        if metadata_state["source"] != value and value.lower().startswith("https://"):
+            status.set("正在安全获取 Torrent 元数据")
+            detail.set("完成公网重定向校验和本地缓存后会自动开始下载。")
+            begin_metadata_preview(value, auto_start=True)
             return
         try:
             selected = current_selection(value)
