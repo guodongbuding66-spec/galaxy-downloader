@@ -456,12 +456,12 @@ export function LocalEngineAdvancedControls({
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="space-y-3">
             <section className="rounded-lg border bg-background/60 p-2.5">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium">
+              <div className="flex items-center gap-1.5 text-xs font-medium">
                 <Scissors className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                 {copy.segment}
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <label className="space-y-1 text-[10px] text-muted-foreground">
+                <label className="space-y-1 text-xs text-muted-foreground">
                   <span>{copy.start}</span>
                   <input
                     type="text"
@@ -470,10 +470,10 @@ export function LocalEngineAdvancedControls({
                     disabled={disabled}
                     placeholder="01:20"
                     onChange={(event) => update({ segmentStart: event.target.value })}
-                    className="h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    className="ui-target h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   />
                 </label>
-                <label className="space-y-1 text-[10px] text-muted-foreground">
+                <label className="space-y-1 text-xs text-muted-foreground">
                   <span>{copy.end}</span>
                   <input
                     type="text"
@@ -482,18 +482,18 @@ export function LocalEngineAdvancedControls({
                     disabled={disabled}
                     placeholder="03:45"
                     onChange={(event) => update({ segmentEnd: event.target.value })}
-                    className="h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    className="ui-target h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   />
                 </label>
               </div>
-              <p className="mt-1.5 text-[9px] leading-4 text-muted-foreground">{copy.segmentHint}</p>
-              <label className="mt-2 flex cursor-pointer items-center gap-2 text-[10px]">
+              <p className="mt-1.5 text-xs leading-4 text-muted-foreground">{copy.segmentHint}</p>
+              <label className="ui-target mt-2 flex cursor-pointer items-center gap-2 text-xs">
                 <input
                   type="checkbox"
                   checked={value.splitChapters}
                   disabled={disabled}
                   onChange={(event) => update({ splitChapters: event.target.checked })}
-                  className="h-3.5 w-3.5 accent-foreground"
+                  className="h-4 w-4 accent-foreground"
                 />
                 <span>{copy.splitChapters}</span>
               </label>
