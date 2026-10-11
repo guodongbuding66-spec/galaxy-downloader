@@ -4,6 +4,7 @@ import tkinter as tk
 
 import desktop_ui as ui
 from bandwidth_policy import load_bandwidth_preference, normalize_bandwidth_kbps, save_bandwidth_preference
+from desktop_design_tokens import LAYOUT
 from desktop_hooks import register_after_build_ui_hook
 from transfer_preferences import (
     load_aria2_connections_preference,
@@ -22,8 +23,8 @@ def _render_bandwidth_control(window, engine_module) -> None:
         padx=0,
         pady=0,
     )
-    card.pack(fill="x", pady=(10, 0))
-    ui._divider(card, bg=ui.PANEL_2).pack(fill="x", pady=(0, 9))
+    card.pack(fill="x", pady=(LAYOUT["content"], 0))
+    ui._divider(card, bg=ui.PANEL_2).pack(fill="x", pady=(0, LAYOUT["inline"]))
 
     row = tk.Frame(card, bg=ui.PANEL_2)
     row.pack(fill="x")
@@ -44,18 +45,19 @@ def _render_bandwidth_control(window, engine_module) -> None:
         row,
         textvariable=variable,
         width=12,
-        font=("Segoe UI", 8),
+        font=ui.font("body_sm"),
         bg=ui.BG,
         fg=ui.TEXT,
         insertbackground=ui.TEXT,
         relief="flat",
         bd=0,
-        highlightthickness=1,
+        takefocus=True,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER,
-        highlightcolor=ui.ACCENT,
+        highlightcolor=ui.FOCUS,
         justify="right",
     )
-    entry.pack(side="right", padx=(10, 0))
+    entry.pack(side="right", padx=(LAYOUT["content"], 0))
 
     status = tk.StringVar(value="不限速" if load_bandwidth_preference(engine_module) == 0 else "已启用")
     window._bandwidth_status_var = status
@@ -70,13 +72,13 @@ def _render_bandwidth_control(window, engine_module) -> None:
         save()
 
     actions = tk.Frame(card, bg=ui.PANEL_2)
-    actions.pack(fill="x", pady=(7, 0))
+    actions.pack(fill="x", pady=(LAYOUT["inline"], 0))
     ui._label(actions, variable=status, size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(side="left")
     ui.ActionButton(actions, text="不限速", command=reset, kind="ghost", compact=True).pack(side="right")
-    ui.ActionButton(actions, text="保存限速", command=save, kind="secondary", compact=True).pack(side="right", padx=(0, 6))
+    ui.ActionButton(actions, text="保存限速", command=save, kind="secondary", compact=True).pack(side="right", padx=(0, LAYOUT["inline"]))
 
     aria2_row = tk.Frame(card, bg=ui.PANEL_2)
-    aria2_row.pack(fill="x", pady=(12, 0))
+    aria2_row.pack(fill="x", pady=(LAYOUT["content"], 0))
     aria2_text = tk.Frame(aria2_row, bg=ui.PANEL_2)
     aria2_text.pack(side="left", fill="x", expand=True)
     ui._label(aria2_text, "aria2 最大连接数", size=8, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
@@ -97,19 +99,20 @@ def _render_bandwidth_control(window, engine_module) -> None:
         increment=1,
         textvariable=aria2_variable,
         width=6,
-        font=("Segoe UI", 8),
+        font=ui.font("body_sm"),
         bg=ui.BG,
         fg=ui.TEXT,
         buttonbackground=ui.PANEL_3,
         insertbackground=ui.TEXT,
         relief="flat",
         bd=0,
-        highlightthickness=1,
+        takefocus=True,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER,
-        highlightcolor=ui.ACCENT,
+        highlightcolor=ui.FOCUS,
         justify="right",
     )
-    aria2_entry.pack(side="right", padx=(10, 0))
+    aria2_entry.pack(side="right", padx=(LAYOUT["content"], 0))
 
     aria2_status = tk.StringVar(value=f"{load_aria2_connections_preference(engine_module)} 个连接")
     window._aria2_connections_status_var = aria2_status
@@ -120,7 +123,7 @@ def _render_bandwidth_control(window, engine_module) -> None:
         aria2_status.set(f"{connections} 个连接")
 
     aria2_actions = tk.Frame(card, bg=ui.PANEL_2)
-    aria2_actions.pack(fill="x", pady=(7, 0))
+    aria2_actions.pack(fill="x", pady=(LAYOUT["inline"], 0))
     ui._label(aria2_actions, variable=aria2_status, size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(side="left")
     ui.ActionButton(aria2_actions, text="保存连接数", command=save_aria2, kind="secondary", compact=True).pack(side="right")
 
