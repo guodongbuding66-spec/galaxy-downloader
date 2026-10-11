@@ -553,8 +553,8 @@ export function LocalEngineAdvancedControls({
                 </div>
               ) : null}
               {hasDanmakuTrack ? (
-                <div className="mt-2 rounded-md border bg-card/40 p-2 text-[10px]">
-                  <label className="flex cursor-pointer items-start gap-2">
+                <div className="mt-2 rounded-md border bg-card/40 p-2 text-xs">
+                  <label className="ui-target flex cursor-pointer items-start gap-2">
                     <input
                       type="checkbox"
                       checked={Boolean(value.includeDanmaku)}
@@ -566,16 +566,16 @@ export function LocalEngineAdvancedControls({
                           ...(event.target.checked ? { danmakuFormats: allowed.length ? allowed : ['xml'] } : {}),
                         });
                       }}
-                      className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+                      className="mt-0.5 h-4 w-4 accent-foreground"
                     />
                     <span className="min-w-0">
-                      <span className="block text-[11px] font-medium text-foreground">{copy.danmaku}</span>
+                      <span className="block text-xs font-medium text-foreground">{copy.danmaku}</span>
                       <span className="mt-0.5 block leading-4 text-muted-foreground">{copy.danmakuHint}</span>
                     </span>
                   </label>
                   {value.includeDanmaku ? (
                     <div className="mt-2 border-t pt-2">
-                      <div className="mb-1 text-[9px] font-medium text-muted-foreground">{copy.danmakuFormats}</div>
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">{copy.danmakuFormats}</div>
                       <div className="grid grid-cols-3 gap-1">
                         {danmakuFormatOptions
                           .filter(([format]) => availableDanmakuFormats.includes(format))
@@ -589,7 +589,7 @@ export function LocalEngineAdvancedControls({
                                 aria-pressed={selected}
                                 disabled={disabled || onlySelected}
                                 onClick={() => toggleDanmakuFormat(format)}
-                                className={`min-h-7 rounded-md border px-1.5 text-[9px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'} ${onlySelected ? 'opacity-80' : ''}`}
+                                className={`ui-target min-h-7 rounded-md border px-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'} ${onlySelected ? 'opacity-80' : ''}`}
                               >
                                 {label}
                               </button>
