@@ -79,6 +79,20 @@ def bind_selected_files(options, values: object):
     return options
 
 
+def _adapter_state(options: object) -> dict[str, object]:
+    """Capture Galaxy adapter fields that dataclasses.replace() would discard."""
+    try:
+        values = vars(options)
+    except TypeError:
+        return {}
+    return {name: value for name, value in values.items() if str(name).startswith("_galaxy_")}
+
+
+def _restore_adapter_state(options: object, state: dict[str, object]) -> None:
+    for name, value in state.items():
+        object.__setattr__(options, name, value)
+
+
 def _inject_select_file(command: Iterable[str], selected_files: object) -> list[str]:
     result = [str(item) for item in command]
     arg = _selection_arg(selected_files)
@@ -183,17 +197,15 @@ def install_recovery_selection_patch() -> None:
             on_update=None,
             max_retry_delay_seconds=1.0,
         ):
-            selected = selected_files_for(options)
+            adapter_state = _adapter_state(options)
             prepared = options
-            # aria2_recovery normally uses dataclasses.replace() when it assigns a
-            # stable GID. Dynamic adapter attributes are not dataclass fields, so
-            # that replace used to drop _galaxy_selected_files before persistence.
-            # Allocate the same recovery GID here first, then re-bind the selection
-            # to the cloned options so the original recovery path no longer needs
-            # to replace the object.
-            if selected and not getattr(options, "aria2_gid", ""):
+            # aria2_recovery uses dataclasses.replace() when allocating a stable
+            # GID. Dynamic Galaxy adapter fields are not dataclass fields. Clone
+            # them generically here so file selection, per-task bandwidth and
+            # future adapters survive the same allocation path.
+            if adapter_state and not getattr(options, "aria2_gid", ""):
                 prepared = replace(options, aria2_gid=aria2_recovery._new_aria2_gid())
-                bind_selected_files(prepared, selected)
+                _restore_adapter_state(prepared, adapter_state)
             session = original_create(
                 engine_module,
                 executable,
@@ -202,8 +214,8 @@ def install_recovery_selection_patch() -> None:
                 on_update=on_update,
                 max_retry_delay_seconds=max_retry_delay_seconds,
             )
-            if selected:
-                bind_selected_files(session.options, selected)
+            if adapter_state:
+                _restore_adapter_state(session.options, adapter_state)
             return session
 
         aria2_recovery._clean_aria2_record = clean_record
@@ -231,6 +243,7 @@ def run_aria2_file_selection_self_test() -> None:
 
     options = aria2_transfer.Aria2TransferOptions(source="https://example.com/a.torrent", destination=Path("downloads"))
     bind_selected_files(options, (2, 4))
+    object.__setattr__(options, "_galaxy_probe_adapter", "kept")
     install_aria2_file_selection()
     normalized = aria2_transfer.normalize_options(options)
     assert selected_files_for(normalized) == (2, 4)
@@ -244,6 +257,7 @@ def run_aria2_file_selection_self_test() -> None:
         source_kind="torrent_url",
     )
     assert selected_files_for(recoverable.options) == (2, 4)
+    assert getattr(recoverable.options, "_galaxy_probe_adapter", "") == "kept"
     assert recoverable.options.aria2_gid
 
     for bad in ((0,), (-1,), (MAX_FILE_INDEX + 1,), (True,), ("x",)):
