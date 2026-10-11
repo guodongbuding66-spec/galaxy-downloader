@@ -407,12 +407,12 @@ export function LocalEngineAdvancedControls({
 
   return (
     <details className="group mt-2 overflow-hidden rounded-xl border bg-card/40">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11px] outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring">
+      <summary className="ui-target flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-xs outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring">
         <Gauge className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
         <span className="font-semibold">{copy.title}</span>
-        <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">{copy.summary}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{copy.summary}</span>
         {activeCount > 0 ? (
-          <span className="rounded-full border bg-background px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-muted-foreground">
+          <span className="rounded-full border bg-background px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
             {activeCount} {extra.active}
           </span>
         ) : null}
@@ -422,7 +422,7 @@ export function LocalEngineAdvancedControls({
       <div className="border-t px-3 pb-3 pt-2.5">
         <div className="mb-3 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium">
+            <div className="flex items-center gap-1.5 text-xs font-medium">
               <Sparkles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
               {extra.presets}
             </div>
@@ -430,7 +430,7 @@ export function LocalEngineAdvancedControls({
               type="button"
               disabled={disabled}
               onClick={() => onChange(createDefaultLocalEngineAdvancedOptions())}
-              className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="ui-target inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               <RotateCcw className="h-3 w-3" aria-hidden="true" />
               {extra.reset}
@@ -444,10 +444,10 @@ export function LocalEngineAdvancedControls({
                 disabled={disabled || preset.disabled}
                 onClick={() => applyPreset(preset.id)}
                 title={preset.hint}
-                className="min-h-9 rounded-lg border bg-background px-2 py-1.5 text-left outline-none transition-colors hover:border-foreground/30 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                className="ui-target min-h-9 rounded-lg border bg-background px-2 py-1.5 text-left outline-none transition-colors hover:border-foreground/30 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <span className="block text-[10px] font-semibold">{preset.label}</span>
-                <span className="mt-0.5 block truncate text-[9px] text-muted-foreground">{preset.hint}</span>
+                <span className="block text-xs font-semibold">{preset.label}</span>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">{preset.hint}</span>
               </button>
             ))}
           </div>
