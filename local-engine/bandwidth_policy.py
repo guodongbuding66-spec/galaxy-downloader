@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-import json
 import threading
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import external_ytdlp
-from runtime_storage import state_dir as runtime_state_dir
+from transfer_preferences import (
+    PREFERENCES_FILENAME,
+    load_transfer_preferences,
+    update_transfer_preferences,
+)
 
 MAX_BANDWIDTH_KBPS = 10_000_000
-PREFERENCES_FILENAME = "bandwidth-options.json"
 _BANDWIDTH_CONTEXT = threading.local()
 
 
@@ -28,31 +29,14 @@ def normalize_bandwidth_kbps(value: object) -> int:
     return min(limit, MAX_BANDWIDTH_KBPS)
 
 
-def _preferences_path(engine_module) -> Path:
-    target = runtime_state_dir(engine_module)
-    target.mkdir(parents=True, exist_ok=True)
-    return target / PREFERENCES_FILENAME
-
-
 def load_bandwidth_preference(engine_module) -> int:
-    try:
-        payload = json.loads(_preferences_path(engine_module).read_text(encoding="utf-8"))
-    except (OSError, TypeError, ValueError):
-        return 0
-    if not isinstance(payload, dict):
-        return 0
+    payload = load_transfer_preferences(engine_module)
     return normalize_bandwidth_kbps(payload.get("bandwidthLimitKbps"))
 
 
 def save_bandwidth_preference(engine_module, value: object) -> int:
     limit = normalize_bandwidth_kbps(value)
-    path = _preferences_path(engine_module)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps({"bandwidthLimitKbps": limit}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    update_transfer_preferences(engine_module, bandwidthLimitKbps=limit)
     return limit
 
 
@@ -143,7 +127,7 @@ def install_bandwidth_policy(engine_module):
 
     original_run_external_job = engine_module.EngineWindow._run_external_job
 
-    def run_external_job(window, executable: Path):
+    def run_external_job(window, executable):
         _BANDWIDTH_CONTEXT.job = window.job
         try:
             return original_run_external_job(window, executable)
@@ -167,6 +151,9 @@ def install_bandwidth_policy(engine_module):
 
 def run_bandwidth_policy_self_test() -> None:
     import tempfile
+    from pathlib import Path
+
+    from transfer_preferences import load_aria2_connections_preference, save_aria2_connections_preference
 
     assert normalize_bandwidth_kbps(None) == 0
     assert normalize_bandwidth_kbps("0") == 0
@@ -200,5 +187,8 @@ def run_bandwidth_policy_self_test() -> None:
                 return target
 
         assert load_bandwidth_preference(Engine) == 0
+        assert save_aria2_connections_preference(Engine, "7") == 7
         assert save_bandwidth_preference(Engine, "2048") == 2048
         assert load_bandwidth_preference(Engine) == 2048
+        assert load_aria2_connections_preference(Engine) == 7
+        assert PREFERENCES_FILENAME == "bandwidth-options.json"

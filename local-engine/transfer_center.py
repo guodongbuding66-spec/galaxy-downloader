@@ -20,9 +20,8 @@ from aria2_transfer import (
     Aria2TransferSnapshot,
     run_aria2_transfer_self_test,
 )
+from transfer_preferences import load_aria2_connections_preference
 
-# Re-export all existing public/private helper names so older modules keep their
-# exact import contract while the new aria2 layer is introduced incrementally.
 for _name in dir(_legacy):
     if not _name.startswith("__"):
         globals().setdefault(_name, getattr(_legacy, _name))
@@ -60,8 +59,6 @@ def start_torrent_transfer(
     media/download pipeline and custom URI schemes are rejected.
     """
 
-    # Validate before tool discovery so malformed Magnet/Torrent input is never
-    # masked by an unrelated "aria2c missing" error on a new installation.
     try:
         classified = require_torrent_source(source)
     except Aria2SourceError as exc:
@@ -70,13 +67,14 @@ def start_torrent_transfer(
     if executable is None:
         raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c。请先安装或配置 aria2c 后重试。")
     destination = _managed_download_dir(engine_module, "torrents")
+    connections = load_aria2_connections_preference(engine_module)
     return create_recoverable_aria2_session(
         engine_module,
         Path(executable),
         Aria2TransferOptions(
             source=classified.source,
             destination=destination,
-            connections=16,
+            connections=connections,
             seed_time_minutes=0,
             max_attempts=max_attempts,
         ),
@@ -102,13 +100,14 @@ def start_aria2_http_transfer(
         raise TransferError("未检测到 aria2c；高速 HTTP 下载需要 aria2c")
     normalized = _validated_http_source(engine_module, source_url)
     destination = _managed_download_dir(engine_module, "aria2")
+    connections = load_aria2_connections_preference(engine_module)
     return Aria2TransferSession(
         Path(executable),
         Aria2TransferOptions(
             source=normalized,
             destination=destination,
             file_name=file_name,
-            connections=16,
+            connections=connections,
             sha256=sha256,
             headers=tuple(headers),
             max_attempts=max_attempts,
@@ -147,6 +146,7 @@ def transfer_status(engine_module) -> dict[str, object]:
             "aria2Retry": True,
             "aria2RestartRecovery": True,
             "aria2StrictTorrentSources": True,
+            "aria2Connections": load_aria2_connections_preference(engine_module),
             "aria2MaxConnections": 16,
             "aria2FragmentManifestExternalDownloader": False,
         }

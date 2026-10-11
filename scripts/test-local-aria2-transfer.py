@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -18,6 +19,10 @@ from aria2_transfer import run_aria2_transfer_self_test  # noqa: E402
 from resume_bridge import run_resume_bridge_self_test  # noqa: E402
 from task_center import run_task_center_self_test  # noqa: E402
 from transfer_center import run_transfer_center_self_test  # noqa: E402
+from transfer_preferences import (  # noqa: E402
+    run_transfer_preferences_self_test,
+    save_aria2_connections_preference,
+)
 
 
 class Aria2TransferTests(unittest.TestCase):
@@ -26,6 +31,9 @@ class Aria2TransferTests(unittest.TestCase):
 
     def test_strict_magnet_and_torrent_source_policy(self) -> None:
         run_aria2_source_policy_self_test()
+
+    def test_transfer_preferences_preserve_existing_network_settings(self) -> None:
+        run_transfer_preferences_self_test()
 
     def test_restart_recovery_uses_existing_resume_store(self) -> None:
         run_aria2_recovery_self_test()
@@ -47,6 +55,34 @@ class Aria2TransferTests(unittest.TestCase):
             'rows[0].get("kind") == "provider" and "resume" in tuple(rows[0].get("providerActions") or ())',
         ):
             self.assertIn(marker, source)
+
+    def test_torrent_session_uses_persisted_connection_setting(self) -> None:
+        magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            downloads = root / "downloads"
+            downloads.mkdir()
+
+            class FakeEngine:
+                @staticmethod
+                def app_dir() -> Path:
+                    return root
+
+                @staticmethod
+                def state_dir() -> Path:
+                    target = root / "state"
+                    target.mkdir(parents=True, exist_ok=True)
+                    return target
+
+                @staticmethod
+                def default_download_dir() -> Path:
+                    return downloads
+
+            self.assertEqual(save_aria2_connections_preference(FakeEngine, "6"), 6)
+            with patch.object(transfer_center, "find_aria2c", return_value=Path("aria2c")):
+                with patch.object(transfer_center, "_managed_download_dir", return_value=downloads / "torrents"):
+                    session = transfer_center.start_torrent_transfer(FakeEngine, magnet)
+            self.assertEqual(session.options.connections, 6)
 
     def test_invalid_source_wins_over_missing_aria2_error(self) -> None:
         class FakeEngine:

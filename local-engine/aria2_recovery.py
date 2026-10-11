@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 from aria2_source_policy import Aria2SourceError, require_torrent_source
 from aria2_transfer import Aria2TransferOptions, Aria2TransferSession, Aria2TransferSnapshot
 from pause_resume_policy import ResumeStateStore, _bounded_progress, _bounded_text, _utc_now
+from transfer_preferences import normalize_aria2_connections
 
 _PROVIDER = "aria2"
 _ACTIVE_STATES = frozenset({"queued", "running", "retrying", "pausing", "cancelling"})
@@ -41,7 +42,6 @@ _SESSION_CONTEXT: dict[str, int] = {}
 
 def _clean_resume_id(value: object) -> str:
     """Keep persisted IDs compatible with Bridge v5's alphanumeric boundary."""
-
     job_id = _bounded_text(value, 96)
     return job_id if job_id and job_id.isalnum() else ""
 
@@ -117,6 +117,7 @@ def _clean_aria2_record(store: ResumeStateStore, value: dict[str, Any]) -> dict[
         "destination": str(destination),
         "lifecycle": _bounded_text(value.get("lifecycle"), 32) or state,
         "aria2Gid": _bounded_text(value.get("aria2Gid"), 128),
+        "connections": normalize_aria2_connections(value.get("connections")),
         "label": _bounded_text(value.get("label"), 180) or _source_label(classified.source, classified.kind),
         "videoQuality": "",
         "batchId": None,
@@ -305,6 +306,7 @@ def _attach_session(
             "sourceKind": source_kind,
             "destination": destination,
             "lifecycle": snapshot.state,
+            "connections": int(session.options.connections),
             "label": previous.get("label") or _source_label(source, source_kind),
             "progress": float(snapshot.progress.percent),
             "downloaded": previous.get("downloaded") or "",
@@ -370,7 +372,7 @@ def _restore_record(context: _RecoveryContext, record: dict[str, Any]) -> Recove
         Aria2TransferOptions(
             source=classified.source,
             destination=destination,
-            connections=16,
+            connections=normalize_aria2_connections(record.get("connections")),
             seed_time_minutes=0,
             max_attempts=3,
         ),
@@ -413,7 +415,6 @@ def _install_window_routes(context: _RecoveryContext) -> None:
                 return False
             try:
                 from aria2_task_provider import register_aria2_session
-
                 register_aria2_session(session, title=str(selected.get("label") or ""))
             except Exception:
                 pass
@@ -487,7 +488,6 @@ def _install_window_routes(context: _RecoveryContext) -> None:
 
 def install_aria2_recovery(engine_module, executable_resolver: Callable[[Any], Path | None]):
     """Persist and restore aria2 sessions through the existing resume state file."""
-
     if getattr(engine_module, "_galaxy_aria2_recovery_installed", False):
         return engine_module.EngineWindow
     _install_resume_store_extension()
@@ -505,7 +505,6 @@ def install_aria2_recovery(engine_module, executable_resolver: Callable[[Any], P
             continue
         try:
             from aria2_task_provider import register_aria2_session
-
             register_aria2_session(session, title=str(record.get("label") or ""))
         except Exception:
             pass
@@ -570,9 +569,11 @@ def run_aria2_recovery_self_test() -> None:
             "sourceKind": "magnet",
             "destination": str(downloads / "torrents"),
             "lifecycle": "running",
+            "connections": 7,
             "progress": 48,
         })
         assert aria is not None and aria["provider"] == "aria2"
+        assert aria["connections"] == 7
 
         assert store.upsert({
             "id": "aria2-bad-id",
@@ -603,6 +604,7 @@ def run_aria2_recovery_self_test() -> None:
         restored = next(item for item in recovered if item["id"] == record_id)
         assert restored["state"] == "interrupted"
         assert restored["sourceKind"] == "magnet"
+        assert restored["connections"] == 7
         assert any(item["id"] == "legacy" for item in recovered)
         public = next(item for item in store.public_records() if item["id"] == record_id)
         assert public["provider"] == "aria2" and public["sourceKind"] == "magnet"
@@ -615,6 +617,7 @@ def run_aria2_recovery_self_test() -> None:
         context = _RecoveryContext(FakeEngine, store, lambda _engine: Path("aria2c"))
         session = _restore_record(context, restored)
         assert session is not None and session.state == "paused"
+        assert session.options.connections == 7
         with _CONTEXT_LOCK:
             assert _SESSIONS.get(record_id) is session
         session.cancel()
