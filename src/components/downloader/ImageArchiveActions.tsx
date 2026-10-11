@@ -118,7 +118,7 @@ export function ImageArchiveActions({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-y py-2">
-      <p className="min-w-0 flex-1 text-[10px] leading-4 text-muted-foreground">{copy.hint}</p>
+      <p className="min-w-0 flex-1 text-xs leading-4 text-muted-foreground">{copy.hint}</p>
       <Button type="button" size="xs" variant="outline" disabled={running} onClick={() => void exportCbz()}>
         {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />}
         {copy.cbz}
