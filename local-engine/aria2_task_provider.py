@@ -2,12 +2,15 @@ from __future__ import annotations
 
 """Expose aria2 transfers as first-class Galaxy local tasks."""
 
+import importlib
 import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
+from aria2_source_policy import Aria2SourceError, classify_torrent_source
 from aria2_transfer import Aria2Progress, Aria2TransferSnapshot
 from local_task_provider import (
     LocalTaskActionResult,
@@ -41,10 +44,20 @@ _SESSIONS: dict[str, _TrackedSession] = {}
 
 def _title_for_session(session: Any) -> str:
     source = str(getattr(getattr(session, "options", None), "source", "") or "").strip()
-    if source.lower().startswith("magnet:"):
+    try:
+        classified = classify_torrent_source(source) if source else None
+    except Aria2SourceError:
+        classified = None
+    if classified is not None and classified.kind == "magnet":
         return "Magnet 下载"
-    if source.lower().endswith(".torrent"):
-        name = Path(source.replace("\\", "/")).name.strip()
+    if classified is not None and classified.kind == "torrent_url":
+        try:
+            name = Path(urlsplit(classified.source).path).name.strip()
+        except ValueError:
+            name = ""
+        return name[:180] or "Torrent 下载"
+    if classified is not None and classified.kind == "torrent_file":
+        name = Path(classified.source).name.strip()
         return name[:180] or "Torrent 下载"
     name = str(getattr(getattr(session, "options", None), "file_name", "") or "").strip()
     return name[:180] or "aria2 下载"
@@ -186,6 +199,40 @@ def _provider_action(task_id: str, action: str) -> LocalTaskActionResult:
     return LocalTaskActionResult(False, False, "当前 aria2 状态不允许这个操作。")
 
 
+def _without_duplicate_resume_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Hide provider-backed resume rows while retaining the persisted record.
+
+    ``resume-jobs.json`` remains the restart/Bridge source of truth. The Task
+    Center renders the provider row only, otherwise a paused/recovered aria2
+    transfer would appear twice with two different action routes.
+    """
+
+    output: list[dict[str, object]] = []
+    for row in rows:
+        resume = row.get("resume")
+        if (
+            row.get("kind") == "resume"
+            and isinstance(resume, dict)
+            and str(resume.get("provider") or "").strip().lower() == _PROVIDER_ID
+        ):
+            continue
+        output.append(row)
+    return output
+
+
+def _install_resume_row_dedupe() -> None:
+    task_center = importlib.import_module("task_center")
+    if getattr(task_center, "_galaxy_aria2_resume_dedupe_installed", False):
+        return
+    original_rows = task_center._task_rows
+
+    def rows_without_duplicate_resume(window, engine_module):
+        return _without_duplicate_resume_rows(list(original_rows(window, engine_module)))
+
+    task_center._task_rows = rows_without_duplicate_resume
+    task_center._galaxy_aria2_resume_dedupe_installed = True
+
+
 def _install_close_guard(engine_module) -> None:
     window_cls = engine_module.EngineWindow
     if getattr(window_cls, "_galaxy_aria2_close_guard_installed", False):
@@ -226,6 +273,7 @@ def install_aria2_task_provider(engine_module):
         return engine_module.EngineWindow
     register_local_task_provider(_PROVIDER_ID, label=_PROVIDER_LABEL, snapshot=_provider_snapshots, action=_provider_action)
     install_local_task_provider_bridge(engine_module)
+    _install_resume_row_dedupe()
     _install_close_guard(engine_module)
     engine_module._galaxy_aria2_task_provider_installed = True
     return engine_module.EngineWindow
@@ -271,6 +319,21 @@ def run_aria2_task_provider_self_test() -> None:
         assert failed.state == "failed" and failed.actions == ("retry",)
         retried = _provider_action(task_id, "retry")
         assert retried.ok is True and fake.state == "queued"
+
+        rows = [
+            {"kind": "resume", "resume": {"provider": "aria2"}, "key": "r:aria2"},
+            {"kind": "provider", "providerName": "aria2", "key": "x:aria2"},
+            {"kind": "resume", "resume": {}, "key": "r:legacy"},
+        ]
+        deduped = _without_duplicate_resume_rows(rows)
+        assert [item["key"] for item in deduped] == ["x:aria2", "r:legacy"]
+
+        class _RemoteOptions:
+            source = "https://downloads.example.com/demo.torrent?token=abc#fragment"
+            file_name = ""
+        class _RemoteSession:
+            options = _RemoteOptions()
+        assert _title_for_session(_RemoteSession()) == "demo.torrent"
     finally:
         with _LOCK:
             _SESSIONS.pop(task_id, None)

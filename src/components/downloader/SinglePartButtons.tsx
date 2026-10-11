@@ -104,15 +104,15 @@ export function SinglePartButtons({
     };
 
     return (
-        <div className="space-y-2.5">
+        <div className="space-y-3">
             {previewActionCount > 0 && (
-                <div className={`grid ${getActionRowClass(previewActionCount)} gap-1.5`}>
+                <div className={`grid ${getActionRowClass(previewActionCount)} gap-2`}>
                     {showVideoPreview && (
                         <MediaActionIconButton
                             label={dict.result.playVideo}
                             icon={MonitorPlay}
                             variant="secondary"
-                            className="h-8 w-full min-w-0"
+                            className="w-full min-w-0"
                             onClick={() => onRequestPreview({
                                 mediaType: 'video',
                                 sourceUrl: previewSourceUrl,
@@ -127,7 +127,7 @@ export function SinglePartButtons({
                             label={dict.result.playAudio}
                             icon={Headphones}
                             variant="secondary"
-                            className="h-8 w-full min-w-0"
+                            className="w-full min-w-0"
                             onClick={() => onRequestPreview({
                                 mediaType: 'audio',
                                 sourceUrl: previewSourceUrl,
@@ -145,7 +145,7 @@ export function SinglePartButtons({
                     label={dict.result.browserDownloadVideo}
                     icon={Download}
                     variant="outline"
-                    className="h-8 w-full min-w-0"
+                    className="w-full min-w-0"
                     onClick={openBrowserHlsDownload}
                 />
             )}
@@ -155,7 +155,7 @@ export function SinglePartButtons({
                     label={audioAction === 'extract-audio' ? dict.extractAudio.button : dict.result.downloadAudio}
                     icon={AudioDownloadIcon}
                     variant="default"
-                    className="h-8 w-full min-w-0"
+                    className="w-full min-w-0"
                     onClick={handleStandaloneAudioAction}
                 />
             )}

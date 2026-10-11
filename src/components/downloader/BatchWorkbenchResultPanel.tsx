@@ -4,7 +4,9 @@ import { useMemo } from 'react'
 import { usePathname } from 'next/navigation'
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 
+import { Badge } from '@/components/ui/badge'
 import type { LocalEngineBatchSubmissionResult } from '@/lib/local-engine-bridge'
+import { cn } from '@/lib/utils'
 
 type FeedbackRow = {
   row: number
@@ -89,6 +91,19 @@ function statusTitle(result: LocalEngineBatchSubmissionResult, copy: Copy): stri
   return copy.rejected
 }
 
+function statusVisual(result: LocalEngineBatchSubmissionResult): {
+  badge: 'success' | 'warning' | 'destructive'
+  icon: string
+} {
+  if (result.code === 'BATCH_ACCEPTED') {
+    return { badge: 'success', icon: 'text-[hsl(var(--success))]' }
+  }
+  if (result.code === 'BATCH_PARTIAL' || result.code === 'BATCH_STOPPED') {
+    return { badge: 'warning', icon: 'text-[hsl(var(--warning))]' }
+  }
+  return { badge: 'destructive', icon: 'text-destructive' }
+}
+
 export function BatchWorkbenchResultPanel({ result }: { result: LocalEngineBatchSubmissionResult | null }) {
   const pathname = usePathname()
   const copy = copyFor(pathname)
@@ -96,6 +111,7 @@ export function BatchWorkbenchResultPanel({ result }: { result: LocalEngineBatch
   if (!result || !feedback) return null
 
   const successful = result.acceptedCount > 0
+  const visual = statusVisual(result)
   const metrics = [
     [copy.acceptedCount, result.acceptedCount],
     [copy.startedCount, result.startedCount],
@@ -107,54 +123,54 @@ export function BatchWorkbenchResultPanel({ result }: { result: LocalEngineBatch
 
   return (
     <div className="mt-3 border-t pt-3" aria-live="polite">
-      <div className="flex items-start gap-2">
+      <div className="surface-subtle flex items-start gap-2.5 rounded-md border px-3 py-2.5">
         {successful ? (
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <CheckCircle2 className={cn('mt-0.5 h-4 w-4 shrink-0', visual.icon)} aria-hidden="true" />
         ) : (
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <AlertTriangle className={cn('mt-0.5 h-4 w-4 shrink-0', visual.icon)} aria-hidden="true" />
         )}
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-sm font-medium">{statusTitle(result, copy)}</span>
-            <span className="rounded border px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">{result.code}</span>
-            <span className="text-[10px] uppercase text-muted-foreground">{result.format}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold leading-5">{statusTitle(result, copy)}</span>
+            <Badge variant={visual.badge}>{result.code}</Badge>
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{result.format}</span>
           </div>
           {result.stoppedCode ? (
-            <div className="mt-1 text-[10px] text-muted-foreground">
+            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">
               {copy.stoppedCode.replace('{code}', result.stoppedCode)}
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-y py-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mt-2 grid grid-cols-2 gap-px overflow-hidden border-y bg-border sm:grid-cols-3 lg:grid-cols-6">
         {metrics.map(([label, value]) => (
-          <div key={label} className="min-w-0 px-1">
-            <div className="text-[10px] text-muted-foreground">{label}</div>
-            <div className="mt-0.5 text-sm font-medium tabular-nums">{value}</div>
+          <div key={label} className="min-w-0 bg-background px-2.5 py-2">
+            <div className="text-[11px] leading-4 text-muted-foreground">{label}</div>
+            <div className="mt-0.5 text-base font-semibold tabular-nums tracking-tight">{value}</div>
           </div>
         ))}
       </div>
 
       {feedback.total > 0 ? (
-        <div className="mt-2">
-          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium">
+        <div className="mt-3">
+          <div className="mb-1.5 flex items-center justify-between gap-2 text-xs font-semibold">
             <span>{copy.rowIssues}</span>
             <span className="tabular-nums text-muted-foreground">{feedback.total}</span>
           </div>
           <div className="max-h-56 divide-y overflow-y-auto border-y">
             {feedback.rows.map((item) => (
-              <div key={`${item.row}-${item.code}`} className="grid min-h-9 grid-cols-[72px_minmax(0,1fr)] gap-2 px-1 py-1.5 text-[11px]">
-                <span className="tabular-nums text-muted-foreground">{copy.row.replace('{row}', String(item.row))}</span>
-                <div className="min-w-0">
-                  <span className="font-medium">{item.code}</span>
+              <div key={`${item.row}-${item.code}`} className="grid min-h-10 grid-cols-[84px_minmax(0,1fr)] gap-3 px-2 py-2 text-xs">
+                <span className="tabular-nums leading-5 text-muted-foreground">{copy.row.replace('{row}', String(item.row))}</span>
+                <div className="min-w-0 leading-5">
+                  <span className="font-semibold">{item.code}</span>
                   {item.message ? <span className="ms-2 text-muted-foreground">{item.message}</span> : null}
                 </div>
               </div>
             ))}
           </div>
           {feedback.total > feedback.rows.length ? (
-            <div className="mt-1 text-[10px] text-muted-foreground">
+            <div className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
               {copy.hiddenIssues.replace('{count}', String(feedback.total - feedback.rows.length))}
             </div>
           ) : null}

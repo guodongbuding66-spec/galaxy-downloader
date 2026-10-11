@@ -12,12 +12,19 @@ if str(LOCAL_ENGINE) not in sys.path:
 from desktop_telegram_download import run_desktop_telegram_download_self_test  # noqa: E402
 
 
+def _desktop_transfer_source() -> str:
+    """Return the effective presenter source across the V2 compatibility facade."""
+    facade = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+    legacy = (LOCAL_ENGINE / "desktop_transfers_legacy.py").read_text(encoding="utf-8")
+    return facade + "\n\n# --- delegated legacy presenter ---\n\n" + legacy
+
+
 class DesktopTelegramDownloadTests(unittest.TestCase):
     def test_helpers_self_test(self) -> None:
         run_desktop_telegram_download_self_test()
 
     def test_transfer_center_mounts_download_tab_through_builder(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _desktop_transfer_source()
         self.assertIn("from desktop_telegram_download import build_telegram_download_tab", source)
         call = "build_telegram_download_tab(notebook, dialog, engine_module)"
         self.assertIn(call, source)
@@ -81,7 +88,7 @@ class DesktopTelegramDownloadTests(unittest.TestCase):
             self.assertIn(marker, source)
 
     def test_existing_transfer_center_workflows_remain_present(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _desktop_transfer_source()
         for marker in (
             'notebook.add(torrent_tab, text="Torrent / Magnet")',
             'notebook.add(p2p_tab, text="P2P 短码")',

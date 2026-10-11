@@ -50,9 +50,9 @@ export function UnifiedDownloaderLowerSections({
     const hasRecentParses = downloadHistory.length > 0;
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-4">
             {parseResult && (
-                <section aria-live="polite">
+                <section aria-live="polite" className="scroll-mt-20 border-b pb-4">
                     <ResultCard
                         result={parseResult}
                         onClose={onCloseParseResult}
@@ -65,7 +65,7 @@ export function UnifiedDownloaderLowerSections({
             )}
 
             {mobileAd && (
-                <div className="lg:hidden min-h-[250px] overflow-hidden rounded-lg">
+                <div className="min-h-[250px] overflow-hidden rounded-md border bg-card lg:hidden">
                     {mobileAd}
                 </div>
             )}
@@ -82,7 +82,7 @@ export function UnifiedDownloaderLowerSections({
                 ) : null}
             </section>
 
-            {mobileGuides && <div className="flex flex-col gap-3 lg:hidden">{mobileGuides}</div>}
+            {mobileGuides && <div className="flex flex-col gap-4 lg:hidden">{mobileGuides}</div>}
         </div>
     );
 }

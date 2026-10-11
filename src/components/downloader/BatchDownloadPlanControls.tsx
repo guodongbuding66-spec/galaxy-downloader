@@ -1,7 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { Download, FileArchive, ImageIcon, Music2, Subtitles, Video } from 'lucide-react'
+import { ChevronDown, Download, FileArchive, ImageIcon, Music2, Subtitles, Video } from 'lucide-react'
 
 import {
   Select,
@@ -15,6 +15,7 @@ import {
   VIDEO_QUALITY_PRESETS,
 } from '@/lib/media-download-options'
 import type { LocalEngineBatchPlanOptions } from '@/lib/local-engine-batch-options'
+import { cn } from '@/lib/utils'
 
 type Copy = {
   title: string
@@ -76,16 +77,21 @@ function Toggle({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex min-h-8 cursor-pointer items-center gap-2 text-[10px] disabled:cursor-not-allowed">
+    <label
+      className={cn(
+        'ui-target flex min-h-9 items-center gap-2.5 rounded-md px-2 text-xs text-foreground transition-colors',
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-accent/70',
+      )}
+    >
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        className="h-3.5 w-3.5 accent-foreground"
+        className="h-4 w-4 shrink-0 accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       />
-      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span>{label}</span>
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="min-w-0 leading-5">{label}</span>
     </label>
   )
 }
@@ -104,19 +110,20 @@ export function BatchDownloadPlanControls({
   const update = (changes: Partial<LocalEngineBatchPlanOptions>) => onChange({ ...value, ...changes })
 
   return (
-    <details className="group mt-3 overflow-hidden rounded-xl border bg-card/40">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <Download className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-        <span className="font-semibold">{copy.title}</span>
-        <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">{copy.summary}</span>
+    <details className="group mt-3 overflow-hidden border-y surface-subtle">
+      <summary className="ui-target flex cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30">
+        <Download className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="shrink-0 font-semibold text-foreground">{copy.title}</span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{copy.summary}</span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
       </summary>
 
-      <div className="border-t px-3 pb-3 pt-2.5">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="space-y-1 text-[10px] font-medium text-muted-foreground">
-            <span className="flex items-center gap-1.5"><Video className="h-3.5 w-3.5" aria-hidden="true" />{copy.videoQuality}</span>
+      <div className="border-t bg-background/70 px-3 pb-3 pt-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+            <span className="flex items-center gap-1.5"><Video className="h-4 w-4" aria-hidden="true" />{copy.videoQuality}</span>
             <Select value={value.videoQuality} onValueChange={(next) => update({ videoQuality: next })} disabled={disabled}>
-              <SelectTrigger className="h-8 bg-background text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="bg-background text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {VIDEO_QUALITY_PRESETS.map((option) => (
                   <SelectItem key={option.quality} value={option.quality}>{option.label}</SelectItem>
@@ -125,10 +132,10 @@ export function BatchDownloadPlanControls({
             </Select>
           </label>
 
-          <label className="space-y-1 text-[10px] font-medium text-muted-foreground">
-            <span className="flex items-center gap-1.5"><Music2 className="h-3.5 w-3.5" aria-hidden="true" />{copy.audioQuality}</span>
+          <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+            <span className="flex items-center gap-1.5"><Music2 className="h-4 w-4" aria-hidden="true" />{copy.audioQuality}</span>
             <Select value={value.audioQuality} onValueChange={(next) => update({ audioQuality: next })} disabled={disabled || !value.includeAudio}>
-              <SelectTrigger className="h-8 bg-background text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="bg-background text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {AUDIO_QUALITY_PRESETS.map((option) => (
                   <SelectItem key={option.quality} value={option.quality}>{option.label}</SelectItem>
@@ -138,13 +145,13 @@ export function BatchDownloadPlanControls({
           </label>
         </div>
 
-        <div className="mt-2 grid gap-x-4 gap-y-1 border-y py-1.5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-3 grid gap-1 border-y py-1.5 sm:grid-cols-2 lg:grid-cols-4">
           <Toggle checked={value.includeAudio} disabled={disabled} label={copy.includeAudio} icon={Music2} onChange={(checked) => update({ includeAudio: checked })} />
           <Toggle checked={value.includeSubtitle} disabled={disabled} label={copy.includeSubtitle} icon={Subtitles} onChange={(checked) => update({ includeSubtitle: checked })} />
           <Toggle checked={value.includeCover} disabled={disabled} label={copy.includeCover} icon={ImageIcon} onChange={(checked) => update({ includeCover: checked })} />
           <Toggle checked={value.skipPreviouslyDownloaded} disabled={disabled} label={copy.archive} icon={FileArchive} onChange={(checked) => update({ skipPreviouslyDownloaded: checked })} />
         </div>
-        <p className="mt-1.5 text-[9px] leading-4 text-muted-foreground">{copy.archiveHint}</p>
+        <p className="mt-2 max-w-5xl text-[11px] leading-4 text-muted-foreground">{copy.archiveHint}</p>
       </div>
     </details>
   )

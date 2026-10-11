@@ -5,6 +5,10 @@ import tkinter as tk
 import desktop_ui as ui
 from bandwidth_policy import load_bandwidth_preference, normalize_bandwidth_kbps, save_bandwidth_preference
 from desktop_hooks import register_after_build_ui_hook
+from transfer_preferences import (
+    load_aria2_connections_preference,
+    save_aria2_connections_preference,
+)
 
 
 def _render_bandwidth_control(window, engine_module) -> None:
@@ -28,7 +32,7 @@ def _render_bandwidth_control(window, engine_module) -> None:
     ui._label(text, "带宽限制", size=8, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
     ui._label(
         text,
-        "单位 KiB/s；0 表示不限速。仅限制媒体下载，不影响解析和本机处理。",
+        "单位 KiB/s；0 表示不限速。作为媒体、Torrent / Magnet 与 aria2 HTTP 的全局默认值；Torrent / aria2 任务可单独覆盖。",
         size=7,
         color=ui.SUBTLE,
         bg=ui.PANEL_2,
@@ -70,6 +74,55 @@ def _render_bandwidth_control(window, engine_module) -> None:
     ui._label(actions, variable=status, size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(side="left")
     ui.ActionButton(actions, text="不限速", command=reset, kind="ghost", compact=True).pack(side="right")
     ui.ActionButton(actions, text="保存限速", command=save, kind="secondary", compact=True).pack(side="right", padx=(0, 6))
+
+    aria2_row = tk.Frame(card, bg=ui.PANEL_2)
+    aria2_row.pack(fill="x", pady=(12, 0))
+    aria2_text = tk.Frame(aria2_row, bg=ui.PANEL_2)
+    aria2_text.pack(side="left", fill="x", expand=True)
+    ui._label(aria2_text, "aria2 最大连接数", size=8, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
+    ui._label(
+        aria2_text,
+        "范围 1–16；新建 Torrent / Magnet 与 aria2 HTTP 任务使用该值，恢复任务保留创建时设置。",
+        size=7,
+        color=ui.SUBTLE,
+        bg=ui.PANEL_2,
+    ).pack(anchor="w", pady=(2, 0))
+
+    aria2_variable = tk.StringVar(value=str(load_aria2_connections_preference(engine_module)))
+    window._aria2_connections_var = aria2_variable
+    aria2_entry = tk.Spinbox(
+        aria2_row,
+        from_=1,
+        to=16,
+        increment=1,
+        textvariable=aria2_variable,
+        width=6,
+        font=("Segoe UI", 8),
+        bg=ui.BG,
+        fg=ui.TEXT,
+        buttonbackground=ui.PANEL_3,
+        insertbackground=ui.TEXT,
+        relief="flat",
+        bd=0,
+        highlightthickness=1,
+        highlightbackground=ui.BORDER,
+        highlightcolor=ui.ACCENT,
+        justify="right",
+    )
+    aria2_entry.pack(side="right", padx=(10, 0))
+
+    aria2_status = tk.StringVar(value=f"{load_aria2_connections_preference(engine_module)} 个连接")
+    window._aria2_connections_status_var = aria2_status
+
+    def save_aria2() -> None:
+        connections = save_aria2_connections_preference(engine_module, aria2_variable.get())
+        aria2_variable.set(str(connections))
+        aria2_status.set(f"{connections} 个连接")
+
+    aria2_actions = tk.Frame(card, bg=ui.PANEL_2)
+    aria2_actions.pack(fill="x", pady=(7, 0))
+    ui._label(aria2_actions, variable=aria2_status, size=7, color=ui.MUTED, bg=ui.PANEL_2).pack(side="left")
+    ui.ActionButton(aria2_actions, text="保存连接数", command=save_aria2, kind="secondary", compact=True).pack(side="right")
 
     window._galaxy_bandwidth_control_built = True
 

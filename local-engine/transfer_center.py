@@ -11,16 +11,38 @@ from pathlib import Path
 from typing import Callable, Iterable
 from urllib.parse import urlparse
 
+import aria2_recovery
 import transfer_center_legacy as _legacy
+from aria2_bandwidth import (
+    aria2_task_bandwidth_for,
+    bind_aria2_task_bandwidth,
+    install_aria2_bandwidth,
+    normalize_aria2_task_bandwidth_kbps,
+)
+from aria2_file_selection import (
+    bind_selected_files,
+    install_aria2_file_selection,
+    normalize_selected_files,
+    selected_files_for,
+)
+from aria2_source_policy import Aria2Source, Aria2SourceError, require_torrent_source
 from aria2_transfer import (
     Aria2TransferOptions,
     Aria2TransferSession,
     Aria2TransferSnapshot,
     run_aria2_transfer_self_test,
 )
+from bandwidth_policy import load_bandwidth_preference
+from torrent_metadata_acquisition import (
+    AcquiredTorrentMetadata,
+    TorrentMetadataAcquisitionError,
+    acquire_torrent_metadata,
+)
+from transfer_preferences import load_aria2_connections_preference
 
-# Re-export all existing public/private helper names so older modules keep their
-# exact import contract while the new aria2 layer is introduced incrementally.
+install_aria2_file_selection()
+install_aria2_bandwidth()
+
 for _name in dir(_legacy):
     if not _name.startswith("__"):
         globals().setdefault(_name, getattr(_legacy, _name))
@@ -43,34 +65,101 @@ def _validated_http_source(engine_module, source: object) -> str:
     return text
 
 
+def _validated_torrent_source(engine_module, source: object) -> Aria2Source:
+    """Classify Torrent input and apply Galaxy's public-URL boundary to remote torrents."""
+
+    try:
+        classified = require_torrent_source(source)
+    except Aria2SourceError as exc:
+        raise TransferError(str(exc)) from exc
+    if classified.kind != "torrent_url":
+        return classified
+
+    normalized = _validated_http_source(engine_module, classified.source)
+    try:
+        validated = require_torrent_source(normalized)
+    except Aria2SourceError as exc:
+        raise TransferError(str(exc)) from exc
+    if validated.kind != "torrent_url":
+        raise TransferError("Torrent URL 必须是通过公网地址校验的 HTTPS .torrent 地址")
+    return validated
+
+
+def preview_torrent_metadata(engine_module, source: object) -> AcquiredTorrentMetadata:
+    """Acquire a safe local torrent and return its bounded file metadata.
+
+    Local torrents are parsed directly. HTTPS torrents are fetched by Galaxy with
+    per-redirect public URL validation. Magnet links use aria2 metadata-only mode.
+    In every case the caller receives a local ``.torrent`` path that can later be
+    passed to ``start_torrent_transfer`` without repeating remote redirects.
+    """
+
+    classified = _validated_torrent_source(engine_module, source)
+    executable: Path | None = None
+    if classified.kind == "magnet":
+        resolved = find_aria2c(engine_module)
+        if resolved is None:
+            raise TransferError("未检测到 aria2c；读取 Magnet 文件列表需要 aria2c。")
+        executable = Path(resolved)
+    try:
+        return acquire_torrent_metadata(
+            engine_module,
+            classified.source,
+            executable=executable,
+        )
+    except TorrentMetadataAcquisitionError as exc:
+        raise TransferError(str(exc)) from exc
+
+
 def start_torrent_transfer(
     engine_module,
     source: object,
     *,
+    selected_files: object = (),
+    bandwidth_limit_kbps: object | None = None,
     on_update: Callable[[Aria2TransferSnapshot], None] | None = None,
     max_attempts: int = 3,
 ) -> Aria2TransferSession:
-    """Create a non-blocking Torrent/Magnet transfer session.
+    """Create a non-blocking, validated Torrent/Magnet transfer session.
 
-    The returned object exposes ``pause()``, ``resume()``, ``retry()``,
-    ``cancel()``, ``snapshot()`` and ``set_listener()``. Partial files are kept
-    on pause so aria2 can continue them on the next process run.
+    ``selected_files`` contains aria2's one-based Torrent file indexes. An empty
+    selection downloads every file. ``bandwidth_limit_kbps`` uses three states:
+    ``None`` inherits Galaxy's global bandwidth preference, ``0`` explicitly
+    disables the cap for this task, and a positive value sets a task-specific
+    KiB/s limit. HTTPS torrent URLs are localized before aria2 starts.
     """
 
+    classified = _validated_torrent_source(engine_module, source)
+    selected = normalize_selected_files(selected_files)
+    task_bandwidth = normalize_aria2_task_bandwidth_kbps(bandwidth_limit_kbps)
     executable = find_aria2c(engine_module)
     if executable is None:
-        raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c")
-    normalized = _torrent_source(source)
+        raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c。请先安装或配置 aria2c 后重试。")
+
+    if classified.kind == "torrent_url":
+        try:
+            acquired = acquire_torrent_metadata(engine_module, classified.source)
+        except TorrentMetadataAcquisitionError as exc:
+            raise TransferError(str(exc)) from exc
+        classified = Aria2Source(str(acquired.torrent_path), "torrent_file")
+
     destination = _managed_download_dir(engine_module, "torrents")
-    return Aria2TransferSession(
+    connections = load_aria2_connections_preference(engine_module)
+    options = Aria2TransferOptions(
+        source=classified.source,
+        destination=destination,
+        connections=connections,
+        seed_time_minutes=0,
+        max_attempts=max_attempts,
+    )
+    bind_selected_files(options, selected)
+    if task_bandwidth is not None:
+        bind_aria2_task_bandwidth(options, task_bandwidth)
+    return aria2_recovery.create_recoverable_aria2_session(
+        engine_module,
         Path(executable),
-        Aria2TransferOptions(
-            source=normalized,
-            destination=destination,
-            connections=16,
-            seed_time_minutes=0,
-            max_attempts=max_attempts,
-        ),
+        options,
+        source_kind=classified.kind,
         on_update=on_update,
     )
 
@@ -82,6 +171,7 @@ def start_aria2_http_transfer(
     file_name: str = "",
     sha256: str = "",
     headers: Iterable[object] = (),
+    bandwidth_limit_kbps: object | None = None,
     on_update: Callable[[Aria2TransferSnapshot], None] | None = None,
     max_attempts: int = 3,
 ) -> Aria2TransferSession:
@@ -91,18 +181,23 @@ def start_aria2_http_transfer(
     if executable is None:
         raise TransferError("未检测到 aria2c；高速 HTTP 下载需要 aria2c")
     normalized = _validated_http_source(engine_module, source_url)
+    task_bandwidth = normalize_aria2_task_bandwidth_kbps(bandwidth_limit_kbps)
     destination = _managed_download_dir(engine_module, "aria2")
+    connections = load_aria2_connections_preference(engine_module)
+    options = Aria2TransferOptions(
+        source=normalized,
+        destination=destination,
+        file_name=file_name,
+        connections=connections,
+        sha256=sha256,
+        headers=tuple(headers),
+        max_attempts=max_attempts,
+    )
+    if task_bandwidth is not None:
+        bind_aria2_task_bandwidth(options, task_bandwidth)
     return Aria2TransferSession(
         Path(executable),
-        Aria2TransferOptions(
-            source=normalized,
-            destination=destination,
-            file_name=file_name,
-            connections=16,
-            sha256=sha256,
-            headers=tuple(headers),
-            max_attempts=max_attempts,
-        ),
+        options,
         on_update=on_update,
     )
 
@@ -135,7 +230,19 @@ def transfer_status(engine_module) -> dict[str, object]:
             "aria2Progress": True,
             "aria2PauseResume": True,
             "aria2Retry": True,
+            "aria2RestartRecovery": True,
+            "aria2StrictTorrentSources": True,
+            "aria2TorrentFileSelection": True,
+            "aria2LocalTorrentMetadata": True,
+            "aria2RemoteTorrentMetadata": True,
+            "aria2MagnetMetadataOnly": True,
+            "aria2RedirectValidatedTorrentFetch": True,
+            "aria2Connections": load_aria2_connections_preference(engine_module),
             "aria2MaxConnections": 16,
+            "aria2BandwidthLimit": True,
+            "aria2PerTaskBandwidthLimit": True,
+            "aria2BandwidthModes": ("inherit", "unlimited", "custom"),
+            "bandwidthLimitKbps": load_bandwidth_preference(engine_module),
             "aria2FragmentManifestExternalDownloader": False,
         }
     )
@@ -147,4 +254,60 @@ def run_transfer_center_self_test() -> None:
     run_aria2_transfer_self_test()
     assert callable(start_torrent_transfer)
     assert callable(start_aria2_http_transfer)
+    assert callable(preview_torrent_metadata)
     assert callable(download_torrent)
+    assert normalize_selected_files((3, 1, 2, 2)) == (1, 2, 3)
+    assert normalize_aria2_task_bandwidth_kbps(None) is None
+    assert normalize_aria2_task_bandwidth_kbps(0) == 0
+    assert normalize_aria2_task_bandwidth_kbps(512) == 512
+
+    probe = Aria2TransferOptions(source="https://example.com/demo.torrent", destination=Path("downloads"))
+    bind_selected_files(probe, (2, 4))
+    bind_aria2_task_bandwidth(probe, 0)
+    assert selected_files_for(probe) == (2, 4)
+    assert aria2_task_bandwidth_for(probe) == 0
+
+    class _BoundaryEngine:
+        calls: list[str] = []
+
+        @staticmethod
+        def _validated_source_url(value: str) -> str:
+            _BoundaryEngine.calls.append(value)
+            host = (urlparse(value).hostname or "").lower()
+            blocked = (
+                host == "localhost"
+                or host == "127.0.0.1"
+                or host.startswith("10.")
+                or host.startswith("192.168.")
+                or host.startswith("169.254.")
+                or host == "172.16.0.1"
+            )
+            if blocked:
+                raise ValueError("仅允许公网 HTTP(S) 下载地址")
+            return value
+
+    public = _validated_torrent_source(_BoundaryEngine, "https://downloads.example.com/demo.torrent")
+    assert public.kind == "torrent_url"
+    assert public.source == "https://downloads.example.com/demo.torrent"
+    assert _BoundaryEngine.calls == ["https://downloads.example.com/demo.torrent"]
+
+    for private_url in (
+        "https://localhost/demo.torrent",
+        "https://127.0.0.1/demo.torrent",
+        "https://10.0.0.1/demo.torrent",
+        "https://192.168.1.10/demo.torrent",
+        "https://172.16.0.1/demo.torrent",
+        "https://169.254.169.254/latest.torrent",
+    ):
+        try:
+            _validated_torrent_source(_BoundaryEngine, private_url)
+        except TransferError:
+            pass
+        else:
+            raise AssertionError(f"private torrent URL escaped engine URL boundary: {private_url}")
+
+    before = len(_BoundaryEngine.calls)
+    valid_hex = "0123456789abcdef0123456789abcdef01234567"
+    magnet = _validated_torrent_source(_BoundaryEngine, f"magnet:?xt=urn:btih:{valid_hex}")
+    assert magnet.kind == "magnet"
+    assert len(_BoundaryEngine.calls) == before

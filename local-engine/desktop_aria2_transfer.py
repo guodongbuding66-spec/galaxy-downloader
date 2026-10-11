@@ -2,15 +2,19 @@ from __future__ import annotations
 
 """Native Tk lifecycle controls for Galaxy Torrent/aria2 transfers."""
 
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
 import desktop_ui as ui
+from aria2_bandwidth import aria2_task_bandwidth_for, normalize_aria2_task_bandwidth_kbps
+from aria2_file_selection import selected_files_for
 from aria2_task_provider import register_aria2_session
 from aria2_transfer import Aria2Progress, Aria2TransferSnapshot
+from bandwidth_policy import load_bandwidth_preference
 from desktop_design_tokens import LAYOUT
-from transfer_center import start_torrent_transfer
+from transfer_center import preview_torrent_metadata, start_torrent_transfer
 
 _STATE_TEXT = {
     "queued": "等待启动", "running": "下载中", "retrying": "重试等待",
@@ -18,6 +22,10 @@ _STATE_TEXT = {
     "cancelled": "已取消", "completed": "已完成", "failed": "失败",
 }
 _ACTIVE = {"queued", "running", "retrying", "pausing", "cancelling"}
+_BW_INHERIT = "继承全局"
+_BW_UNLIMITED = "不限速"
+_BW_CUSTOM = "自定义"
+_BW_MODES = (_BW_INHERIT, _BW_UNLIMITED, _BW_CUSTOM)
 
 
 def torrent_snapshot_text(snapshot: Aria2TransferSnapshot) -> tuple[str, str]:
@@ -31,6 +39,38 @@ def torrent_snapshot_text(snapshot: Aria2TransferSnapshot) -> tuple[str, str]:
     if snapshot.error and snapshot.state in {"failed", "retrying"}: parts.append(snapshot.error[:180])
     if snapshot.state == "completed": parts.append(str(snapshot.destination))
     return primary, " · ".join(parts) or "aria2c 已就绪"
+
+
+def _format_bytes(value: int) -> str:
+    size = float(max(0, int(value)))
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TiB"
+
+
+def _bandwidth_override_from_ui(mode: str, value: object) -> int | None:
+    if mode == _BW_INHERIT:
+        return None
+    if mode == _BW_UNLIMITED:
+        return 0
+    if mode != _BW_CUSTOM:
+        raise ValueError("请选择有效的任务限速模式")
+    limit = normalize_aria2_task_bandwidth_kbps(value)
+    if limit is None or limit <= 0:
+        raise ValueError("自定义任务限速必须大于 0 KiB/s；如需不限速请选择“不限速”。")
+    return limit
+
+
+def _bandwidth_ui_from_override(value: object) -> tuple[str, str]:
+    limit = normalize_aria2_task_bandwidth_kbps(value)
+    if limit is None:
+        return _BW_INHERIT, ""
+    if limit == 0:
+        return _BW_UNLIMITED, ""
+    return _BW_CUSTOM, str(limit)
 
 
 def _enabled(button, value: bool) -> None:
@@ -69,26 +109,218 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
 
     source = tk.StringVar()
     status = tk.StringVar(value="就绪 · 支持实时进度、暂停/继续、失败重试")
-    detail = tk.StringVar(value="aria2c 使用断点续传；关闭此窗口不会中断正在进行的任务。")
+    detail = tk.StringVar(value="aria2c 使用断点续传；关闭程序后任务会进入可恢复状态，不会静默重新下载。")
+    metadata_status = tk.StringVar(value="本地 .torrent、HTTPS torrent 和 Magnet 都可读取文件列表并选择下载项。")
     pct = tk.DoubleVar(value=0.0)
+    metadata_state = {"source": "", "local_source": "", "loading": False, "restore_selection": ()}
+
     ui._label(tab, "Torrent / Magnet", size=11, weight="bold").pack(anchor="w")
-    ui._label(tab, "Magnet 链接或 .torrent 文件；失败最多自动重试 3 次，暂停会保留 aria2 控制文件。",
-              size=7, color=ui.SUBTLE, wraplength=760, justify="left").pack(anchor="w", pady=(4, 12))
+    ui._label(
+        tab,
+        "支持 BTIH Magnet、HTTPS .torrent 地址或本地 .torrent 文件；读取文件列表后可逐文件选择，暂停会保留 aria2 断点。",
+        size=7, color=ui.SUBTLE, wraplength=760, justify="left",
+    ).pack(anchor="w", pady=(4, 12))
+
     row = tk.Frame(tab, bg=ui.PANEL); row.pack(fill="x")
-    entry = tk.Entry(row, textvariable=source, font=("Segoe UI", 10), bg=ui.PANEL_3, fg=ui.TEXT,
-                     insertbackground=ui.TEXT, relief="flat", bd=0, highlightthickness=1,
-                     highlightbackground=ui.BORDER, highlightcolor=ui.ACCENT)
+    entry = tk.Entry(
+        row, textvariable=source, font=("Segoe UI", 10), bg=ui.PANEL_3, fg=ui.TEXT,
+        insertbackground=ui.TEXT, relief="flat", bd=0, highlightthickness=1,
+        highlightbackground=ui.BORDER, highlightcolor=ui.ACCENT,
+    )
     entry.pack(side="left", fill="x", expand=True, ipady=7)
+
+    choose_btn = ui.ActionButton(row, text="选择文件", command=lambda: None, kind="ghost", compact=True)
+    choose_btn.pack(side="right", padx=(8, 0))
+    preview_btn = ui.ActionButton(row, text="读取文件列表", command=lambda: None, kind="ghost", compact=True)
+    preview_btn.pack(side="right", padx=(8, 0))
+
+    bandwidth_row = tk.Frame(tab, bg=ui.PANEL)
+    bandwidth_row.pack(fill="x", pady=(10, 0))
+    ui._label(bandwidth_row, "任务限速", size=7, weight="bold").pack(side="left")
+    bandwidth_mode = tk.StringVar(value=_BW_INHERIT)
+    bandwidth_value = tk.StringVar(value="")
+    bandwidth_combo = ttk.Combobox(
+        bandwidth_row,
+        textvariable=bandwidth_mode,
+        values=_BW_MODES,
+        state="readonly",
+        width=11,
+    )
+    bandwidth_combo.pack(side="left", padx=(8, 6))
+    bandwidth_entry = tk.Entry(
+        bandwidth_row,
+        textvariable=bandwidth_value,
+        width=10,
+        font=("Segoe UI", 9),
+        bg=ui.PANEL_3,
+        fg=ui.TEXT,
+        insertbackground=ui.TEXT,
+        relief="flat",
+        bd=0,
+        highlightthickness=1,
+        highlightbackground=ui.BORDER,
+        highlightcolor=ui.ACCENT,
+        disabledbackground=ui.PANEL_2,
+        disabledforeground=ui.MUTED,
+    )
+    bandwidth_entry.pack(side="left", ipady=5)
+    ui._label(bandwidth_row, "KiB/s", size=7, color=ui.MUTED).pack(side="left", padx=(5, 10))
+    bandwidth_hint = tk.StringVar()
+    ui._label(bandwidth_row, variable=bandwidth_hint, size=7, color=ui.MUTED).pack(side="left")
+
+    def global_bandwidth_text() -> str:
+        try:
+            global_limit = int(load_bandwidth_preference(engine_module))
+        except Exception:
+            global_limit = 0
+        return f"全局：{global_limit} KiB/s" if global_limit > 0 else "全局：不限速"
+
+    bandwidth_locked = {"value": False}
+
+    def refresh_bandwidth_controls() -> None:
+        locked = bool(bandwidth_locked["value"])
+        try:
+            bandwidth_combo.configure(state="disabled" if locked else "readonly")
+            bandwidth_entry.configure(
+                state="normal" if (not locked and bandwidth_mode.get() == _BW_CUSTOM) else "disabled"
+            )
+        except tk.TclError:
+            return
+        if bandwidth_mode.get() == _BW_INHERIT:
+            bandwidth_hint.set(global_bandwidth_text())
+        elif bandwidth_mode.get() == _BW_UNLIMITED:
+            bandwidth_hint.set("仅当前任务不限制")
+        else:
+            bandwidth_hint.set("仅覆盖当前任务")
+
+    bandwidth_mode.trace_add("write", lambda *_args: refresh_bandwidth_controls())
+    refresh_bandwidth_controls()
+
+    files_card = tk.Frame(tab, bg=ui.PANEL_2, padx=10, pady=8)
+    files_card.pack(fill="both", expand=True, pady=(12, 0))
+    files_head = tk.Frame(files_card, bg=ui.PANEL_2); files_head.pack(fill="x")
+    ui._label(files_head, "Torrent 文件", size=8, weight="bold", bg=ui.PANEL_2).pack(side="left")
+    ui._label(files_card, variable=metadata_status, size=7, color=ui.MUTED, bg=ui.PANEL_2, wraplength=740, justify="left").pack(anchor="w", pady=(4, 6))
+
+    tree = ttk.Treeview(files_card, columns=("size",), show="tree headings", selectmode="extended", height=7)
+    tree.heading("#0", text="文件路径")
+    tree.heading("size", text="大小")
+    tree.column("#0", width=560, minwidth=240, stretch=True)
+    tree.column("size", width=110, minwidth=90, stretch=False, anchor="e")
+    tree.pack(fill="both", expand=True)
+
+    select_actions = tk.Frame(files_card, bg=ui.PANEL_2); select_actions.pack(fill="x", pady=(7, 0))
+    select_all_btn = ui.ActionButton(select_actions, text="全选", command=lambda: tree.selection_set(tree.get_children("")), kind="ghost", compact=True)
+    clear_btn = ui.ActionButton(select_actions, text="清空选择", command=lambda: tree.selection_remove(tree.selection()), kind="ghost", compact=True)
+    select_all_btn.pack(side="left")
+    clear_btn.pack(side="left", padx=(6, 0))
+
+    def clear_metadata(message: str | None = None) -> None:
+        for item in tree.get_children(""):
+            tree.delete(item)
+        metadata_state["source"] = ""
+        metadata_state["local_source"] = ""
+        if message is not None:
+            metadata_status.set(message)
+
+    def set_preview_controls(enabled: bool) -> None:
+        active = session()
+        locked = bool(active and (active.active or active.state == "paused"))
+        allow = enabled and not locked
+        for control in (choose_btn, preview_btn, select_all_btn, clear_btn):
+            _enabled(control, allow)
+
+    def populate_metadata(wanted: str, acquired) -> None:
+        if source.get().strip() != wanted:
+            return
+        for item in tree.get_children(""):
+            tree.delete(item)
+        for file in acquired.metadata.files:
+            tree.insert("", "end", iid=str(file.index), text=file.path, values=(_format_bytes(file.length),))
+        children = tree.get_children("")
+        if children:
+            tree.selection_set(children)
+        saved = tuple(metadata_state.get("restore_selection") or ())
+        if saved:
+            tree.selection_remove(tree.selection())
+            valid = [str(index) for index in saved if tree.exists(str(index))]
+            if valid:
+                tree.selection_set(valid)
+        metadata_state["restore_selection"] = ()
+        metadata_state["source"] = wanted
+        metadata_state["local_source"] = str(acquired.torrent_path)
+        metadata_status.set(
+            f"{acquired.metadata.name} · {len(acquired.metadata.files)} 个文件 · {_format_bytes(acquired.metadata.total_length)} · 默认全选，可 Ctrl/Shift 多选。"
+        )
+
+    def begin_metadata_preview(value: str | None = None, *, auto_start: bool = False) -> None:
+        wanted = str(value if value is not None else source.get()).strip()
+        if not wanted:
+            clear_metadata("请先输入 Magnet / HTTPS .torrent 地址或选择本地 .torrent 文件。")
+            return
+        if metadata_state["loading"]:
+            metadata_status.set("正在读取 Torrent 文件列表，请稍候。")
+            return
+        metadata_state["loading"] = True
+        clear_metadata("正在安全读取 Torrent 元数据…")
+        metadata_state["loading"] = True
+        set_preview_controls(False)
+
+        def worker() -> None:
+            try:
+                acquired = preview_torrent_metadata(engine_module, wanted)
+                error = ""
+            except Exception as exc:  # noqa: BLE001 - UI boundary
+                acquired = None
+                error = str(exc)[:400]
+
+            def finish() -> None:
+                metadata_state["loading"] = False
+                try:
+                    if not dialog.winfo_exists():
+                        return
+                    if source.get().strip() != wanted:
+                        set_preview_controls(True)
+                        return
+                    if acquired is None:
+                        clear_metadata(error or "读取 Torrent 文件列表失败")
+                        metadata_state["restore_selection"] = ()
+                    else:
+                        populate_metadata(wanted, acquired)
+                    set_preview_controls(True)
+                    if acquired is not None and auto_start:
+                        start()
+                except tk.TclError:
+                    pass
+
+            try:
+                dialog.after(0, finish)
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, name="GalaxyTorrentMetadataPreview", daemon=True).start()
+
+    def on_source_changed(*_args) -> None:
+        wanted = source.get().strip()
+        if metadata_state["source"] and wanted != metadata_state["source"]:
+            metadata_state["restore_selection"] = ()
+            clear_metadata("来源已更改；请重新读取文件列表。未读取时开始下载会按全部文件处理。")
+
+    source.trace_add("write", on_source_changed)
+
     def choose() -> None:
         value = filedialog.askopenfilename(parent=dialog, title="选择 Torrent", filetypes=(("Torrent", "*.torrent"),))
-        if value: source.set(value)
-    choose_btn = ui.ActionButton(row, text="选择文件", command=choose, kind="ghost", compact=True)
-    choose_btn.pack(side="right", padx=(8, 0))
+        if value:
+            source.set(value)
+            begin_metadata_preview(value)
 
-    ui._label(tab, variable=status, size=9, weight="bold").pack(anchor="w", pady=(16, 0))
+    choose_btn.configure(command=choose)
+    preview_btn.configure(command=begin_metadata_preview)
+
+    ui._label(tab, variable=status, size=9, weight="bold").pack(anchor="w", pady=(14, 0))
     ttk.Progressbar(tab, variable=pct, maximum=100, mode="determinate").pack(fill="x", pady=(8, 8))
     ui._label(tab, variable=detail, size=7, color=ui.MUTED, wraplength=760, justify="left").pack(anchor="w")
-    actions = tk.Frame(tab, bg=ui.PANEL); actions.pack(fill="x", pady=(16, 0))
+    actions = tk.Frame(tab, bg=ui.PANEL); actions.pack(fill="x", pady=(14, 0))
     start_btn = ui.ActionButton(actions, text="开始下载", command=lambda: None, kind="secondary", compact=True)
     pause_btn = ui.ActionButton(actions, text="暂停", command=lambda: None, kind="ghost", compact=True)
     resume_btn = ui.ActionButton(actions, text="继续", command=lambda: None, kind="ghost", compact=True)
@@ -97,14 +329,31 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
     start_btn.pack(side="left"); pause_btn.pack(side="left", padx=(8,0)); resume_btn.pack(side="left", padx=(8,0)); retry_btn.pack(side="left", padx=(8,0)); cancel_btn.pack(side="right")
 
     def session(): return getattr(window, "_galaxy_aria2_torrent_session", None)
+
+    def current_selection(value: str) -> tuple[int, ...]:
+        if metadata_state["source"] != value or not tree.get_children(""):
+            return ()
+        selected = tuple(sorted(int(item) for item in tree.selection()))
+        if not selected:
+            raise ValueError("请至少选择一个 Torrent 文件；如需全部文件请点击“全选”。")
+        return selected
+
+    def current_task_bandwidth() -> int | None:
+        return _bandwidth_override_from_ui(bandwidth_mode.get(), bandwidth_value.get())
+
     def render(s: Aria2TransferSnapshot) -> None:
         def apply() -> None:
             try:
                 if not dialog.winfo_exists(): return
                 a, b = torrent_snapshot_text(s); status.set(a); detail.set(b); pct.set(float(s.progress.percent))
                 locked = s.state in _ACTIVE or s.state == "paused"
-                entry.configure(state="disabled" if locked else "normal"); _enabled(choose_btn, not locked)
-                _enabled(start_btn, s.state in {"cancelled", "completed", "failed"} or (s.state == "queued" and s.attempt == 0))
+                entry.configure(state="disabled" if locked else "normal")
+                tree.configure(selectmode="none" if locked else "extended")
+                bandwidth_locked["value"] = locked
+                refresh_bandwidth_controls()
+                for control in (choose_btn, preview_btn, select_all_btn, clear_btn):
+                    _enabled(control, not locked and not metadata_state["loading"])
+                _enabled(start_btn, (not metadata_state["loading"]) and (s.state in {"cancelled", "completed", "failed"} or (s.state == "queued" and s.attempt == 0)))
                 _enabled(pause_btn, s.state in {"running", "retrying"}); _enabled(resume_btn, s.state == "paused")
                 _enabled(retry_btn, s.state == "failed"); _enabled(cancel_btn, s.state not in {"cancelled", "completed", "failed"})
             except tk.TclError: pass
@@ -114,14 +363,46 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
 
     def start() -> None:
         value = source.get().strip()
-        if not value: status.set("请输入 Magnet 链接或选择 .torrent 文件"); return
+        if not value:
+            status.set("请输入 BTIH Magnet、HTTPS .torrent 地址或选择本地 .torrent 文件")
+            return
+        if metadata_state["loading"]:
+            status.set("正在读取 Torrent 文件列表")
+            detail.set("元数据读取完成后再开始下载。")
+            return
         old = session()
-        if old is not None and old.active: status.set("已有 Torrent 任务正在运行"); return
+        if old is not None and old.active:
+            status.set("已有 Torrent 任务正在运行")
+            return
         try:
-            new = start_torrent_transfer(engine_module, value, on_update=render, max_attempts=3)
+            task_bandwidth = current_task_bandwidth()
+        except Exception as exc:
+            status.set("任务限速设置无效")
+            detail.set(str(exc)[:240])
+            return
+        if metadata_state["source"] != value and value.lower().startswith("https://"):
+            status.set("正在安全获取 Torrent 元数据")
+            detail.set("完成公网重定向校验和本地缓存后会自动开始下载。")
+            begin_metadata_preview(value, auto_start=True)
+            return
+        try:
+            selected = current_selection(value)
+            actual_source = metadata_state["local_source"] if metadata_state["source"] == value and metadata_state["local_source"] else value
+            new = start_torrent_transfer(
+                engine_module,
+                actual_source,
+                selected_files=selected,
+                bandwidth_limit_kbps=task_bandwidth,
+                on_update=render,
+                max_attempts=3,
+            )
             register_aria2_session(new)
-            window._galaxy_aria2_torrent_session = new; new.start()
-        except Exception as exc: status.set("启动失败"); detail.set(str(exc)[:240])
+            window._galaxy_aria2_torrent_session = new
+            new.start()
+        except Exception as exc:
+            status.set("启动失败")
+            detail.set(str(exc)[:240])
+
     def pause() -> None:
         s = session(); s.pause() if s is not None else None
     def resume() -> None:
@@ -132,12 +413,23 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
         if s is not None: s.set_listener(render); s.retry()
     def cancel() -> None:
         s = session(); s.cancel() if s is not None else None
+
     start_btn.configure(command=start); pause_btn.configure(command=pause); resume_btn.configure(command=resume); retry_btn.configure(command=retry); cancel_btn.configure(command=cancel)
     entry.bind("<Return>", lambda _event: start())
+
     old = session()
     if old is not None:
-        try: source.set(str(old.options.source))
-        except Exception: pass
+        try:
+            old_source = str(old.options.source)
+            metadata_state["restore_selection"] = selected_files_for(old.options)
+            restored_mode, restored_value = _bandwidth_ui_from_override(aria2_task_bandwidth_for(old.options))
+            bandwidth_mode.set(restored_mode)
+            bandwidth_value.set(restored_value)
+            refresh_bandwidth_controls()
+            source.set(old_source)
+            begin_metadata_preview(old_source)
+        except Exception:
+            metadata_state["restore_selection"] = ()
         old.set_listener(render); render(old.snapshot())
     else:
         for button in (pause_btn, resume_btn, retry_btn, cancel_btn): _enabled(button, False)
@@ -161,3 +453,11 @@ def run_desktop_aria2_transfer_self_test() -> None:
     snapshot = Aria2TransferSnapshot("running", 2, 3, Aria2Progress(37, "5.0MiB", "12s", 16), Path("downloads/torrents"))
     primary, detail = torrent_snapshot_text(snapshot)
     assert primary == "下载中 · 37%" and "5.0MiB/s" in detail and "剩余 12s" in detail and "连接 16" in detail and "尝试 2/3" in detail
+    assert _format_bytes(0) == "0 B"
+    assert _format_bytes(1024) == "1.0 KiB"
+    assert _bandwidth_override_from_ui(_BW_INHERIT, "") is None
+    assert _bandwidth_override_from_ui(_BW_UNLIMITED, "") == 0
+    assert _bandwidth_override_from_ui(_BW_CUSTOM, "512") == 512
+    assert _bandwidth_ui_from_override(None) == (_BW_INHERIT, "")
+    assert _bandwidth_ui_from_override(0) == (_BW_UNLIMITED, "")
+    assert _bandwidth_ui_from_override(512) == (_BW_CUSTOM, "512")
