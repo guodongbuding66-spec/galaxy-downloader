@@ -16,10 +16,8 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable
 from urllib.parse import urljoin, urlsplit
-
-import requests
 
 from aria2_source_policy import Aria2SourceError, TORRENT_FILE_MAX_BYTES, require_torrent_source
 from torrent_metadata import TorrentMetadata, TorrentMetadataError, parse_torrent_bytes, read_local_torrent_metadata
@@ -142,11 +140,26 @@ def _read_response_body(response) -> bytes:
     return data
 
 
+def _default_request_get() -> tuple[Callable[..., object], tuple[type[BaseException], ...]]:
+    """Load requests only when an HTTPS metadata fetch is actually requested.
+
+    Core transfer-contract tests intentionally import Galaxy without installing
+    optional/runtime dependencies. Keeping this import lazy preserves that
+    lightweight boundary while production environments still use the requests
+    dependency declared in requirements.txt.
+    """
+    try:
+        import requests  # type: ignore
+    except ImportError as exc:
+        raise TorrentMetadataAcquisitionError("缺少 requests 依赖，无法获取远程 Torrent 元数据") from exc
+    return requests.get, (requests.RequestException,)
+
+
 def fetch_https_torrent_bytes(
     engine_module,
     source: object,
     *,
-    request_get: Callable[..., object] = requests.get,
+    request_get: Callable[..., object] | None = None,
 ) -> bytes:
     """Fetch a remote torrent with per-hop public-URL validation and size bounds."""
 
@@ -156,6 +169,10 @@ def fetch_https_torrent_bytes(
         raise TorrentMetadataAcquisitionError(str(exc)) from exc
     if classified.kind != "torrent_url":
         raise TorrentMetadataAcquisitionError("该来源不是 HTTPS .torrent 地址")
+
+    request_errors: tuple[type[BaseException], ...] = ()
+    if request_get is None:
+        request_get, request_errors = _default_request_get()
 
     current = _validated_https_url(engine_module, classified.source)
     for redirect_count in range(MAX_REDIRECTS + 1):
@@ -182,8 +199,10 @@ def fetch_https_torrent_bytes(
             return _read_response_body(response)
         except TorrentMetadataAcquisitionError:
             raise
-        except requests.RequestException as exc:
-            raise TorrentMetadataAcquisitionError(f"远程 Torrent 请求失败：{exc}") from exc
+        except Exception as exc:
+            if request_errors and isinstance(exc, request_errors):
+                raise TorrentMetadataAcquisitionError(f"远程 Torrent 请求失败：{exc}") from exc
+            raise
         finally:
             if response is not None:
                 close = getattr(response, "close", None)
@@ -272,7 +291,7 @@ def acquire_torrent_metadata(
     source: object,
     *,
     executable: Path | None = None,
-    request_get: Callable[..., object] = requests.get,
+    request_get: Callable[..., object] | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> AcquiredTorrentMetadata:
     try:
