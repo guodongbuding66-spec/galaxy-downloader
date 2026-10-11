@@ -309,7 +309,7 @@ function ImageNoteGridContent({
                             {replaceTemplate(dict.result.imageCount, '{count}', String(images.length))}
                         </span>
                         {!allLoaded && (
-                            <span className="ms-1.5 text-[10px]" role="status" aria-live="polite">
+                            <span className="ms-1.5 text-xs" role="status" aria-live="polite">
                                 {dict.result.imageLoadingProgress.replace('{loaded}', String(loadedCount)).replace('{total}', String(images.length))}
                             </span>
                         )}
@@ -359,7 +359,7 @@ function ImageNoteGridContent({
                                     </div>
                                 )}
                                 {!isLoading && hasError && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center px-3 text-center text-[11px] text-muted-foreground">
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center px-3 text-center text-xs text-muted-foreground">
                                         <span>{singleImageMode ? dict.result.coverLabel : replaceTemplate(dict.result.imageIndexLabel, '{index}', String(index + 1))}</span>
                                         <span className="mt-1 opacity-70">{dict.result.loadFailed}</span>
                                     </div>
@@ -371,7 +371,7 @@ function ImageNoteGridContent({
                                     <Button
                                         size="icon"
                                         variant="secondary"
-                                        className="h-8 w-8 rounded-md bg-background/90 backdrop-blur-sm"
+                                        className="rounded-md bg-background/90 backdrop-blur-sm"
                                         onClick={() => void handleDownload(index, imageUrl)}
                                         aria-label={singleImageMode ? dict.result.downloadCover : dict.result.downloadImage}
                                     >
