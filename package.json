@@ -78,6 +78,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "16.3.8",
     "postcss": "^8.5.18",
+    "react-server-dom-webpack": "^19.2.7",
     "serwist": "^9.5.11",
     "sharp": "^0.35.5",
     "tailwindcss": "^4.3.0",
