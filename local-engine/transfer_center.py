@@ -27,6 +27,11 @@ from aria2_transfer import (
     run_aria2_transfer_self_test,
 )
 from bandwidth_policy import load_bandwidth_preference
+from torrent_metadata_acquisition import (
+    AcquiredTorrentMetadata,
+    TorrentMetadataAcquisitionError,
+    acquire_torrent_metadata,
+)
 from transfer_preferences import load_aria2_connections_preference
 
 install_aria2_file_selection()
@@ -54,13 +59,7 @@ def _validated_http_source(engine_module, source: object) -> str:
 
 
 def _validated_torrent_source(engine_module, source: object) -> Aria2Source:
-    """Classify Torrent input and apply Galaxy's public-URL boundary to remote torrents.
-
-    Magnet URIs and local ``.torrent`` files are intentionally left on their
-    dedicated validators. Remote HTTPS ``.torrent`` URLs must additionally pass
-    the same engine URL/SSRF boundary used by the normal HTTP downloader before
-    they may reach aria2c.
-    """
+    """Classify Torrent input and apply Galaxy's public-URL boundary to remote torrents."""
 
     try:
         classified = require_torrent_source(source)
@@ -79,6 +78,32 @@ def _validated_torrent_source(engine_module, source: object) -> Aria2Source:
     return validated
 
 
+def preview_torrent_metadata(engine_module, source: object) -> AcquiredTorrentMetadata:
+    """Acquire a safe local torrent and return its bounded file metadata.
+
+    Local torrents are parsed directly. HTTPS torrents are fetched by Galaxy with
+    per-redirect public URL validation. Magnet links use aria2 metadata-only mode.
+    In every case the caller receives a local ``.torrent`` path that can later be
+    passed to ``start_torrent_transfer`` without repeating remote redirects.
+    """
+
+    classified = _validated_torrent_source(engine_module, source)
+    executable: Path | None = None
+    if classified.kind == "magnet":
+        resolved = find_aria2c(engine_module)
+        if resolved is None:
+            raise TransferError("未检测到 aria2c；读取 Magnet 文件列表需要 aria2c。")
+        executable = Path(resolved)
+    try:
+        return acquire_torrent_metadata(
+            engine_module,
+            classified.source,
+            executable=executable,
+        )
+    except TorrentMetadataAcquisitionError as exc:
+        raise TransferError(str(exc)) from exc
+
+
 def start_torrent_transfer(
     engine_module,
     source: object,
@@ -90,9 +115,10 @@ def start_torrent_transfer(
     """Create a non-blocking, validated Torrent/Magnet transfer session.
 
     ``selected_files`` contains aria2's one-based Torrent file indexes. An empty
-    selection means the normal aria2 behavior: download every file. The indexes
-    are validated and persisted by the V2 file-selection adapter so pause/restart
-    recovery resumes the exact same subset.
+    selection means the normal aria2 behavior: download every file. HTTPS torrent
+    URLs are first fetched through Galaxy's redirect-aware public URL boundary and
+    converted to a verified local torrent, so aria2 never follows an unvalidated
+    HTTP redirect for the metadata source.
     """
 
     classified = _validated_torrent_source(engine_module, source)
@@ -100,6 +126,14 @@ def start_torrent_transfer(
     executable = find_aria2c(engine_module)
     if executable is None:
         raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c。请先安装或配置 aria2c 后重试。")
+
+    if classified.kind == "torrent_url":
+        try:
+            acquired = acquire_torrent_metadata(engine_module, classified.source)
+        except TorrentMetadataAcquisitionError as exc:
+            raise TransferError(str(exc)) from exc
+        classified = Aria2Source(str(acquired.torrent_path), "torrent_file")
+
     destination = _managed_download_dir(engine_module, "torrents")
     connections = load_aria2_connections_preference(engine_module)
     options = Aria2TransferOptions(
@@ -184,6 +218,9 @@ def transfer_status(engine_module) -> dict[str, object]:
             "aria2StrictTorrentSources": True,
             "aria2TorrentFileSelection": True,
             "aria2LocalTorrentMetadata": True,
+            "aria2RemoteTorrentMetadata": True,
+            "aria2MagnetMetadataOnly": True,
+            "aria2RedirectValidatedTorrentFetch": True,
             "aria2Connections": load_aria2_connections_preference(engine_module),
             "aria2MaxConnections": 16,
             "aria2BandwidthLimit": True,
@@ -199,6 +236,7 @@ def run_transfer_center_self_test() -> None:
     run_aria2_transfer_self_test()
     assert callable(start_torrent_transfer)
     assert callable(start_aria2_http_transfer)
+    assert callable(preview_torrent_metadata)
     assert callable(download_torrent)
     assert normalize_selected_files((3, 1, 2, 2)) == (1, 2, 3)
 
