@@ -9,6 +9,8 @@ extends restart recovery records with the same selection.
 """
 
 import threading
+from dataclasses import replace
+from pathlib import Path
 from typing import Iterable
 
 import aria2_recovery
@@ -141,6 +143,7 @@ def install_recovery_selection_patch() -> None:
         original_clean = aria2_recovery._clean_aria2_record
         original_attach = aria2_recovery._attach_session
         original_restore = aria2_recovery._restore_record
+        original_create = aria2_recovery.create_recoverable_aria2_session
 
         def clean_record(store, value):
             cleaned = original_clean(store, value)
@@ -171,9 +174,42 @@ def install_recovery_selection_patch() -> None:
             _attach_selection_persistence(context, session, str(record.get("id") or ""), selected, emit=False)
             return session
 
+        def create_recoverable_aria2_session(
+            engine_module,
+            executable,
+            options,
+            *,
+            source_kind,
+            on_update=None,
+            max_retry_delay_seconds=1.0,
+        ):
+            selected = selected_files_for(options)
+            prepared = options
+            # aria2_recovery normally uses dataclasses.replace() when it assigns a
+            # stable GID. Dynamic adapter attributes are not dataclass fields, so
+            # that replace used to drop _galaxy_selected_files before persistence.
+            # Allocate the same recovery GID here first, then re-bind the selection
+            # to the cloned options so the original recovery path no longer needs
+            # to replace the object.
+            if selected and not getattr(options, "aria2_gid", ""):
+                prepared = replace(options, aria2_gid=aria2_recovery._new_aria2_gid())
+                bind_selected_files(prepared, selected)
+            session = original_create(
+                engine_module,
+                executable,
+                prepared,
+                source_kind=source_kind,
+                on_update=on_update,
+                max_retry_delay_seconds=max_retry_delay_seconds,
+            )
+            if selected:
+                bind_selected_files(session.options, selected)
+            return session
+
         aria2_recovery._clean_aria2_record = clean_record
         aria2_recovery._attach_session = attach_session
         aria2_recovery._restore_record = restore_record
+        aria2_recovery.create_recoverable_aria2_session = create_recoverable_aria2_session
         aria2_recovery._galaxy_file_selection_patch_installed = True
         _RECOVERY_PATCHED = True
 
@@ -193,13 +229,22 @@ def run_aria2_file_selection_self_test() -> None:
     assert selected == ["aria2c", "--continue=true", "--select-file=1-2,5", "--", "bundle.torrent"]
     assert _inject_select_file(selected, (9,)) == selected
 
-    options = aria2_transfer.Aria2TransferOptions(source="https://example.com/a.torrent", destination=__import__("pathlib").Path("downloads"))
+    options = aria2_transfer.Aria2TransferOptions(source="https://example.com/a.torrent", destination=Path("downloads"))
     bind_selected_files(options, (2, 4))
-    install_transfer_selection_patch()
+    install_aria2_file_selection()
     normalized = aria2_transfer.normalize_options(options)
     assert selected_files_for(normalized) == (2, 4)
-    command = aria2_transfer.build_aria2_command(__import__("pathlib").Path("aria2c"), normalized)
+    command = aria2_transfer.build_aria2_command(Path("aria2c"), normalized)
     assert "--select-file=2,4" in command
+
+    recoverable = aria2_recovery.create_recoverable_aria2_session(
+        object(),
+        Path("aria2c"),
+        options,
+        source_kind="torrent_url",
+    )
+    assert selected_files_for(recoverable.options) == (2, 4)
+    assert recoverable.options.aria2_gid
 
     for bad in ((0,), (-1,), (MAX_FILE_INDEX + 1,), (True,), ("x",)):
         try:
