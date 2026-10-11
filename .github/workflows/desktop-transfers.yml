@@ -13,6 +13,7 @@ on:
       - 'local-engine/aria2_bandwidth.py'
       - 'local-engine/aria2_file_selection.py'
       - 'local-engine/torrent_metadata.py'
+      - 'local-engine/torrent_metadata_acquisition.py'
       - 'local-engine/bandwidth_policy.py'
       - 'local-engine/desktop_bandwidth.py'
       - 'local-engine/local_task_provider.py'
@@ -40,6 +41,7 @@ on:
       - 'local-engine/aria2_bandwidth.py'
       - 'local-engine/aria2_file_selection.py'
       - 'local-engine/torrent_metadata.py'
+      - 'local-engine/torrent_metadata_acquisition.py'
       - 'local-engine/bandwidth_policy.py'
       - 'local-engine/desktop_bandwidth.py'
       - 'local-engine/local_task_provider.py'
@@ -80,6 +82,7 @@ jobs:
           local-engine/aria2_bandwidth.py
           local-engine/aria2_file_selection.py
           local-engine/torrent_metadata.py
+          local-engine/torrent_metadata_acquisition.py
           local-engine/bandwidth_policy.py
           local-engine/desktop_bandwidth.py
           local-engine/local_task_provider.py
@@ -95,6 +98,7 @@ jobs:
       - run: python local-engine/aria2_bandwidth.py
       - run: python local-engine/aria2_file_selection.py
       - run: python local-engine/torrent_metadata.py
+      - run: python local-engine/torrent_metadata_acquisition.py
       - run: python scripts/test-local-aria2-transfer.py
       - run: python scripts/test-local-desktop-transfers.py
       - run: python scripts/test-local-desktop-qr-transfer.py
