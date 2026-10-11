@@ -8,6 +8,7 @@ on:
       - 'local-engine/desktop_aria2_transfer.py'
       - 'local-engine/aria2_source_policy.py'
       - 'local-engine/aria2_recovery.py'
+      - 'local-engine/aria2_remote_recovery.py'
       - 'local-engine/aria2_transfer.py'
       - 'local-engine/aria2_task_provider.py'
       - 'local-engine/aria2_bandwidth.py'
@@ -36,6 +37,7 @@ on:
       - 'local-engine/desktop_aria2_transfer.py'
       - 'local-engine/aria2_source_policy.py'
       - 'local-engine/aria2_recovery.py'
+      - 'local-engine/aria2_remote_recovery.py'
       - 'local-engine/aria2_transfer.py'
       - 'local-engine/aria2_task_provider.py'
       - 'local-engine/aria2_bandwidth.py'
@@ -77,6 +79,7 @@ jobs:
           local-engine/desktop_aria2_transfer.py
           local-engine/aria2_source_policy.py
           local-engine/aria2_recovery.py
+          local-engine/aria2_remote_recovery.py
           local-engine/aria2_transfer.py
           local-engine/aria2_task_provider.py
           local-engine/aria2_bandwidth.py
@@ -99,6 +102,7 @@ jobs:
       - run: python local-engine/aria2_file_selection.py
       - run: python local-engine/torrent_metadata.py
       - run: python local-engine/torrent_metadata_acquisition.py
+      - run: python local-engine/aria2_remote_recovery.py
       - run: python scripts/test-local-aria2-transfer.py
       - run: python scripts/test-local-desktop-transfers.py
       - run: python scripts/test-local-desktop-qr-transfer.py
