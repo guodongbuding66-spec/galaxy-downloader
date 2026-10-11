@@ -22,12 +22,17 @@ Use this skill before UI-related work.
 5. Prefer specific skills over broad skills.
 6. Implement with the selected skill context, then visually verify the result.
 
-## Galaxy Local Engine routing
+## Galaxy project routing
 
-For the native Windows application, default to:
+For this repository, route first through `galaxy-ui`. It is the project-specific contract that decides which two additional skills, at most, belong to a particular surface.
 
-- `interface-design` for hierarchy, density, navigation, workbench structure, settings and data-heavy utility surfaces.
-- `better-ui` for typography, surfaces, borders, optical alignment, states and micro-polish.
-- `interaction-design` only when motion, loading feedback, hover/press/focus transitions, progress states or other interaction feedback are in scope.
+Typical routes:
 
-`frontend-design` and `web-artifacts-builder` may be used for an exploratory web prototype, but the prototype must not replace the canonical native `GalaxyLocalEngine.exe` unless the user explicitly asks for a web application.
+- Web product/downloader workbench: `galaxy-ui` + `impeccable` + `interface-design`.
+- Web landing/marketing/read surface: `galaxy-ui` + `design-taste-frontend` + `impeccable`.
+- Native Windows/Tk workbench: `galaxy-ui` + `interface-design` + `impeccable`.
+- Interaction-only refinement: replace the less relevant third skill with `interaction-design`.
+
+Do not load every installed design skill at once. `better-ui`, `frontend-design`, and `interaction-design` are targeted tools, not mandatory companions.
+
+A web prototype must never replace the canonical native `GalaxyLocalEngine.exe` unless the user explicitly requests a web application.
