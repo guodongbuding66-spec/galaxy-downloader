@@ -119,23 +119,24 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
         tab,
         "支持 BTIH Magnet、HTTPS .torrent 地址或本地 .torrent 文件；读取文件列表后可逐文件选择，暂停会保留 aria2 断点。",
         size=7, color=ui.SUBTLE, wraplength=760, justify="left",
-    ).pack(anchor="w", pady=(4, 12))
+    ).pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["content"]))
 
     row = tk.Frame(tab, bg=ui.PANEL); row.pack(fill="x")
     entry = tk.Entry(
-        row, textvariable=source, font=("Segoe UI", 10), bg=ui.PANEL_3, fg=ui.TEXT,
-        insertbackground=ui.TEXT, relief="flat", bd=0, highlightthickness=1,
-        highlightbackground=ui.BORDER, highlightcolor=ui.ACCENT,
+        row, textvariable=source, font=ui.font("body_sm"), bg=ui.PANEL_3, fg=ui.TEXT,
+        insertbackground=ui.TEXT, relief="flat", bd=0, takefocus=True,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
+        highlightbackground=ui.BORDER, highlightcolor=ui.FOCUS,
     )
-    entry.pack(side="left", fill="x", expand=True, ipady=7)
+    entry.pack(side="left", fill="x", expand=True, ipady=LAYOUT["inline"])
 
     choose_btn = ui.ActionButton(row, text="选择文件", command=lambda: None, kind="ghost", compact=True)
-    choose_btn.pack(side="right", padx=(8, 0))
+    choose_btn.pack(side="right", padx=(LAYOUT["inline"], 0))
     preview_btn = ui.ActionButton(row, text="读取文件列表", command=lambda: None, kind="ghost", compact=True)
-    preview_btn.pack(side="right", padx=(8, 0))
+    preview_btn.pack(side="right", padx=(LAYOUT["inline"], 0))
 
     bandwidth_row = tk.Frame(tab, bg=ui.PANEL)
-    bandwidth_row.pack(fill="x", pady=(10, 0))
+    bandwidth_row.pack(fill="x", pady=(LAYOUT["content"], 0))
     ui._label(bandwidth_row, "任务限速", size=7, weight="bold").pack(side="left")
     bandwidth_mode = tk.StringVar(value=_BW_INHERIT)
     bandwidth_value = tk.StringVar(value="")
@@ -145,26 +146,29 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
         values=_BW_MODES,
         state="readonly",
         width=11,
+        font=ui.font("body_sm"),
+        takefocus=True,
     )
-    bandwidth_combo.pack(side="left", padx=(8, 6))
+    bandwidth_combo.pack(side="left", padx=(LAYOUT["inline"], LAYOUT["inline"]))
     bandwidth_entry = tk.Entry(
         bandwidth_row,
         textvariable=bandwidth_value,
         width=10,
-        font=("Segoe UI", 9),
+        font=ui.font("body_sm"),
         bg=ui.PANEL_3,
         fg=ui.TEXT,
         insertbackground=ui.TEXT,
         relief="flat",
         bd=0,
-        highlightthickness=1,
+        takefocus=True,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER,
-        highlightcolor=ui.ACCENT,
+        highlightcolor=ui.FOCUS,
         disabledbackground=ui.PANEL_2,
         disabledforeground=ui.MUTED,
     )
-    bandwidth_entry.pack(side="left", ipady=5)
-    ui._label(bandwidth_row, "KiB/s", size=7, color=ui.MUTED).pack(side="left", padx=(5, 10))
+    bandwidth_entry.pack(side="left", ipady=LAYOUT["micro"])
+    ui._label(bandwidth_row, "KiB/s", size=7, color=ui.MUTED).pack(side="left", padx=(LAYOUT["micro"], LAYOUT["content"]))
     bandwidth_hint = tk.StringVar()
     ui._label(bandwidth_row, variable=bandwidth_hint, size=7, color=ui.MUTED).pack(side="left")
 
@@ -196,11 +200,11 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
     bandwidth_mode.trace_add("write", lambda *_args: refresh_bandwidth_controls())
     refresh_bandwidth_controls()
 
-    files_card = tk.Frame(tab, bg=ui.PANEL_2, padx=10, pady=8)
-    files_card.pack(fill="both", expand=True, pady=(12, 0))
+    files_card = tk.Frame(tab, bg=ui.PANEL_2, padx=LAYOUT["content"], pady=LAYOUT["inline"])
+    files_card.pack(fill="both", expand=True, pady=(LAYOUT["content"], 0))
     files_head = tk.Frame(files_card, bg=ui.PANEL_2); files_head.pack(fill="x")
     ui._label(files_head, "Torrent 文件", size=8, weight="bold", bg=ui.PANEL_2).pack(side="left")
-    ui._label(files_card, variable=metadata_status, size=7, color=ui.MUTED, bg=ui.PANEL_2, wraplength=740, justify="left").pack(anchor="w", pady=(4, 6))
+    ui._label(files_card, variable=metadata_status, size=7, color=ui.MUTED, bg=ui.PANEL_2, wraplength=740, justify="left").pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["inline"]))
 
     tree = ttk.Treeview(files_card, columns=("size",), show="tree headings", selectmode="extended", height=7)
     tree.heading("#0", text="文件路径")
@@ -209,11 +213,11 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
     tree.column("size", width=110, minwidth=90, stretch=False, anchor="e")
     tree.pack(fill="both", expand=True)
 
-    select_actions = tk.Frame(files_card, bg=ui.PANEL_2); select_actions.pack(fill="x", pady=(7, 0))
+    select_actions = tk.Frame(files_card, bg=ui.PANEL_2); select_actions.pack(fill="x", pady=(LAYOUT["inline"], 0))
     select_all_btn = ui.ActionButton(select_actions, text="全选", command=lambda: tree.selection_set(tree.get_children("")), kind="ghost", compact=True)
     clear_btn = ui.ActionButton(select_actions, text="清空选择", command=lambda: tree.selection_remove(tree.selection()), kind="ghost", compact=True)
     select_all_btn.pack(side="left")
-    clear_btn.pack(side="left", padx=(6, 0))
+    clear_btn.pack(side="left", padx=(LAYOUT["inline"], 0))
 
     def clear_metadata(message: str | None = None) -> None:
         for item in tree.get_children(""):
@@ -317,16 +321,16 @@ def _install_torrent_tab(window, dialog: tk.Toplevel, engine_module) -> None:
     choose_btn.configure(command=choose)
     preview_btn.configure(command=begin_metadata_preview)
 
-    ui._label(tab, variable=status, size=9, weight="bold").pack(anchor="w", pady=(14, 0))
-    ttk.Progressbar(tab, variable=pct, maximum=100, mode="determinate").pack(fill="x", pady=(8, 8))
+    ui._label(tab, variable=status, size=9, weight="bold").pack(anchor="w", pady=(LAYOUT["section"], 0))
+    ttk.Progressbar(tab, variable=pct, maximum=100, mode="determinate").pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["inline"]))
     ui._label(tab, variable=detail, size=7, color=ui.MUTED, wraplength=760, justify="left").pack(anchor="w")
-    actions = tk.Frame(tab, bg=ui.PANEL); actions.pack(fill="x", pady=(14, 0))
+    actions = tk.Frame(tab, bg=ui.PANEL); actions.pack(fill="x", pady=(LAYOUT["section"], 0))
     start_btn = ui.ActionButton(actions, text="开始下载", command=lambda: None, kind="secondary", compact=True)
     pause_btn = ui.ActionButton(actions, text="暂停", command=lambda: None, kind="ghost", compact=True)
     resume_btn = ui.ActionButton(actions, text="继续", command=lambda: None, kind="ghost", compact=True)
     retry_btn = ui.ActionButton(actions, text="重试", command=lambda: None, kind="ghost", compact=True)
     cancel_btn = ui.ActionButton(actions, text="取消", command=lambda: None, kind="ghost", compact=True)
-    start_btn.pack(side="left"); pause_btn.pack(side="left", padx=(8,0)); resume_btn.pack(side="left", padx=(8,0)); retry_btn.pack(side="left", padx=(8,0)); cancel_btn.pack(side="right")
+    start_btn.pack(side="left"); pause_btn.pack(side="left", padx=(LAYOUT["inline"],0)); resume_btn.pack(side="left", padx=(LAYOUT["inline"],0)); retry_btn.pack(side="left", padx=(LAYOUT["inline"],0)); cancel_btn.pack(side="right")
 
     def session(): return getattr(window, "_galaxy_aria2_torrent_session", None)
 
