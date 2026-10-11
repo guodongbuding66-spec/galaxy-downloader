@@ -116,6 +116,22 @@ def install_transfer_selection_patch() -> None:
         _TRANSFER_PATCHED = True
 
 
+def _attach_selection_persistence(context, session, record_id: str, selected: tuple[int, ...], *, emit: bool) -> None:
+    if not selected:
+        return
+
+    def persist_selection(snapshot) -> None:
+        if snapshot.state in {"completed", "cancelled"}:
+            return
+        record = context.store.get(record_id)
+        if record is None:
+            return
+        record["selectedFiles"] = list(selected)
+        context.store.upsert(record)
+
+    session.add_recovery_observer(persist_selection, emit=emit)
+
+
 def install_recovery_selection_patch() -> None:
     global _RECOVERY_PATCHED
     with _LOCK:
@@ -139,16 +155,7 @@ def install_recovery_selection_patch() -> None:
         def attach_session(context, session, source_kind, *, resume_id=None, emit=True):
             record_id = original_attach(context, session, source_kind, resume_id=resume_id, emit=emit)
             selected = selected_files_for(session.options)
-            if selected:
-                def persist_selection(snapshot) -> None:
-                    if snapshot.state in {"completed", "cancelled"}:
-                        return
-                    record = context.store.get(record_id)
-                    if record is None:
-                        return
-                    record["selectedFiles"] = list(selected)
-                    context.store.upsert(record)
-                session.add_recovery_observer(persist_selection, emit=emit)
+            _attach_selection_persistence(context, session, record_id, selected, emit=emit)
             return record_id
 
         def restore_record(context, record):
@@ -156,10 +163,12 @@ def install_recovery_selection_patch() -> None:
             if session is None:
                 return None
             try:
-                bind_selected_files(session.options, record.get("selectedFiles"))
+                selected = normalize_selected_files(record.get("selectedFiles"))
+                bind_selected_files(session.options, selected)
             except Aria2FileSelectionError:
                 context.store.remove(str(record.get("id") or ""))
                 return None
+            _attach_selection_persistence(context, session, str(record.get("id") or ""), selected, emit=False)
             return session
 
         aria2_recovery._clean_aria2_record = clean_record
