@@ -84,7 +84,7 @@ export function ExternalToolsMenu({ triggerClassName = '' }: { triggerClassName?
                                 href={tool.href}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="group flex min-w-0 items-start gap-2.5 px-1 py-2.5 transition-colors duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+                                className="ui-target group flex min-w-0 items-start gap-2.5 px-1 py-2.5 transition-colors duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
                             >
                                 <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                                 <span className="min-w-0 flex-1">
@@ -92,7 +92,7 @@ export function ExternalToolsMenu({ triggerClassName = '' }: { triggerClassName?
                                         <span>{name}</span>
                                         <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
                                     </span>
-                                    <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">{description}</span>
+                                    <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{description}</span>
                                 </span>
                             </a>
                         )
