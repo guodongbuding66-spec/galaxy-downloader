@@ -617,16 +617,16 @@ export function LocalEngineAdvancedControls({
 
           <div className="space-y-3">
             <section className="rounded-lg border bg-background/60 p-2.5">
-              <div className="text-[11px] font-medium">{copy.sponsorBlock}</div>
+              <div className="text-xs font-medium">{copy.sponsorBlock}</div>
               <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
                 {sponsorOptions.map(([category, label]) => (
-                  <label key={category} className="flex cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <label key={category} className="ui-target flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
                     <input
                       type="checkbox"
                       checked={value.sponsorBlockCategories.includes(category)}
                       disabled={disabled}
                       onChange={() => update({ sponsorBlockCategories: toggleCategory(value.sponsorBlockCategories, category) })}
-                      className="h-3.5 w-3.5 accent-foreground"
+                      className="h-4 w-4 accent-foreground"
                     />
                     {label}
                   </label>
@@ -635,16 +635,16 @@ export function LocalEngineAdvancedControls({
             </section>
 
             <section className="rounded-lg border bg-background/60 p-2.5">
-              <label className={`flex items-start gap-2 text-[10px] ${coverSidecarReady ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+              <label className={`ui-target flex items-start gap-2 text-xs ${coverSidecarReady ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                 <input
                   type="checkbox"
                   checked={coverSidecarReady && Boolean(value.keepCoverSidecar)}
                   disabled={disabled || !coverSidecarReady}
                   onChange={(event) => update({ keepCoverSidecar: event.target.checked })}
-                  className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+                  className="mt-0.5 h-4 w-4 accent-foreground"
                 />
                 <span>
-                  <span className="block text-[11px] font-medium text-foreground">{coverCopy.label}</span>
+                  <span className="block text-xs font-medium text-foreground">{coverCopy.label}</span>
                   <span className="mt-0.5 block leading-4 text-muted-foreground">{coverSidecarHint}</span>
                 </span>
               </label>
@@ -658,16 +658,16 @@ export function LocalEngineAdvancedControls({
             />
 
             <section className="rounded-lg border bg-background/60 p-2.5">
-              <label className={`flex items-start gap-2 text-[10px] ${aria2Ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+              <label className={`ui-target flex items-start gap-2 text-xs ${aria2Ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                 <input
                   type="checkbox"
                   checked={aria2Ready && value.useAria2c}
                   disabled={disabled || !aria2Ready}
                   onChange={(event) => update({ useAria2c: event.target.checked })}
-                  className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+                  className="mt-0.5 h-4 w-4 accent-foreground"
                 />
                 <span>
-                  <span className="flex items-center gap-1 text-[11px] font-medium text-foreground">
+                  <span className="flex items-center gap-1 text-xs font-medium text-foreground">
                     <Zap className="h-3 w-3" aria-hidden="true" />
                     {copy.aria2}
                   </span>
@@ -676,7 +676,7 @@ export function LocalEngineAdvancedControls({
               </label>
             </section>
 
-            <p className="px-0.5 text-[9px] leading-4 text-muted-foreground">{copy.offByDefault}</p>
+            <p className="px-0.5 text-xs leading-4 text-muted-foreground">{copy.offByDefault}</p>
           </div>
         </div>
       </div>
