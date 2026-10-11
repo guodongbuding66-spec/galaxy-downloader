@@ -12,13 +12,19 @@ session. Full Magnet/Torrent sources never leave the local state file.
 import os
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from aria2_source_policy import Aria2SourceError, require_torrent_source
-from aria2_transfer import Aria2TransferOptions, Aria2TransferSession, Aria2TransferSnapshot
+from aria2_transfer import (
+    Aria2TransferError,
+    Aria2TransferOptions,
+    Aria2TransferSession,
+    Aria2TransferSnapshot,
+    normalize_aria2_gid,
+)
 from pause_resume_policy import ResumeStateStore, _bounded_progress, _bounded_text, _utc_now
 from transfer_preferences import normalize_aria2_connections
 
@@ -48,6 +54,21 @@ def _clean_resume_id(value: object) -> str:
 
 def _new_resume_id() -> str:
     return f"aria2resume{uuid.uuid4().hex}"
+
+
+def _new_aria2_gid() -> str:
+    """Return a non-zero 64-bit aria2 GID encoded as exactly 16 hex chars."""
+    while True:
+        gid = uuid.uuid4().hex[:16].lower()
+        if gid != "0000000000000000":
+            return gid
+
+
+def _clean_aria2_gid(value: object) -> str:
+    try:
+        return normalize_aria2_gid(value)
+    except Aria2TransferError:
+        return ""
 
 
 def _source_host(source: str, source_kind: str) -> str:
@@ -103,6 +124,10 @@ def _clean_aria2_record(store: ResumeStateStore, value: dict[str, Any]) -> dict[
     destination = _safe_destination(store.engine_module, value.get("destination"))
     if destination is None:
         return None
+    raw_gid = _bounded_text(value.get("aria2Gid"), 128)
+    aria2_gid = _clean_aria2_gid(raw_gid)
+    if raw_gid and not aria2_gid:
+        return None
     created_at = _bounded_text(value.get("createdAt"), 40) or _utc_now()
     updated_at = _bounded_text(value.get("updatedAt"), 40) or created_at
     return {
@@ -116,7 +141,7 @@ def _clean_aria2_record(store: ResumeStateStore, value: dict[str, Any]) -> dict[
         "sourceHost": _source_host(classified.source, classified.kind),
         "destination": str(destination),
         "lifecycle": _bounded_text(value.get("lifecycle"), 32) or state,
-        "aria2Gid": _bounded_text(value.get("aria2Gid"), 128),
+        "aria2Gid": aria2_gid,
         "connections": normalize_aria2_connections(value.get("connections")),
         "label": _bounded_text(value.get("label"), 180) or _source_label(classified.source, classified.kind),
         "videoQuality": "",
@@ -306,6 +331,7 @@ def _attach_session(
             "sourceKind": source_kind,
             "destination": destination,
             "lifecycle": snapshot.state,
+            "aria2Gid": session.options.aria2_gid,
             "connections": int(session.options.connections),
             "label": previous.get("label") or _source_label(source, source_kind),
             "progress": float(snapshot.progress.percent),
@@ -336,6 +362,8 @@ def create_recoverable_aria2_session(
     resolver = None
     if context is not None:
         resolver = lambda: context.executable_resolver(engine_module)
+    if not options.aria2_gid:
+        options = replace(options, aria2_gid=_new_aria2_gid())
     session = RecoverableAria2TransferSession(
         Path(executable),
         options,
@@ -367,6 +395,8 @@ def _restore_record(context: _RecoveryContext, record: dict[str, Any]) -> Recove
     executable = context.executable_resolver(context.engine_module)
     if executable is None:
         executable = Path("aria2c.exe" if os.name == "nt" else "aria2c")
+    persisted_gid = _clean_aria2_gid(record.get("aria2Gid"))
+    aria2_gid = persisted_gid or _new_aria2_gid()
     session = RecoverableAria2TransferSession(
         Path(executable),
         Aria2TransferOptions(
@@ -375,6 +405,7 @@ def _restore_record(context: _RecoveryContext, record: dict[str, Any]) -> Recove
             connections=normalize_aria2_connections(record.get("connections")),
             seed_time_minutes=0,
             max_attempts=3,
+            aria2_gid=aria2_gid,
         ),
         executable_resolver=lambda: context.executable_resolver(context.engine_module),
     )
@@ -386,6 +417,10 @@ def _restore_record(context: _RecoveryContext, record: dict[str, Any]) -> Recove
         resume_id=str(record["id"]),
         emit=False,
     )
+    if not persisted_gid:
+        migrated = dict(record)
+        migrated["aria2Gid"] = aria2_gid
+        context.store.upsert(migrated)
     return session
 
 
@@ -560,6 +595,7 @@ def run_aria2_recovery_self_test() -> None:
 
         magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
         record_id = "aria2resumetest"
+        stable_gid = "2089b05ecca3d829"
         assert record_id.isalnum()
         aria = store.upsert({
             "id": record_id,
@@ -569,11 +605,13 @@ def run_aria2_recovery_self_test() -> None:
             "sourceKind": "magnet",
             "destination": str(downloads / "torrents"),
             "lifecycle": "running",
+            "aria2Gid": stable_gid.upper(),
             "connections": 7,
             "progress": 48,
         })
         assert aria is not None and aria["provider"] == "aria2"
         assert aria["connections"] == 7
+        assert aria["aria2Gid"] == stable_gid
 
         assert store.upsert({
             "id": "aria2-bad-id",
@@ -599,12 +637,22 @@ def run_aria2_recovery_self_test() -> None:
             "sourceKind": "torrent_url",
             "destination": str(downloads / "torrents"),
         }) is None
+        assert store.upsert({
+            "id": "aria2badgid",
+            "state": "paused",
+            "provider": "aria2",
+            "source": magnet,
+            "sourceKind": "magnet",
+            "destination": str(downloads / "torrents"),
+            "aria2Gid": "not-a-valid-gid",
+        }) is None
 
         recovered = store.recover_after_restart()
         restored = next(item for item in recovered if item["id"] == record_id)
         assert restored["state"] == "interrupted"
         assert restored["sourceKind"] == "magnet"
         assert restored["connections"] == 7
+        assert restored["aria2Gid"] == stable_gid
         assert any(item["id"] == "legacy" for item in recovered)
         public = next(item for item in store.public_records() if item["id"] == record_id)
         assert public["provider"] == "aria2" and public["sourceKind"] == "magnet"
@@ -613,15 +661,37 @@ def run_aria2_recovery_self_test() -> None:
 
         generated = _new_resume_id()
         assert generated.isalnum() and len(generated) <= 96
+        generated_gid = _new_aria2_gid()
+        assert normalize_aria2_gid(generated_gid, allow_empty=False) == generated_gid
 
         context = _RecoveryContext(FakeEngine, store, lambda _engine: Path("aria2c"))
         session = _restore_record(context, restored)
         assert session is not None and session.state == "paused"
         assert session.options.connections == 7
+        assert session.options.aria2_gid == stable_gid
         with _CONTEXT_LOCK:
             assert _SESSIONS.get(record_id) is session
         session.cancel()
         assert store.get(record_id) is None
+
+        legacy_gid_id = "aria2legacygid"
+        migrated = store.upsert({
+            "id": legacy_gid_id,
+            "state": "interrupted",
+            "provider": "aria2",
+            "source": magnet,
+            "sourceKind": "magnet",
+            "destination": str(downloads / "torrents"),
+            "connections": 4,
+        })
+        assert migrated is not None and migrated["aria2Gid"] == ""
+        migrated_session = _restore_record(context, migrated)
+        assert migrated_session is not None
+        assert normalize_aria2_gid(migrated_session.options.aria2_gid, allow_empty=False)
+        migrated_record = store.get(legacy_gid_id)
+        assert migrated_record is not None
+        assert migrated_record["aria2Gid"] == migrated_session.options.aria2_gid
+        migrated_session.cancel()
 
 
 if __name__ == "__main__":
