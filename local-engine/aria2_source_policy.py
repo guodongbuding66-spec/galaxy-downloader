@@ -103,7 +103,10 @@ def validate_magnet_uri(value: object) -> str:
             normalized_pairs.append((key, raw_value))
             continue
         info_hash = raw_value[len(prefix) :]
-        normalized_hash = normalize_btih(info_hash)
+        try:
+            normalized_hash = normalize_btih(info_hash)
+        except Aria2SourceError as exc:
+            raise Aria2SourceError(f"Magnet BTIH 无效：{exc}") from exc
         if canonical_btih is None:
             canonical_btih = normalized_hash
         elif canonical_btih != normalized_hash:
