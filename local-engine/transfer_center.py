@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 from urllib.parse import urlparse
 
+import aria2_recovery
 import transfer_center_legacy as _legacy
 from aria2_file_selection import (
     bind_selected_files,
@@ -18,7 +19,6 @@ from aria2_file_selection import (
     normalize_selected_files,
     selected_files_for,
 )
-from aria2_recovery import create_recoverable_aria2_session
 from aria2_source_policy import Aria2Source, Aria2SourceError, require_torrent_source
 from aria2_transfer import (
     Aria2TransferOptions,
@@ -144,7 +144,7 @@ def start_torrent_transfer(
         max_attempts=max_attempts,
     )
     bind_selected_files(options, selected)
-    return create_recoverable_aria2_session(
+    return aria2_recovery.create_recoverable_aria2_session(
         engine_module,
         Path(executable),
         options,
