@@ -28,7 +28,7 @@ export function ResultCardHeader({
                     {title}
                 </h2>
                 {duration != null ? (
-                    <span className="shrink-0 text-[11px] font-medium tabular-nums leading-5 text-muted-foreground">
+                    <span className="shrink-0 text-xs font-medium tabular-nums leading-5 text-muted-foreground">
                         {formatDuration(duration)}
                     </span>
                 ) : null}
