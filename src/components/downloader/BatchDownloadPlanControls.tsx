@@ -151,7 +151,7 @@ export function BatchDownloadPlanControls({
           <Toggle checked={value.includeCover} disabled={disabled} label={copy.includeCover} icon={ImageIcon} onChange={(checked) => update({ includeCover: checked })} />
           <Toggle checked={value.skipPreviouslyDownloaded} disabled={disabled} label={copy.archive} icon={FileArchive} onChange={(checked) => update({ skipPreviouslyDownloaded: checked })} />
         </div>
-        <p className="mt-2 max-w-5xl text-[11px] leading-4 text-muted-foreground">{copy.archiveHint}</p>
+        <p className="mt-2 max-w-5xl text-xs leading-4 text-muted-foreground">{copy.archiveHint}</p>
       </div>
     </details>
   )
