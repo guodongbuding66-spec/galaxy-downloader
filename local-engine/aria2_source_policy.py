@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-"""Strict source recognition for Galaxy Torrent / Magnet transfers.
+"""Strict source recognition and canonical BTIH normalization for Galaxy.
 
-This module intentionally keeps torrent recognition separate from Galaxy's normal
-HTTP(S) media URL policy. Ordinary HTTP/HTTPS URLs remain on the existing media
-pipeline unless they are explicitly HTTPS URLs whose path ends in ``.torrent``.
+Torrent recognition remains separate from Galaxy's normal HTTP(S) media URL
+policy. Ordinary HTTP/HTTPS URLs stay on the existing media pipeline unless they
+are explicitly HTTPS URLs whose path ends in ``.torrent``. Valid v1 Magnet BTIH
+values are canonicalized to lowercase 40-character hexadecimal form so 40-hex
+and 32-base32 representations of the same info-hash share one stable identity.
 """
 
+import base64
+import binascii
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 MAX_ARIA2_SOURCE_LENGTH = 8192
 TORRENT_FILE_MAX_BYTES = 10 * 1024 * 1024
@@ -45,11 +49,34 @@ def _clean_source(value: object) -> str:
     return text
 
 
+def normalize_btih(value: object) -> str:
+    """Return one canonical lowercase 40-hex representation of a v1 BTIH."""
+    text = str(value or "").strip()
+    if _has_control_chars(text):
+        raise Aria2SourceError("BTIH 包含控制字符")
+    if _BTIH_HEX_RE.fullmatch(text):
+        return text.lower()
+    if not _BTIH_BASE32_RE.fullmatch(text):
+        raise Aria2SourceError("BTIH 必须是 40 位 Hex 或 32 位 Base32")
+    try:
+        raw = base64.b32decode(text.upper(), casefold=True)
+    except (binascii.Error, ValueError) as exc:
+        raise Aria2SourceError("BTIH Base32 编码无效") from exc
+    if len(raw) != 20:
+        raise Aria2SourceError("BTIH 必须解码为 20 字节 info-hash")
+    return raw.hex()
+
+
 def _valid_btih(value: str) -> bool:
-    return bool(_BTIH_HEX_RE.fullmatch(value) or _BTIH_BASE32_RE.fullmatch(value))
+    try:
+        normalize_btih(value)
+    except Aria2SourceError:
+        return False
+    return True
 
 
 def validate_magnet_uri(value: object) -> str:
+    """Validate and canonicalize the v1 BTIH exact-topic inside a Magnet URI."""
     text = _clean_source(value)
     try:
         parsed = urlsplit(text)
@@ -57,26 +84,41 @@ def validate_magnet_uri(value: object) -> str:
         raise Aria2SourceError("Magnet 链接格式无效") from exc
     if parsed.scheme.lower() != "magnet" or parsed.netloc or parsed.path:
         raise Aria2SourceError("Magnet 链接格式无效")
-    valid_xt = False
     try:
         pairs = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=False)
     except ValueError as exc:
         raise Aria2SourceError("Magnet 查询参数无效") from exc
+
+    canonical_btih: str | None = None
+    normalized_pairs: list[tuple[str, str]] = []
+    btih_emitted = False
     for key, raw_value in pairs:
         if _has_control_chars(key) or _has_control_chars(raw_value):
             raise Aria2SourceError("Magnet 链接包含控制字符")
         if key.lower() != "xt":
+            normalized_pairs.append((key, raw_value))
             continue
         prefix = "urn:btih:"
         if raw_value[: len(prefix)].lower() != prefix:
+            normalized_pairs.append((key, raw_value))
             continue
         info_hash = raw_value[len(prefix) :]
-        if _valid_btih(info_hash):
-            valid_xt = True
-            break
-    if not valid_xt:
+        normalized_hash = normalize_btih(info_hash)
+        if canonical_btih is None:
+            canonical_btih = normalized_hash
+        elif canonical_btih != normalized_hash:
+            raise Aria2SourceError("Magnet 包含相互冲突的 BTIH info-hash")
+        if not btih_emitted:
+            normalized_pairs.append(("xt", f"urn:btih:{normalized_hash}"))
+            btih_emitted = True
+
+    if canonical_btih is None:
         raise Aria2SourceError("Magnet 必须包含有效的 xt=urn:btih:，支持 40 位 Hex 或 32 位 Base32")
-    return text
+
+    canonical = "magnet:?" + urlencode(normalized_pairs, doseq=True, safe=":/")
+    if len(canonical) > MAX_ARIA2_SOURCE_LENGTH:
+        raise Aria2SourceError(f"规范化后的 Magnet 过长；最多允许 {MAX_ARIA2_SOURCE_LENGTH} 个字符")
+    return canonical
 
 
 def _https_torrent_url(text: str) -> Aria2Source | None:
@@ -159,11 +201,37 @@ def run_aria2_source_policy_self_test() -> None:
     import tempfile
 
     valid_hex = "0123456789abcdef0123456789abcdef01234567"
+    valid_hex_upper = valid_hex.upper()
     valid_base32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-    magnet_hex = require_torrent_source(f"magnet:?xt=urn:btih:{valid_hex}&dn=Galaxy")
+    base32_hex = "00443214c74254b635cf84653a56d7c675be77df"
+
+    assert normalize_btih(valid_hex_upper) == valid_hex
+    assert normalize_btih(valid_base32) == base32_hex
+
+    magnet_hex = require_torrent_source(f"magnet:?xt=urn:btih:{valid_hex_upper}&dn=Galaxy")
     assert magnet_hex.kind == "magnet"
+    assert f"xt=urn:btih:{valid_hex}" in magnet_hex.source
+    assert valid_hex_upper not in magnet_hex.source
+
     magnet_b32 = require_torrent_source(f"magnet:?dn=Galaxy&xt=urn%3Abtih%3A{valid_base32}")
     assert magnet_b32.kind == "magnet"
+    assert f"xt=urn:btih:{base32_hex}" in magnet_b32.source
+    assert valid_base32 not in magnet_b32.source
+
+    same_b32 = base64.b32encode(bytes.fromhex(valid_hex)).decode("ascii")
+    duplicate = require_torrent_source(
+        f"magnet:?xt=urn:btih:{valid_hex_upper}&xt=urn:btih:{same_b32}&dn=Galaxy"
+    )
+    assert duplicate.source.count("urn:btih:") == 1
+    assert f"xt=urn:btih:{valid_hex}" in duplicate.source
+
+    conflicting = "89abcdef0123456789abcdef0123456789abcdef"
+    try:
+        require_torrent_source(f"magnet:?xt=urn:btih:{valid_hex}&xt=urn:btih:{conflicting}")
+    except Aria2SourceError:
+        pass
+    else:
+        raise AssertionError("conflicting BTIH values were accepted")
 
     for invalid in (
         "magnet:?dn=no-hash",
