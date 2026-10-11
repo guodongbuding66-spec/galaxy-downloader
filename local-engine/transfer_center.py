@@ -20,6 +20,7 @@ from aria2_transfer import (
     Aria2TransferSnapshot,
     run_aria2_transfer_self_test,
 )
+from bandwidth_policy import load_bandwidth_preference
 from transfer_preferences import load_aria2_connections_preference
 
 for _name in dir(_legacy):
@@ -172,6 +173,8 @@ def transfer_status(engine_module) -> dict[str, object]:
             "aria2StrictTorrentSources": True,
             "aria2Connections": load_aria2_connections_preference(engine_module),
             "aria2MaxConnections": 16,
+            "aria2BandwidthLimit": True,
+            "bandwidthLimitKbps": load_bandwidth_preference(engine_module),
             "aria2FragmentManifestExternalDownloader": False,
         }
     )
