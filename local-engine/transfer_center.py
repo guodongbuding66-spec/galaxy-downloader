@@ -12,6 +12,12 @@ from typing import Callable, Iterable
 from urllib.parse import urlparse
 
 import transfer_center_legacy as _legacy
+from aria2_file_selection import (
+    bind_selected_files,
+    install_aria2_file_selection,
+    normalize_selected_files,
+    selected_files_for,
+)
 from aria2_recovery import create_recoverable_aria2_session
 from aria2_source_policy import Aria2Source, Aria2SourceError, require_torrent_source
 from aria2_transfer import (
@@ -22,6 +28,8 @@ from aria2_transfer import (
 )
 from bandwidth_policy import load_bandwidth_preference
 from transfer_preferences import load_aria2_connections_preference
+
+install_aria2_file_selection()
 
 for _name in dir(_legacy):
     if not _name.startswith("__"):
@@ -75,34 +83,37 @@ def start_torrent_transfer(
     engine_module,
     source: object,
     *,
+    selected_files: object = (),
     on_update: Callable[[Aria2TransferSnapshot], None] | None = None,
     max_attempts: int = 3,
 ) -> Aria2TransferSession:
     """Create a non-blocking, validated Torrent/Magnet transfer session.
 
-    Accepted torrent sources are deliberately narrow: a valid BTIH Magnet URI,
-    an HTTPS URL whose path ends in ``.torrent``, or an existing local
-    ``.torrent`` file. Remote torrent URLs also reuse Galaxy's existing public
-    HTTP(S) URL/SSRF boundary. Ordinary HTTP/HTTPS links remain on Galaxy's
-    existing media/download pipeline and custom URI schemes are rejected.
+    ``selected_files`` contains aria2's one-based Torrent file indexes. An empty
+    selection means the normal aria2 behavior: download every file. The indexes
+    are validated and persisted by the V2 file-selection adapter so pause/restart
+    recovery resumes the exact same subset.
     """
 
     classified = _validated_torrent_source(engine_module, source)
+    selected = normalize_selected_files(selected_files)
     executable = find_aria2c(engine_module)
     if executable is None:
         raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c。请先安装或配置 aria2c 后重试。")
     destination = _managed_download_dir(engine_module, "torrents")
     connections = load_aria2_connections_preference(engine_module)
+    options = Aria2TransferOptions(
+        source=classified.source,
+        destination=destination,
+        connections=connections,
+        seed_time_minutes=0,
+        max_attempts=max_attempts,
+    )
+    bind_selected_files(options, selected)
     return create_recoverable_aria2_session(
         engine_module,
         Path(executable),
-        Aria2TransferOptions(
-            source=classified.source,
-            destination=destination,
-            connections=connections,
-            seed_time_minutes=0,
-            max_attempts=max_attempts,
-        ),
+        options,
         source_kind=classified.kind,
         on_update=on_update,
     )
@@ -171,6 +182,8 @@ def transfer_status(engine_module) -> dict[str, object]:
             "aria2Retry": True,
             "aria2RestartRecovery": True,
             "aria2StrictTorrentSources": True,
+            "aria2TorrentFileSelection": True,
+            "aria2LocalTorrentMetadata": True,
             "aria2Connections": load_aria2_connections_preference(engine_module),
             "aria2MaxConnections": 16,
             "aria2BandwidthLimit": True,
@@ -187,6 +200,11 @@ def run_transfer_center_self_test() -> None:
     assert callable(start_torrent_transfer)
     assert callable(start_aria2_http_transfer)
     assert callable(download_torrent)
+    assert normalize_selected_files((3, 1, 2, 2)) == (1, 2, 3)
+
+    probe = Aria2TransferOptions(source="https://example.com/demo.torrent", destination=Path("downloads"))
+    bind_selected_files(probe, (2, 4))
+    assert selected_files_for(probe) == (2, 4)
 
     class _BoundaryEngine:
         calls: list[str] = []
