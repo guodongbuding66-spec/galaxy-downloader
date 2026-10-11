@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import external_ytdlp
+from aria2_bandwidth import configure_aria2_bandwidth, run_aria2_bandwidth_self_test
 from transfer_preferences import (
     PREFERENCES_FILENAME,
     load_transfer_preferences,
@@ -37,6 +38,7 @@ def load_bandwidth_preference(engine_module) -> int:
 def save_bandwidth_preference(engine_module, value: object) -> int:
     limit = normalize_bandwidth_kbps(value)
     update_transfer_preferences(engine_module, bandwidthLimitKbps=limit)
+    configure_aria2_bandwidth(limit)
     return limit
 
 
@@ -49,16 +51,19 @@ def _insert_before_source(command: list[str], values: list[str]) -> None:
 
 
 def install_bandwidth_policy(engine_module):
-    """Add a cross-platform, opt-in bandwidth cap to media jobs.
+    """Add a cross-provider, opt-in bandwidth cap to download jobs.
 
-    The value is stored in KiB/s because that maps cleanly to yt-dlp's CLI and
-    Python API. A value of zero preserves historical unlimited behavior. The
-    desktop preference is applied only when a protocol/bridge request does not
-    explicitly provide a per-job limit.
+    The value is stored in KiB/s because that maps cleanly to yt-dlp and aria2.
+    A value of zero preserves historical unlimited behavior. The same persisted
+    preference is applied to media jobs, aria2 HTTP and Torrent/Magnet sessions;
+    restored aria2 sessions therefore pick up the current saved global limit
+    without maintaining a second copy in resume state.
     """
     if getattr(engine_module, "_galaxy_bandwidth_policy_installed", False):
+        configure_aria2_bandwidth(load_bandwidth_preference(engine_module))
         return engine_module.Job
 
+    configure_aria2_bandwidth(load_bandwidth_preference(engine_module))
     base_job = engine_module.Job
 
     @dataclass(frozen=True)
@@ -142,6 +147,7 @@ def install_bandwidth_policy(engine_module):
         payload = original_bridge_status(window)
         payload["bandwidthLimit"] = True
         payload["bandwidthLimitKbps"] = load_bandwidth_preference(engine_module)
+        payload["aria2BandwidthLimit"] = True
         return payload
 
     engine_module.EngineWindow.bridge_status = bridge_status
@@ -153,8 +159,10 @@ def run_bandwidth_policy_self_test() -> None:
     import tempfile
     from pathlib import Path
 
+    from aria2_bandwidth import current_aria2_bandwidth_kbps
     from transfer_preferences import load_aria2_connections_preference, save_aria2_connections_preference
 
+    run_aria2_bandwidth_self_test()
     assert normalize_bandwidth_kbps(None) == 0
     assert normalize_bandwidth_kbps("0") == 0
     assert normalize_bandwidth_kbps("512") == 512
@@ -190,5 +198,8 @@ def run_bandwidth_policy_self_test() -> None:
         assert save_aria2_connections_preference(Engine, "7") == 7
         assert save_bandwidth_preference(Engine, "2048") == 2048
         assert load_bandwidth_preference(Engine) == 2048
+        assert current_aria2_bandwidth_kbps() == 2048
         assert load_aria2_connections_preference(Engine) == 7
         assert PREFERENCES_FILENAME == "bandwidth-options.json"
+        save_bandwidth_preference(Engine, 0)
+        assert current_aria2_bandwidth_kbps() == 0
