@@ -52,9 +52,10 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
         bg=ui.PANEL_3,
         fg=ui.TEXT,
         relief="flat",
-        highlightthickness=1,
+        takefocus=True,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER,
-        highlightcolor=ui.ACCENT,
+        highlightcolor=ui.FOCUS,
         font=font("body_sm"),
     )
     source_entry.pack(side="left", fill="x", expand=True, ipady=6)
@@ -104,9 +105,10 @@ def build_qr_transfer_tab(notebook: ttk.Notebook, dialog: tk.Misc) -> tk.Frame:
         bg=ui.PANEL_3,
         fg=ui.TEXT,
         relief="flat",
-        highlightthickness=1,
+        takefocus=True,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER,
-        highlightcolor=ui.ACCENT,
+        highlightcolor=ui.FOCUS,
         font=font("body_sm"),
     )
     url_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
