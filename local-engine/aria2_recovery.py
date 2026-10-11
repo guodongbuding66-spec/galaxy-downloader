@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from aria2_source_policy import Aria2SourceError, require_torrent_source
+from aria2_source_policy import Aria2Source, Aria2SourceError, require_torrent_source
 from aria2_transfer import (
     Aria2TransferError,
     Aria2TransferOptions,
@@ -69,6 +69,21 @@ def _clean_aria2_gid(value: object) -> str:
         return normalize_aria2_gid(value)
     except Aria2TransferError:
         return ""
+
+
+def _validated_recovery_source(engine_module, classified: Aria2Source) -> Aria2Source | None:
+    """Re-apply Galaxy's public URL/SSRF boundary before restoring remote torrents."""
+    if classified.kind != "torrent_url":
+        return classified
+    validator = getattr(engine_module, "_validated_source_url", None)
+    if not callable(validator):
+        return None
+    try:
+        normalized = str(validator(classified.source))
+        validated = require_torrent_source(normalized)
+    except Exception:  # noqa: BLE001 - persisted input must fail closed
+        return None
+    return validated if validated.kind == "torrent_url" else None
 
 
 def _source_host(source: str, source_kind: str) -> str:
@@ -385,6 +400,10 @@ def _restore_record(context: _RecoveryContext, record: dict[str, Any]) -> Recove
     except Aria2SourceError:
         context.store.remove(str(record.get("id") or ""))
         return None
+    classified = _validated_recovery_source(context.engine_module, classified)
+    if classified is None:
+        context.store.remove(str(record.get("id") or ""))
+        return None
     if classified.kind != str(record.get("sourceKind") or ""):
         context.store.remove(str(record.get("id") or ""))
         return None
@@ -577,6 +596,12 @@ def run_aria2_recovery_self_test() -> None:
             @staticmethod
             def default_download_dir() -> Path: return downloads
             @staticmethod
+            def _validated_source_url(value: str) -> str:
+                host = (urlsplit(value).hostname or "").lower()
+                if host in {"localhost", "127.0.0.1", "169.254.169.254"} or host.startswith("10.") or host.startswith("192.168."):
+                    raise ValueError("private URL rejected")
+                return value
+            @staticmethod
             def job_from_payload(payload: dict[str, Any]) -> FakeJob:
                 source = str(payload.get("sourceUrl") or "")
                 if not source.startswith("https://"):
@@ -692,6 +717,20 @@ def run_aria2_recovery_self_test() -> None:
         assert migrated_record is not None
         assert migrated_record["aria2Gid"] == migrated_session.options.aria2_gid
         migrated_session.cancel()
+
+        unsafe_id = "aria2unsafeurl"
+        unsafe = store.upsert({
+            "id": unsafe_id,
+            "state": "interrupted",
+            "provider": "aria2",
+            "source": "https://127.0.0.1/private.torrent",
+            "sourceKind": "torrent_url",
+            "destination": str(downloads / "torrents"),
+            "aria2Gid": "0123456789abcdef",
+        })
+        assert unsafe is not None
+        assert _restore_record(context, unsafe) is None
+        assert store.get(unsafe_id) is None
 
 
 if __name__ == "__main__":
