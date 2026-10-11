@@ -164,13 +164,50 @@ def _check(master, text: str, variable: tk.BooleanVar) -> tk.Checkbutton:
     return widget
 
 
+def _style_queue_cancel_buttons(window) -> None:
+    panel = getattr(window, "_queue_panel", None)
+    if panel is None:
+        return
+    button_font = font("body_sm", bold=True)
+    try:
+        line_height = int(tkfont.Font(master=panel, font=button_font).metrics("linespace"))
+    except (tk.TclError, RuntimeError):
+        line_height = max(1, int(TYPE["body_sm"]) * 2)
+    pad_y = target_padding(line_height, compact=True)
+    for row in panel.winfo_children():
+        for child in row.winfo_children():
+            if not isinstance(child, tk.Button):
+                continue
+            try:
+                if str(child.cget("text")) != "×":
+                    continue
+                child.configure(
+                    font=button_font,
+                    takefocus=True,
+                    highlightthickness=FOCUS_RING_WIDTH,
+                    highlightbackground=PANEL_2,
+                    highlightcolor=FOCUS,
+                    padx=BUTTON_COMPACT_PAD_X,
+                    pady=pad_y,
+                )
+            except tk.TclError:
+                continue
+
+
+def _render_queue(window, pending) -> None:
+    _ORIGINAL_RENDER_QUEUE(window, pending)
+    _style_queue_cancel_buttons(window)
+
+
 _ORIGINAL_LABEL = _impl._label
 _ORIGINAL_ENTRY = _impl._entry
 _ORIGINAL_CHECK = _impl._check
+_ORIGINAL_RENDER_QUEUE = _impl._render_queue
 _impl.ActionButton = ActionButton
 _impl._label = _label
 _impl._entry = _entry
 _impl._check = _check
+_impl._render_queue = _render_queue
 
 SPONSOR_LABELS = _impl.SPONSOR_LABELS
 WEBSITE_URL = _impl.WEBSITE_URL
@@ -205,6 +242,7 @@ def run_self_test() -> None:
     assert _impl._label is _label
     assert _impl._entry is _entry
     assert _impl._check is _check
+    assert _impl._render_queue is _render_queue
     assert __getattr__("_divider") is _impl._divider
     assert __getattr__("_section_title") is _impl._section_title
     assert issubclass(ActionButton, tk.Button)
