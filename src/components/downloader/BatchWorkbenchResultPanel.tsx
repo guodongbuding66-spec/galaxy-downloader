@@ -133,10 +133,10 @@ export function BatchWorkbenchResultPanel({ result }: { result: LocalEngineBatch
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold leading-5">{statusTitle(result, copy)}</span>
             <Badge variant={visual.badge}>{result.code}</Badge>
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{result.format}</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{result.format}</span>
           </div>
           {result.stoppedCode ? (
-            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">
+            <div className="mt-1 text-xs leading-4 text-muted-foreground">
               {copy.stoppedCode.replace('{code}', result.stoppedCode)}
             </div>
           ) : null}
@@ -146,7 +146,7 @@ export function BatchWorkbenchResultPanel({ result }: { result: LocalEngineBatch
       <div className="mt-2 grid grid-cols-2 gap-px overflow-hidden border-y bg-border sm:grid-cols-3 lg:grid-cols-6">
         {metrics.map(([label, value]) => (
           <div key={label} className="min-w-0 bg-background px-2.5 py-2">
-            <div className="text-[11px] leading-4 text-muted-foreground">{label}</div>
+            <div className="text-xs leading-4 text-muted-foreground">{label}</div>
             <div className="mt-0.5 text-base font-semibold tabular-nums tracking-tight">{value}</div>
           </div>
         ))}
@@ -170,7 +170,7 @@ export function BatchWorkbenchResultPanel({ result }: { result: LocalEngineBatch
             ))}
           </div>
           {feedback.total > feedback.rows.length ? (
-            <div className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
+            <div className="mt-1.5 text-xs leading-4 text-muted-foreground">
               {copy.hiddenIssues.replace('{count}', String(feedback.total - feedback.rows.length))}
             </div>
           ) : null}
