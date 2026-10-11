@@ -32,7 +32,7 @@ def _render_bandwidth_control(window, engine_module) -> None:
     ui._label(text, "带宽限制", size=8, weight="bold", bg=ui.PANEL_2).pack(anchor="w")
     ui._label(
         text,
-        "单位 KiB/s；0 表示不限速。仅限制媒体下载，不影响解析和本机处理。",
+        "单位 KiB/s；0 表示不限速。统一限制媒体、Torrent / Magnet 与 aria2 HTTP 下载，不影响解析和本机处理。",
         size=7,
         color=ui.SUBTLE,
         bg=ui.PANEL_2,
