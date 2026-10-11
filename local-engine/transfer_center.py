@@ -13,6 +13,12 @@ from urllib.parse import urlparse
 
 import aria2_recovery
 import transfer_center_legacy as _legacy
+from aria2_bandwidth import (
+    aria2_task_bandwidth_for,
+    bind_aria2_task_bandwidth,
+    install_aria2_bandwidth,
+    normalize_aria2_task_bandwidth_kbps,
+)
 from aria2_file_selection import (
     bind_selected_files,
     install_aria2_file_selection,
@@ -35,6 +41,7 @@ from torrent_metadata_acquisition import (
 from transfer_preferences import load_aria2_connections_preference
 
 install_aria2_file_selection()
+install_aria2_bandwidth()
 
 for _name in dir(_legacy):
     if not _name.startswith("__"):
@@ -109,20 +116,22 @@ def start_torrent_transfer(
     source: object,
     *,
     selected_files: object = (),
+    bandwidth_limit_kbps: object | None = None,
     on_update: Callable[[Aria2TransferSnapshot], None] | None = None,
     max_attempts: int = 3,
 ) -> Aria2TransferSession:
     """Create a non-blocking, validated Torrent/Magnet transfer session.
 
     ``selected_files`` contains aria2's one-based Torrent file indexes. An empty
-    selection means the normal aria2 behavior: download every file. HTTPS torrent
-    URLs are first fetched through Galaxy's redirect-aware public URL boundary and
-    converted to a verified local torrent, so aria2 never follows an unvalidated
-    HTTP redirect for the metadata source.
+    selection downloads every file. ``bandwidth_limit_kbps`` uses three states:
+    ``None`` inherits Galaxy's global bandwidth preference, ``0`` explicitly
+    disables the cap for this task, and a positive value sets a task-specific
+    KiB/s limit. HTTPS torrent URLs are localized before aria2 starts.
     """
 
     classified = _validated_torrent_source(engine_module, source)
     selected = normalize_selected_files(selected_files)
+    task_bandwidth = normalize_aria2_task_bandwidth_kbps(bandwidth_limit_kbps)
     executable = find_aria2c(engine_module)
     if executable is None:
         raise TransferError("未检测到 aria2c；Torrent/Magnet 功能需要 aria2c。请先安装或配置 aria2c 后重试。")
@@ -144,6 +153,8 @@ def start_torrent_transfer(
         max_attempts=max_attempts,
     )
     bind_selected_files(options, selected)
+    if task_bandwidth is not None:
+        bind_aria2_task_bandwidth(options, task_bandwidth)
     return aria2_recovery.create_recoverable_aria2_session(
         engine_module,
         Path(executable),
@@ -160,6 +171,7 @@ def start_aria2_http_transfer(
     file_name: str = "",
     sha256: str = "",
     headers: Iterable[object] = (),
+    bandwidth_limit_kbps: object | None = None,
     on_update: Callable[[Aria2TransferSnapshot], None] | None = None,
     max_attempts: int = 3,
 ) -> Aria2TransferSession:
@@ -169,19 +181,23 @@ def start_aria2_http_transfer(
     if executable is None:
         raise TransferError("未检测到 aria2c；高速 HTTP 下载需要 aria2c")
     normalized = _validated_http_source(engine_module, source_url)
+    task_bandwidth = normalize_aria2_task_bandwidth_kbps(bandwidth_limit_kbps)
     destination = _managed_download_dir(engine_module, "aria2")
     connections = load_aria2_connections_preference(engine_module)
+    options = Aria2TransferOptions(
+        source=normalized,
+        destination=destination,
+        file_name=file_name,
+        connections=connections,
+        sha256=sha256,
+        headers=tuple(headers),
+        max_attempts=max_attempts,
+    )
+    if task_bandwidth is not None:
+        bind_aria2_task_bandwidth(options, task_bandwidth)
     return Aria2TransferSession(
         Path(executable),
-        Aria2TransferOptions(
-            source=normalized,
-            destination=destination,
-            file_name=file_name,
-            connections=connections,
-            sha256=sha256,
-            headers=tuple(headers),
-            max_attempts=max_attempts,
-        ),
+        options,
         on_update=on_update,
     )
 
@@ -224,6 +240,8 @@ def transfer_status(engine_module) -> dict[str, object]:
             "aria2Connections": load_aria2_connections_preference(engine_module),
             "aria2MaxConnections": 16,
             "aria2BandwidthLimit": True,
+            "aria2PerTaskBandwidthLimit": True,
+            "aria2BandwidthModes": ("inherit", "unlimited", "custom"),
             "bandwidthLimitKbps": load_bandwidth_preference(engine_module),
             "aria2FragmentManifestExternalDownloader": False,
         }
@@ -239,10 +257,15 @@ def run_transfer_center_self_test() -> None:
     assert callable(preview_torrent_metadata)
     assert callable(download_torrent)
     assert normalize_selected_files((3, 1, 2, 2)) == (1, 2, 3)
+    assert normalize_aria2_task_bandwidth_kbps(None) is None
+    assert normalize_aria2_task_bandwidth_kbps(0) == 0
+    assert normalize_aria2_task_bandwidth_kbps(512) == 512
 
     probe = Aria2TransferOptions(source="https://example.com/demo.torrent", destination=Path("downloads"))
     bind_selected_files(probe, (2, 4))
+    bind_aria2_task_bandwidth(probe, 0)
     assert selected_files_for(probe) == (2, 4)
+    assert aria2_task_bandwidth_for(probe) == 0
 
     class _BoundaryEngine:
         calls: list[str] = []
