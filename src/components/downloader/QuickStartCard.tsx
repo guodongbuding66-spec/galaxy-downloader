@@ -78,7 +78,7 @@ export function QuickStartCard({ dict, locale }: QuickStartCardProps) {
             <ol className="mt-2 divide-y">
                 {steps.map((step, index) => (
                     <li key={`${index}-${step.title}`} className="grid grid-cols-[24px_minmax(0,1fr)] gap-2.5 py-2.5">
-                        <span className="pt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground" aria-hidden="true">
+                        <span className="pt-0.5 font-mono text-xs tabular-nums text-muted-foreground" aria-hidden="true">
                             {String(index + 1).padStart(2, '0')}
                         </span>
                         <div className="min-w-0">
