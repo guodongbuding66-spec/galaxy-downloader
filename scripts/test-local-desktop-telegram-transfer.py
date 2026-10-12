@@ -12,6 +12,20 @@ if str(LOCAL_ENGINE) not in sys.path:
 import desktop_transfers  # noqa: E402
 
 
+def _desktop_transfer_source() -> str:
+    """Return the effective transfer presenter source across the V2 facade split.
+
+    V2 keeps ``desktop_transfers.py`` as a compatibility facade and delegates the
+    established Telegram/Torrent/P2P UI implementation to
+    ``desktop_transfers_legacy.py``. Static contract tests must therefore inspect
+    both layers instead of assuming every presenter marker lives in one file.
+    """
+
+    facade = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+    legacy = (LOCAL_ENGINE / "desktop_transfers_legacy.py").read_text(encoding="utf-8")
+    return facade + "\n\n# --- delegated legacy presenter ---\n\n" + legacy
+
+
 class DesktopTelegramTransferTests(unittest.TestCase):
     def test_settings_helper_normalizes_plain_ui_values(self) -> None:
         settings = desktop_transfers._telegram_settings(
@@ -25,8 +39,14 @@ class DesktopTelegramTransferTests(unittest.TestCase):
         self.assertEqual(settings.send_as, "video")
         self.assertEqual(settings.user_adapter, "galaxy-telegram-user")
 
+    def test_v2_facade_delegates_to_legacy_presenter(self) -> None:
+        facade = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        self.assertIn("import desktop_transfers_legacy as _legacy", facade)
+        self.assertIn("_legacy.install_desktop_transfers(engine_module)", facade)
+        self.assertTrue((LOCAL_ENGINE / "desktop_transfers_legacy.py").is_file())
+
     def test_transfer_center_has_integrated_telegram_tab_and_no_direct_network_stack(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _desktop_transfer_source()
         for marker in (
             'notebook.add(telegram_tab, text="Telegram")',
             '"Telegram 账户与目标"',
@@ -58,7 +78,7 @@ class DesktopTelegramTransferTests(unittest.TestCase):
             self.assertNotIn(forbidden, source.lower())
 
     def test_upload_worker_uses_ui_thread_snapshot_only(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _desktop_transfer_source()
         start = source.index("    def start_telegram_upload() -> None:")
         end = source.index("    telegram_upload_button = ui.ActionButton(", start)
         block = source[start:end]
@@ -83,7 +103,7 @@ class DesktopTelegramTransferTests(unittest.TestCase):
         self.assertIn("dialog.after(0, finish)", worker)
 
     def test_bot_token_is_not_preloaded_or_echoed_into_token_field(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _desktop_transfer_source()
         telegram = source[source.index("    # Telegram"):]
         self.assertIn('telegram_token_var = tk.StringVar(value="")', telegram)
         self.assertIn('value="Bot Token 已保存" if telegram_bot_token_configured(engine_module) else "Bot Token 未保存"', telegram)
@@ -96,7 +116,7 @@ class DesktopTelegramTransferTests(unittest.TestCase):
         self.assertNotIn("read_text", telegram)
 
     def test_file_and_thumbnail_use_system_pickers_and_source_is_described_as_galaxy_file(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _desktop_transfer_source()
         telegram = source[source.index("    # Telegram"):]
         self.assertGreaterEqual(telegram.count("filedialog.askopenfilename("), 2)
         self.assertIn('title="选择 Galaxy 下载文件"', telegram)
@@ -105,7 +125,7 @@ class DesktopTelegramTransferTests(unittest.TestCase):
         self.assertIn('filetypes=(("JPEG", "*.jpg *.jpeg"),)', telegram)
 
     def test_busy_state_covers_mutating_controls_and_restores_mode_capability(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _desktop_transfer_source()
         telegram = source[source.index("    # Telegram"):]
         for marker in (
             "telegram_busy_controls: list[object]",
@@ -122,7 +142,7 @@ class DesktopTelegramTransferTests(unittest.TestCase):
             self.assertIn(marker, telegram)
 
     def test_existing_torrent_and_p2p_workflows_remain_present(self) -> None:
-        source = (LOCAL_ENGINE / "desktop_transfers.py").read_text(encoding="utf-8")
+        source = _desktop_transfer_source()
         for marker in (
             'notebook.add(torrent_tab, text="Torrent / Magnet")',
             'notebook.add(p2p_tab, text="P2P 短码")',

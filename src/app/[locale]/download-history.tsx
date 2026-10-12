@@ -140,26 +140,26 @@ export function DownloadHistory({
                 <CollapsibleTrigger asChild>
                     <button
                         type="button"
-                        className="flex min-h-10 w-full items-center gap-2 px-1 py-2 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                        className="ui-target flex min-h-10 w-full items-center gap-2.5 px-1 py-2.5 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
                     >
-                        <History className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                        <span className="min-w-0 flex-1 text-sm font-medium">{copy.title}</span>
-                        <span className="text-[11px] tabular-nums text-muted-foreground">{downloadHistory.length}</span>
-                        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                        <History className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                        <span className="min-w-0 flex-1 text-sm font-semibold">{copy.title}</span>
+                        <span className="text-[11px] font-medium tabular-nums text-muted-foreground">{downloadHistory.length}</span>
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
                     </button>
                 </CollapsibleTrigger>
 
                 <CollapsibleContent>
-                    <div className="pb-2 pt-1">
-                        <div className="mb-2 flex items-center gap-1.5">
-                            <div className="relative min-w-0 flex-1 sm:max-w-64">
-                                <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                    <div className="pb-2 pt-1.5">
+                        <div className="mb-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="relative min-w-0 flex-1 sm:max-w-72">
+                                <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                                 <Input
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder={copy.searchPlaceholder}
                                     aria-label={copy.searchPlaceholder}
-                                    className="h-8 ps-8 text-xs"
+                                    className="ps-9 text-xs"
                                 />
                             </div>
 
@@ -194,7 +194,7 @@ export function DownloadHistory({
 
                         <div className="max-h-[min(52vh,30rem)] overflow-y-auto overscroll-contain border-y">
                             {filteredHistory.length === 0 ? (
-                                <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+                                <p className="surface-subtle px-3 py-8 text-center text-xs leading-5 text-muted-foreground">
                                     {copy.noSearchResults}
                                 </p>
                             ) : (
@@ -202,19 +202,19 @@ export function DownloadHistory({
                                     {filteredHistory.map((record: RecentParseRecord) => (
                                         <article
                                             key={`${record.url}-${record.timestamp}`}
-                                            className="grid min-h-11 min-w-0 gap-1.5 px-1.5 py-1.5 transition-colors hover:bg-muted/50 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+                                            className="grid min-h-11 min-w-0 gap-2 px-2.5 py-2 transition-colors hover:bg-accent/45 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
                                         >
-                                            <div className="flex min-w-0 items-center gap-2">
+                                            <div className="flex min-w-0 items-center gap-2.5">
                                                 <PlatformBadge platform={record.platform} />
-                                                <h3 className="min-w-0 flex-1 truncate text-xs font-medium" title={record.title}>
+                                                <h3 className="min-w-0 flex-1 truncate text-xs font-medium sm:text-sm" title={record.title}>
                                                     {record.title}
                                                 </h3>
-                                                <time dateTime={new Date(record.timestamp).toISOString()} className="hidden shrink-0 text-[10px] tabular-nums text-muted-foreground sm:inline">
+                                                <time dateTime={new Date(record.timestamp).toISOString()} className="hidden shrink-0 text-[11px] tabular-nums text-muted-foreground sm:inline">
                                                     {formatRecordTimestamp(record.timestamp)}
                                                 </time>
                                             </div>
 
-                                            <div className="flex items-center gap-1 md:justify-end">
+                                            <div className="flex flex-wrap items-center gap-1 md:justify-end">
                                                 <Button variant="ghost" size="xs" className="text-muted-foreground" asChild>
                                                     <a href={record.url} target="_blank" rel="noopener noreferrer">
                                                         <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />

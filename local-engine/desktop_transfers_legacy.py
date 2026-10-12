@@ -36,9 +36,10 @@ def _entry(master, variable, width=30, **kwargs):
         "fg": ui.TEXT,
         "insertbackground": ui.TEXT,
         "relief": "flat",
-        "highlightthickness": 1,
+        "takefocus": True,
+        "highlightthickness": ui.FOCUS_RING_WIDTH,
         "highlightbackground": ui.BORDER,
-        "highlightcolor": ui.ACCENT,
+        "highlightcolor": ui.FOCUS,
     }
     options.update(kwargs)
     return tk.Entry(master, **options)
@@ -309,7 +310,16 @@ def _show_transfer_center(window, engine_module) -> None:
     mode_field = tk.Frame(settings_row, bg=ui.PANEL_2)
     mode_field.pack(side="left")
     ui._label(mode_field, "模式", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
-    mode_combo = ttk.Combobox(mode_field, textvariable=telegram_mode_var, values=("bot", "user"), state="readonly", width=10)
+    mode_combo = ttk.Combobox(
+        mode_field,
+        textvariable=telegram_mode_var,
+        values=("bot", "user"),
+        state="readonly",
+        width=10,
+        style="Galaxy.TCombobox",
+        font=font("body_sm"),
+        takefocus=True,
+    )
     mode_combo.pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=4)
 
     chat_field = tk.Frame(settings_row, bg=ui.PANEL_2)
@@ -327,6 +337,9 @@ def _show_transfer_center(window, engine_module) -> None:
         values=("document", "video", "audio"),
         state="readonly",
         width=12,
+        style="Galaxy.TCombobox",
+        font=font("body_sm"),
+        takefocus=True,
     )
     send_combo.pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=4)
 
@@ -525,9 +538,9 @@ def _show_transfer_center(window, engine_module) -> None:
         font=font("body_sm", bold=True),
         bd=0,
         relief="flat",
-        highlightthickness=1,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER_SOFT,
-        highlightcolor=ui.ACCENT,
+        highlightcolor=ui.FOCUS,
         cursor="hand2",
     )
     chunk_check.pack(side="left", padx=(LAYOUT["content"], LAYOUT["none"]), pady=(LAYOUT["section"], LAYOUT["none"]))

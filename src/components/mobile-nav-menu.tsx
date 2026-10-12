@@ -51,7 +51,7 @@ export function MobileNavMenu({ defaultOpen = false }: MobileNavMenuProps) {
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={dict.page.openMenuLabel}>
+                <Button variant="ghost" size="icon" aria-label={dict.page.openMenuLabel}>
                     <Menu className="h-4 w-4" aria-hidden="true" />
                 </Button>
             </DialogTrigger>
@@ -63,7 +63,7 @@ export function MobileNavMenu({ defaultOpen = false }: MobileNavMenuProps) {
                     <DialogTitle>{dict.page.openMenuLabel}</DialogTitle>
                 </DialogHeader>
 
-                <Button size="sm" className="h-9 w-full justify-start" asChild>
+                <Button size="sm" className="w-full justify-start" asChild>
                     <a href={LOCAL_ENGINE_RELEASE_URL} onClick={() => setOpen(false)}>
                         <HardDriveDownload className="h-3.5 w-3.5" aria-hidden="true" />
                         <span>{copy.engine}</span>
@@ -71,7 +71,7 @@ export function MobileNavMenu({ defaultOpen = false }: MobileNavMenuProps) {
                 </Button>
 
                 <section className="border-t pt-2">
-                    <div className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{copy.other}</div>
+                    <div className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{copy.other}</div>
                     <div className="divide-y">
                         {RELATED_SITES.map((site) => {
                             const Icon = site.icon
@@ -82,7 +82,7 @@ export function MobileNavMenu({ defaultOpen = false }: MobileNavMenuProps) {
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={() => setOpen(false)}
-                                    className="flex h-9 items-center gap-2 px-1 text-xs transition-colors duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+                                    className="ui-target flex min-h-9 items-center gap-2 px-1 text-xs transition-colors duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
                                 >
                                     <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                                     <span className="min-w-0 flex-1 truncate text-left">{site.label}</span>
@@ -94,7 +94,7 @@ export function MobileNavMenu({ defaultOpen = false }: MobileNavMenuProps) {
                 </section>
 
                 <section className="border-t pt-2">
-                    <div className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{copy.settings}</div>
+                    <div className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{copy.settings}</div>
                     <div className="space-y-0.5">
                         <DeferredLanguageSwitcher fullWidth />
                         <ThemeSwitcher fullWidth />
@@ -102,7 +102,7 @@ export function MobileNavMenu({ defaultOpen = false }: MobileNavMenuProps) {
                     </div>
                 </section>
 
-                <Button variant="ghost" size="sm" className="h-9 w-full justify-start border-t rounded-none pt-2" asChild>
+                <Button variant="ghost" size="sm" className="w-full justify-start border-t rounded-none pt-2" asChild>
                     <a
                         href="https://github.com/guodongbuding66-spec/galaxy-downloader"
                         target="_blank"

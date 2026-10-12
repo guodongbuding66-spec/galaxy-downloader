@@ -46,7 +46,6 @@ export function CollectionItemActions({
                     icon={Play}
                     variant="ghost"
                     size="xs"
-                    className="h-7"
                     onClick={() => onPlay('video')}
                 />
             )}
@@ -57,7 +56,6 @@ export function CollectionItemActions({
                     icon={Headphones}
                     variant="ghost"
                     size="xs"
-                    className="h-7"
                     onClick={() => onPlay('audio')}
                 />
             )}
@@ -68,7 +66,6 @@ export function CollectionItemActions({
                     icon={VideoDownloadIcon}
                     variant="outline"
                     size="xs"
-                    className="h-7"
                     disabled={videoLoading}
                     loading={videoLoading}
                     onClick={() => onDownloadVideo(videoDownloadUrl!)}
@@ -81,7 +78,6 @@ export function CollectionItemActions({
                     icon={AudioDownloadIcon}
                     variant="outline"
                     size="xs"
-                    className="h-7"
                     disabled={audioLoading}
                     loading={audioLoading}
                     onClick={() => onDownloadAudio(audioDownloadUrl!)}

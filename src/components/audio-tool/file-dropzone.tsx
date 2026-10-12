@@ -73,7 +73,7 @@ export function FileDropzone({
                             aria-disabled={isBusy}
                             className={cn(
                                 buttonVariants({ variant: 'outline', size: 'sm' }),
-                                'min-h-10 cursor-pointer px-4',
+                                'cursor-pointer px-4',
                                 isBusy && 'pointer-events-none opacity-50'
                             )}
                         >
@@ -85,7 +85,6 @@ export function FileDropzone({
                             size="icon"
                             onClick={onClear}
                             disabled={isBusy}
-                            className="h-10 w-10"
                             aria-label={clearButtonLabel}
                             title={clearButtonLabel}
                         >
@@ -101,7 +100,7 @@ export function FileDropzone({
                         aria-disabled={isBusy}
                         className={cn(
                             buttonVariants({ variant: 'outline', size: 'sm' }),
-                            'min-h-10 cursor-pointer px-4',
+                            'cursor-pointer px-4',
                             isBusy && 'pointer-events-none opacity-50'
                         )}
                     >

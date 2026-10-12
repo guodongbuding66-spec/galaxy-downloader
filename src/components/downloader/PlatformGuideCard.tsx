@@ -1,4 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Globe } from 'lucide-react';
 import type { Dictionary } from '@/lib/i18n/types';
 import { cn } from '@/lib/utils';
@@ -11,16 +10,14 @@ interface PlatformGuideCardProps {
 
 export function PlatformGuideCard({ dict, className }: PlatformGuideCardProps) {
     return (
-        <Card className={cn('overflow-hidden', className)}>
-            <CardHeader className="p-5 pb-3 sm:p-6 sm:pb-4">
-                <CardTitle className="flex items-center gap-2 text-base">
-                    <Globe className="h-4 w-4 text-primary" />
-                    {dict.guide.platformSupport.title}
-                </CardTitle>
-            </CardHeader>
-            <CardContent className="p-5 pt-0 sm:p-6 sm:pt-0">
+        <section className={cn('min-w-0 border-y py-3', className)}>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+                <Globe className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                <h2>{dict.guide.platformSupport.title}</h2>
+            </div>
+            <div className="mt-3">
                 <PlatformSupportGrid dict={dict} />
-            </CardContent>
-        </Card>
+            </div>
+        </section>
     );
-} 
+}

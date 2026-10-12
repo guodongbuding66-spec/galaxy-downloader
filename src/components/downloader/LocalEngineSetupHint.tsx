@@ -118,26 +118,26 @@ export function LocalEngineSetupHint({ className }: { className?: string }) {
 
   if (status === 'ready') {
     return (
-      <div className={cn('flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground', className)}>
-        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
-        <span className="truncate">{copy.ready}{version ? ` · v${version}` : ''}</span>
+      <div className={cn('flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground sm:items-center', className)}>
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--success))] sm:mt-0" aria-hidden="true" />
+        <span className="min-w-0">{copy.ready}{version ? ` · v${version}` : ''}</span>
       </div>
     )
   }
 
   const message = status === 'upgrade' ? copy.upgrade : copy.offline
   return (
-    <div className={cn('flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px]', className)}>
-      <span className="text-muted-foreground">{message}</span>
-      <div className="flex shrink-0 items-center gap-0.5">
-        <Button size="xs" variant="ghost" className="h-7 px-2" asChild>
+    <div className={cn('flex min-w-0 flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-end', className)}>
+      <span className="min-w-0 leading-5 text-muted-foreground">{message}</span>
+      <div className="flex shrink-0 flex-wrap items-center gap-1">
+        <Button size="xs" variant="secondary" asChild>
           <a href={LOCAL_ENGINE_RELEASE_URL}>
             <HardDriveDownload className="h-3.5 w-3.5" aria-hidden="true" />
             {copy.download}
           </a>
         </Button>
         {status !== 'upgrade' && (
-          <Button size="xs" variant="ghost" className="h-7 px-2" type="button" onClick={launch}>
+          <Button size="xs" variant="ghost" type="button" onClick={launch}>
             <Play className="h-3.5 w-3.5" aria-hidden="true" />
             {copy.open}
           </Button>
@@ -145,7 +145,6 @@ export function LocalEngineSetupHint({ className }: { className?: string }) {
         <Button
           size="icon"
           variant="ghost"
-          className="h-7 w-7"
           type="button"
           onClick={retry}
           aria-label={copy.retry}

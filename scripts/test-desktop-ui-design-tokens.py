@@ -180,7 +180,7 @@ def main() -> None:
         assert value not in source, f"semantic color literal leaked into desktop_ui.py: {value}"
 
     _assert_spacing_is_tokenized(LOCAL_ENGINE / "_desktop_ui_impl.py")
-    for name in ("desktop_transfers.py", "desktop_qr_transfer.py", "desktop_telegram_download.py"):
+    for name in ("desktop_transfers_legacy.py", "desktop_qr_transfer.py", "desktop_telegram_download.py"):
         _assert_transfer_workspace_tokenized(LOCAL_ENGINE / name)
     _assert_accessibility_contract()
 

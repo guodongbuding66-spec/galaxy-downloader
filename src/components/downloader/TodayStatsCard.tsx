@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Activity } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     fetchTodayParseStats,
     TODAY_PARSE_STATS_REFRESH_EVENT,
@@ -78,15 +77,13 @@ export function TodayStatsCard({ dict }: TodayStatsCardProps) {
     }, []);
 
     useEffect(() => {
-        if (!stats) {
-            return;
-        }
+        if (!stats) return;
 
         const targetCounts = { today: stats.count, total: resolveTotalCount(stats) };
-
         const previousCounts = displayedCountsRef.current;
         const shouldAnimateToday = previousCounts !== null && targetCounts.today > previousCounts.today;
         const shouldAnimateTotal = previousCounts !== null && targetCounts.total > previousCounts.total;
+
         if (animationFrameRef.current !== null) {
             window.cancelAnimationFrame(animationFrameRef.current);
             animationFrameRef.current = null;
@@ -132,37 +129,28 @@ export function TodayStatsCard({ dict }: TodayStatsCardProps) {
         };
     }, [stats]);
 
-    // 拉取失败时不占位，避免显示不可靠的统计数据。
-    if (!stats) {
-        return null;
-    }
+    if (!stats) return null;
 
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                    <Activity className="h-5 w-5 text-primary" />
-                    {dict.todayStats.title}
-                </CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-6">
-                <div className="min-w-0">
-                    <p className="break-words text-sm text-foreground/75">
-                        {dict.todayStats.totalCountLabel}
-                    </p>
-                    <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight">
+        <section className="min-w-0 border-t pt-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+                <Activity className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                <h2>{dict.todayStats.title}</h2>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden border-y bg-border">
+                <div className="min-w-0 bg-background px-2.5 py-2.5">
+                    <p className="text-xs leading-5 text-muted-foreground">{dict.todayStats.totalCountLabel}</p>
+                    <p className="mt-0.5 text-2xl font-semibold tabular-nums tracking-[-0.03em]">
                         {displayCounts.total.toLocaleString()}
                     </p>
                 </div>
-                <div className="min-w-0">
-                    <p className="break-words text-sm text-foreground/75">
-                        {dict.todayStats.todayCountLabel}
-                    </p>
-                    <p className="mt-2 text-2xl font-medium tabular-nums">
+                <div className="min-w-0 bg-background px-2.5 py-2.5">
+                    <p className="text-xs leading-5 text-muted-foreground">{dict.todayStats.todayCountLabel}</p>
+                    <p className="mt-0.5 text-2xl font-semibold tabular-nums tracking-[-0.03em]">
                         {displayCounts.today.toLocaleString()}
                     </p>
                 </div>
-            </CardContent>
-        </Card>
+            </div>
+        </section>
     );
 }

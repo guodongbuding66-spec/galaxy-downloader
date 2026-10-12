@@ -407,12 +407,12 @@ export function LocalEngineAdvancedControls({
 
   return (
     <details className="group mt-2 overflow-hidden rounded-xl border bg-card/40">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11px] outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring">
+      <summary className="ui-target flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-xs outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring">
         <Gauge className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
         <span className="font-semibold">{copy.title}</span>
-        <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">{copy.summary}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{copy.summary}</span>
         {activeCount > 0 ? (
-          <span className="rounded-full border bg-background px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-muted-foreground">
+          <span className="rounded-full border bg-background px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
             {activeCount} {extra.active}
           </span>
         ) : null}
@@ -422,7 +422,7 @@ export function LocalEngineAdvancedControls({
       <div className="border-t px-3 pb-3 pt-2.5">
         <div className="mb-3 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium">
+            <div className="flex items-center gap-1.5 text-xs font-medium">
               <Sparkles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
               {extra.presets}
             </div>
@@ -430,7 +430,7 @@ export function LocalEngineAdvancedControls({
               type="button"
               disabled={disabled}
               onClick={() => onChange(createDefaultLocalEngineAdvancedOptions())}
-              className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="ui-target inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               <RotateCcw className="h-3 w-3" aria-hidden="true" />
               {extra.reset}
@@ -444,10 +444,10 @@ export function LocalEngineAdvancedControls({
                 disabled={disabled || preset.disabled}
                 onClick={() => applyPreset(preset.id)}
                 title={preset.hint}
-                className="min-h-9 rounded-lg border bg-background px-2 py-1.5 text-left outline-none transition-colors hover:border-foreground/30 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                className="ui-target min-h-9 rounded-lg border bg-background px-2 py-1.5 text-left outline-none transition-colors hover:border-foreground/30 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <span className="block text-[10px] font-semibold">{preset.label}</span>
-                <span className="mt-0.5 block truncate text-[9px] text-muted-foreground">{preset.hint}</span>
+                <span className="block text-xs font-semibold">{preset.label}</span>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">{preset.hint}</span>
               </button>
             ))}
           </div>
@@ -456,12 +456,12 @@ export function LocalEngineAdvancedControls({
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="space-y-3">
             <section className="rounded-lg border bg-background/60 p-2.5">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium">
+              <div className="flex items-center gap-1.5 text-xs font-medium">
                 <Scissors className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                 {copy.segment}
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <label className="space-y-1 text-[10px] text-muted-foreground">
+                <label className="space-y-1 text-xs text-muted-foreground">
                   <span>{copy.start}</span>
                   <input
                     type="text"
@@ -470,10 +470,10 @@ export function LocalEngineAdvancedControls({
                     disabled={disabled}
                     placeholder="01:20"
                     onChange={(event) => update({ segmentStart: event.target.value })}
-                    className="h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    className="ui-target h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   />
                 </label>
-                <label className="space-y-1 text-[10px] text-muted-foreground">
+                <label className="space-y-1 text-xs text-muted-foreground">
                   <span>{copy.end}</span>
                   <input
                     type="text"
@@ -482,25 +482,25 @@ export function LocalEngineAdvancedControls({
                     disabled={disabled}
                     placeholder="03:45"
                     onChange={(event) => update({ segmentEnd: event.target.value })}
-                    className="h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    className="ui-target h-8 w-full rounded-md border bg-background px-2 text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   />
                 </label>
               </div>
-              <p className="mt-1.5 text-[9px] leading-4 text-muted-foreground">{copy.segmentHint}</p>
-              <label className="mt-2 flex cursor-pointer items-center gap-2 text-[10px]">
+              <p className="mt-1.5 text-xs leading-4 text-muted-foreground">{copy.segmentHint}</p>
+              <label className="ui-target mt-2 flex cursor-pointer items-center gap-2 text-xs">
                 <input
                   type="checkbox"
                   checked={value.splitChapters}
                   disabled={disabled}
                   onChange={(event) => update({ splitChapters: event.target.checked })}
-                  className="h-3.5 w-3.5 accent-foreground"
+                  className="h-4 w-4 accent-foreground"
                 />
                 <span>{copy.splitChapters}</span>
               </label>
             </section>
 
             <section className="rounded-lg border bg-background/60 p-2.5">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium">
+              <div className="flex items-center gap-1.5 text-xs font-medium">
                 <Subtitles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                 {copy.subtitleMode}
               </div>
@@ -516,13 +516,13 @@ export function LocalEngineAdvancedControls({
                     disabled={disabled}
                     aria-pressed={value.subtitleMode === mode}
                     onClick={() => update({ subtitleMode: mode })}
-                    className={`min-h-7 rounded px-1.5 text-[10px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${value.subtitleMode === mode ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                    className={`ui-target min-h-7 rounded px-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${value.subtitleMode === mode ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
                   >
                     {label}
                   </button>
                 ))}
               </div>
-              <label className="mt-2 block space-y-1 text-[10px] text-muted-foreground">
+              <label className="mt-2 block space-y-1 text-xs text-muted-foreground">
                 <span>{copy.subtitleLanguages}</span>
                 <input
                   type="text"
@@ -530,7 +530,7 @@ export function LocalEngineAdvancedControls({
                   disabled={disabled}
                   placeholder="zh-Hans,en"
                   onChange={(event) => update({ subtitleLanguages: listFromText(event.target.value) })}
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  className="ui-target h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                 />
               </label>
               {detectedSubtitles.length ? (
@@ -544,7 +544,7 @@ export function LocalEngineAdvancedControls({
                         disabled={disabled}
                         aria-pressed={selected}
                         onClick={() => selectDetectedLanguage(track.language)}
-                        className={`rounded border px-1.5 py-0.5 text-[9px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
+                        className={`ui-target rounded border px-1.5 py-0.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
                       >
                         {track.language} · {track.isAutoGenerated ? copy.autoShort : copy.manualShort}
                       </button>
@@ -553,8 +553,8 @@ export function LocalEngineAdvancedControls({
                 </div>
               ) : null}
               {hasDanmakuTrack ? (
-                <div className="mt-2 rounded-md border bg-card/40 p-2 text-[10px]">
-                  <label className="flex cursor-pointer items-start gap-2">
+                <div className="mt-2 rounded-md border bg-card/40 p-2 text-xs">
+                  <label className="ui-target flex cursor-pointer items-start gap-2">
                     <input
                       type="checkbox"
                       checked={Boolean(value.includeDanmaku)}
@@ -566,16 +566,16 @@ export function LocalEngineAdvancedControls({
                           ...(event.target.checked ? { danmakuFormats: allowed.length ? allowed : ['xml'] } : {}),
                         });
                       }}
-                      className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+                      className="mt-0.5 h-4 w-4 accent-foreground"
                     />
                     <span className="min-w-0">
-                      <span className="block text-[11px] font-medium text-foreground">{copy.danmaku}</span>
+                      <span className="block text-xs font-medium text-foreground">{copy.danmaku}</span>
                       <span className="mt-0.5 block leading-4 text-muted-foreground">{copy.danmakuHint}</span>
                     </span>
                   </label>
                   {value.includeDanmaku ? (
                     <div className="mt-2 border-t pt-2">
-                      <div className="mb-1 text-[9px] font-medium text-muted-foreground">{copy.danmakuFormats}</div>
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">{copy.danmakuFormats}</div>
                       <div className="grid grid-cols-3 gap-1">
                         {danmakuFormatOptions
                           .filter(([format]) => availableDanmakuFormats.includes(format))
@@ -589,7 +589,7 @@ export function LocalEngineAdvancedControls({
                                 aria-pressed={selected}
                                 disabled={disabled || onlySelected}
                                 onClick={() => toggleDanmakuFormat(format)}
-                                className={`min-h-7 rounded-md border px-1.5 text-[9px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'} ${onlySelected ? 'opacity-80' : ''}`}
+                                className={`ui-target min-h-7 rounded-md border px-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${selected ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'} ${onlySelected ? 'opacity-80' : ''}`}
                               >
                                 {label}
                               </button>
@@ -600,7 +600,7 @@ export function LocalEngineAdvancedControls({
                   ) : null}
                 </div>
               ) : null}
-              <label className="mt-2 block space-y-1 text-[10px] text-muted-foreground">
+              <label className="mt-2 block space-y-1 text-xs text-muted-foreground">
                 <span>{copy.audioLanguages}</span>
                 <input
                   type="text"
@@ -608,7 +608,7 @@ export function LocalEngineAdvancedControls({
                   disabled={disabled}
                   placeholder="zh,en,ja"
                   onChange={(event) => update({ audioLanguages: listFromText(event.target.value) })}
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  className="ui-target h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                 />
                 <span className="block leading-4">{copy.audioHint}</span>
               </label>
@@ -617,16 +617,16 @@ export function LocalEngineAdvancedControls({
 
           <div className="space-y-3">
             <section className="rounded-lg border bg-background/60 p-2.5">
-              <div className="text-[11px] font-medium">{copy.sponsorBlock}</div>
+              <div className="text-xs font-medium">{copy.sponsorBlock}</div>
               <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
                 {sponsorOptions.map(([category, label]) => (
-                  <label key={category} className="flex cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <label key={category} className="ui-target flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
                     <input
                       type="checkbox"
                       checked={value.sponsorBlockCategories.includes(category)}
                       disabled={disabled}
                       onChange={() => update({ sponsorBlockCategories: toggleCategory(value.sponsorBlockCategories, category) })}
-                      className="h-3.5 w-3.5 accent-foreground"
+                      className="h-4 w-4 accent-foreground"
                     />
                     {label}
                   </label>
@@ -635,16 +635,16 @@ export function LocalEngineAdvancedControls({
             </section>
 
             <section className="rounded-lg border bg-background/60 p-2.5">
-              <label className={`flex items-start gap-2 text-[10px] ${coverSidecarReady ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+              <label className={`ui-target flex items-start gap-2 text-xs ${coverSidecarReady ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                 <input
                   type="checkbox"
                   checked={coverSidecarReady && Boolean(value.keepCoverSidecar)}
                   disabled={disabled || !coverSidecarReady}
                   onChange={(event) => update({ keepCoverSidecar: event.target.checked })}
-                  className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+                  className="mt-0.5 h-4 w-4 accent-foreground"
                 />
                 <span>
-                  <span className="block text-[11px] font-medium text-foreground">{coverCopy.label}</span>
+                  <span className="block text-xs font-medium text-foreground">{coverCopy.label}</span>
                   <span className="mt-0.5 block leading-4 text-muted-foreground">{coverSidecarHint}</span>
                 </span>
               </label>
@@ -658,16 +658,16 @@ export function LocalEngineAdvancedControls({
             />
 
             <section className="rounded-lg border bg-background/60 p-2.5">
-              <label className={`flex items-start gap-2 text-[10px] ${aria2Ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+              <label className={`ui-target flex items-start gap-2 text-xs ${aria2Ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                 <input
                   type="checkbox"
                   checked={aria2Ready && value.useAria2c}
                   disabled={disabled || !aria2Ready}
                   onChange={(event) => update({ useAria2c: event.target.checked })}
-                  className="mt-0.5 h-3.5 w-3.5 accent-foreground"
+                  className="mt-0.5 h-4 w-4 accent-foreground"
                 />
                 <span>
-                  <span className="flex items-center gap-1 text-[11px] font-medium text-foreground">
+                  <span className="flex items-center gap-1 text-xs font-medium text-foreground">
                     <Zap className="h-3 w-3" aria-hidden="true" />
                     {copy.aria2}
                   </span>
@@ -676,7 +676,7 @@ export function LocalEngineAdvancedControls({
               </label>
             </section>
 
-            <p className="px-0.5 text-[9px] leading-4 text-muted-foreground">{copy.offByDefault}</p>
+            <p className="px-0.5 text-xs leading-4 text-muted-foreground">{copy.offByDefault}</p>
           </div>
         </div>
       </div>

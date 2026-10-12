@@ -1,4 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HardDriveDownload, Play, PlayCircle } from 'lucide-react';
 import type { Dictionary } from '@/lib/i18n/types';
 import type { Locale } from '@/lib/i18n/config';
@@ -64,52 +63,49 @@ const COPY: Record<string, QuickStartCopy> = {
 
 export function QuickStartCard({ dict, locale }: QuickStartCardProps) {
     const copy = COPY[locale] || COPY.en;
+    const steps = [
+        { title: copy.engineTitle, description: copy.engineDescription },
+        ...dict.guide.quickStart.steps,
+    ];
+
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                    <PlayCircle className="h-5 w-5 text-primary" />
-                    {copy.title}
-                </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-                <div className="flex items-start gap-3">
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
-                        1
-                    </div>
-                    <div className="min-w-0">
-                        <p className="font-medium">{copy.engineTitle}</p>
-                        <p className="text-sm text-foreground/75">{copy.engineDescription}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <a
-                                href={LOCAL_ENGINE_RELEASE_URL}
-                                className="inline-flex items-center gap-1 text-xs font-medium underline-offset-4 hover:underline"
-                            >
-                                <HardDriveDownload className="h-3.5 w-3.5" aria-hidden="true" />
-                                {copy.download}
-                            </a>
-                            <a
-                                href="galaxy-downloader://open"
-                                className="inline-flex items-center gap-1 text-xs font-medium underline-offset-4 hover:underline"
-                            >
-                                <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                                {copy.open}
-                            </a>
+        <section className="min-w-0 border-t pt-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+                <PlayCircle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                <h2>{copy.title}</h2>
+            </div>
+
+            <ol className="mt-2 divide-y">
+                {steps.map((step, index) => (
+                    <li key={`${index}-${step.title}`} className="grid grid-cols-[24px_minmax(0,1fr)] gap-2.5 py-2.5">
+                        <span className="pt-0.5 font-mono text-xs tabular-nums text-muted-foreground" aria-hidden="true">
+                            {String(index + 1).padStart(2, '0')}
+                        </span>
+                        <div className="min-w-0">
+                            <p className="text-xs font-semibold leading-5">{step.title}</p>
+                            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{step.description}</p>
+                            {index === 0 ? (
+                                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    <a
+                                        href={LOCAL_ENGINE_RELEASE_URL}
+                                        className="ui-target inline-flex items-center gap-1.5 rounded-sm text-xs font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                                    >
+                                        <HardDriveDownload className="h-3.5 w-3.5" aria-hidden="true" />
+                                        {copy.download}
+                                    </a>
+                                    <a
+                                        href="galaxy-downloader://open"
+                                        className="ui-target inline-flex items-center gap-1.5 rounded-sm text-xs font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                                    >
+                                        <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                                        {copy.open}
+                                    </a>
+                                </div>
+                            ) : null}
                         </div>
-                    </div>
-                </div>
-                {dict.guide.quickStart.steps.map((step, index) => (
-                    <div key={index} className="flex items-start gap-3">
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
-                            {index + 2}
-                        </div>
-                        <div>
-                            <p className="font-medium">{step.title}</p>
-                            <p className="text-sm text-foreground/75">{step.description}</p>
-                        </div>
-                    </div>
+                    </li>
                 ))}
-            </CardContent>
-        </Card>
+            </ol>
+        </section>
     );
 }

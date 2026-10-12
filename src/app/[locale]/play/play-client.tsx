@@ -3,9 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Loader2, ExternalLink } from 'lucide-react'
+import { ExternalLink, Loader2 } from 'lucide-react'
 import { HlsVideoPlayer } from '@/components/hls-video-player'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { PlatformBadge } from '@/components/platform-badge'
 import { ViewportSideRailAd } from '@/components/ads/viewport-side-rail-ad'
@@ -36,9 +35,7 @@ export function PlayPageClient() {
     useEffect(() => {
         let cancelled = false
 
-        if (!sourceUrl) {
-            return
-        }
+        if (!sourceUrl) return
 
         const loadSharedResult = async () => {
             setLoading(true)
@@ -47,22 +44,15 @@ export function PlayPageClient() {
 
             try {
                 const parsed = await requestUnifiedParse(sourceUrl)
-                if (cancelled) {
-                    return
-                }
+                if (cancelled) return
 
                 setParseResult({
                     ...parsed.data,
                     platform: normalizePlatform(parsed.data.platform),
                 })
             } catch (err) {
-                if (cancelled) {
-                    return
-                }
-
-                if (err instanceof UnifiedParseReloadError) {
-                    return
-                }
+                if (cancelled) return
+                if (err instanceof UnifiedParseReloadError) return
 
                 if (isApiRequestError(err)) {
                     console.error('Shared playback parse failed', {
@@ -75,14 +65,11 @@ export function PlayPageClient() {
 
                 setError(resolveApiErrorMessage(err, dict))
             } finally {
-                if (!cancelled) {
-                    setLoading(false)
-                }
+                if (!cancelled) setLoading(false)
             }
         }
 
         void loadSharedResult()
-
         return () => {
             cancelled = true
         }
@@ -99,121 +86,114 @@ export function PlayPageClient() {
           })
         : null, [autoplay, requestedItem, requestedMediaType, visibleParseResult])
     const hlsPlaybackUrl = useMemo(() => {
-        if (selectedPreview?.mediaType !== 'video' || selectedPreview.item) {
-            return null
-        }
+        if (selectedPreview?.mediaType !== 'video' || selectedPreview.item) return null
 
         const originPlaylistUrl = visibleParseResult?.originDownloadVideoUrl?.trim()
         const workerPlaylistUrl = visibleParseResult?.downloadVideoUrl?.trim()
         const isHlsVideo = visibleParseResult?.mediaActions?.video === 'browser-hls-download'
             || isHlsPlaylistUrl(originPlaylistUrl)
-        if (!workerPlaylistUrl || !isHlsVideo) {
-            return null
-        }
-
+        if (!workerPlaylistUrl || !isHlsVideo) return null
         return workerPlaylistUrl
     }, [selectedPreview, visibleParseResult])
     const playbackUrl = useMemo(() => {
-        if (hlsPlaybackUrl) {
-            return hlsPlaybackUrl
-        }
-
-        if (!selectedPreview) {
-            return null
-        }
-
+        if (hlsPlaybackUrl) return hlsPlaybackUrl
+        if (!selectedPreview) return null
         return buildMediaPreviewUrl(selectedPreview)
     }, [hlsPlaybackUrl, selectedPreview])
 
     const canPlay = Boolean(selectedPreview)
     const displayTitle = selectedPreview?.title || visibleParseResult?.title || ''
+    const showPlayerSurface = loading || Boolean(visibleParseResult)
 
     return (
-        <div className="min-h-screen flex flex-col bg-background">
-            <div className=" flex-1 sm:p-4 md:p-4 pt-2 ">
-                <section className="w-full max-w-7xl mx-auto  bg-black">
-                    {loading ? (
-                        <div className="aspect-video max-h-[74dvh] md:max-h-[72vh] lg:max-h-[68vh] flex items-center justify-center text-sm text-muted-foreground">
-                            <div className="flex items-center gap-2">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <span>{dict.form.downloading}</span>
-                            </div>
-                        </div>
-                    ) : (canPlay && playbackUrl) ? (
-                        selectedPreview?.mediaType === 'audio' ? (
-                            <audio
-                                src={playbackUrl}
-                                controls
-                                autoPlay={autoplay}
-                                preload="metadata"
-                                className="block w-full"
-                            />
-                        ) : hlsPlaybackUrl ? (
-                            <HlsVideoPlayer
-                                src={playbackUrl}
-                                controls
-                                autoPlay={autoplay}
-                                playsInline
-                                preload="metadata"
-                                className="block w-full min-h-[320px] max-h-[74dvh] md:max-h-[72vh] lg:max-h-[68vh] bg-black"
-                            />
-                        ) : (
-                            <video
-                                src={playbackUrl}
-                                controls
-                                autoPlay={autoplay}
-                                playsInline
-                                preload="metadata"
-                                className="block w-full min-h-[320px] max-h-[74dvh] md:max-h-[72vh] lg:max-h-[68vh] bg-black"
-                            />
-                        )
-                    ) : visibleParseResult ? (
-                        <div className="aspect-video max-h-[74dvh] md:max-h-[72vh] lg:max-h-[68vh] flex items-center justify-center px-4 text-sm text-muted-foreground bg-black">
-                            {dict.result.sharePlayUnavailable}
-                        </div>
+        <main id="main-content" className="flex min-h-screen flex-col bg-background">
+            <div className="flex-1 px-0 pb-5 pt-2 sm:px-4 sm:pt-4 md:px-5">
+                <div className="mx-auto w-full max-w-7xl">
+                    {showPlayerSurface ? (
+                        <section className="overflow-hidden bg-black sm:rounded-md sm:border">
+                            {loading ? (
+                                <div className="flex aspect-video max-h-[74dvh] items-center justify-center text-sm text-white/65 md:max-h-[72vh] lg:max-h-[68vh]">
+                                    <div className="flex items-center gap-2">
+                                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                        <span>{dict.form.downloading}</span>
+                                    </div>
+                                </div>
+                            ) : (canPlay && playbackUrl) ? (
+                                selectedPreview?.mediaType === 'audio' ? (
+                                    <div className="flex min-h-28 items-center px-3 sm:px-5">
+                                        <audio
+                                            src={playbackUrl}
+                                            controls
+                                            autoPlay={autoplay}
+                                            preload="metadata"
+                                            className="block w-full"
+                                        />
+                                    </div>
+                                ) : hlsPlaybackUrl ? (
+                                    <HlsVideoPlayer
+                                        src={playbackUrl}
+                                        controls
+                                        autoPlay={autoplay}
+                                        playsInline
+                                        preload="metadata"
+                                        className="block min-h-[320px] w-full max-h-[74dvh] bg-black md:max-h-[72vh] lg:max-h-[68vh]"
+                                    />
+                                ) : (
+                                    <video
+                                        src={playbackUrl}
+                                        controls
+                                        autoPlay={autoplay}
+                                        playsInline
+                                        preload="metadata"
+                                        className="block min-h-[320px] w-full max-h-[74dvh] bg-black md:max-h-[72vh] lg:max-h-[68vh]"
+                                    />
+                                )
+                            ) : (
+                                <div className="flex aspect-video max-h-[74dvh] items-center justify-center bg-black px-5 text-center text-sm leading-6 text-white/65 md:max-h-[72vh] lg:max-h-[68vh]">
+                                    {dict.result.sharePlayUnavailable}
+                                </div>
+                            )}
+                        </section>
                     ) : null}
-                </section>
 
-                <section className="w-full">
-                    <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-5 py-3 space-y-3">
-                        {!loading && displayError && (
-                            <Card>
-                                <CardContent className="p-6 space-y-4">
-                                    <p className="text-sm text-destructive">{displayError}</p>
-                                    <Button asChild size="sm" variant="outline">
-                                        <Link href={`/${locale}`}>{dict.common.home}</Link>
-                                    </Button>
-                                </CardContent>
-                            </Card>
-                        )}
+                    <section className="px-3 py-3 sm:px-0 sm:py-4">
+                        {!loading && displayError ? (
+                            <div className="border-y py-4 sm:rounded-md sm:border sm:px-4">
+                                <p role="alert" className="text-sm leading-6 text-destructive">{displayError}</p>
+                                <Button asChild size="sm" variant="outline" className="mt-3">
+                                    <Link href={`/${locale}`}>{dict.common.home}</Link>
+                                </Button>
+                            </div>
+                        ) : null}
 
-                        {!loading && !displayError && visibleParseResult && (
-                            <div className="w-full space-y-1.5">
-                                <h2 className="text-base sm:text-lg leading-snug font-semibold wrap-break-word" title={displayTitle}>{displayTitle}</h2>
-                                <div className="flex flex-wrap items-center gap-2 text-[11px] sm:text-xs text-muted-foreground">
+                        {!loading && !displayError && visibleParseResult ? (
+                            <div className="min-w-0 border-b pb-3">
+                                <h1 className="max-w-4xl text-pretty text-base font-semibold leading-6 tracking-[-0.015em] sm:text-lg" title={displayTitle}>
+                                    {displayTitle}
+                                </h1>
+                                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                     <PlatformBadge platform={visibleParseResult.platform} />
                                     {canonicalSourceUrl ? (
-                                        <a
-                                            href={canonicalSourceUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-1 underline"
-                                        >
-                                            <ExternalLink className="h-3.5 w-3.5" />
-                                            <span>{dict.history.viewSource}</span>
-                                        </a>
+                                        <Button asChild size="xs" variant="ghost" className="text-muted-foreground">
+                                            <a href={canonicalSourceUrl} target="_blank" rel="noopener noreferrer">
+                                                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                                                <span>{dict.history.viewSource}</span>
+                                            </a>
+                                        </Button>
                                     ) : null}
                                 </div>
-
-                                <div className="pt-2">
-                                    <ViewportSideRailAd slot="5740014745" showOn="mobile"  />
-                                    <ViewportSideRailAd slot="6380909506" showOn="desktop" />
-                                </div>
                             </div>
-                        )}
-                    </div>
-                </section>
+                        ) : null}
+
+                        {!loading && !displayError && visibleParseResult ? (
+                            <div className="pt-3">
+                                <ViewportSideRailAd slot="5740014745" showOn="mobile" />
+                                <ViewportSideRailAd slot="6380909506" showOn="desktop" />
+                            </div>
+                        ) : null}
+                    </section>
+                </div>
             </div>
-        </div>
+        </main>
     )
 }

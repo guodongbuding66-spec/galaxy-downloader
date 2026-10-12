@@ -322,7 +322,7 @@ export function VideoResultPanel({
                     <Button
                         variant={activeBiliList === 'pages' ? 'secondary' : 'ghost'}
                         size="sm"
-                        className="h-7 rounded text-[11px]"
+                        className="rounded"
                         aria-pressed={activeBiliList === 'pages'}
                         onClick={() => setActiveBiliList('pages')}
                     >
@@ -331,7 +331,7 @@ export function VideoResultPanel({
                     <Button
                         variant={activeBiliList === 'season' ? 'secondary' : 'ghost'}
                         size="sm"
-                        className="h-7 rounded text-[11px]"
+                        className="rounded"
                         aria-pressed={activeBiliList === 'season'}
                         onClick={() => setActiveBiliList('season')}
                     >

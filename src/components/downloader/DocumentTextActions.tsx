@@ -100,7 +100,7 @@ export function DocumentTextActions({
                 <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <button
                     type="button"
-                    className="min-w-0 flex-1 text-left text-xs font-medium"
+                    className="ui-target min-h-8 min-w-0 flex-1 text-left text-xs font-medium"
                     onClick={() => setExpanded((value) => !value)}
                     aria-expanded={expanded}
                 >

@@ -34,7 +34,7 @@ export function MultiPartList({
 
     return (
         <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
+            <div className="text-xs font-medium text-muted-foreground">
                 {replaceTemplate(dict.result.totalParts, '{count}', String(pages.length))}
             </div>
             <div className="max-h-[min(56vh,26rem)] overflow-y-auto overscroll-contain border-y md:max-h-[min(60vh,32rem)]">
@@ -55,14 +55,14 @@ export function MultiPartList({
                                 style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 48px' }}
                             >
                                 <div className="flex min-w-0 items-center gap-2">
-                                    <span className={`w-8 shrink-0 text-[11px] tabular-nums ${isCurrentPage ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                    <span className={`w-8 shrink-0 text-xs tabular-nums ${isCurrentPage ? 'text-foreground' : 'text-muted-foreground'}`}>
                                         P{page.page}
                                     </span>
                                     <span className="min-w-0 flex-1 truncate text-xs" title={displayTitle}>
                                         {displayTitle}
                                     </span>
                                     {page.duration != null && (
-                                        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                                             {formatDuration(page.duration)}
                                         </span>
                                     )}

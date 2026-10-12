@@ -4,7 +4,7 @@ import tkinter as tk
 import webbrowser
 from tkinter import ttk
 
-from desktop_design_tokens import LAYOUT, TYPE, font
+from desktop_design_tokens import COLOR, LAYOUT, TYPE, font
 from desktop_hooks import run_after_build_ui_hooks
 from media_policy import aria2c_available
 
@@ -91,7 +91,7 @@ def _configure_styles(window) -> None:
         bordercolor=ui.BORDER,
         lightcolor=ui.BORDER,
         darkcolor=ui.BORDER,
-        padding=(10, 9),
+        padding=(LAYOUT["content"], LAYOUT["inline"]),
         font=font("body_sm"),
     )
     style.map(
@@ -175,10 +175,10 @@ def _build_quick_panel_v17(window, engine_module) -> None:
         fg=ui.TEXT,
         insertbackground=ui.TEXT,
         selectbackground=ui.ACCENT,
-        selectforeground="#FFFFFF",
+        selectforeground=COLOR["on_accent"],
         relief="flat",
         bd=0,
-        highlightthickness=2,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER,
         highlightcolor=ui.FOCUS,
     )
@@ -300,7 +300,7 @@ def install_native_desktop_v17(engine_module, ui_module):
         window.configure(bg=ui.BG)
         window.geometry("1320x880")
         window.minsize(1100, 760)
-        window.option_add("*Font", "{Segoe UI} 11")
+        window.option_add("*Font", f"{{{TYPE['family']}}} {TYPE['body']}")
         # Keep the platform's DPI-derived Tk scaling. V1.6 forced 1.0, which
         # made the native UI physically too small on common 125–200% displays.
 
@@ -415,7 +415,7 @@ def install_native_desktop_v17(engine_module, ui_module):
             activeforeground=ui.ACCENT_HOVER,
             relief="flat",
             bd=0,
-            highlightthickness=2,
+            highlightthickness=ui.FOCUS_RING_WIDTH,
             highlightbackground=ui.PANEL,
             highlightcolor=ui.FOCUS,
             cursor="hand2",

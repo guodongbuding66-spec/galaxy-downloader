@@ -19,7 +19,7 @@ body {
 @layer base {
   :root {
     color-scheme: light;
-    --background: 220 9% 98%;
+    --background: 220 10% 98%;
     --foreground: 220 14% 12%;
     --card: 0 0% 100%;
     --card-foreground: 220 14% 12%;
@@ -27,34 +27,40 @@ body {
     --popover-foreground: 220 14% 12%;
     --primary: 220 14% 12%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 6% 95%;
+    --secondary: 220 8% 95%;
     --secondary-foreground: 220 12% 16%;
-    --muted: 220 6% 96%;
-    --muted-foreground: 220 7% 44%;
-    --accent: 220 7% 94%;
+    --muted: 220 8% 96%;
+    --muted-foreground: 220 7% 42%;
+    --accent: 220 9% 93%;
     --accent-foreground: 220 14% 14%;
     --destructive: 2 66% 47%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 7% 87%;
-    --input: 220 7% 83%;
-    --ring: 220 12% 28%;
+    --border: 220 8% 86%;
+    --input: 220 8% 82%;
+    --ring: 215 62% 45%;
     --success: 158 48% 33%;
     --warning: 36 80% 42%;
     --info: 210 54% 40%;
+    --brand: 215 62% 45%;
+    --brand-foreground: 0 0% 100%;
     --surface-raised: 0 0% 100%;
-    --surface-subtle: 220 7% 97%;
+    --surface-subtle: 220 8% 97%;
+    --surface-hover: 220 9% 94%;
+    --surface-active: 220 9% 91%;
     --shadow-color: 220 16% 10%;
     --chart-1: 220 14% 20%;
     --chart-2: 158 48% 33%;
     --chart-3: 210 54% 40%;
     --chart-4: 36 80% 42%;
     --chart-5: 12 60% 49%;
-    --radius: 0.5rem;
+    --radius: 0.625rem;
+    --content-max: 88rem;
+    --control-target: 2.75rem;
   }
 
   .dark {
     color-scheme: dark;
-    --background: 220 10% 8%;
+    --background: 220 10% 7%;
     --foreground: 220 7% 94%;
     --card: 220 9% 10%;
     --card-foreground: 220 7% 94%;
@@ -65,19 +71,23 @@ body {
     --secondary: 220 8% 15%;
     --secondary-foreground: 220 7% 92%;
     --muted: 220 8% 14%;
-    --muted-foreground: 220 6% 66%;
+    --muted-foreground: 220 6% 67%;
     --accent: 220 8% 17%;
     --accent-foreground: 220 7% 92%;
     --destructive: 2 61% 54%;
     --destructive-foreground: 0 0% 100%;
     --border: 220 7% 23%;
-    --input: 220 7% 27%;
-    --ring: 220 7% 72%;
+    --input: 220 7% 28%;
+    --ring: 213 72% 67%;
     --success: 158 46% 45%;
     --warning: 40 80% 56%;
     --info: 210 55% 59%;
+    --brand: 213 72% 62%;
+    --brand-foreground: 220 16% 8%;
     --surface-raised: 220 9% 11%;
     --surface-subtle: 220 8% 13%;
+    --surface-hover: 220 8% 17%;
+    --surface-active: 220 8% 20%;
     --shadow-color: 220 30% 2%;
     --chart-1: 220 7% 86%;
     --chart-2: 158 46% 45%;
@@ -102,22 +112,39 @@ body {
   }
 
   ::selection {
-    background: hsl(var(--foreground) / 0.1);
+    background: hsl(var(--brand) / 0.14);
     color: hsl(var(--foreground));
   }
 }
 
 @layer utilities {
+  .galaxy-container {
+    width: min(100% - 2rem, var(--content-max));
+    margin-inline: auto;
+  }
+
+  .ui-panel {
+    border: 1px solid hsl(var(--border) / 0.82);
+    border-radius: calc(var(--radius) + 0.125rem);
+    background: hsl(var(--card));
+  }
+
+  .ui-panel-subtle {
+    border: 1px solid hsl(var(--border) / 0.7);
+    border-radius: var(--radius);
+    background: hsl(var(--surface-subtle));
+  }
+
   .workbench-shadow {
     box-shadow:
       0 1px 2px hsl(var(--shadow-color) / 0.035),
-      0 6px 18px hsl(var(--shadow-color) / 0.035);
+      0 8px 24px hsl(var(--shadow-color) / 0.045);
   }
 
   .dark .workbench-shadow {
     box-shadow:
-      0 1px 2px hsl(var(--shadow-color) / 0.22),
-      0 8px 22px hsl(var(--shadow-color) / 0.16);
+      0 1px 2px hsl(var(--shadow-color) / 0.24),
+      0 10px 28px hsl(var(--shadow-color) / 0.18);
   }
 
   .surface-raised {
@@ -128,19 +155,41 @@ body {
     background-color: hsl(var(--surface-subtle));
   }
 
+  .ui-target {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   .ui-pressable {
-    transform: scale(1);
+    transform: translateY(0) scale(1);
     transform-origin: center;
     transition:
       transform 120ms cubic-bezier(0.2, 0, 0, 1),
       background-color 120ms cubic-bezier(0.2, 0, 0, 1),
       border-color 120ms cubic-bezier(0.2, 0, 0, 1),
+      box-shadow 120ms cubic-bezier(0.2, 0, 0, 1),
       color 120ms cubic-bezier(0.2, 0, 0, 1),
       opacity 120ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   .ui-pressable:not(:disabled):active {
-    transform: scale(0.96);
+    transform: translateY(1px) scale(0.985);
+  }
+
+  .ui-field {
+    transition:
+      border-color 140ms cubic-bezier(0.2, 0, 0, 1),
+      background-color 140ms cubic-bezier(0.2, 0, 0, 1),
+      box-shadow 140ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .ui-field:hover:not(:disabled) {
+    border-color: hsl(var(--foreground) / 0.22);
+  }
+
+  .ui-field:focus-visible {
+    border-color: hsl(var(--ring) / 0.7);
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
   }
 
   .text-balance {
@@ -149,6 +198,19 @@ body {
 
   .text-pretty {
     text-wrap: pretty;
+  }
+}
+
+@media (pointer: coarse) {
+  .ui-target {
+    min-width: var(--control-target);
+    min-height: var(--control-target);
+  }
+}
+
+@media (max-width: 640px) {
+  .galaxy-container {
+    width: min(100% - 1.25rem, var(--content-max));
   }
 }
 

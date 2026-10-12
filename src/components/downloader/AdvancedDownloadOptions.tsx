@@ -190,13 +190,13 @@ function CompactToggle({
     onChange: (value: boolean) => void;
 }) {
     return (
-        <label className={`inline-flex min-h-8 items-center gap-2 text-xs ${disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer text-muted-foreground hover:text-foreground'}`}>
+        <label className={`ui-target inline-flex min-h-10 items-center gap-2 text-xs ${disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer text-muted-foreground hover:text-foreground'}`}>
             <input
                 type="checkbox"
                 checked={checked}
                 disabled={disabled}
                 onChange={(event) => onChange(event.target.checked)}
-                className="h-3.5 w-3.5 accent-foreground"
+                className="h-4 w-4 accent-foreground"
             />
             <span>{label}</span>
         </label>
@@ -333,27 +333,27 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
             <div className="flex items-baseline justify-between gap-3">
                 <div className="min-w-0">
                     <h3 className="text-sm font-medium">{copy.title}</h3>
-                    <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{copy.intro}</p>
+                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{copy.intro}</p>
                 </div>
-                <span className="hidden max-w-[55%] truncate text-right text-[10px] text-muted-foreground xl:block" title={planSummary}>
+                <span className="hidden max-w-[55%] truncate text-right text-xs text-muted-foreground xl:block" title={planSummary}>
                     {planSummary}
                 </span>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">
-                <label className="space-y-1.5 text-[11px] font-medium text-muted-foreground">
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
                     <span>{copy.videoQuality}</span>
                     <Select value={videoQuality} onValueChange={setVideoQuality} disabled={running}>
-                        <SelectTrigger className="h-8 bg-background text-xs"><SelectValue placeholder={copy.best} /></SelectTrigger>
+                        <SelectTrigger className="bg-background text-xs"><SelectValue placeholder={copy.best} /></SelectTrigger>
                         <SelectContent>
                             {qualityOptions.map((option) => <SelectItem key={option.quality} value={option.quality}>{qualityLabel(option)}</SelectItem>)}
                         </SelectContent>
                     </Select>
                 </label>
-                <label className="space-y-1.5 text-[11px] font-medium text-muted-foreground">
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
                     <span>{copy.audioQuality}</span>
                     <Select value={audioQuality} onValueChange={setAudioQuality} disabled={running || !includeAudio}>
-                        <SelectTrigger className="h-8 bg-background text-xs"><SelectValue placeholder={copy.best} /></SelectTrigger>
+                        <SelectTrigger className="bg-background text-xs"><SelectValue placeholder={copy.best} /></SelectTrigger>
                         <SelectContent>
                             {AUDIO_QUALITY_PRESETS.map((option) => <SelectItem key={option.quality} value={option.quality}>{option.label}</SelectItem>)}
                         </SelectContent>
@@ -368,10 +368,10 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
             </div>
 
             {includeSubtitle && subtitles.length > 0 ? (
-                <label className="block space-y-1.5 text-[11px] font-medium text-muted-foreground">
+                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
                     <span>{copy.subtitleTrack}</span>
                     <Select value={effectiveSubtitleId} onValueChange={setSubtitleId} disabled={running}>
-                        <SelectTrigger className="h-8 min-w-0 bg-background text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="min-w-0 bg-background text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
                             {subtitles.map((track, index) => (
                                 <SelectItem key={subtitleKey(track, index)} value={subtitleKey(track, index)}>
@@ -395,7 +395,7 @@ export function AdvancedDownloadOptions({ result }: { result: ResultData }) {
                         <span className="tabular-nums text-muted-foreground">{Math.round(progress.progress)}%</span>
                     </div>
                     <Progress value={progress.progress} className="h-1" />
-                    {progress.loaded && progress.total ? <div className="text-[10px] tabular-nums text-muted-foreground">{formatBytes(progress.loaded)} / {formatBytes(progress.total)}</div> : null}
+                    {progress.loaded && progress.total ? <div className="text-xs tabular-nums text-muted-foreground">{formatBytes(progress.loaded)} / {formatBytes(progress.total)}</div> : null}
                 </div>
             ) : null}
 

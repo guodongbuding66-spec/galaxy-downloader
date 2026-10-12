@@ -88,7 +88,7 @@ export function EmbeddedVideoList({
     return (
         <div className="space-y-1.5">
             <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground">
+                <span className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
                     {dict.result.videoList}
                     <span className="ms-1.5 tabular-nums">
                         {replaceTemplate(dict.result.videoCount, '{count}', String(filteredVideos.length))}
@@ -102,7 +102,7 @@ export function EmbeddedVideoList({
                     }}
                     placeholder={dict.result.collectionSearchPlaceholder}
                     aria-label={dict.result.collectionSearchPlaceholder}
-                    className="h-8 w-40 rounded-md text-xs sm:w-48"
+                    className="w-40 rounded-md text-xs sm:w-48"
                 />
             </div>
             <div
@@ -139,14 +139,14 @@ export function EmbeddedVideoList({
                                 style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 48px' }}
                             >
                                 <div className="flex min-w-0 items-center gap-2">
-                                    <span className={`w-7 shrink-0 text-[11px] tabular-nums ${isCurrentItem ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                    <span className={`w-7 shrink-0 text-xs tabular-nums ${isCurrentItem ? 'text-foreground' : 'text-muted-foreground'}`}>
                                         {originalIndex + 1}
                                     </span>
                                     <span className="min-w-0 flex-1 truncate text-xs" title={displayTitle}>
                                         {displayTitle}
                                     </span>
                                     {video.duration != null && (
-                                        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                                             {formatDuration(video.duration)}
                                         </span>
                                     )}

@@ -1,5 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Heart, Check, Info } from 'lucide-react';
+import { Check, Heart, Info } from 'lucide-react';
 import type { Dictionary } from '@/lib/i18n/types';
 
 interface FreeSupportCardProps {
@@ -7,40 +6,35 @@ interface FreeSupportCardProps {
 }
 
 export function FreeSupportCard({ dict }: FreeSupportCardProps) {
-    return (
-        <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                    <Heart className="h-5 w-5 text-primary" />
-                    {dict.freeSupport.title}
-                </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <Check className="h-4 w-4 text-green-500" />
-                        <span className="text-sm">{dict.freeSupport.features.freeToUse}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Check className="h-4 w-4 text-green-500" />
-                        <span className="text-sm">{dict.freeSupport.features.noRegistration}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Check className="h-4 w-4 text-green-500" />
-                        <span className="text-sm">{dict.freeSupport.features.unlimitedDownloads}</span>
-                    </div>
-                </div>
+    const features = [
+        dict.freeSupport.features.freeToUse,
+        dict.freeSupport.features.noRegistration,
+        dict.freeSupport.features.unlimitedDownloads,
+    ];
 
-                <div className="pt-2 border-t">
-                    <div className="flex items-start gap-2">
-                        <Info className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                        <div className="text-sm text-foreground/75">
-                            <p>{dict.freeSupport.revenue.adsSupport}</p>
-                            <p>{dict.freeSupport.revenue.serverCosts}</p>
-                        </div>
-                    </div>
+    return (
+        <section className="min-w-0 border-t pt-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+                <Heart className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                <h2>{dict.freeSupport.title}</h2>
+            </div>
+
+            <ul className="mt-2 divide-y">
+                {features.map((feature) => (
+                    <li key={feature} className="flex min-h-9 items-start gap-2.5 py-2 text-xs leading-5">
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--success))]" aria-hidden="true" />
+                        <span>{feature}</span>
+                    </li>
+                ))}
+            </ul>
+
+            <div className="mt-1 flex items-start gap-2.5 border-t pt-2.5 text-xs leading-5 text-muted-foreground">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--info))]" aria-hidden="true" />
+                <div className="min-w-0 space-y-0.5">
+                    <p>{dict.freeSupport.revenue.adsSupport}</p>
+                    <p>{dict.freeSupport.revenue.serverCosts}</p>
                 </div>
-            </CardContent>
-        </Card>
+            </div>
+        </section>
     );
-} 
+}

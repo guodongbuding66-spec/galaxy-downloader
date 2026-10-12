@@ -120,7 +120,7 @@ export function LanguageSwitcher({
                                 role="menuitemradio"
                                 aria-checked={selected}
                                 onClick={() => handleLanguageChange(locale)}
-                                className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-start text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                className="ui-target flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-start text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
                                 <span>{getLocaleLabel(locale)}</span>
                                 {selected && (

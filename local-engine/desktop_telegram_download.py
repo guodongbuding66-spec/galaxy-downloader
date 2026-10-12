@@ -91,9 +91,10 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         fg=ui.TEXT,
         insertbackground=ui.TEXT,
         relief="flat",
-        highlightthickness=1,
+        takefocus=True,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER,
-        highlightcolor=ui.ACCENT,
+        highlightcolor=ui.FOCUS,
         font=font("body_sm"),
     )
     source_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
@@ -112,9 +113,10 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         buttonbackground=ui.PANEL_3,
         insertbackground=ui.TEXT,
         relief="flat",
-        highlightthickness=1,
+        takefocus=True,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER,
-        highlightcolor=ui.ACCENT,
+        highlightcolor=ui.FOCUS,
         font=font("body_sm"),
     )
     limit_spin.pack(pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=5)
@@ -140,9 +142,10 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         fg=ui.TEXT,
         insertbackground=ui.TEXT,
         relief="flat",
-        highlightthickness=1,
+        takefocus=True,
+        highlightthickness=ui.FOCUS_RING_WIDTH,
         highlightbackground=ui.BORDER,
-        highlightcolor=ui.ACCENT,
+        highlightcolor=ui.FOCUS,
         font=font("body_sm"),
     )
     chat_query_entry.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=6)
@@ -159,7 +162,15 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
     chat_choice_field = tk.Frame(chat_row, bg=ui.PANEL_2)
     chat_choice_field.pack(side="left", fill="x", expand=True, padx=(LAYOUT["content"], LAYOUT["none"]))
     ui._label(chat_choice_field, "Chat", size=7, color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
-    chat_combo = ttk.Combobox(chat_choice_field, textvariable=chat_choice_var, state="readonly", width=32)
+    chat_combo = ttk.Combobox(
+        chat_choice_field,
+        textvariable=chat_choice_var,
+        state="readonly",
+        width=32,
+        style="Galaxy.TCombobox",
+        font=font("body_sm"),
+        takefocus=True,
+    )
     chat_combo.pack(fill="x", pady=(LAYOUT["micro"], LAYOUT["none"]), ipady=4)
 
     browse_chat_button = ui.ActionButton(
@@ -191,9 +202,9 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
             font=font("body_sm"),
             bd=0,
             relief="flat",
-            highlightthickness=1,
+            highlightthickness=ui.FOCUS_RING_WIDTH,
             highlightbackground=ui.BORDER_SOFT,
-            highlightcolor=ui.ACCENT,
+            highlightcolor=ui.FOCUS,
             cursor="hand2",
         )
         control.pack(side="left", padx=(LAYOUT["inline"], LAYOUT["none"]))
@@ -243,6 +254,7 @@ def build_telegram_download_tab(notebook: ttk.Notebook, dialog: tk.Misc, engine_
         selectmode="extended",
         style="GalaxyTelegram.Treeview",
         height=10,
+        takefocus=True,
     )
     headings = {
         "id": ("ID", 68, "center"),

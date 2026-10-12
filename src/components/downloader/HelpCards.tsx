@@ -53,7 +53,7 @@ export function HelpCards({ dict }: HelpCardsProps) {
                                 <span className="text-primary text-xs">🎵</span>
                                 {dict.guide.platformSupport.audioTip.title}
                             </p>
-                            <div className="text-[10px] leading-relaxed text-muted-foreground space-y-1">
+                            <div className="text-xs leading-relaxed text-muted-foreground space-y-1">
                                 <p>{dict.guide.platformSupport.audioTip.steps}</p>
                                 <p>{dict.guide.platformSupport.audioTip.warning}</p>
                             </div>

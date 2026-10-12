@@ -32,6 +32,7 @@ from desktop_design_tokens import (
     font,
     target_padding,
 )
+from desktop_hooks import register_queue_row_hook
 
 _RUNTIME_ALIASES = {
     "BG": BG,
@@ -164,6 +165,36 @@ def _check(master, text: str, variable: tk.BooleanVar) -> tk.Checkbutton:
     return widget
 
 
+def _style_queue_cancel_button(window, row, _queued, _index, _pending) -> None:
+    button_font = font("body_sm", bold=True)
+    pad_y = getattr(window, "_galaxy_queue_cancel_pad_y", None)
+    if pad_y is None:
+        try:
+            line_height = int(tkfont.Font(master=row, font=button_font).metrics("linespace"))
+        except (tk.TclError, RuntimeError):
+            line_height = max(1, int(TYPE["body_sm"]) * 2)
+        pad_y = target_padding(line_height, compact=True)
+        window._galaxy_queue_cancel_pad_y = pad_y
+
+    for child in row.winfo_children():
+        if not isinstance(child, tk.Button):
+            continue
+        try:
+            if str(child.cget("text")) != "×":
+                continue
+            child.configure(
+                font=button_font,
+                takefocus=True,
+                highlightthickness=FOCUS_RING_WIDTH,
+                highlightbackground=PANEL_2,
+                highlightcolor=FOCUS,
+                padx=BUTTON_COMPACT_PAD_X,
+                pady=pad_y,
+            )
+        except tk.TclError:
+            continue
+
+
 _ORIGINAL_LABEL = _impl._label
 _ORIGINAL_ENTRY = _impl._entry
 _ORIGINAL_CHECK = _impl._check
@@ -179,6 +210,12 @@ _BASE_INSTALL_DESKTOP_UI = _impl.install_desktop_ui
 
 def install_desktop_ui(engine_module):
     window_cls = _BASE_INSTALL_DESKTOP_UI(engine_module)
+    register_queue_row_hook(
+        window_cls,
+        "desktop-token-queue-actions",
+        _style_queue_cancel_button,
+        order=900,
+    )
     from desktop_native_v17 import install_native_desktop_v17
     return install_native_desktop_v17(engine_module, sys.modules[__name__])
 
@@ -216,6 +253,7 @@ def run_self_test() -> None:
     assert _resolve_type_size("title") == TYPE["title"]
     assert _resolve_type_size(9) == TYPE["body"]
     assert target_padding(16) >= BUTTON_PAD_Y
+    assert callable(_style_queue_cancel_button)
     assert callable(install_desktop_ui)
 
 

@@ -112,9 +112,9 @@ export function HlsDownloadDialog({
                         <AlertDialogDescription className="leading-6">{dict.hlsDownload.confirmCloseDescription}</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel className="min-h-10">{dict.errors.cancel}</AlertDialogCancel>
+                        <AlertDialogCancel>{dict.errors.cancel}</AlertDialogCancel>
                         <AlertDialogAction
-                            className="min-h-10 transition-[transform,background-color] duration-150 active:scale-[0.98]"
+                            className="transition-[transform,background-color] duration-150 active:scale-[0.98]"
                             onClick={handleConfirmClose}
                         >
                             {dict.hlsDownload.confirmCloseAction}
