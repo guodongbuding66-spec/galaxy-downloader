@@ -6,15 +6,17 @@ import { usePathname } from 'next/navigation'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { LOCAL_ENGINE_RELEASE_URL } from '@/lib/local-engine'
+import { LOCAL_ENGINE_RELEASE_URL, LOCAL_ENGINE_REQUIRED_VERSION } from '@/lib/local-engine'
 import { getLocalEngineBridgeStatus } from '@/lib/local-engine-bridge'
+import { probeLocalEngineVersion } from '@/lib/local-engine-version-probe'
 import { getLocalImageEngineVersion } from '@/lib/local-image-engine'
 
-type Status = 'checking' | 'ready' | 'upgrade' | 'offline'
+type Status = 'checking' | 'ready' | 'upgrade' | 'repair' | 'offline'
 
 type Copy = {
   ready: string
   upgrade: string
+  repair: string
   offline: string
   download: string
   open: string
@@ -24,7 +26,8 @@ type Copy = {
 const COPY: Record<string, Copy> = {
   zh: {
     ready: '本地引擎已连接 · 原图、大文件和批量打包优先在本机完成',
-    upgrade: '本地引擎需要升级到 0.7.0+，才能启用原图和批量本机下载',
+    upgrade: '检测到旧版本地引擎（当前 v{current}），请升级到 v{required}+',
+    repair: '本地引擎已连接，但图片下载服务未就绪；请重新安装最新版或重启引擎',
     offline: '首次使用请先下载并打开本地引擎，再粘贴链接解析',
     download: '下载引擎',
     open: '打开引擎',
@@ -32,7 +35,8 @@ const COPY: Record<string, Copy> = {
   },
   'zh-tw': {
     ready: '本機引擎已連線 · 原圖、大檔案與批次打包優先在本機完成',
-    upgrade: '本機引擎需升級至 0.7.0+，才能啟用原圖與批次本機下載',
+    upgrade: '偵測到舊版本機引擎（目前 v{current}），請升級至 v{required}+',
+    repair: '本機引擎已連線，但圖片下載服務尚未就緒；請重新安裝最新版或重新啟動引擎',
     offline: '首次使用請先下載並開啟本機引擎，再貼上連結解析',
     download: '下載引擎',
     open: '開啟引擎',
@@ -40,7 +44,8 @@ const COPY: Record<string, Copy> = {
   },
   en: {
     ready: 'Local Engine connected · originals, large files and batch archives stay on this device',
-    upgrade: 'Upgrade Local Engine to 0.7.0+ for direct original-image and batch downloads',
+    upgrade: 'An older Local Engine is installed (v{current}); upgrade to v{required}+',
+    repair: 'Local Engine is connected, but the image download service is not ready. Reinstall the latest version or restart the engine.',
     offline: 'First use: download and open Local Engine before pasting a link',
     download: 'Download engine',
     open: 'Open engine',
@@ -48,7 +53,8 @@ const COPY: Record<string, Copy> = {
   },
   ja: {
     ready: 'Local Engine 接続済み · 原画像・大容量・一括保存はこのPCで処理します',
-    upgrade: '原画像と一括ローカル保存には Local Engine 0.7.0+ が必要です',
+    upgrade: '古い Local Engine（v{current}）を検出しました。v{required}+ に更新してください',
+    repair: 'Local Engine は接続済みですが、画像ダウンロードサービスが準備できていません。最新版を再インストールするか再起動してください。',
     offline: '初回は Local Engine をダウンロードして起動してからリンクを貼り付けてください',
     download: 'エンジンを取得',
     open: 'エンジンを開く',
@@ -56,7 +62,8 @@ const COPY: Record<string, Copy> = {
   },
   es: {
     ready: 'Local Engine conectado · originales, archivos grandes y lotes se procesan en este equipo',
-    upgrade: 'Actualiza Local Engine a 0.7.0+ para originales y descargas por lotes locales',
+    upgrade: 'Se detectó una versión antigua de Local Engine (v{current}); actualiza a v{required}+',
+    repair: 'Local Engine está conectado, pero el servicio de imágenes no está listo. Reinstala la versión más reciente o reinicia el motor.',
     offline: 'Primer uso: descarga y abre Local Engine antes de pegar un enlace',
     download: 'Descargar motor',
     open: 'Abrir motor',
@@ -64,7 +71,8 @@ const COPY: Record<string, Copy> = {
   },
   ru: {
     ready: 'Local Engine подключён · оригиналы, большие файлы и архивы скачиваются на этом ПК',
-    upgrade: 'Обновите Local Engine до 0.7.0+ для оригиналов и пакетной загрузки',
+    upgrade: 'Обнаружена старая версия Local Engine (v{current}); обновите до v{required}+',
+    repair: 'Local Engine подключён, но служба загрузки изображений не готова. Переустановите последнюю версию или перезапустите движок.',
     offline: 'При первом запуске скачайте и откройте Local Engine, затем вставьте ссылку',
     download: 'Скачать',
     open: 'Открыть',
@@ -76,6 +84,12 @@ function localeFromPath(pathname: string): string {
   return pathname.split('/').filter(Boolean)[0] || 'en'
 }
 
+function formatUpgradeMessage(template: string, current: string | null): string {
+  return template
+    .replace('{current}', current || '?')
+    .replace('{required}', LOCAL_ENGINE_REQUIRED_VERSION)
+}
+
 export function LocalEngineSetupHint({ className }: { className?: string }) {
   const pathname = usePathname()
   const copy = COPY[localeFromPath(pathname)] || COPY.en
@@ -85,13 +99,20 @@ export function LocalEngineSetupHint({ className }: { className?: string }) {
   const check = useCallback(async () => {
     const media = await getLocalEngineBridgeStatus()
     if (!media) {
+      const probe = await probeLocalEngineVersion()
+      if (probe && !probe.compatible) {
+        setVersion(probe.version)
+        setStatus('upgrade')
+        return
+      }
       setVersion(null)
       setStatus('offline')
       return
     }
+
     setVersion(media.version)
     const imageVersion = await getLocalImageEngineVersion()
-    setStatus(imageVersion ? 'ready' : 'upgrade')
+    setStatus(imageVersion ? 'ready' : 'repair')
   }, [])
 
   useEffect(() => {
@@ -125,7 +146,12 @@ export function LocalEngineSetupHint({ className }: { className?: string }) {
     )
   }
 
-  const message = status === 'upgrade' ? copy.upgrade : copy.offline
+  const message = status === 'upgrade'
+    ? formatUpgradeMessage(copy.upgrade, version)
+    : status === 'repair'
+      ? copy.repair
+      : copy.offline
+
   return (
     <div className={cn('flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px]', className)}>
       <span className="text-muted-foreground">{message}</span>
@@ -136,7 +162,7 @@ export function LocalEngineSetupHint({ className }: { className?: string }) {
             {copy.download}
           </a>
         </Button>
-        {status !== 'upgrade' && (
+        {status === 'offline' && (
           <Button size="xs" variant="ghost" className="h-7 px-2" type="button" onClick={launch}>
             <Play className="h-3.5 w-3.5" aria-hidden="true" />
             {copy.open}
