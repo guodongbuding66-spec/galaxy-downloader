@@ -319,7 +319,7 @@ export function BatchWorkbench({ defaultOpen = false, active = true }: { default
       </summary>
 
       <div className="border-t px-3 py-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-2 text-[11px]">
             <span className={`h-2 w-2 shrink-0 rounded-full ${bridge?.batchDownloadReady ? 'bg-emerald-600' : bridge ? 'bg-amber-500' : 'bg-muted-foreground/35'}`} aria-hidden="true" />
             <span className="truncate font-medium">{statusText}</span>
@@ -333,7 +333,7 @@ export function BatchWorkbench({ defaultOpen = false, active = true }: { default
           </Button>
         </div>
 
-        <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px]">
           <div className="relative rounded-xl border bg-background focus-within:border-foreground/40">
             <label htmlFor="batch-workbench-input" className="sr-only">{copy.inputLabel}</label>
             <Textarea
@@ -410,7 +410,7 @@ export function BatchWorkbench({ defaultOpen = false, active = true }: { default
           </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-live="polite">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-live="polite">
           <div className="border-y px-1 py-2 text-xs">
             <div className="font-medium">{copy.detected.replace('{format}', preview.resolvedFormat.toUpperCase())}</div>
             <div className="mt-0.5 text-[10px] text-muted-foreground">{fileName || copy.format}</div>
@@ -465,7 +465,7 @@ export function BatchWorkbench({ defaultOpen = false, active = true }: { default
           }}
         />
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="min-w-0 text-[10px] leading-4 text-muted-foreground">{submitCopy.hint}</p>
           <Button
             type="button"

@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: '22'
       - run: corepack enable && pnpm install --frozen-lockfile
-      - run: pnpm exec tsc --noEmit && pnpm exec vitest run
+      - run: pnpm run prepare:ffmpeg-core && pnpm exec tsc --noEmit && pnpm exec vitest run
       - run: pnpm build
       - name: Install isolated UI test dependencies
         run: |
