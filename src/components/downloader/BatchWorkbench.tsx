@@ -166,12 +166,12 @@ function submitCopyFor(pathname: string | null): SubmitCopy {
   return SUBMIT_COPY[locale] || SUBMIT_COPY.en
 }
 
-export function BatchWorkbench() {
+export function BatchWorkbench({ defaultOpen = false, active = true }: { defaultOpen?: boolean; active?: boolean } = {}) {
   const pathname = usePathname()
   const copy = copyFor(pathname)
   const submitCopy = submitCopyFor(pathname)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const [input, setInput] = useState('')
   const [format, setFormat] = useState<BatchWorkbenchFormat>('auto')
   const [fileName, setFileName] = useState('')
@@ -198,19 +198,19 @@ export function BatchWorkbench() {
   }
 
   useEffect(() => {
-    if (!open) return
-    let active = true
+    if (!open || !active) return
+    let mounted = true
     const refresh = async () => {
       const next = await getLocalEngineBridgeStatus()
-      if (active) setBridge(next)
+      if (mounted) setBridge(next)
     }
     void refresh()
     const timer = window.setInterval(() => void refresh(), 5000)
     return () => {
-      active = false
+      mounted = false
       window.clearInterval(timer)
     }
-  }, [open])
+  }, [open, active])
 
   const handlePaste = async () => {
     try {
@@ -298,7 +298,8 @@ export function BatchWorkbench() {
 
   return (
     <details
-      className="group mt-3 rounded-lg border bg-card"
+      open={open}
+      className="group rounded-xl border bg-card"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -332,8 +333,8 @@ export function BatchWorkbench() {
           </Button>
         </div>
 
-        <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="relative rounded-lg border bg-background focus-within:border-foreground/40">
+        <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="relative rounded-xl border bg-background focus-within:border-foreground/40">
             <label htmlFor="batch-workbench-input" className="sr-only">{copy.inputLabel}</label>
             <Textarea
               id="batch-workbench-input"
@@ -409,7 +410,7 @@ export function BatchWorkbench() {
           </div>
         </div>
 
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-live="polite">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-live="polite">
           <div className="border-y px-1 py-2 text-xs">
             <div className="font-medium">{copy.detected.replace('{format}', preview.resolvedFormat.toUpperCase())}</div>
             <div className="mt-0.5 text-[10px] text-muted-foreground">{fileName || copy.format}</div>
@@ -464,7 +465,7 @@ export function BatchWorkbench() {
           }}
         />
 
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="min-w-0 text-[10px] leading-4 text-muted-foreground">{submitCopy.hint}</p>
           <Button
             type="button"

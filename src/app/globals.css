@@ -25,7 +25,7 @@ body {
     --card-foreground: 220 14% 12%;
     --popover: 0 0% 100%;
     --popover-foreground: 220 14% 12%;
-    --primary: 220 14% 12%;
+    --primary: 221 78% 50%;
     --primary-foreground: 0 0% 100%;
     --secondary: 220 6% 95%;
     --secondary-foreground: 220 12% 16%;
@@ -37,7 +37,7 @@ body {
     --destructive-foreground: 0 0% 100%;
     --border: 220 7% 87%;
     --input: 220 7% 83%;
-    --ring: 220 12% 28%;
+    --ring: 221 78% 50%;
     --success: 158 48% 33%;
     --warning: 36 80% 42%;
     --info: 210 54% 40%;
@@ -54,14 +54,14 @@ body {
 
   .dark {
     color-scheme: dark;
-    --background: 220 10% 8%;
+    --background: 220 28% 8%;
     --foreground: 220 7% 94%;
-    --card: 220 9% 10%;
+    --card: 220 22% 11%;
     --card-foreground: 220 7% 94%;
-    --popover: 220 9% 10%;
+    --popover: 220 22% 11%;
     --popover-foreground: 220 7% 94%;
-    --primary: 220 7% 92%;
-    --primary-foreground: 220 14% 10%;
+    --primary: 216 91% 67%;
+    --primary-foreground: 220 35% 9%;
     --secondary: 220 8% 15%;
     --secondary-foreground: 220 7% 92%;
     --muted: 220 8% 14%;
@@ -72,7 +72,7 @@ body {
     --destructive-foreground: 0 0% 100%;
     --border: 220 7% 23%;
     --input: 220 7% 27%;
-    --ring: 220 7% 72%;
+    --ring: 216 91% 67%;
     --success: 158 46% 45%;
     --warning: 40 80% 56%;
     --info: 210 55% 59%;
@@ -132,7 +132,7 @@ body {
     transform: scale(1);
     transform-origin: center;
     transition:
-      transform 120ms cubic-bezier(0.2, 0, 0, 1),
+      transform 150ms ease-out,
       background-color 120ms cubic-bezier(0.2, 0, 0, 1),
       border-color 120ms cubic-bezier(0.2, 0, 0, 1),
       color 120ms cubic-bezier(0.2, 0, 0, 1),
@@ -172,3 +172,17 @@ body {
     transform: none !important;
   }
 }
+
+/* The workspace keeps the source, inspection and save actions in one reading column. */
+.workspace-nav { display: flex; gap: 0.25rem; overflow-x: auto; padding: 0.25rem 0; }
+.workspace-nav button { display: flex; align-items: center; gap: 0.65rem; flex-shrink: 0; min-height: 42px; padding: 0.65rem 0.75rem; border-radius: 0.65rem; font-size: 0.8125rem; font-weight: 500; color: hsl(var(--muted-foreground)); text-align: start; transition: background-color 120ms ease, color 120ms ease; }
+.workspace-nav button svg { width: 17px; height: 17px; flex-shrink: 0; }
+.workspace-nav button[aria-pressed="true"] { color: hsl(var(--primary)); background: hsl(var(--primary) / 0.09); }
+.workspace-nav button:disabled { opacity: 0.45; cursor: not-allowed; }
+.workspace-input-panel { box-shadow: 0 2px 3px hsl(var(--shadow-color) / 0.025), 0 12px 32px hsl(var(--shadow-color) / 0.035); }
+.workspace-empty { background: hsl(var(--card) / 0.6); }
+.workspace-image { outline: 1px solid oklch(0 0 0 / 0.1); outline-offset: -1px; }
+.dark .workspace-image { outline-color: oklch(1 0 0 / 0.1); }
+@media (min-width: 1024px) { .workspace-nav { display: block; overflow: visible; padding: 0; } .workspace-nav button { width: 100%; margin-bottom: 0.25rem; } }
+@media (hover: hover) { .workspace-nav button:not(:disabled):hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); } .workspace-nav button[aria-pressed="true"]:hover { background: hsl(var(--primary) / 0.12); color: hsl(var(--primary)); } }
+@media (prefers-reduced-motion: no-preference) { .workspace-input-panel { animation: workspace-arrive 260ms ease-out both; } @keyframes workspace-arrive { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } } }

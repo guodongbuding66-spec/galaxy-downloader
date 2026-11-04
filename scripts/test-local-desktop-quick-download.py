@@ -4,6 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENGINE = ROOT / "local-engine"
@@ -14,7 +15,9 @@ from desktop_hooks import registered_after_build_ui_hooks  # noqa: E402
 from desktop_quick_download import (  # noqa: E402
     QuickPreview,
     _human_duration,
+    _invalidate_quick_preview,
     _option_label,
+    _parse_quick_url,
     _submission_result,
     build_quick_download_payload,
     install_desktop_quick_download,
@@ -163,6 +166,62 @@ class QuickPreviewCoreTests(unittest.TestCase):
     def test_duration_formatting(self):
         self.assertEqual(_human_duration(125), "2:05")
         self.assertEqual(_human_duration(3661), "1:01:01")
+
+    def test_changed_source_invalidates_preview_and_pending_parse(self):
+        state = SimpleNamespace(value="")
+        download = SimpleNamespace(calls=[])
+        parse = SimpleNamespace(calls=[])
+        panel = SimpleNamespace(hidden=False)
+        window = SimpleNamespace(
+            _quick_parse_generation=7,
+            _quick_preview=object(),
+            _quick_video_display={"1080p": "137"},
+            _quick_audio_display={"Opus": "251"},
+            _quick_url_var=SimpleNamespace(get=lambda: "https://example.test/new"),
+            _quick_state_var=SimpleNamespace(set=lambda value: setattr(state, "value", value)),
+            _quick_download_button=SimpleNamespace(state=download.calls.append),
+            _quick_parse_button=SimpleNamespace(state=parse.calls.append),
+            _quick_preview_panel=SimpleNamespace(pack_forget=lambda: setattr(panel, "hidden", True)),
+        )
+        _invalidate_quick_preview(window)
+        self.assertEqual(window._quick_parse_generation, 8)
+        self.assertIsNone(window._quick_preview)
+        self.assertEqual(window._quick_video_display, {})
+        self.assertEqual(window._quick_audio_display, {})
+        self.assertEqual(download.calls, [["disabled"]])
+        self.assertEqual(parse.calls, [["!disabled"]])
+        self.assertTrue(panel.hidden)
+        self.assertIn("重新解析", state.value)
+        window._quick_url_var = SimpleNamespace(get=lambda: "")
+        _invalidate_quick_preview(window)
+        self.assertEqual(window._quick_parse_generation, 9)
+        self.assertIn("粘贴", state.value)
+
+    def test_parse_completion_cannot_restore_an_edited_source(self):
+        callbacks = []
+        window = SimpleNamespace(
+            _quick_url_var=SimpleNamespace(get=lambda: "https://example.test/first"),
+            _quick_browser_var=SimpleNamespace(get=lambda: "不使用浏览器登录"),
+            _quick_parse_generation=0,
+            _quick_preview=None,
+            _quick_parse_button=SimpleNamespace(state=lambda _value: None),
+            _quick_download_button=SimpleNamespace(state=lambda _value: None),
+            _quick_preview_panel=SimpleNamespace(pack_forget=lambda: None),
+            _quick_state_var=SimpleNamespace(set=lambda _value: None),
+            after=lambda _delay, callback: callbacks.append(callback),
+            winfo_exists=lambda: True,
+        )
+        engine = SimpleNamespace(_validated_source_url=lambda url: url)
+        with patch("desktop_quick_download.bridge.parse_with_bundled_ytdlp", return_value=parse_result()), patch(
+            "desktop_quick_download.threading.Thread"
+        ) as thread:
+            thread.return_value.start.side_effect = lambda: thread.call_args.kwargs["target"]()
+            _parse_quick_url(window, engine)
+        self.assertEqual(len(callbacks), 1)
+        _invalidate_quick_preview(window)
+        callbacks[0]()
+        self.assertIsNone(window._quick_preview)
+        self.assertEqual(window._quick_parse_generation, 2)
 
     def test_submission_normalizes_queue_contract(self):
         result = SimpleNamespace(accepted=True, message="queued", code="QUEUED")

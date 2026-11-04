@@ -13,6 +13,14 @@ from urllib.parse import urljoin, urlparse
 
 from yt_dlp import YoutubeDL
 
+from image_resolution import (
+    dedupe_resolution_variants,
+    home_depot_asset_key,
+    home_depot_advertised_urls,
+    home_depot_size_hint,
+    parse_srcset,
+)
+
 MAX_HTML_BYTES = 8 * 1024 * 1024
 MAX_IMAGES = 120
 MAX_VIDEOS = 30
@@ -196,11 +204,11 @@ def _clean_text(value: str) -> str:
 
 
 def _absolute_url(raw: str | None, base: str) -> str | None:
-    value = html_lib.unescape(str(raw or "")).strip().replace("\\u0026", "&").replace("\\/", "/")
+    value = html_lib.unescape(str(raw or "")).strip().replace("\\u0026", "&").replace("\\u002F", "/").replace("\\/", "/")
     if not value or re.match(r"^(?:data|blob|javascript):", value, re.I):
         return None
-    if "," in value:
-        value = value.split(",", 1)[0].strip().split()[0]
+    # Commas can be part of a signature or a CDN transformation query. Parse
+    # srcset at the attribute boundary instead of truncating arbitrary URLs.
     target = urljoin(base, value)
     parsed = urlparse(target)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -242,6 +250,7 @@ class _DocumentParser(HTMLParser):
         self.images: list[str] = []
         self.videos: list[str] = []
         self._image_seen: set[str] = set()
+        self._image_asset_indexes: dict[str, int] = {}
         self._video_seen: set[str] = set()
         self.scripts: list[str] = []
         self._script_chunks: list[str] | None = None
@@ -254,12 +263,21 @@ class _DocumentParser(HTMLParser):
         return {str(key).lower(): str(value or "") for key, value in attrs}
 
     def _add_image(self, raw: str | None, key: str) -> None:
+        url = _absolute_url(raw, self.base_url)
+        if not url or re.search(r"(?:<size>|\{size\}|%3csize%3e)", url, re.I) or url in self._image_seen or not _looks_like_image(url, key):
+            return
+        asset_key = home_depot_asset_key(url)
+        if asset_key is not None and asset_key in self._image_asset_indexes:
+            index = self._image_asset_indexes[asset_key]
+            if home_depot_size_hint(url) > home_depot_size_hint(self.images[index]):
+                self.images[index] = url
+            self._image_seen.add(url)
+            return
         if len(self.images) >= MAX_IMAGES:
             return
-        url = _absolute_url(raw, self.base_url)
-        if not url or url in self._image_seen or not _looks_like_image(url, key):
-            return
         self._image_seen.add(url)
+        if asset_key is not None:
+            self._image_asset_indexes[asset_key] = len(self.images)
         self.images.append(url)
 
     def _add_video(self, raw: str | None, key: str) -> None:
@@ -280,13 +298,22 @@ class _DocumentParser(HTMLParser):
             content = values.get("content", "")
             if identity and content:
                 self.meta.setdefault(identity, []).append(content)
-                if identity in {"og:image", "twitter:image", "twitter:image:src"}:
+                if identity in {"og:image", "og:image:url", "og:image:secure_url", "twitter:image", "twitter:image:src", "image"}:
                     self._add_image(content, identity)
                 if identity in {"og:video", "og:video:url", "og:video:secure_url", "twitter:player:stream"}:
                     self._add_video(content, identity)
-        if tag in {"img", "source"}:
-            for key in ("data-src", "data-original", "data-lazy-src", "data-actualsrc", "src", "srcset"):
+        if tag in {"img", "source", "picture", "a"}:
+            for key in ("srcset", "data-srcset", "data-src-set", "data-lazy-srcset"):
+                for candidate in parse_srcset(values.get(key, "")):
+                    self._add_image(candidate, key)
+            for key in (
+                "data-zoom-image", "data-zoom-src", "data-hi-res-src", "data-high-res-src",
+                "data-hires", "data-original-src", "data-large-image", "data-src",
+                "data-original", "data-lazy-src", "data-actualsrc",
+            ):
                 self._add_image(values.get(key), key)
+            if tag in {"img", "source"}:
+                self._add_image(values.get("src"), "src")
         if tag in {"video", "source", "a"}:
             for key in ("src", "data-src", "href"):
                 self._add_video(values.get(key), key)
@@ -310,6 +337,7 @@ class _DocumentParser(HTMLParser):
                 "json" in attrs.get("type", "").lower()
                 or re.search(r"(?:__next_data__|serialized-server-data|render_data|__initial_state__|__data__|product)", attrs.get("id", ""), re.I)
                 or body.startswith(("{", "[", "%7B", "%5B"))
+                or re.match(r"(?:(?:window|self)\.)?__(?:APOLLO_STATE|INITIAL_STATE|PRELOADED_STATE|NEXT_DATA|DATA)__\s*=", body)
             )
             if likely_json and body and len(body) <= 2_500_000:
                 self.scripts.append(body)
@@ -343,6 +371,15 @@ def _meta_first(parser: _DocumentParser, *keys: str) -> str:
 
 def _decode_script_json(raw: str) -> Any | None:
     candidates = [raw.strip()]
+    assignment = re.match(r"(?:(?:window|self)\.)?__(?:APOLLO_STATE|INITIAL_STATE|PRELOADED_STATE|NEXT_DATA|DATA)__\s*=\s*", raw.strip())
+    if assignment:
+        # Literal JSON only; never execute storefront JavaScript.
+        try:
+            decoded, _end = json.JSONDecoder().raw_decode(raw.strip()[assignment.end():])
+            if isinstance(decoded, (dict, list)):
+                return decoded
+        except json.JSONDecodeError:
+            pass
     if re.match(r"^%(?:7B|5B)", raw.strip(), re.I):
         try:
             from urllib.parse import unquote
@@ -388,6 +425,11 @@ def _collect_json(parser: _DocumentParser, payload: Any) -> tuple[str, str, str,
             for item in reversed(value):
                 stack.append((item, key))
         elif isinstance(value, dict):
+            image_url = value.get("url")
+            sizes = value.get("sizes")
+            if isinstance(image_url, str) and isinstance(sizes, list):
+                for candidate in home_depot_advertised_urls(image_url, sizes):
+                    parser._add_image(candidate, "image")
             for child_key, child in value.items():
                 stack.append((child, str(child_key)))
     return title, description, author, published_at
@@ -443,7 +485,7 @@ def _document_payload(source_url: str, raw_html: str, final_url: str, browser: s
     site_name = _meta_first(parser, "og:site_name", "application-name")
     text_content = parser.wechat_text if platform == "wechat" else description
 
-    images = parser.images[:MAX_IMAGES]
+    images = dedupe_resolution_variants(parser.images)[:MAX_IMAGES]
     videos = [item for item in parser.videos if VIDEO_EXT_RE.search(item) or re.search(r"(?:video|vod|media)", item, re.I)][:MAX_VIDEOS]
     has_document_signal = (
         document_type != "webpage"

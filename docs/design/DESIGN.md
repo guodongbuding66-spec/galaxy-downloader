@@ -19,7 +19,7 @@ This directory is the source of truth for Desktop visual and interaction rules. 
 
 ## Visual direction
 
-- Dark desktop workspace with restrained violet accent and cyan capability/status accent.
+- Light slate desktop workspace with white working surfaces and a restrained blue action accent.
 - Strong contrast between application background, surfaces and elevated surfaces.
 - Segoe UI on Windows; use the platform UI fallback where Segoe UI is unavailable.
 - Corners are modest, shadows are rare, borders carry most hierarchy.
@@ -68,3 +68,9 @@ Before merging UI work:
 - Handles empty/error/unavailable states.
 - Preserves existing keyboard behavior.
 - Passes the relevant Desktop UI smoke/contract tests.
+
+## Native download workbench
+
+The first section contains a visible media-link label, paste action and primary parse action. The image/original workbench remains accessible in the header. Format selection appears only after a real source catalog is available; the default is the best source-supported video and audio. Changing the link or browser login invalidates the previous preview before another download can be submitted. Ctrl+L focuses and selects the media link.
+
+The transfer section and the queue use quiet slate surfaces, legible status text and semantic progress colors. The main column scrolls when preview or advanced controls exceed the window height, so every existing control remains reachable at the minimum window size. Button presses change color and relief without resizing neighboring controls.

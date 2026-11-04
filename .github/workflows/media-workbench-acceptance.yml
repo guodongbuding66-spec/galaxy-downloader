@@ -1,0 +1,78 @@
+name: Media Workbench Acceptance
+on:
+  push:
+    branches: [feat/media-workbench-upgrade]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: media-workbench-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --noEmit && pnpm exec vitest run
+      - run: pnpm build
+      - name: Install isolated UI test dependencies
+        run: |
+          npm install --prefix /tmp/galaxy-ui-test @playwright/test
+          /tmp/galaxy-ui-test/node_modules/.bin/playwright install --with-deps chromium
+      - name: Exercise and capture real web UI
+        env:
+          GALAXY_PLAYWRIGHT_MODULE: /tmp/galaxy-ui-test/node_modules/@playwright/test
+        run: |
+          pnpm dev --host 0.0.0.0 > /tmp/galaxy-dev.log 2>&1 &
+          for i in $(seq 1 90); do curl -fsS http://127.0.0.1:3010/zh > /dev/null && break; sleep 2; done
+          node scripts/workbench-e2e.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-workbench-web-evidence
+          path: qa/
+          if-no-files-found: warn
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r local-engine/requirements.txt
+      - name: Source acceptance
+        run: |
+          python scripts/test-final-media-completion.py
+          python scripts/test-local-document-policy.py
+          python local-engine/image_resolution.py
+          python local-engine/desktop_design_tokens.py
+          python local-engine/desktop_ui.py
+          python local-engine/desktop_native_v17.py
+          python local-engine/entrypoint.py --self-test
+      - name: Real native window screenshot
+        run: python scripts/capture-native-workbench.py qa
+      - name: Freeze Windows application
+        shell: pwsh
+        run: |
+          $version = (Resolve-Path local-engine/VERSION).Path
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name GalaxyLocalEngine --collect-all yt_dlp --add-data "${version};." local-engine/entrypoint.py
+      - name: Frozen UI acceptance
+        shell: pwsh
+        run: |
+          $process = Start-Process dist/GalaxyLocalEngine.exe -ArgumentList '--ui-smoke-test' -PassThru
+          if (-not $process.WaitForExit(45000)) { Stop-Process -Id $process.Id -Force; throw 'Frozen UI timed out' }
+          if ($process.ExitCode -ne 0) { throw "Frozen UI failed: $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-workbench-windows-evidence
+          path: |
+            qa/
+            dist/GalaxyLocalEngine.exe
+          if-no-files-found: warn

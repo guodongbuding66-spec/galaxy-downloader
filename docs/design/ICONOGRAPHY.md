@@ -51,7 +51,7 @@ The Desktop/Web icon vocabulary should cover:
 
 ## Custom Galaxy mark
 
-The Galaxy brand mark may use violet + cyan. Functional UI should not repeat the brand mark as a generic download/status icon.
+The Galaxy brand mark uses the primary text color and blue operation accent. Functional UI should not repeat the brand mark as a generic download/status icon.
 
 ## Review checklist
 

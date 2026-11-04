@@ -4,6 +4,7 @@ import os
 import queue
 import re
 import subprocess
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -216,6 +217,14 @@ def build_external_command(
         "-f", format_selector,
         "-o", output_template,
     ]
+
+    # Recent YouTube extraction needs a supported JavaScript runtime. Use an
+    # already installed runtime without downloading or executing remote scripts.
+    for runtime in ("deno", "node", "bun"):
+        runtime_path = shutil.which(runtime)
+        if runtime_path:
+            command.extend(["--js-runtimes", f"{runtime}:{runtime_path}"])
+            break
 
     mode = _normalized_collection_mode(collection_mode, playlist)
     selected_spec = _selected_item_spec(selected_items)

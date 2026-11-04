@@ -4,7 +4,7 @@ import tkinter as tk
 import webbrowser
 from tkinter import ttk
 
-from desktop_design_tokens import LAYOUT, TYPE, font
+from desktop_design_tokens import COLOR, LAYOUT, TYPE, font
 from desktop_hooks import run_after_build_ui_hooks
 from media_policy import aria2c_available
 
@@ -121,6 +121,56 @@ def _metric(master, title: str, variable: tk.Variable) -> tk.Frame:
     return cell
 
 
+def _scrollable_workbench(parent, window) -> tk.Frame:
+    """Keep preview and advanced controls reachable at every supported window size."""
+    outer = tk.Frame(parent, bg=ui.PANEL, highlightthickness=1, highlightbackground=ui.BORDER_SOFT)
+    outer.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
+    canvas = tk.Canvas(outer, bg=ui.PANEL, bd=0, highlightthickness=0)
+    scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+    content = tk.Frame(canvas, bg=ui.PANEL, padx=20, pady=20)
+    content_id = canvas.create_window((0, 0), window=content, anchor="nw")
+    content.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>", lambda event: canvas.itemconfigure(content_id, width=event.width))
+
+    def scroll(event):
+        # Toplevel bindings cover child controls without capturing other windows.
+        widget = window.winfo_containing(event.x_root, event.y_root)
+        while widget is not None and widget is not outer:
+            widget = getattr(widget, "master", None)
+        if widget is not outer or content.winfo_reqheight() <= canvas.winfo_height():
+            return None
+        delta = getattr(event, "delta", 0)
+        steps = -1 if getattr(event, "num", 0) == 4 or delta > 0 else 1
+        canvas.yview_scroll(steps * max(1, abs(int(delta / 120))), "units")
+        return "break"
+
+    def reveal_focus(event):
+        widget = event.widget
+        ancestor = widget
+        while ancestor is not None and ancestor is not content:
+            ancestor = getattr(ancestor, "master", None)
+        if ancestor is not content:
+            return
+        top = widget.winfo_rooty() - canvas.winfo_rooty()
+        bottom = top + widget.winfo_height()
+        visible_height = canvas.winfo_height()
+        total_height = max(1, content.winfo_reqheight())
+        if top < 0 or bottom > visible_height:
+            offset = widget.winfo_rooty() - content.winfo_rooty()
+            if bottom > visible_height:
+                offset -= visible_height - widget.winfo_height() - LAYOUT["inline"]
+            canvas.yview_moveto(max(0, offset) / total_height)
+
+    for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        window.bind(sequence, scroll, add="+")
+    window.bind("<FocusIn>", reveal_focus, add="+")
+    window._workbench_canvas = canvas
+    return content
+
+
 def _build_quick_panel_v17(window, engine_module) -> None:
     import desktop_quick_download as quick
 
@@ -132,7 +182,7 @@ def _build_quick_panel_v17(window, engine_module) -> None:
         padx=18,
         pady=16,
         highlightthickness=1,
-        highlightbackground=ui.BORDER,
+        highlightbackground=ui.BORDER_SOFT,
     )
     if first_child is not None:
         panel.pack(fill="x", before=first_child, pady=(0, 18))
@@ -144,27 +194,28 @@ def _build_quick_panel_v17(window, engine_module) -> None:
     head.pack(fill="x")
     title_block = tk.Frame(head, bg=ui.PANEL_2)
     title_block.pack(side="left", fill="x", expand=True)
-    _label(title_block, "快速下载", size="title_sm", weight="bold", bg=ui.PANEL_2).pack(anchor="w")
+    _label(title_block, "添加下载", size="title_sm", weight="bold", bg=ui.PANEL_2).pack(anchor="w")
     _label(
         title_block,
-        "粘贴网页链接，本机解析真实图片、视频和音频资源",
+        "粘贴视频或音频链接，预览可用画质，再加入下载队列",
         size="body_sm",
         color=ui.MUTED,
         bg=ui.PANEL_2,
     ).pack(anchor="w", pady=(3, 0))
     badge = tk.Label(
         head,
-        text="LOCAL",
+        text="最佳可用画质",
         font=font("caption", bold=True),
         bg=ui.PANEL_3,
-        fg=ui.ACCENT_HOVER,
+        fg=ui.ACCENT,
         padx=9,
         pady=5,
     )
     badge.pack(side="right", anchor="n")
 
+    _label(panel, "媒体链接", size="body_sm", weight="bold", bg=ui.PANEL_2).pack(anchor="w", pady=(14, 6))
     url_row = tk.Frame(panel, bg=ui.PANEL_2)
-    url_row.pack(fill="x", pady=(14, 0))
+    url_row.pack(fill="x")
     url_row.grid_columnconfigure(0, weight=1)
     window._quick_url_var = tk.StringVar()
     entry = tk.Entry(
@@ -175,7 +226,7 @@ def _build_quick_panel_v17(window, engine_module) -> None:
         fg=ui.TEXT,
         insertbackground=ui.TEXT,
         selectbackground=ui.ACCENT,
-        selectforeground="#FFFFFF",
+        selectforeground=COLOR["on_accent"],
         relief="flat",
         bd=0,
         highlightthickness=2,
@@ -198,7 +249,7 @@ def _build_quick_panel_v17(window, engine_module) -> None:
     controls.pack(fill="x", pady=(12, 0))
     left = tk.Frame(controls, bg=ui.PANEL_2)
     left.pack(side="left")
-    _label(left, "登录环境", size="caption", color=ui.SUBTLE, bg=ui.PANEL_2).pack(side="left")
+    _label(left, "浏览器登录", size="caption", color=ui.SUBTLE, bg=ui.PANEL_2).pack(side="left")
     window._quick_browser_var = tk.StringVar(value=quick._BROWSER_BY_KEY["none"])
     ttk.Combobox(
         left,
@@ -208,7 +259,7 @@ def _build_quick_panel_v17(window, engine_module) -> None:
         width=18,
         style="Galaxy.TCombobox",
     ).pack(side="left", padx=(8, 16))
-    _label(left, "下载 Profile", size="caption", color=ui.SUBTLE, bg=ui.PANEL_2).pack(side="left")
+    _label(left, "下载预设", size="caption", color=ui.SUBTLE, bg=ui.PANEL_2).pack(side="left")
     window._quick_profile_var = tk.StringVar(value=quick._AUTO_PROFILE_LABEL)
     window._quick_profile_ids = {quick._AUTO_PROFILE_LABEL: ""}
     window._quick_profile_combo = ttk.Combobox(
@@ -228,7 +279,7 @@ def _build_quick_panel_v17(window, engine_module) -> None:
         compact=True,
     ).pack(side="left")
 
-    window._quick_state_var = tk.StringVar(value="等待链接 · 不会在后台读取剪贴板或自动联网")
+    window._quick_state_var = tk.StringVar(value="粘贴链接后按 Enter 解析。默认选择最佳可用画质与音质。")
     _label(
         panel,
         variable=window._quick_state_var,
@@ -263,7 +314,7 @@ def _build_quick_panel_v17(window, engine_module) -> None:
     footer.pack(fill="x", pady=(12, 0))
     _label(
         footer,
-        "优先真实 format_id；商品图会尝试原尺寸 CDN 变体并自动回退。",
+        "已选择源站可用格式，可在上方更换画质与音轨。",
         size="caption",
         color=ui.SUBTLE,
         bg=ui.PANEL_3,
@@ -327,7 +378,7 @@ def install_native_desktop_v17(engine_module, ui_module):
         _label(copy, "Galaxy Local Engine", size="brand", weight="bold", bg=ui.BG).pack(anchor="w")
         _label(
             copy,
-            f"本机媒体工作台  ·  Engine {engine_module.VERSION}  ·  UI {NATIVE_UI_REVISION}",
+            f"媒体下载工作台  ·  v{engine_module.VERSION}",
             size="body_sm",
             color=ui.MUTED,
             bg=ui.BG,
@@ -337,7 +388,7 @@ def install_native_desktop_v17(engine_module, ui_module):
         header_actions.pack(side="right", anchor="center")
         ui.ActionButton(
             header_actions,
-            text="打开 SparkDownloader",
+            text="图片与原图工作台",
             command=lambda: webbrowser.open(ui.WEBSITE_URL),
             kind="secondary",
             compact=True,
@@ -353,19 +404,18 @@ def install_native_desktop_v17(engine_module, ui_module):
 
         body = tk.Frame(shell, bg=ui.BG, padx=28)
         body.pack(fill="both", expand=True, pady=(0, 26))
-        body.grid_columnconfigure(0, weight=72, uniform="workbench")
-        body.grid_columnconfigure(1, weight=28, uniform="workbench")
+        body.grid_columnconfigure(0, weight=74, uniform="workbench")
+        body.grid_columnconfigure(1, weight=26, uniform="workbench")
         body.grid_rowconfigure(0, weight=1)
 
-        main = tk.Frame(body, bg=ui.PANEL, padx=20, pady=20, highlightthickness=1, highlightbackground=ui.BORDER)
-        main.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
-        rail = tk.Frame(body, bg=ui.PANEL, padx=18, pady=18, highlightthickness=1, highlightbackground=ui.BORDER)
+        main = _scrollable_workbench(body, window)
+        rail = tk.Frame(body, bg=ui.PANEL, padx=18, pady=18, highlightthickness=1, highlightbackground=ui.BORDER_SOFT)
         rail.grid(row=0, column=1, sticky="nsew")
 
         section_head = tk.Frame(main, bg=ui.PANEL)
         section_head.pack(fill="x")
-        _label(section_head, "下载工作区", size="title", weight="bold").pack(side="left")
-        _label(section_head, "解析、选择、排队、恢复都在本机完成", size="body_sm", color=ui.MUTED).pack(side="right", anchor="s")
+        _label(section_head, "传输状态", size="title_sm", weight="bold").pack(side="left")
+        _label(section_head, "文件保存至本机下载目录", size="body_sm", color=ui.MUTED).pack(side="right", anchor="s")
 
         current = tk.Frame(main, bg=ui.PANEL)
         current.pack(fill="x", pady=(18, 0))
@@ -430,8 +480,8 @@ def install_native_desktop_v17(engine_module, ui_module):
         ui._build_advanced_panel(window, engine_module)
 
         actions = tk.Frame(main, bg=ui.PANEL)
-        actions.pack(fill="x", side="bottom", pady=(18, 0))
-        window.cancel_button = ui.ActionButton(actions, text="取消当前任务", command=window.cancel, kind="danger")
+        actions.pack(fill="x", side="bottom", pady=(14, 0))
+        window.cancel_button = ui.ActionButton(actions, text="取消任务", command=window.cancel, kind="danger")
         window.cancel_button.pack(side="left")
         window.cancel_button.state(["disabled"])
         window.folder_button = ui.ActionButton(actions, text="打开下载目录", command=window.open_folder, kind="secondary")

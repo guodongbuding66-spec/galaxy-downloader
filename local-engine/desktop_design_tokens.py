@@ -3,29 +3,29 @@ from __future__ import annotations
 from types import MappingProxyType
 
 # Galaxy Native Workbench v1.7.0
-# High-contrast graphite surfaces + one blue operation accent. Semantic colors
+# Light slate surfaces + one blue operation accent. Semantic colors
 # are reserved for status so the application remains calm and scannable.
 COLOR = MappingProxyType(
     {
-        "bg": "#0E1116",
-        "surface": "#141922",
-        "surface_raised": "#1A2130",
-        "surface_elevated": "#202A3A",
-        "border": "#334052",
-        "border_subtle": "#273241",
-        "text_primary": "#F7F9FC",
-        "text_secondary": "#C2CAD6",
-        "text_subtle": "#8F9AAA",
-        "accent": "#4F7DFF",
-        "accent_hover": "#6C94FF",
-        "info": "#7AB8E8",
-        "success": "#65BE92",
-        "warning": "#D9A85F",
-        "danger": "#E27676",
-        "danger_hover": "#EB8989",
-        "focus": "#8EACFF",
-        "danger_contrast": "#2A1013",
-        "secondary_hover": "#273244",
+        "bg": "#F2F5FA",
+        "surface": "#FFFFFF",
+        "surface_raised": "#F7F9FD",
+        "surface_elevated": "#EDF2FA",
+        "border": "#7B899E",
+        "border_subtle": "#DCE3EE",
+        "text_primary": "#18243B",
+        "text_secondary": "#47566D",
+        "text_subtle": "#596B83",
+        "accent": "#2458D8",
+        "accent_hover": "#1B46B7",
+        "info": "#285FAD",
+        "success": "#167548",
+        "warning": "#8C6010",
+        "danger": "#B93445",
+        "danger_hover": "#9C2736",
+        "focus": "#2458D8",
+        "danger_contrast": "#FFFFFF",
+        "secondary_hover": "#E0E8F5",
         "on_accent": "#FFFFFF",
     }
 )
@@ -143,7 +143,8 @@ def run_self_test() -> None:
     assert MOTION["fast_ms"] < MOTION["normal_ms"] < MOTION["slow_ms"]
     assert CONTROL["target_min"] >= 44
     assert CONTROL["focus_ring_width"] >= 2
-    assert BG == "#0E1116" and ACCENT == "#4F7DFF" and DANGER == "#E27676"
+    assert BG != PANEL and ACCENT == FOCUS and DANGER != ACCENT
+    assert COLOR["on_accent"] == "#FFFFFF"
     assert font("body") == ("Segoe UI", 11)
     assert font("body_sm", bold=True) == ("Segoe UI", 10, "bold")
     assert target_padding(16) >= CONTROL["button_pad_y"]

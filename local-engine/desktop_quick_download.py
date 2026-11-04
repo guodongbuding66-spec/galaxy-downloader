@@ -19,7 +19,7 @@ _BROWSER_LABELS = {
     "Brave": "brave",
 }
 _BROWSER_BY_KEY = {value: label for label, value in _BROWSER_LABELS.items()}
-_AUTO_PROFILE_LABEL = "Auto match"
+_AUTO_PROFILE_LABEL = "自动匹配"
 
 
 @dataclass(frozen=True)
@@ -279,6 +279,7 @@ def _submit_quick_download(window, engine_module) -> None:
         _show_parse_error(window, str(exc))
         return
 
+    generation = int(getattr(window, "_quick_parse_generation", 0))
     window._quick_download_button.state(["disabled"])
     window._quick_parse_button.state(["disabled"])
     window._quick_state_var.set("正在提交到本机下载队列…")
@@ -291,7 +292,7 @@ def _submit_quick_download(window, engine_module) -> None:
             accepted, message, code = False, str(exc), ""
 
         def finish() -> None:
-            if not _window_exists(window):
+            if not _window_exists(window) or generation != int(getattr(window, "_quick_parse_generation", 0)):
                 return
             window._quick_parse_button.state(["!disabled"])
             window._quick_download_button.state(["!disabled"])
@@ -405,6 +406,40 @@ def _paste_quick_url(window) -> None:
         window._quick_state_var.set("链接已粘贴。点击“解析预览”后才会联网解析。")
 
 
+def _invalidate_quick_preview(window, *_args) -> None:
+    """A changed source/login must never submit a previous source's formats."""
+    window._quick_parse_generation = int(getattr(window, "_quick_parse_generation", 0)) + 1
+    window._quick_preview = None
+    window._quick_video_display = {}
+    window._quick_audio_display = {}
+    window._quick_download_button.state(["disabled"])
+    window._quick_parse_button.state(["!disabled"])
+    window._quick_preview_panel.pack_forget()
+    message = (
+        "链接或登录环境已更新，按 Enter 重新解析。默认选择最佳可用画质。"
+        if _text(window._quick_url_var.get())
+        else "粘贴视频或音频链接，然后按 Enter 解析。"
+    )
+    window._quick_state_var.set(message)
+
+
+def _build_quick_workbench(window, engine_module) -> None:
+    # The native layout can replace the builder without bypassing these guards.
+    _build_quick_panel(window, engine_module)
+    for variable in (window._quick_url_var, window._quick_browser_var):
+        variable.trace_add("write", lambda *_args: _invalidate_quick_preview(window))
+
+    def focus_url(_event=None):
+        canvas = getattr(window, "_workbench_canvas", None)
+        if canvas is not None:
+            canvas.yview_moveto(0)
+        window._quick_url_entry.focus_set()
+        window._quick_url_entry.selection_range(0, "end")
+        return "break"
+
+    window.bind("<Control-l>", focus_url, add="+")
+
+
 def _build_quick_panel(window, engine_module) -> None:
     main = window.cancel_button.master.master
     first_child = main.winfo_children()[0] if main.winfo_children() else None
@@ -483,7 +518,7 @@ def _build_quick_panel(window, engine_module) -> None:
     ).pack(side="left")
     ui._label(
         options,
-        "Auto match 按 URL Pattern；手动 Profile 优先。浏览器 Cookie 仍只在主动选择后读取。",
+        "自动匹配链接规则；手动选择的下载预设优先。浏览器登录仅在主动选择后读取。",
         size=7,
         color=ui.SUBTLE,
         bg=ui.PANEL_2,
@@ -554,7 +589,7 @@ def install_desktop_quick_download(engine_module):
     register_after_build_ui_hook(
         window_cls,
         "desktop-quick-download",
-        lambda window: _build_quick_panel(window, engine_module),
+        lambda window: _build_quick_workbench(window, engine_module),
         order=40,
     )
     window_cls._galaxy_desktop_quick_download_installed = True

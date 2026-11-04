@@ -52,7 +52,7 @@ export function UnifiedDownloaderLowerSections({
     return (
         <div className="space-y-3">
             {parseResult && (
-                <section aria-live="polite">
+                <section id="media-inspection-result" className="scroll-mt-24" aria-live="polite">
                     <ResultCard
                         result={parseResult}
                         onClose={onCloseParseResult}

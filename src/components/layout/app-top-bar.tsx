@@ -69,13 +69,13 @@ export function AppTopBar({
                 {navCopy.skip}
             </a>
 
-            <div className="mx-auto flex h-11 w-full max-w-[1380px] items-center gap-1.5 px-3 sm:px-4 md:px-5">
+            <div className="mx-auto flex h-14 w-full max-w-[1440px] items-center gap-1.5 px-4 sm:px-6 lg:px-8">
                 <Link
                     href={resolvedHomeHref}
                     className="ui-pressable flex min-w-0 shrink-0 items-center gap-2 rounded-md px-1.5 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={dict.metadata.siteName}
                 >
-                    <Download className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <Download className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
                     <span className="hidden truncate text-sm font-semibold tracking-[-0.015em] sm:block">Galaxy Downloader</span>
                 </Link>
 

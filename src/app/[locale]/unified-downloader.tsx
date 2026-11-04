@@ -14,12 +14,20 @@ import type { MediaPreviewRequest } from '@/components/downloader/media-preview'
 import { buildResultPreviewForSelection } from '@/components/downloader/media-preview';
 import { LocalEngineSetupHint } from '@/components/downloader/LocalEngineSetupHint';
 import { BatchWorkbench } from '@/components/downloader/BatchWorkbench';
+import { workbenchUiCopy } from '@/components/downloader/workbench-copy';
 import {
     ArrowUp,
     ChevronDown,
     ClipboardPaste,
     Loader2,
     PackageCheck,
+    Link2,
+    Layers3,
+    Music2,
+    History,
+    ImageIcon,
+    MonitorDown,
+    Sparkles,
     X,
 } from 'lucide-react';
 
@@ -121,6 +129,8 @@ export function UnifiedDownloader({
     const { setActions: setTopBarActions } = useTopBarActions();
     const pathname = usePathname();
     const workbenchCopy = resolveWorkbenchCopy(pathname);
+    const workspace = workbenchUiCopy(pathname);
+    const [inputMode, setInputMode] = useState<'single' | 'batch'>('single');
     const searchParams = useSearchParams();
     const [url, setUrl] = useState('');
     const [loading, setLoading] = useState(false);
@@ -226,6 +236,7 @@ export function UnifiedDownloader({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (loading || isCoolingDown) return;
 
         if (!url.trim()) {
             setError(dict.errors.emptyUrl);
@@ -247,7 +258,6 @@ export function UnifiedDownloader({
 
         try {
             await handleUnifiedParse(url.trim());
-            setUrl('');
         } catch (err) {
             if (err instanceof UnifiedParseReloadError) {
                 setLoading(false);
@@ -274,6 +284,7 @@ export function UnifiedDownloader({
     };
 
     const handleRedownload = (url: string) => {
+        setInputMode('single');
         setUrl(url);
         setParseResult(null);
         setActivePreview(null);
@@ -472,146 +483,117 @@ export function UnifiedDownloader({
                 autoExtractTask={audioToolTask}
             />
 
-            <main id="main-content" className="flex-1 px-3 py-3 sm:px-4 md:px-5">
-                <div className="mx-auto w-full max-w-[1380px] space-y-3">
-                    <section className="border-b pb-3 sm:pb-4">
-                        <div className="flex min-w-0 flex-col gap-1 lg:flex-row lg:items-center lg:gap-4">
-                            <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-3">
-                                <h1 className="shrink-0 text-lg font-semibold tracking-[-0.02em] sm:text-xl">
-                                    {dict.unified.pageTitle}
-                                </h1>
-                                <p className="min-w-0 max-w-4xl text-xs leading-5 text-muted-foreground sm:text-sm">
-                                    {workbenchCopy.pageDescription}
-                                </p>
-                            </div>
-                            <LocalEngineSetupHint className="lg:ms-auto lg:max-w-[560px] lg:justify-end" />
-                        </div>
+            <main id="main-content" className="flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+                <div className="mx-auto grid w-full max-w-[1440px] gap-6 lg:grid-cols-[192px_minmax(0,1fr)] lg:gap-8">
+                    <aside className="min-w-0">
+                        <nav className="workspace-nav lg:sticky lg:top-24" aria-label={workspace.workspace}>
+                            <p className="mb-4 hidden px-3 text-xs font-medium text-muted-foreground lg:block">{workspace.workspace}</p>
+                            <button type="button" aria-pressed={inputMode === 'single'} onClick={() => {
+                                setInputMode('single');
+                                requestAnimationFrame(() => urlInputRef.current?.focus());
+                            }}><Link2 aria-hidden="true" />{workspace.single}</button>
+                            <button type="button" aria-pressed={inputMode === 'batch'} onClick={() => setInputMode('batch')}><Layers3 aria-hidden="true" />{workspace.batch}</button>
+                            <button type="button" onClick={openToolbarAudioTool}><Music2 aria-hidden="true" />{workspace.audio}</button>
+                            <button type="button" onClick={scrollToHistory} disabled={!showHistoryShortcut}><History aria-hidden="true" />{workspace.history}</button>
+                        </nav>
+                    </aside>
+                    <div className="min-w-0 space-y-6">
+                        <header className="space-y-2">
+                            <h1 className="text-balance text-2xl font-semibold tracking-[-0.035em] sm:text-[32px] sm:leading-tight">{workspace.title}</h1>
+                            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{workspace.description}</p>
+                        </header>
 
-                        <form onSubmit={handleSubmit} className="mt-3">
-                            <label htmlFor="url" className="sr-only">
-                                {workbenchCopy.inputLabel}
-                            </label>
-                            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-                                <div className="relative rounded-lg border bg-card transition-[border-color] duration-150 focus-within:border-foreground/40">
-                                    <Textarea
-                                        id="url"
-                                        ref={urlInputRef}
-                                        value={url}
-                                        onChange={(e) => setUrl(e.target.value)}
-                                        placeholder={dict.unified.placeholder}
-                                        required
-                                        className="min-h-[52px] resize-none border-0 bg-transparent py-2.5 pe-11 ps-3 text-sm leading-5 shadow-none focus-visible:ring-0"
-                                    />
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        className="absolute end-1.5 top-1.5 h-8 w-8 rounded-md text-muted-foreground hover:text-foreground"
-                                        aria-label={dict.form.pasteButton}
-                                        title={dict.form.pasteButton}
-                                        onClick={async () => {
-                                            try {
-                                                const text = await navigator.clipboard.readText();
-                                                setUrl(text);
-                                                toast.success(dict.toast.linkFilled);
-                                            } catch (err) {
-                                                console.error('Failed to read clipboard:', err);
-                                                toast.error(dict.errors.clipboardFailed, {
-                                                    description: dict.errors.clipboardPermission,
-                                                });
-                                            }
-                                        }}
-                                    >
-                                        <ClipboardPaste className="h-4 w-4" aria-hidden="true" />
-                                    </Button>
+                        <section className="workspace-input-panel rounded-2xl border bg-card p-4 sm:p-5" aria-label={workspace.workspace}>
+                            <div className="mb-4 flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="flex shrink-0 items-center gap-2 text-sm font-semibold">
+                                    {inputMode === 'single' ? <Link2 className="h-4 w-4 text-primary" aria-hidden="true" /> : <Layers3 className="h-4 w-4 text-primary" aria-hidden="true" />}
+                                    {inputMode === 'single' ? workspace.single : workspace.batch}
                                 </div>
-                                <div className="grid grid-cols-[104px_minmax(148px,1fr)] gap-2 lg:grid-cols-[104px_148px]">
-                                    <Button
-                                        type="button"
-                                        size="lg"
-                                        variant="outline"
-                                        className="h-[52px] gap-1.5 rounded-lg px-3"
-                                        disabled={!url.length}
-                                        onClick={() => {
-                                            setUrl('');
-                                            setError('');
-                                            urlInputRef.current?.focus();
-                                        }}
-                                    >
-                                        <X className="h-4 w-4" aria-hidden="true" />
-                                        {workbenchCopy.clearInput}
-                                    </Button>
-                                    <Button
-                                        type="submit"
-                                        size="lg"
-                                        className="h-[52px] gap-2 rounded-lg"
-                                        disabled={loading || isCoolingDown || !url.trim()}
-                                    >
-                                        {loading ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                                        ) : (
-                                            <PackageCheck className="h-4 w-4" aria-hidden="true" />
-                                        )}
-                                        {loading ? dict.form.downloading : dict.form.downloadButton}
-                                    </Button>
-                                </div>
+                                <LocalEngineSetupHint className="sm:max-w-[580px] sm:justify-end" />
                             </div>
-
-                            <div className="mt-2 flex min-h-5 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                                <div className="min-w-0 text-[11px] leading-4">
-                                    {error ? (
-                                        <p role="alert" className="font-medium text-destructive">
-                                            {error}
-                                        </p>
-                                    ) : (
-                                        <p className="text-muted-foreground">
-                                            {dict.page.copyrightBilibiliRestriction}
-                                        </p>
-                                    )}
-                                </div>
-                                {heroMeta ? (
-                                    <div className="shrink-0 text-[10px] leading-4 text-muted-foreground">
-                                        {heroMeta}
+                            <div hidden={inputMode !== 'single'}>
+                                <form onSubmit={handleSubmit} aria-busy={loading}>
+                                    <label htmlFor="url" className="mb-2 block text-xs font-medium text-muted-foreground">{workbenchCopy.inputLabel}</label>
+                                    <div className="relative rounded-xl border border-input bg-background focus-within:border-primary focus-within:ring-2 focus-within:ring-ring/15">
+                                        <Textarea
+                                            id="url" ref={urlInputRef} value={url}
+                                            onChange={(e) => setUrl(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    e.currentTarget.form?.requestSubmit();
+                                                }
+                                            }}
+                                            placeholder={dict.unified.placeholder} required
+                                            aria-describedby="link-input-help" aria-invalid={Boolean(error)}
+                                            className="min-h-[112px] resize-y border-0 bg-transparent py-3 pe-12 ps-3 text-sm leading-6 shadow-none focus-visible:ring-0"
+                                        />
+                                        <Button type="button" variant="ghost" size="icon" className="absolute end-2 top-2 h-9 w-9 text-muted-foreground" aria-label={dict.form.pasteButton} title={dict.form.pasteButton}
+                                            onClick={async () => {
+                                                try {
+                                                    setUrl(await navigator.clipboard.readText());
+                                                    urlInputRef.current?.focus();
+                                                    toast.success(dict.toast.linkFilled);
+                                                } catch (err) {
+                                                    console.error('Failed to read clipboard:', err);
+                                                    toast.error(dict.errors.clipboardFailed, { description: dict.errors.clipboardPermission });
+                                                }
+                                            }}><ClipboardPaste className="h-4 w-4" aria-hidden="true" /></Button>
                                     </div>
-                                ) : null}
+                                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                                        <p id="link-input-help" className="text-xs text-muted-foreground">{workspace.shortcut}</p>
+                                        <div className="ms-auto flex items-center gap-2">
+                                            <Button type="button" variant="ghost" disabled={!url.length} onClick={() => { setUrl(''); setError(''); urlInputRef.current?.focus(); }}>
+                                                <X className="h-4 w-4" aria-hidden="true" />{workbenchCopy.clearInput}
+                                            </Button>
+                                            <Button type="submit" className="min-w-[140px] rounded-lg" disabled={loading || isCoolingDown || !url.trim()}>
+                                                {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <PackageCheck className="h-4 w-4" aria-hidden="true" />}
+                                                {loading ? workspace.parsing : workspace.parse}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    {error && <p role="alert" className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+                                    <div className="mt-4 flex flex-wrap items-start justify-between gap-2 border-t pt-3 text-[11px] leading-5 text-muted-foreground">
+                                        <p className="max-w-2xl">{dict.page.copyrightBilibiliRestriction}</p>
+                                        {heroMeta ? <div>{heroMeta}</div> : null}
+                                    </div>
+                                </form>
                             </div>
-                        </form>
+                            <div hidden={inputMode !== 'batch'}><BatchWorkbench defaultOpen active={inputMode === 'batch'} /></div>
+                        </section>
 
-                        <BatchWorkbench />
-                    </section>
-
-                    <UnifiedDownloaderLowerSections
-                        parseResult={parseResult}
-                        onCloseParseResult={closeParseResult}
-                        onOpenExtractAudio={openResultAudioExtract}
-                        onRequestPreview={openResultPreview}
-                        onClearPreview={() => setActivePreview(null)}
-                        activePreview={activePreview}
-                        mobileAd={mobileAd}
-                        downloadHistory={downloadHistory}
-                        clearHistory={clearDownloadHistory}
-                        onRedownload={handleRedownload}
-                        historyRef={historyRef}
-                        historyHydrated={historyHydrated}
-                    />
-
-                    {(leftRail || rightRail) && (
-                        <details className="group border-t pt-1">
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md px-1 py-2 text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
-                                <div className="min-w-0">
-                                    <span className="font-medium">{workbenchCopy.helperTitle}</span>
-                                    <span className="ms-2 hidden text-xs font-normal text-muted-foreground md:inline">
-                                        {workbenchCopy.helperDescription}
-                                    </span>
+                        {!parseResult && !loading && inputMode === 'single' && (
+                            <section className="workspace-empty rounded-2xl border border-dashed px-5 py-8 sm:px-8 sm:py-10">
+                                <div className="mx-auto max-w-2xl">
+                                    <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary"><MonitorDown className="h-6 w-6" aria-hidden="true" /></div>
+                                    <h2 className="text-lg font-semibold tracking-tight">{workspace.emptyTitle}</h2>
+                                    <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">{workspace.emptyDescription}</p>
+                                    <div className="mt-7 grid gap-5 sm:grid-cols-3">
+                                        {[{ icon: Sparkles, title: workspace.quality, description: workspace.qualityDescription }, { icon: ImageIcon, title: workspace.originals, description: workspace.originalsDescription }, { icon: MonitorDown, title: workspace.local, description: workspace.localDescription }].map(({ icon: Icon, title, description }) => (
+                                            <div key={title} className="min-w-0"><Icon className="mb-2 h-4 w-4 text-muted-foreground" aria-hidden="true" /><h3 className="text-xs font-medium">{title}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p></div>
+                                        ))}
+                                    </div>
                                 </div>
-                                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
-                            </summary>
-                            <div className="grid gap-3 pb-2 pt-2 md:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
-                                {leftRail}
-                                {rightRail}
-                            </div>
-                        </details>
-                    )}
+                            </section>
+                        )}
+                        {loading && <div role="status" aria-live="polite" className="flex min-h-36 items-center justify-center gap-3 rounded-2xl border bg-card text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />{workspace.parsing}</div>}
+
+                        <UnifiedDownloaderLowerSections
+                            parseResult={parseResult} onCloseParseResult={closeParseResult} onOpenExtractAudio={openResultAudioExtract}
+                            onRequestPreview={openResultPreview} onClearPreview={() => setActivePreview(null)} activePreview={activePreview}
+                            mobileAd={mobileAd} downloadHistory={downloadHistory} clearHistory={clearDownloadHistory}
+                            onRedownload={handleRedownload} historyRef={historyRef} historyHydrated={historyHydrated}
+                        />
+                        {(leftRail || rightRail) && (
+                            <details className="group border-t pt-1">
+                                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md px-1 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring">
+                                    <div className="min-w-0"><span className="font-medium">{workbenchCopy.helperTitle}</span><span className="ms-2 hidden text-xs font-normal text-muted-foreground md:inline">{workbenchCopy.helperDescription}</span></div>
+                                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
+                                </summary>
+                                <div className="grid gap-3 pb-2 pt-2 md:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">{leftRail}{rightRail}</div>
+                            </details>
+                        )}
+                    </div>
                 </div>
             </main>
 

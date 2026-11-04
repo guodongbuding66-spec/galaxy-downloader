@@ -37,8 +37,8 @@ def _platform_from_source(value: object) -> str | None:
     return host or None
 
 
-def _metadata(payload: dict[str, Any], archive_path: Path) -> dict[str, Any]:
-    images = [str(value or "").strip() for value in payload.get("images", []) if str(value or "").strip()]
+def _metadata(payload: dict[str, Any], archive_path: Path, image_results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    images = dedupe_resolution_variants(payload.get("images", []))
     with zipfile.ZipFile(archive_path, "r") as archive:
         names = [
             name
@@ -49,6 +49,15 @@ def _metadata(payload: dict[str, Any], archive_path: Path) -> dict[str, Any]:
         {"originalImageUrl": source, "localFile": names[index] if index < len(names) else None}
         for index, source in enumerate(images)
     ]
+    by_source = {str(item.get("requestedUrl") or ""): item for item in (image_results or []) if isinstance(item, dict)}
+    for item in file_map:
+        measured = by_source.get(item["originalImageUrl"])
+        if measured:
+            item.update({
+                key: measured[key]
+                for key in ("downloadUrl", "localFile", "width", "height", "bytes", "savedBytes", "format", "sha256", "dimensionsVerified", "originalVerified", "candidates")
+                if key in measured
+            })
     platform = str(payload.get("platform") or "").strip() or _platform_from_source(payload.get("sourceUrl"))
     return {
         "schemaVersion": 1,
@@ -139,7 +148,7 @@ def install_image_archive_policy(image_download_module):
         if not archive_path.exists() or archive_path.suffix.lower() != ".zip":
             return
         try:
-            metadata = _metadata(next_payload, archive_path)
+            metadata = _metadata(next_payload, archive_path, state.get("imageResults"))
             with zipfile.ZipFile(archive_path, "a", compression=zipfile.ZIP_STORED) as archive:
                 archive.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2).encode("utf-8"))
             final_path = archive_path

@@ -88,6 +88,16 @@ class ActionButton(_impl.ActionButton):
         compact: bool = False,
     ) -> None:
         super().__init__(master, text=text, command=command, kind=kind, width=width, compact=compact)
+        # The implementation's legacy palette contains dark-theme literals.
+        # Set every state from the current semantic registry, including hover.
+        palette = {
+            "primary": (ACCENT, COLOR["on_accent"], ACCENT_HOVER),
+            "danger": (DANGER, DANGER_CONTRAST, DANGER_HOVER),
+            "secondary": (PANEL_3, TEXT, SECONDARY_HOVER),
+            "ghost": (PANEL, MUTED, PANEL_2),
+        }
+        self._base, foreground, self._hover = palette[kind]
+        self.configure(bg=self._base, fg=foreground, activebackground=self._hover, activeforeground=foreground)
         button_font = font("body_sm" if compact else "body", bold=True)
         try:
             line_height = int(tkfont.Font(master=self, font=button_font).metrics("linespace"))
@@ -115,9 +125,8 @@ class ActionButton(_impl.ActionButton):
 
     def _native_press(self, _event=None) -> None:
         if str(self["state"]) != "disabled":
-            # Tk has no transform scale. A one-pixel inset + sunken relief is the
-            # native equivalent of the UI-Skills 0.96 press compression cue.
-            self.configure(bg=self._hover, relief="sunken", padx=max(1, self._normal_padx - 1), pady=max(1, self._normal_pady - 1))
+            # Keep geometry stable while pointer or keyboard presses give feedback.
+            self.configure(bg=self._hover, relief="sunken")
 
     def _native_release(self, event=None) -> None:
         if str(self["state"]) == "disabled":

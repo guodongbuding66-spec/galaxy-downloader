@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-"""Home Depot product-page image recovery policy.
+"""Recover galleries from the requested Home Depot page's own media.
 
-Resolution order is deliberately local/free:
-1. Home Depot's public storefront GraphQL operation (no browser, no credentials).
-2. Observe the same GraphQL response from a local Edge/Chrome page load.
-3. Generic HTML/dynamic-document fallback.
-
-No paid scraper, proxy service, captcha bypass, or remote browser is required.
+An explicit site refusal is terminal. Do not probe alternate storefront routes,
+API hosts or browser identities after an access-control challenge.
 """
 
 import re
@@ -15,8 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import web_document as base
-from home_depot_direct import parse_home_depot_direct
-from home_depot_graphql import is_home_depot_product_url, parse_home_depot_graphql
+from home_depot_graphql import is_home_depot_product_url
 from image_resolution import dedupe_resolution_variants, parse_srcset
 
 _HOME_DEPOT_HOSTS = ("homedepot.com", "thdstatic.com")
@@ -56,7 +51,9 @@ def _looks_like_home_depot_challenge(raw_html: str, final_url: str) -> bool:
     final_host = _hostname(final_url)
     if final_host and not _host_matches(final_host, "homedepot.com"):
         return True
-    sample = f"{final_url}\n{raw_html[:2_000_000]}"
+    # CAPTCHA SDK references in normal bundles are not a displayed challenge.
+    visible = re.sub(r"<(?:script|style)\b[^>]*>.*?</(?:script|style)\s*>", "", raw_html[:2_000_000], flags=re.I | re.S)
+    sample = f"{final_url}\n{base._clean_text(visible)}"
     return bool(_CHALLENGE_RE.search(sample))
 
 
@@ -64,8 +61,8 @@ def _challenge_result(browser: str) -> dict[str, Any]:
     requested = (browser or "none").strip().lower()
     if requested == "none":
         error = (
-            "Home Depot 阻止了匿名 HTML 页面解析。Galaxy 已先尝试公开商品数据接口和本机 Edge/Chrome 商品数据流；"
-            "如仍失败，请在“登录环境”选择 Microsoft Edge 或 Google Chrome 后重试。Cookie 只在本机读取，不会上传。"
+            "Home Depot 拒绝了当前页面访问，未验证到真实商品原图。请先在自己的浏览器中正常打开商品页并完成站点验证，"
+            "再主动选择该浏览器重试。Galaxy 已停止自动请求，不会绕过访问限制。"
         )
     else:
         error = (
@@ -77,7 +74,7 @@ def _challenge_result(browser: str) -> dict[str, Any]:
         "code": "AUTH_REQUIRED",
         "status": 401,
         "error": error,
-        "details": {"platform": "homedepot", "challenge": True},
+        "details": {"platform": "homedepot", "challenge": True, "retryAutomatically": False},
     }
 
 
@@ -167,18 +164,10 @@ def install_home_depot_document_policy() -> None:
         return result
 
     def parse_web_document(source_url: str, browser: str = "none") -> dict[str, Any]:
-        if is_home_depot_product_url(source_url):
-            direct = parse_home_depot_direct(source_url, browser)
-            if direct.get("success"):
-                return direct
-
-            product = parse_home_depot_graphql(source_url, browser)
-            if product.get("success"):
-                return product
-            if product.get("code") == "BROWSER_COOKIE_UNAVAILABLE":
-                return product
-
-        return original_parse_web_document(source_url, browser)
+        result = original_parse_web_document(source_url, browser)
+        if _is_home_depot_url(source_url) and result.get("code") == "AUTH_REQUIRED":
+            return _challenge_result(browser)
+        return result
 
     base._classify = classify
     base._DocumentParser.handle_starttag = handle_starttag

@@ -2,7 +2,7 @@
 
 ## Naming
 
-Runtime code uses semantic names. Galaxy Local Engine V1.7 uses a high-contrast graphite native desktop system with one blue action accent; status colors are semantic only. The native EXE is the canonical product surface.
+Runtime code uses semantic names. Galaxy Local Engine V1.7 uses a light slate native desktop system with one blue action accent; status colors are semantic only. The native EXE is the canonical product surface.
 
 ## Color
 
@@ -10,23 +10,23 @@ Canonical native Desktop mapping:
 
 | Semantic token | Current value | Existing runtime name |
 | --- | --- | --- |
-| `color.bg` | `#0E1116` | `BG` |
-| `color.surface` | `#141922` | `PANEL` |
-| `color.surface.raised` | `#1A2130` | `PANEL_2` |
-| `color.surface.elevated` | `#202A3A` | `PANEL_3` |
-| `color.border` | `#334052` | `BORDER` |
-| `color.border.subtle` | `#273241` | `BORDER_SOFT` |
-| `color.text.primary` | `#F7F9FC` | `TEXT` |
-| `color.text.secondary` | `#C2CAD6` | `MUTED` |
-| `color.text.subtle` | `#8F9AAA` | `SUBTLE` |
-| `color.accent` | `#4F7DFF` | `ACCENT` |
-| `color.accent.hover` | `#6C94FF` | `ACCENT_HOVER` |
-| `color.info` | `#7AB8E8` | `CYAN` |
-| `color.success` | `#65BE92` | `SUCCESS` |
-| `color.warning` | `#D9A85F` | `WARNING` |
-| `color.danger` | `#E27676` | `DANGER` |
-| `color.danger.hover` | `#EB8989` | `DANGER_HOVER` |
-| `color.focus` | `#8EACFF` | dedicated keyboard focus ring |
+| `color.bg` | `#F2F5FA` | `BG` |
+| `color.surface` | `#FFFFFF` | `PANEL` |
+| `color.surface.raised` | `#F7F9FD` | `PANEL_2` |
+| `color.surface.elevated` | `#EDF2FA` | `PANEL_3` |
+| `color.border` | `#7B899E` | `BORDER` |
+| `color.border.subtle` | `#DCE3EE` | `BORDER_SOFT` |
+| `color.text.primary` | `#18243B` | `TEXT` |
+| `color.text.secondary` | `#47566D` | `MUTED` |
+| `color.text.subtle` | `#596B83` | `SUBTLE` |
+| `color.accent` | `#2458D8` | `ACCENT` |
+| `color.accent.hover` | `#1B46B7` | `ACCENT_HOVER` |
+| `color.info` | `#285FAD` | `CYAN` |
+| `color.success` | `#167548` | `SUCCESS` |
+| `color.warning` | `#8C6010` | `WARNING` |
+| `color.danger` | `#B93445` | `DANGER` |
+| `color.danger.hover` | `#9C2736` | `DANGER_HOVER` |
+| `color.focus` | `#2458D8` | dedicated keyboard focus ring |
 
 Rules:
 - Primary text/body contrast takes priority over brand color.
@@ -65,7 +65,7 @@ Weights are regular and bold. Avoid decorative tracked uppercase labels and unne
 
 ## Control sizing
 
-- Normal button vertical padding: 9 px; compact: 7 px.
+- Normal button base vertical padding: 8 px; compact: 6 px. Font metrics add padding to maintain the 44 px target.
 - Minimum practical interaction target: 44 px; primary controls target 46 px where native geometry permits it.
 - Keyboard focus uses a dedicated 2 px visible focus ring; hover/press feedback is not conveyed by motion alone.
 - Text/select controls remain keyboard/mouse usable and readable under Windows DPI scaling.
