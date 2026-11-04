@@ -422,7 +422,7 @@ async function fetchRemoteFile({
     contentType,
     extensionFromUrl(url, fallbackExtension),
   );
-  const blob = new Blob([bytes], { type: contentType || undefined });
+  const blob = new Blob([new Uint8Array(bytes)], { type: contentType || undefined });
   const file = new File([blob], `${filenameBase}.${extension}`, { type: contentType || undefined });
   onProgress?.({ stage, progress: progressEnd, loaded: bytes.byteLength, total: bytes.byteLength });
   return { file, contentType };

@@ -97,8 +97,8 @@ async function loadFFmpegCoreFromSource(ffmpeg: FFmpeg, candidate: CoreCandidate
       workerURL = await withTimeout(FFMPEG_ASSET_TIMEOUT_MS, (signal) => fetchBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript', signal));
     }
     await withTimeout(FFMPEG_INITIALIZATION_TIMEOUT_MS, (signal) => ffmpeg.load({
-      coreURL,
-      wasmURL,
+      coreURL: coreURL ?? undefined,
+      wasmURL: wasmURL ?? undefined,
       ...(workerURL ? { workerURL } : {}),
     }, { signal }));
   } finally {

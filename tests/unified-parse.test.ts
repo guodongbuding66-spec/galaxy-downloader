@@ -23,7 +23,7 @@ const responsePayload = {
 describe('requestUnifiedParse reload guard', () => {
     const reload = vi.fn()
     const dispatchEvent = vi.fn()
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(responsePayload), {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(responsePayload), {
         status: 200,
         headers: {
             'content-type': 'application/json',

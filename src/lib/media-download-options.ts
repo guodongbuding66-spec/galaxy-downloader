@@ -61,7 +61,7 @@ export function normalizeQualityOptions(options?: VideoQualityOption[] | null): 
     }
 
     const seen = new Set<string>();
-    const normalized = options
+    const normalized: QualityChoice[] = options
         .filter((option) => typeof option?.quality === 'string' && option.quality.trim().length > 0)
         .map((option) => ({
             ...option,

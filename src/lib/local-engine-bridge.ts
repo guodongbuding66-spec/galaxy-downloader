@@ -231,7 +231,7 @@ export function localizeLocalEngineSubmissionMessage(
             ? 'ru'
             : 'en'
   const messages = SUBMISSION_MESSAGES[locale] || SUBMISSION_MESSAGES.en
-  if (code in messages) return messages[code as keyof SubmissionMessages]
+  if (code in messages) return messages[code as keyof SubmissionMessages] ?? fallback
   return fallback
 }
 

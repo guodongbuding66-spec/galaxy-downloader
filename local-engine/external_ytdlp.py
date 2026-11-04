@@ -316,6 +316,7 @@ def _run_external_once(
     reader.start()
 
     final_path: Path | None = None
+    archive_skipped = False
     recent_errors: list[str] = []
     reader_finished = False
     first_output_at: float | None = None
@@ -360,6 +361,8 @@ def _run_external_once(
                 final_path = Path(value)
             continue
 
+        if download_archive is not None and "has already been recorded in the archive" in line:
+            archive_skipped = True
         if "ERROR:" in line.upper() or "WARNING:" in line.upper():
             recent_errors.append(line)
             recent_errors = recent_errors[-10:]
@@ -371,6 +374,12 @@ def _run_external_once(
         detail = "\n".join(recent_errors[-5:]) or f"yt-dlp exited with code {return_code}"
         raise ExternalYtDlpError(detail)
 
+    if final_path is None:
+        if archive_skipped:
+            return None
+        raise ExternalYtDlpError("提取器已退出，但没有生成最终媒体文件；任务未完成，请查看日志。")
+    if not final_path.is_file() or final_path.stat().st_size == 0 or final_path.suffix.lower() in {".part", ".ytdl"}:
+        raise ExternalYtDlpError("最终媒体文件不存在、为空或尚未完成；任务未完成。")
     return final_path
 
 

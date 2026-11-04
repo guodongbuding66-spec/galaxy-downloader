@@ -112,17 +112,14 @@ def _document_fallback(source_url: str, browser: str):
     if document.get("success"):
         return document
 
-    static_auth_required = document.get("code") == "AUTH_REQUIRED"
+    if document.get("code") in {"AUTH_REQUIRED", "ACCESS_DENIED", "BOT_DETECTED"}:
+        return document
     dynamic = parse_dynamic_web_document(source_url, browser)
     if dynamic.get("success"):
         return dynamic
     if dynamic.get("code") == "BROWSER_COOKIE_UNAVAILABLE":
         return dynamic
 
-    # Anonymous 401/403 must survive the dynamic attempt so the browser-side
-    # bridge knows to retry explicitly with a logged-in browser profile.
-    if static_auth_required and browser == "none":
-        return document
     return None
 
 

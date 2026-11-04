@@ -25,7 +25,7 @@ describe('Local Engine release relay', () => {
   })
 
   it('proxies only the exact pinned GitHub release asset', async () => {
-    const upstream = vi.fn(async () => new Response('zip-data', {
+    const upstream = vi.fn<typeof fetch>(async () => new Response('zip-data', {
       status: 200,
       headers: {
         'content-type': 'application/zip',
