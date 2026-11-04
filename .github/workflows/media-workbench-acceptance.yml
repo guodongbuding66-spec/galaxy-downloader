@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: media-workbench-${{ github.ref }}
+  group: media-workbench-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 jobs:
   web:
@@ -25,7 +25,9 @@ jobs:
           npm install --prefix /tmp/galaxy-ui-test @playwright/test
           /tmp/galaxy-ui-test/node_modules/.bin/playwright install --with-deps chromium
       - name: Exercise and capture real web UI
+        timeout-minutes: 4
         env:
+          GALAXY_UI_TEST: "1"
           GALAXY_PLAYWRIGHT_MODULE: /tmp/galaxy-ui-test/node_modules/@playwright/test
         run: |
           pnpm dev --host 0.0.0.0 > /tmp/galaxy-dev.log 2>&1 &

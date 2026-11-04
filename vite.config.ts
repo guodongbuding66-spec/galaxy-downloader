@@ -43,6 +43,7 @@ function normalizeVinextTreeshakePlugin(): Plugin {
 }
 
 export default defineConfig(({ command, mode }) => {
+  const uiTestMode = process.env.GALAXY_UI_TEST === "1";
   const enableSerwist = command === "build" && mode === "production";
 
   return {
@@ -66,10 +67,10 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       vinext(),
       normalizeVinextTreeshakePlugin(),
-      ...cloudflare({
+      ...(uiTestMode ? [] : cloudflare({
         inspectorPort: false,
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-      }),
+      })),
       ...(enableSerwist
         ? serwist({
             swSrc: "src/sw.ts",
