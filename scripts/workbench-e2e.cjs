@@ -1,5 +1,5 @@
 // Acceptance screenshots of the running app in a separate CI test browser.
-const { chromium }=require(process.env.GALAXY_PLAYWRIGHT_MODULE||'@playwright/test');
+const { chromium, expect }=require(process.env.GALAXY_PLAYWRIGHT_MODULE||'@playwright/test');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 let activeBrowser;
 (async()=>{
@@ -7,13 +7,16 @@ let activeBrowser;
  const browser=await chromium.launch({headless:true});activeBrowser=browser;
  const page=await browser.newPage({viewport:{width:1440,height:1050},deviceScaleFactor:1});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- const waitForSettledPanel=async target=>target.waitForFunction(()=>{const panel=document.querySelector('.workspace-input-panel');return panel&&Number(getComputedStyle(panel).opacity)===1;});
+ const waitForSettledPanel=async target=>{
+  await target.waitForFunction(()=>{const panel=document.querySelector('.workspace-input-panel');return panel&&Number(getComputedStyle(panel).opacity)===1;});
+  await expect(target.getByText('正在检测本地引擎连接',{exact:true})).toBeHidden({timeout:30000});
+ };
  await page.goto('http://localhost:3010/zh',{waitUntil:'domcontentloaded',timeout:90000});
  await page.getByRole('button',{name:'解析链接',exact:true}).waitFor({timeout:90000});
  await waitForSettledPanel(page);
  await page.screenshot({path:path.join(out,'web-workbench-desktop.png'),animations:'disabled'});
  await page.locator('#url').fill('https://www.youtube.com/watch?v=BaW_jenozKc');
- await page.getByRole('button',{name:'解析链接',exact:true}).isEnabled().then(enabled=>assert.ok(enabled));
+ await expect(page.getByRole('button',{name:'解析链接',exact:true})).toBeEnabled();
  assert.equal(await page.locator('#url').count(),1);
  await page.getByRole('button',{name:'批量下载',exact:true}).click();
  await page.screenshot({path:path.join(out,'web-workbench-batch.png'),animations:'disabled'});
