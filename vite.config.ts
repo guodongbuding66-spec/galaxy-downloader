@@ -48,6 +48,7 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     optimizeDeps: {
+      include: uiTestMode ? ["@serwist/window"] : [],
       exclude: ["lucide-react", "next-intl"],
     },
     ssr: {

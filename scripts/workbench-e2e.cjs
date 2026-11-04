@@ -8,8 +8,10 @@ let activeBrowser;
  const page=await browser.newPage({viewport:{width:1440,height:1050},deviceScaleFactor:1});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  const waitForSettledPanel=async target=>{
+  await target.waitForLoadState('networkidle');
   await target.waitForFunction(()=>{const panel=document.querySelector('.workspace-input-panel');return panel&&Number(getComputedStyle(panel).opacity)===1;});
   await expect(target.getByText('正在检测本地引擎连接',{exact:true})).toBeHidden({timeout:30000});
+  await expect(target.locator('#url')).toBeVisible();
  };
  await page.goto('http://localhost:3010/zh',{waitUntil:'domcontentloaded',timeout:90000});
  await page.getByRole('button',{name:'解析链接',exact:true}).waitFor({timeout:90000});
