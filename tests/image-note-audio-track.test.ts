@@ -7,6 +7,7 @@ vi.mock('next/image', () => ({
 }))
 
 vi.mock('@/i18n/client', () => ({
+  useAppLocale: () => 'zh',
   useDictionary: () => ({
     result: {
       title: 'Result',
