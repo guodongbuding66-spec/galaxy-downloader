@@ -31,7 +31,7 @@ jobs:
           GALAXY_PLAYWRIGHT_MODULE: /tmp/galaxy-ui-test/node_modules/@playwright/test
         run: |
           pnpm dev --host 0.0.0.0 > /tmp/galaxy-dev.log 2>&1 &
-          for i in $(seq 1 45); do curl --max-time 2 -fsS http://127.0.0.1:3010/zh > /dev/null && break; sleep 1; done
+          for i in $(seq 1 45); do curl --max-time 2 -fsS http://localhost:3010/zh > /dev/null && break; sleep 1; done
           trap 'mkdir -p qa; cp /tmp/galaxy-dev.log qa/dev-server.log' EXIT
           node scripts/workbench-e2e.cjs
       - uses: actions/upload-artifact@v4
