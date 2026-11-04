@@ -121,16 +121,16 @@ def _metric(master, title: str, variable: tk.Variable) -> tk.Frame:
     return cell
 
 
-def _scrollable_workbench(parent, window) -> tk.Frame:
+def _scrollable_workbench(parent, window, *, column: int = 0) -> tk.Frame:
     """Keep preview and advanced controls reachable at every supported window size."""
     outer = tk.Frame(parent, bg=ui.PANEL, highlightthickness=1, highlightbackground=ui.BORDER_SOFT)
-    outer.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
+    outer.grid(row=0, column=column, sticky="nsew", padx=(0, 16) if column == 0 else 0)
     canvas = tk.Canvas(outer, bg=ui.PANEL, bd=0, highlightthickness=0)
     scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
     canvas.configure(yscrollcommand=scrollbar.set)
     scrollbar.pack(side="right", fill="y")
     canvas.pack(side="left", fill="both", expand=True)
-    content = tk.Frame(canvas, bg=ui.PANEL, padx=20, pady=20)
+    content = tk.Frame(canvas, bg=ui.PANEL, padx=20 if column == 0 else 18, pady=20 if column == 0 else 18)
     content_id = canvas.create_window((0, 0), window=content, anchor="nw")
     content.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas.bind("<Configure>", lambda event: canvas.itemconfigure(content_id, width=event.width))
@@ -167,7 +167,7 @@ def _scrollable_workbench(parent, window) -> tk.Frame:
     for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
         window.bind(sequence, scroll, add="+")
     window.bind("<FocusIn>", reveal_focus, add="+")
-    window._workbench_canvas = canvas
+    setattr(window, "_workbench_canvas" if column == 0 else "_rail_canvas", canvas)
     return content
 
 
@@ -409,8 +409,7 @@ def install_native_desktop_v17(engine_module, ui_module):
         body.grid_rowconfigure(0, weight=1)
 
         main = _scrollable_workbench(body, window)
-        rail = tk.Frame(body, bg=ui.PANEL, padx=18, pady=18, highlightthickness=1, highlightbackground=ui.BORDER_SOFT)
-        rail.grid(row=0, column=1, sticky="nsew")
+        rail = _scrollable_workbench(body, window, column=1)
 
         section_head = tk.Frame(main, bg=ui.PANEL)
         section_head.pack(fill="x")
