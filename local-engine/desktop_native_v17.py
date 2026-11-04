@@ -350,7 +350,7 @@ def install_native_desktop_v17(engine_module, ui_module):
     def build_ui(window) -> None:
         window.configure(bg=ui.BG)
         window.geometry("1320x880")
-        window.minsize(1100, 760)
+        window.minsize(1000, 650)
         window.option_add("*Font", "{Segoe UI} 11")
         # Keep the platform's DPI-derived Tk scaling. V1.6 forced 1.0, which
         # made the native UI physically too small on common 125–200% displays.
@@ -404,8 +404,8 @@ def install_native_desktop_v17(engine_module, ui_module):
 
         body = tk.Frame(shell, bg=ui.BG, padx=28)
         body.pack(fill="both", expand=True, pady=(0, 26))
-        body.grid_columnconfigure(0, weight=74, uniform="workbench")
-        body.grid_columnconfigure(1, weight=26, uniform="workbench")
+        body.grid_columnconfigure(0, weight=1, minsize=620)
+        body.grid_columnconfigure(1, weight=0, minsize=300)
         body.grid_rowconfigure(0, weight=1)
 
         main = _scrollable_workbench(body, window)
