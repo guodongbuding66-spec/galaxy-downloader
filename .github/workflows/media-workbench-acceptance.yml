@@ -50,6 +50,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r local-engine/requirements.txt
       - name: Source acceptance
+        id: source
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           python scripts/test-final-media-completion.py
@@ -64,17 +65,22 @@ jobs:
       - name: Native window interaction and capture
         run: python scripts/capture-native-workbench.py qa
       - name: Freeze Windows application
+        id: freeze
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
         shell: pwsh
         run: |
           $version = (Resolve-Path local-engine/VERSION).Path
           python -m PyInstaller --noconfirm --clean --onefile --windowed --name GalaxyLocalEngine --collect-all yt_dlp --add-data "${version};." local-engine/entrypoint.py
       - name: Frozen UI acceptance
+        id: frozen_ui
+        if: ${{ !cancelled() && steps.freeze.outcome == 'success' }}
         shell: pwsh
         run: |
           $process = Start-Process dist/GalaxyLocalEngine.exe -ArgumentList '--ui-smoke-test' -PassThru
           if (-not $process.WaitForExit(45000)) { Stop-Process -Id $process.Id -Force; throw 'Frozen UI timed out' }
           if ($process.ExitCode -ne 0) { throw "Frozen UI failed: $($process.ExitCode)" }
       - name: Capture the visible packaged Windows app
+        if: ${{ !cancelled() && steps.frozen_ui.outcome == 'success' }}
         timeout-minutes: 2
         run: python scripts/capture-native-exe.py dist/GalaxyLocalEngine.exe qa
       - uses: actions/upload-artifact@v4

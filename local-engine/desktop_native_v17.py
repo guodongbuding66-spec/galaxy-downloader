@@ -378,8 +378,10 @@ def install_native_desktop_v17(engine_module, ui_module):
         tk.Frame(shell, bg=ui.BORDER_SOFT, width=1).pack(side="left", fill="y")
         stage = tk.Frame(shell, bg=ui.BG, padx=24)
         stage.pack(side="left", fill="both", expand=True)
+        stage.grid_columnconfigure(0, weight=1)
+        stage.grid_rowconfigure(1, weight=1)
         header = tk.Frame(stage, bg=ORBIT["shell"])
-        header.pack(fill="x", pady=(24, 20))
+        header.grid(row=0, column=0, sticky="ew", pady=(24, 20))
         heading = tk.Frame(header, bg=ui.BG)
         heading.pack(side="left", fill="x", expand=True)
         _label(heading, "下载工作台", size="title", weight="bold").pack(anchor="w")
@@ -393,7 +395,7 @@ def install_native_desktop_v17(engine_module, ui_module):
         window._copy_diag_button.pack()
 
         statusbar = tk.Frame(stage, bg=ui.BG)
-        statusbar.pack(fill="x", side="bottom", pady=(8, 12))
+        statusbar.grid(row=2, column=0, sticky="ew", pady=(8, 12))
         tk.Frame(statusbar, bg=ui.BORDER_SOFT, height=1).pack(fill="x", pady=(0, 8))
         ffmpeg = engine_module.ffmpeg_dir() is not None
         external = engine_module.external_ytdlp_path(engine_module.app_dir()) is not None
@@ -405,7 +407,7 @@ def install_native_desktop_v17(engine_module, ui_module):
         _label(statusbar, f"本机引擎  v{engine_module.VERSION}", size="caption", color=ui.SUBTLE).pack(side="right")
 
         body = tk.Frame(stage, bg=ui.BG)
-        body.pack(fill="both", expand=True)
+        body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=1)
         body.grid_columnconfigure(1, weight=0, minsize=248)
         body.grid_rowconfigure(0, weight=1)

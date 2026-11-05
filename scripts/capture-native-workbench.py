@@ -35,6 +35,18 @@ def visible_in(widget, bounds):
             and y + widget.winfo_height() <= bounds.winfo_height())
 
 
+def describe_layout(app):
+    for name, widget in (
+        ("window", app), ("stage", app._workbench_canvas.master.master.master),
+        ("body", app._workbench_canvas.master.master), ("viewport", app._workbench_canvas),
+        ("content", app._orbit_main), ("panel", app._quick_download_panel),
+        ("url", app._quick_url_entry), ("primary", app._quick_parse_button),
+    ):
+        print(f"{name}: {widget.winfo_geometry()} root=({widget.winfo_rootx()},"
+              f"{widget.winfo_rooty()}) req={widget.winfo_reqwidth()}x{widget.winfo_reqheight()} "
+              f"mapped={widget.winfo_ismapped()}", flush=True)
+
+
 def main():
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "qa")
     out.mkdir(parents=True, exist_ok=True)
@@ -48,9 +60,10 @@ def main():
         app.attributes("-topmost", True)
         settle(app, 0.45)
         assert app._orbit_shell
+        describe_layout(app)
+        snapshot(app).save(out / "native-workbench.png")
         assert visible_in(app._quick_parse_button, app._workbench_canvas), "parse action clipped"
         assert visible_in(app._quick_url_entry, app._workbench_canvas), "link input clipped"
-        snapshot(app).save(out / "native-workbench.png")
         action_pixels = snapshot(app._quick_parse_button).convert("RGB").getdata()
         assert sum(pixel == (79, 125, 255) for pixel in action_pixels) > 300, "primary action not painted"
         rail_visible = bool(app._rail_canvas.winfo_ismapped())
