@@ -19,7 +19,7 @@ This directory is the source of truth for Desktop visual and interaction rules. 
 
 ## Visual direction
 
-- Light slate desktop workspace with white working surfaces and a restrained blue action accent.
+- One charcoal canvas for navigation and work, with the raised source composer as the visual focus. Blue identifies primary action, current mode and keyboard focus.
 - Strong contrast between application background, surfaces and elevated surfaces.
 - Segoe UI on Windows; use the platform UI fallback where Segoe UI is unavailable.
 - Corners are modest, shadows are rare, borders carry most hierarchy.
@@ -71,6 +71,6 @@ Before merging UI work:
 
 ## Native download workbench
 
-Orbit uses a midnight navigation rail and a quiet light workspace. The composer has a shared labeled link input and separate tabs for video/audio and page images. Only the active mode’s main action is shown. Queue and component status use a separate column where space permits; the queue remains accessible from navigation on narrower screens. Format selection appears only after a real source catalog is available; the default is the best source-supported video and audio. Changing the link or browser login invalidates the previous preview before another download can be submitted. Ctrl+L focuses and selects the media link.
+The native shell uses the project’s canonical near-black canvas, a 168px navigation column and one raised source composer. At compact widths the queue and engine remain available through the transfer row, navigation and footer; a separate 248px queue rail appears when the client width reaches 1120px. There is no promotional banner. The mode switch sits next to the source input, whose contents survive a mode change.
 
-The transfer section and the queue use quiet slate surfaces, legible status text and semantic progress colors. The main column scrolls when preview or advanced controls exceed the window height, so every existing control remains reachable at the minimum window size. Native rounded ttk controls change visual state without changing neighboring geometry. Secondary tools are grouped in the navigation menu.
+The one primary action per mode is styled with a 6px radius, blue fill and dark high-contrast text. Other controls use tonal feedback; surfaces use no shadows or decorative gradients. Format selection appears only after a real source catalog is available. Changing link or login invalidates the old preview. Ctrl+L focuses the input. The transfer row shows real progress and timing only once a task exists.

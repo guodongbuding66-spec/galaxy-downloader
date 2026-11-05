@@ -1,7 +1,6 @@
-"""The Orbit shell's visual primitives. Controls remain native ttk buttons."""
+"""Native ttk workbench controls, styled from the shared desktop tokens."""
 from __future__ import annotations
 
-import tkinter as tk
 from tkinter import ttk
 from types import MappingProxyType
 
@@ -10,82 +9,88 @@ from PIL import Image, ImageDraw, ImageTk
 from desktop_design_tokens import COLOR, font
 
 ORBIT = MappingProxyType({
-    "shell": "#F3F5F9",
-    "nav": "#111A2D",
-    "nav_hover": "#202D46",
-    "nav_selected": "#283A61",
-    "nav_text": "#D2DCEF",
-    "nav_quiet": "#98AACB",
-    "hero": "#152343",
-    "hero_line": "#33496F",
-    "hero_text": "#F7FAFF",
-    "hero_quiet": "#BDD0ED",
-    "white": "#FFFFFF",
-    "inset": "#F4F7FC",
-    "line": "#E0E7F1",
-    "focus": "#4876ED",
+    "shell": COLOR["bg"],
+    "nav": COLOR["bg"],
+    "nav_selected": COLOR["surface_elevated"],
+    "nav_text": COLOR["text_secondary"],
+    "nav_quiet": COLOR["text_subtle"],
+    "inset": COLOR["bg"],
+    "line": COLOR["border_subtle"],
 })
 
 
-def _rounded(master, fill, *, background, outline=None, radius=9):
+def _rounded(master, fill, *, background, outline=None, radius=6):
     size, scale = 44, 3
     image = Image.new("RGB", (size * scale, size * scale), background)
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((1, 1, size * scale - 2, size * scale - 2), radius * scale, fill=fill, outline=outline, width=2 * scale)
+    draw.rounded_rectangle((1, 1, size * scale - 2, size * scale - 2), radius * scale,
+                           fill=fill, outline=outline, width=2 * scale)
     return ImageTk.PhotoImage(image.resize((size, size), Image.Resampling.LANCZOS), master=master)
 
 
 def configure_orbit(window):
-    """Create per-interpreter image elements, retaining images for Tk's lifetime."""
     style = ttk.Style(window)
-    images = []
-    groups = {
-        "Primary": (COLOR["accent"], COLOR["accent_hover"], "#153888", "#E6EBF5", COLOR["on_accent"]),
-        "Header": (ORBIT["inset"], "#E8EFFA", "#DCE6F8", "#F2F4F8", COLOR["text_primary"]),
-        "Secondary": (ORBIT["inset"], "#E8EFFA", "#DCE6F8", "#F2F4F8", COLOR["text_primary"]),
-        "Quiet": (ORBIT["white"], ORBIT["inset"], "#E8EFFA", ORBIT["white"], COLOR["text_secondary"]),
-        "Tab": (ORBIT["white"], ORBIT["inset"], "#E8EFFA", ORBIT["white"], COLOR["text_secondary"]),
-        "Nav": (ORBIT["nav"], ORBIT["nav_hover"], ORBIT["nav_selected"], ORBIT["nav"], ORBIT["nav_text"]),
-        "Danger": (ORBIT["white"], "#FCE9EC", "#FADBE0", ORBIT["white"], COLOR["danger"]),
-    }
-    for key, (normal, hover, pressed, disabled, foreground) in groups.items():
-        background = {"Nav": ORBIT["nav"], "Header": ORBIT["shell"]}.get(key, ORBIT["white"])
-        element = f"Orbit.{key}.plate"
-        variants = [
-            _rounded(window, fill, background=background, outline=outline, radius=3 if key == "Tab" else 9)
-            for fill, outline in ((normal, None), (hover, None), (pressed, None), (disabled, None), (normal, ORBIT["focus"]), (pressed, ORBIT["focus"]))
-        ]
-        images.extend(variants)
-        style.element_create(
-            element, "image", variants[0],
-            ("disabled", variants[3]), ("pressed", "focus", variants[5]),
-            ("selected", "focus", variants[5]), ("focus", variants[4]),
-            ("pressed", variants[2]), ("selected", variants[2]),
-            ("active", variants[1]), border=12, padding=0, sticky="nsew",
-        )
-        name = f"Orbit.{key}.TButton"
-        style.layout(name, [(element, {"sticky": "nsew", "children": [("Button.padding", {"sticky": "nsew", "children": [("Button.label", {"sticky": "w" if key == "Nav" else ""})]})]})])
-        style.configure(name, foreground=foreground, font=font("body_sm", bold=key not in ("Quiet", "Nav")), padding=(12, 6), anchor="w" if key == "Nav" else "center")
-        style.map(name, foreground=[("disabled", ORBIT["nav_quiet"] if key == "Nav" else "#687893"), ("selected", COLOR["accent"] if key == "Tab" else foreground)])
-    style.configure("Orbit.Vertical.TScrollbar", background="#D1DBEA", troughcolor=ORBIT["shell"], bordercolor=ORBIT["shell"], arrowcolor="#546580", width=11, arrowsize=10)
-    window._orbit_style_images = images
-    window.option_add("*TCombobox*Listbox.background", ORBIT["white"])
-    window.option_add("*TCombobox*Listbox.foreground", COLOR["text_primary"])
-    window.option_add("*TCombobox*Listbox.selectBackground", COLOR["accent"])
-    window.option_add("*TCombobox*Listbox.selectForeground", ORBIT["white"])
+    style.configure("Orbit.Vertical.TScrollbar", background=COLOR["border"], troughcolor=COLOR["bg"],
+                    bordercolor=COLOR["bg"], arrowcolor=COLOR["text_subtle"], width=10, arrowsize=8)
+    window._orbit_style_images = {}
+    for key, value in (("background", COLOR["surface_raised"]), ("foreground", COLOR["text_primary"]),
+                       ("selectBackground", COLOR["accent"]), ("selectForeground", COLOR["on_accent"])):
+        window.option_add(f"*TCombobox*Listbox.{key}", value)
+
+
+def _control_style(parent, kind):
+    # Match the opaque anti-aliased edge to the actual containing surface.
+    window = parent.winfo_toplevel()
+    images = getattr(window, "_orbit_style_images", None)
+    if images is None:
+        configure_orbit(window)
+        images = window._orbit_style_images
+    background = parent.cget("background")
+    key = (kind, background)
+    name = f"Orbit.{kind}.{background.lstrip('#')}.TButton"
+    if key in images:
+        return name
+    quiet, raised, pressed = COLOR["text_secondary"], COLOR["surface_elevated"], COLOR["secondary_hover"]
+    normal, hover, down, disabled, ink = {
+        "Primary": (COLOR["accent"], COLOR["accent_hover"], COLOR["accent_pressed"], raised, COLOR["on_accent"]),
+        "Header": (background, raised, pressed, background, quiet),
+        "Secondary": (raised, pressed, COLOR["border"], background, COLOR["text_primary"]),
+        "Quiet": (background, raised, pressed, background, quiet),
+        "Tab": (background, raised, pressed, background, quiet),
+        "Nav": (background, COLOR["surface"], pressed, background, quiet),
+        "Danger": (background, raised, pressed, background, COLOR["danger"]),
+    }[kind]
+    selected = raised if kind == "Nav" else normal
+    variants = [_rounded(window, fill, background=background, outline=outline)
+                for fill, outline in ((normal, None), (hover, None), (down, None), (disabled, None),
+                                      (normal, COLOR["focus"]), (selected, None), (selected, COLOR["focus"]))]
+    images[key] = variants
+    style = ttk.Style(window)
+    element = name.removesuffix(".TButton") + ".plate"
+    style.element_create(element, "image", variants[0],
+                         ("disabled", variants[3]), ("selected", "focus", variants[6]),
+                         ("focus", variants[4]), ("pressed", variants[2]),
+                         ("selected", variants[5]), ("active", variants[1]), border=8, padding=0, sticky="nsew")
+    style.layout(name, [(element, {"sticky": "nsew", "children": [("Button.padding", {
+        "sticky": "nsew", "children": [("Button.label", {"sticky": "w" if kind == "Nav" else ""})]})]})])
+    style.configure(name, foreground=ink, font=font("body" if kind == "Primary" else "body_sm", bold=kind == "Primary"),
+                    padding=(12, 8), anchor="w" if kind == "Nav" else "center")
+    style.map(name, foreground=[("disabled", COLOR["text_subtle"]), ("selected", COLOR["text_primary"])])
+    return name
 
 
 def button(parent, text, command, *, kind="Secondary", icon=None, **kwargs):
-    control = ttk.Button(parent, text=text, command=command, style=f"Orbit.{kind}.TButton", takefocus=True, **kwargs)
+    control = ttk.Button(parent, text=text, command=command, style=_control_style(parent, kind), takefocus=True, **kwargs)
     control.bind("<Return>", lambda _event: (control.invoke(), "break")[1])
     if icon:
-        color = ORBIT["nav_text"] if kind == "Nav" else COLOR["on_accent"] if kind == "Primary" else COLOR["accent"]
-        control._orbit_icon = icon_image(control, icon, color)
-        control.configure(image=control._orbit_icon, compound="left")
+        ink = COLOR["on_accent"] if kind == "Primary" else COLOR["text_secondary"]
+        control._orbit_icons = (icon_image(control, icon, ink), icon_image(control, icon, COLOR["text_subtle"]))
+        control.configure(image=(control._orbit_icons[0], "disabled", control._orbit_icons[1]), compound="left")
     return control
 
 
 _GLYPHS = {
+    "link": (((7, 5), (9, 3), (12, 3), (14, 5), (14, 7), (11, 10)), ((9, 11), (7, 13), (4, 13), (2, 11), (2, 9), (5, 6)), ((6, 10), (10, 6))),
     "download": (((8, 2), (8, 10)), ((4, 7), (8, 11), (12, 7)), ((2, 12), (2, 15), (14, 15), (14, 12))),
     "queue": (((3, 4), (14, 4)), ((3, 8), (14, 8)), ((3, 12), (11, 12))),
     "history": (((3, 3), (3, 7), (7, 7)), ((3, 7), (5, 3), (11, 2), (14, 5), (14, 11), (11, 14), (5, 14), (2, 11)), ((8, 5), (8, 9), (11, 10))),

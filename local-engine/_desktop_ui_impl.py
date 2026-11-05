@@ -825,7 +825,7 @@ def _check(master, text: str, variable: tk.BooleanVar) -> tk.Checkbutton:
 
 def _toggle_advanced(window) -> None:
     window._advanced_open = not bool(getattr(window, "_advanced_open", False))
-    title = "高级下载设置" if getattr(window, "_orbit_shell", False) else "高级下载工作台"
+    title = "下载设置" if getattr(window, "_orbit_shell", False) else "高级下载工作台"
     if window._advanced_open:
         window._advanced_panel.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
         window._advanced_toggle_var.set(f"{title}  ⌄")

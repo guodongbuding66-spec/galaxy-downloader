@@ -73,29 +73,30 @@ class Tween:
 
 class ModeTabs(tk.Frame):
     def __init__(self, parent, reduced, on_select):
-        super().__init__(parent, bg=ORBIT["white"])
+        super().__init__(parent, bg=COLOR["surface"])
         self.index = 0
         self.on_select = on_select
-        row = tk.Frame(self, bg=ORBIT["white"])
-        row.pack(fill="x")
+        row = tk.Frame(self, bg=COLOR["surface"])
+        row.pack(anchor="w")
         self.buttons = []
         for i, title in enumerate(("视频与音频", "网页原图")):
             row.grid_columnconfigure(i, weight=1, uniform="mode")
             control = button(row, title, lambda index=i: self.select(index), kind="Tab")
-            control.grid(row=0, column=i, sticky="ew")
+            control.grid(row=0, column=i, sticky="ew", ipadx=8)
             control.bind("<Left>", lambda _event, index=i: self._move(1 - index))
             control.bind("<Right>", lambda _event, index=i: self._move(1 - index))
             self.buttons.append(control)
         self.buttons[0].state(["selected"])
-        self.indicator = tk.Canvas(self, height=4, bg=ORBIT["line"], highlightthickness=0)
-        self.indicator.pack(fill="x", pady=(2, 0))
-        self._bar = self.indicator.create_rectangle(0, 0, 0, 4, fill=COLOR["accent"], width=0)
+        self.indicator = tk.Canvas(self, height=2, bg=ORBIT["line"], highlightthickness=0)
+        self.indicator.pack(anchor="w")
+        row.bind("<Configure>", lambda event: self.indicator.configure(width=event.width))
+        self._bar = self.indicator.create_rectangle(0, 0, 0, 2, fill=COLOR["accent"], width=0)
         self.tween = Tween(self, reduced, self._paint)
         self.indicator.bind("<Configure>", lambda _event: self._paint(self.tween.current))
 
     def _paint(self, position):
         width = self.indicator.winfo_width() / 2
-        self.indicator.coords(self._bar, width * position, 0, width * (position + 1), 4)
+        self.indicator.coords(self._bar, width * position, 0, width * (position + 1), 2)
 
     def _move(self, index):
         self.buttons[index].focus_set()

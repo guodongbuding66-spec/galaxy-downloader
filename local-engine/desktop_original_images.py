@@ -112,13 +112,14 @@ def _build_original_images_strip(window, engine_module) -> None:
     panel = getattr(window, "_orbit_image_details", None) or getattr(window, "_quick_download_panel", None)
     if panel is None or not panel.winfo_exists():
         return
-    strip = tk.Frame(panel, bg=ui.PANEL_2)
-    strip.pack(fill="x", pady=(12, 0))
+    surface = ui.PANEL if getattr(window, "_orbit_shell", False) else ui.PANEL_2
+    strip = tk.Frame(panel, bg=surface)
+    strip.pack(fill="x", pady=(8, 0))
 
-    head = tk.Frame(strip, bg=ui.PANEL_2)
+    head = tk.Frame(strip, bg=surface)
     head.pack(fill="x")
-    ui._label(head, "网页原图 / 商品图集", size="body_sm", weight="bold", bg=ui.PANEL_2).pack(side="left", anchor="w")
-    actions = tk.Frame(head, bg=ui.PANEL_2)
+    ui._label(head, "保存可获取的最高分辨率", size="body_sm", weight="normal", bg=surface).pack(side="left", anchor="w")
+    actions = tk.Frame(head, bg=surface)
     actions.pack(side="right", anchor="e")
 
     download = lambda: _download_original_images(window, engine_module)
@@ -131,10 +132,10 @@ def _build_original_images_strip(window, engine_module) -> None:
 
     detail = ui._label(
         strip,
-        "优先保存页面提供的高分辨率图片，按实际像素核验并保留原始格式。",
+        "按实际像素核验，保留源文件格式。",
         size="caption",
         color=ui.SUBTLE,
-        bg=ui.PANEL_2,
+        bg=surface,
         wraplength=720,
         justify="left",
     )

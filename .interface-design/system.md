@@ -1,4 +1,4 @@
-# Galaxy Local Engine — Design System v1.7
+# Galaxy Local Engine — Design System v1.9
 
 ## Intent
 Native Windows utility for people who repeatedly capture product images, videos, audio and documents. It must feel like a serious local tool: readable, calm, operational and trustworthy. The native `GalaxyLocalEngine.exe` is the canonical surface; the HTML dashboard is optional and never substitutes for the EXE UI.
@@ -53,11 +53,11 @@ Supporting skills:
 ## Layout
 - Preferred native window: approximately 1320×880.
 - Responsive floor: approximately 960×680 when the Windows work area is smaller; never force the window outside the visible display.
-- At constrained widths the secondary header actions wrap below the product identity instead of clipping off-screen.
-- Main workbench / status rail: ~72/28.
+- A compact header names the workspace. The navigation and main stage share the canvas; the 168px navigation column is separated by one subdued divider.
+- Main workbench / status rail: ~72/28 at normal wide sizes; a 248px rail appears from 1120px. Smaller clients keep the queue reachable from the transfer row and sidebar.
 - Capture strip is the first focal block inside the main workbench.
-- Current task and advanced options follow the capture strip.
-- Queue and local runtime components live in the right rail.
+- Download settings and the current transfer follow the capture strip. Idle progress metrics are hidden until there is a task.
+- Queue and local runtime components live in the optional rail; essential engine status is always visible in the footer.
 - Original-image action sits with the capture strip and explains maximum-public-resolution fallback.
 - gallery-dl fallback and its low-frequency tuning stay behind progressive disclosure so they do not bury the current task on laptop-height displays.
 

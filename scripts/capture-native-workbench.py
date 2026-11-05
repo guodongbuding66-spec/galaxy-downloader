@@ -53,10 +53,13 @@ def main():
         rail_visible = bool(app._rail_canvas.winfo_ismapped())
         rail_width = app._rail_canvas.winfo_width()
         print(f"Window={app.winfo_width()}x{app.winfo_height()} rail={rail_width} mapped={rail_visible} main={app._workbench_canvas.winfo_width()}", flush=True)
-        if app.winfo_width() >= 990:
-            assert rail_visible and rail_width <= 270, "wide queue must fit its allocated column"
+        if app.winfo_width() >= 1120:
+            assert rail_visible and rail_width <= 248, "wide queue must fit its allocated column"
         else:
             assert not rail_visible, "queue must collapse in a narrow window"
+        assert not app._orbit_meter.winfo_ismapped(), "idle metrics add noise"
+        assert app._orbit_advanced_button.winfo_ismapped(), "settings should be discoverable"
+        assert app._quick_parse_button.winfo_height() >= 44, "primary hit area too small"
         tabs = app._orbit_tabs
         saved_reduced = app._orbit_reduce_motion.get()
         app._orbit_reduce_motion.set(False)
