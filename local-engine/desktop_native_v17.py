@@ -410,6 +410,8 @@ def install_native_desktop_v17(engine_module, ui_module):
         body.grid_rowconfigure(0, weight=1)
         main_outer, main = _scrollable_workbench(body, window)
         rail_outer, rail = _scrollable_workbench(body, window, column=1)
+        rail_outer.configure(width=270)
+        rail_outer.grid_propagate(False)
         window._orbit_main = main
         window._orbit_hero = _hero(main)
 
@@ -516,8 +518,10 @@ def install_native_desktop_v17(engine_module, ui_module):
             return "break"
         window._quick_url_entry.bind("<Return>", submit_link)
 
-        def responsive(event):
-            wide = event.width >= 770
+        def responsive(event=None):
+            if event is not None and event.widget is not window:
+                return
+            wide = window.winfo_width() >= 990
             if wide and not rail_outer.winfo_manager():
                 body.grid_columnconfigure(1, minsize=270)
                 rail_outer.grid()
@@ -526,7 +530,8 @@ def install_native_desktop_v17(engine_module, ui_module):
                 rail_outer.grid_remove()
                 body.grid_columnconfigure(1, minsize=0)
                 main_outer.grid_configure(padx=0)
-        body.bind("<Configure>", responsive, add="+")
+        window.bind("<Configure>", responsive, add="+")
+        window.after_idle(responsive)
 
         def reduce_changed(*_args):
             if window._orbit_reduced():

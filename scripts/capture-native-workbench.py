@@ -49,8 +49,14 @@ def main():
         assert app._orbit_shell
         assert visible_in(app._quick_parse_button, app._workbench_canvas), "parse action clipped"
         assert visible_in(app._quick_url_entry, app._workbench_canvas), "link input clipped"
-        assert app._rail_canvas.winfo_ismapped() and app._rail_canvas.winfo_width() <= 300, "queue takes too much room"
         snapshot(app).save(out / "native-workbench.png")
+        rail_visible = bool(app._rail_canvas.winfo_ismapped())
+        rail_width = app._rail_canvas.winfo_width()
+        print(f"Window={app.winfo_width()}x{app.winfo_height()} rail={rail_width} mapped={rail_visible} main={app._workbench_canvas.winfo_width()}", flush=True)
+        if app.winfo_width() >= 990:
+            assert rail_visible and rail_width <= 270, "wide queue must fit its allocated column"
+        else:
+            assert not rail_visible, "queue must collapse in a narrow window"
         tabs = app._orbit_tabs
         saved_reduced = app._orbit_reduce_motion.get()
         app._orbit_reduce_motion.set(False)
