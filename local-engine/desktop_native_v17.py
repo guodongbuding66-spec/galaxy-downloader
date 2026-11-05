@@ -89,12 +89,10 @@ def _text_wrap(label, container, *, inset=0):
 def _scrollable_workbench(parent, window, *, column=0):
     outer = tk.Frame(parent, bg=ORBIT["shell"])
     outer.grid(row=0, column=column, sticky="nsew", padx=(0, 14) if column == 0 else 0)
-    outer.grid_rowconfigure(0, weight=1)
-    outer.grid_columnconfigure(0, weight=1)
     # A native child frame clips against its viewport. On Windows a Tk canvas
     # window could remain visually blank when its short content did not scroll.
     canvas = tk.Frame(outer, width=1, height=1, bg=ui.BG)
-    canvas.grid(row=0, column=0, sticky="nsew")
+    canvas.pack(fill="both", expand=True)
     content = tk.Frame(canvas, bg=ui.BG)
     content.place(x=0, y=0, relwidth=1)
     offset = 0
@@ -109,9 +107,12 @@ def _scrollable_workbench(parent, window, *, column=0):
         scroll.set(offset / extent, min(1, (offset + height) / extent))
         shown = bool(scroll.winfo_manager())
         if extent > height and not shown:
-            scroll.grid(row=0, column=1, sticky="ns", padx=(4, 0))
+            content.place_configure(width=-16)
+            scroll.place(relx=1, relheight=1, anchor="ne", width=12)
+            scroll.lift()
         elif extent == height and shown:
-            scroll.grid_remove()
+            scroll.place_forget()
+            content.place_configure(width=0)
 
     def moveto(fraction):
         redraw(float(fraction) * max(1, content.winfo_reqheight()))
@@ -158,8 +159,20 @@ def _scrollable_workbench(parent, window, *, column=0):
             offset -= (height - child.winfo_height() - 12) if bottom > height else 12
             canvas.yview_moveto(max(0, offset) / max(1, content.winfo_reqheight()))
 
-    content.bind("<Configure>", lambda _event: redraw(offset))
-    canvas.bind("<Configure>", lambda _event: redraw(offset))
+    layout_job = None
+
+    def update_layout():
+        nonlocal layout_job
+        layout_job = None
+        redraw(offset)
+
+    def schedule_layout(_event):
+        nonlocal layout_job
+        if layout_job is None:
+            layout_job = outer.after_idle(update_layout)
+
+    content.bind("<Configure>", schedule_layout)
+    canvas.bind("<Configure>", schedule_layout)
     for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
         window.bind(sequence, wheel, add="+")
     window.bind("<FocusIn>", reveal, add="+")
@@ -414,7 +427,7 @@ def install_native_desktop_v17(engine_module, ui_module):
         main_outer, main = _scrollable_workbench(body, window)
         rail_outer, rail = _scrollable_workbench(body, window, column=1)
         rail_outer.configure(width=248)
-        rail_outer.grid_propagate(False)
+        rail_outer.pack_propagate(False)
         window._orbit_main = main
 
         current = tk.Frame(main, bg=ui.BG)
@@ -522,9 +535,11 @@ def install_native_desktop_v17(engine_module, ui_module):
             return "break"
         window._quick_url_entry.bind("<Return>", submit_link)
 
-        def responsive(event=None):
-            if event is not None and event.widget is not window:
-                return
+        responsive_job = None
+
+        def responsive():
+            nonlocal responsive_job
+            responsive_job = None
             wide = window.winfo_width() >= 1120
             if wide and not rail_outer.winfo_manager():
                 body.grid_columnconfigure(1, minsize=248)
@@ -534,8 +549,13 @@ def install_native_desktop_v17(engine_module, ui_module):
                 rail_outer.grid_remove()
                 body.grid_columnconfigure(1, minsize=0)
                 main_outer.grid_configure(padx=0)
-        window.bind("<Configure>", responsive, add="+")
-        window.after_idle(responsive)
+        def schedule_responsive(event=None):
+            nonlocal responsive_job
+            if (event is None or event.widget is window) and responsive_job is None:
+                responsive_job = window.after_idle(responsive)
+
+        window.bind("<Configure>", schedule_responsive, add="+")
+        schedule_responsive()
 
         def reduce_changed(*_args):
             if window._orbit_reduced():
