@@ -559,11 +559,12 @@ def _render_queue(window, pending: list[Any]) -> None:
         text.pack(side="left", fill="x", expand=True)
         label = str(getattr(queued, "label", "Queued download") or "Queued download")
         host = str(getattr(queued, "source_host", "") or "")
-        _label(text, label[:34], size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
+        title = _label(text, label[:34], size=8, weight="bold", bg=PANEL_2)
+        title.pack(anchor="w")
+        host_label = None
         if host:
-            _label(text, host[:32], size=7, color=SUBTLE, bg=PANEL_2).pack(
-                anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"])
-            )
+            host_label = _label(text, host[:32], size=7, color=SUBTLE, bg=PANEL_2)
+            host_label.pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"]))
         job_id = str(getattr(queued, "job_id", "") or "")
         if job_id:
             cancel = tk.Button(
@@ -584,6 +585,25 @@ def _render_queue(window, pending: list[Any]) -> None:
             )
             cancel.pack(side="right", padx=(LAYOUT["micro"], LAYOUT["none"]))
         run_queue_row_hooks(window, row, queued, index - 1, pending)
+        if getattr(window, "_orbit_shell", False):
+            # The controls get their natural width before the flexible title.
+            text.pack_forget()
+            text.pack(side="left", fill="x", expand=True)
+            from tkinter.font import Font
+            lines = [(title, label, Font(master=row, font=title.cget("font")))]
+            if host_label is not None:
+                lines.append((host_label, host, Font(master=row, font=host_label.cget("font"))))
+
+            def fit_queue_text(event, entries=lines):
+                for target, full, face in entries:
+                    width = max(0, event.width - 4)
+                    clipped = full[:80]
+                    while clipped and face.measure(clipped + "…") > width:
+                        clipped = clipped[:-1]
+                    value = full if clipped == full else clipped + "…" if clipped else ""
+                    if target.cget("text") != value:
+                        target.configure(text=value)
+            text.bind("<Configure>", fit_queue_text, add="+")
     if len(pending) > 8:
         _label(panel, f"另有 {len(pending) - 8} 项等待", size=8, color=MUTED).pack(
             anchor="w", padx=LAYOUT["micro"], pady=(LAYOUT["micro"], LAYOUT["none"])

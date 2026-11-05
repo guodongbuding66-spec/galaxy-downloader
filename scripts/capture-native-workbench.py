@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import tkinter as tk
 from pathlib import Path
 
 from PIL import ImageGrab
@@ -46,8 +47,9 @@ def main():
         app.lift()
         settle(app, 0.45)
         assert app._orbit_shell
-        assert visible_in(app._quick_parse_button, app), "parse action clipped"
-        assert visible_in(app._quick_url_entry, app), "link input clipped"
+        assert visible_in(app._quick_parse_button, app._workbench_canvas), "parse action clipped"
+        assert visible_in(app._quick_url_entry, app._workbench_canvas), "link input clipped"
+        assert app._rail_canvas.winfo_ismapped() and app._rail_canvas.winfo_width() <= 300, "queue takes too much room"
         snapshot(app).save(out / "native-workbench.png")
         tabs = app._orbit_tabs
         saved_reduced = app._orbit_reduce_motion.get()
@@ -78,6 +80,15 @@ def main():
         tabs.buttons[0].invoke()
         assert tabs.tween.current == 0 and tabs.tween.job is None, "reduced motion did not snap"
         app._orbit_reduce_motion.set(saved_reduced)
+        tabs.buttons[0].focus_force()
+        settle(app)
+        tabs.buttons[0].event_generate("<KeyPress-Right>")
+        assert tabs.index == 1, "arrow key did not switch modes"
+        tabs.buttons[1].event_generate("<Control-KeyPress-l>")
+        settle(app)
+        assert app.focus_get() is app._quick_url_entry, "Ctrl+L did not focus the link input"
+        tabs.buttons[0].invoke()
+        settle(app)
         assert app._orbit_tools_menu.index("end") >= 5, "secondary tools were lost"
         assert app._original_images_button.winfo_exists()
         assert app._queue_pause_button.winfo_exists()
@@ -93,14 +104,22 @@ def main():
         compact_height = min(650, height)
         app.geometry(f"{compact_width}x{compact_height}+4+4")
         settle(app)
-        assert visible_in(app._quick_parse_button, app), "compact parse action clipped"
+        assert visible_in(app._quick_parse_button, app._workbench_canvas), "compact parse action clipped"
         assert visible_in(app._quick_url_entry, app), "compact link input clipped"
         snapshot(app).save(out / "native-workbench-compact.png")
+        existing = set(app.winfo_children())
+        app._orbit_queue_nav.invoke()
+        settle(app)
+        queue_windows = [child for child in app.winfo_children() if child not in existing and isinstance(child, tk.Toplevel)]
+        assert queue_windows, "queue is not reachable from compact navigation"
+        for dialog in queue_windows:
+            dialog.destroy()
         (out / "native-runtime.json").write_text(json.dumps({
             "nativeWindowCreated": True, "width": width, "height": height,
             "compactWidth": app.winfo_width(), "compactHeight": app.winfo_height(),
             "inputRetainedAcrossModes": True, "rapidReversalSettled": True,
             "reducedMotionSnap": True, "advancedDisclosure": True,
+            "keyboardNavigation": True, "compactQueueReachable": True,
             "realMotionFrames": len(frames), "mock": False,
         }, indent=2), encoding="utf-8")
     finally:

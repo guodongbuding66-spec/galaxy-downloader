@@ -27,9 +27,9 @@ ORBIT = MappingProxyType({
 })
 
 
-def _rounded(master, fill, *, outline=None, radius=9):
-    size, scale = 32, 3
-    image = Image.new("RGBA", (size * scale, size * scale))
+def _rounded(master, fill, *, background, outline=None, radius=9):
+    size, scale = 44, 3
+    image = Image.new("RGB", (size * scale, size * scale), background)
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((1, 1, size * scale - 2, size * scale - 2), radius * scale, fill=fill, outline=outline, width=2 * scale)
     return ImageTk.PhotoImage(image.resize((size, size), Image.Resampling.LANCZOS), master=master)
@@ -41,6 +41,7 @@ def configure_orbit(window):
     images = []
     groups = {
         "Primary": (COLOR["accent"], COLOR["accent_hover"], "#153888", "#E6EBF5", COLOR["on_accent"]),
+        "Header": (ORBIT["inset"], "#E8EFFA", "#DCE6F8", "#F2F4F8", COLOR["text_primary"]),
         "Secondary": (ORBIT["inset"], "#E8EFFA", "#DCE6F8", "#F2F4F8", COLOR["text_primary"]),
         "Quiet": (ORBIT["white"], ORBIT["inset"], "#E8EFFA", ORBIT["white"], COLOR["text_secondary"]),
         "Tab": (ORBIT["white"], ORBIT["inset"], "#E8EFFA", ORBIT["white"], COLOR["text_secondary"]),
@@ -48,9 +49,10 @@ def configure_orbit(window):
         "Danger": (ORBIT["white"], "#FCE9EC", "#FADBE0", ORBIT["white"], COLOR["danger"]),
     }
     for key, (normal, hover, pressed, disabled, foreground) in groups.items():
+        background = {"Nav": ORBIT["nav"], "Header": ORBIT["shell"]}.get(key, ORBIT["white"])
         element = f"Orbit.{key}.plate"
         variants = [
-            _rounded(window, fill, outline=outline)
+            _rounded(window, fill, background=background, outline=outline, radius=3 if key == "Tab" else 9)
             for fill, outline in ((normal, None), (hover, None), (pressed, None), (disabled, None), (normal, ORBIT["focus"]), (pressed, ORBIT["focus"]))
         ]
         images.extend(variants)
@@ -59,11 +61,11 @@ def configure_orbit(window):
             ("disabled", variants[3]), ("pressed", "focus", variants[5]),
             ("selected", "focus", variants[5]), ("focus", variants[4]),
             ("pressed", variants[2]), ("selected", variants[2]),
-            ("active", variants[1]), border=12, sticky="nsew",
+            ("active", variants[1]), border=12, padding=0, sticky="nsew",
         )
         name = f"Orbit.{key}.TButton"
         style.layout(name, [(element, {"sticky": "nsew", "children": [("Button.padding", {"sticky": "nsew", "children": [("Button.label", {"sticky": "w" if key == "Nav" else ""})]})]})])
-        style.configure(name, foreground=foreground, font=font("body_sm", bold=key not in ("Quiet", "Nav")), padding=(13, 9), anchor="w" if key == "Nav" else "center")
+        style.configure(name, foreground=foreground, font=font("body_sm", bold=key not in ("Quiet", "Nav")), padding=(12, 6), anchor="w" if key == "Nav" else "center")
         style.map(name, foreground=[("disabled", ORBIT["nav_quiet"] if key == "Nav" else "#687893"), ("selected", COLOR["accent"] if key == "Tab" else foreground)])
     style.configure("Orbit.Vertical.TScrollbar", background="#D1DBEA", troughcolor=ORBIT["shell"], bordercolor=ORBIT["shell"], arrowcolor="#546580", width=11, arrowsize=10)
     window._orbit_style_images = images

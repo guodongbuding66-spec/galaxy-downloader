@@ -28,19 +28,6 @@ def _label(master, text=None, *, variable=None, size="body", weight="normal", co
     )
 
 
-def _hairline(master, *, bg=None):
-    return tk.Frame(master, height=1, bg=bg or ui.BORDER_SOFT)
-
-
-def _brand_mark(canvas: tk.Canvas) -> None:
-    canvas.delete("all")
-    canvas.create_arc(6, 6, 42, 42, start=42, extent=278, style="arc", outline=ui.TEXT, width=4)
-    canvas.create_line(28, 24, 42, 24, fill=ui.TEXT, width=4, capstyle="round")
-    canvas.create_line(33, 12, 33, 31, fill=ui.ACCENT, width=4, capstyle="round")
-    canvas.create_line(27, 25, 33, 31, 39, 25, fill=ui.ACCENT, width=4, joinstyle="round", capstyle="round")
-    canvas.create_line(26, 37, 41, 37, fill=ui.ACCENT, width=3, capstyle="round")
-
-
 def _make_titlebar_icon(master: tk.Misc, size: int = 32) -> tk.PhotoImage:
     image = tk.PhotoImage(master=master, width=size, height=size)
     image.put(ui.BG, to=(0, 0, size, size))
@@ -91,10 +78,10 @@ def _configure_styles(window) -> None:
         background=ui.PANEL_3,
         foreground=ui.TEXT,
         arrowcolor=ui.MUTED,
-        bordercolor=ui.BORDER,
-        lightcolor=ui.BORDER,
-        darkcolor=ui.BORDER,
-        padding=(10, 9),
+        bordercolor=ORBIT["line"],
+        lightcolor=ORBIT["line"],
+        darkcolor=ORBIT["line"],
+        padding=(10, 6),
         font=font("body_sm"),
     )
     style.map(
@@ -119,7 +106,7 @@ def _scrollable_workbench(parent, window, *, column=0):
     outer.grid(row=0, column=column, sticky="nsew", padx=(0, 14) if column == 0 else 0)
     outer.grid_rowconfigure(0, weight=1)
     outer.grid_columnconfigure(0, weight=1)
-    canvas = tk.Canvas(outer, bg=ORBIT["shell"], highlightthickness=0, bd=0, yscrollincrement=16)
+    canvas = tk.Canvas(outer, width=1, height=1, bg=ORBIT["shell"], highlightthickness=0, bd=0, yscrollincrement=16)
     canvas.grid(row=0, column=0, sticky="nsew")
     scroll = ttk.Scrollbar(outer, orient="vertical", style="Orbit.Vertical.TScrollbar", command=canvas.yview)
     canvas.configure(yscrollcommand=scroll.set)
@@ -181,7 +168,7 @@ def _card(parent, *, padx=18, pady=15):
 
 
 def _hero(parent):
-    hero = tk.Frame(parent, bg=ORBIT["hero"], padx=20, pady=15)
+    hero = tk.Frame(parent, bg=ORBIT["hero"], padx=20, pady=12)
     hero.pack(fill="x", pady=(0, 14))
     copy = tk.Frame(hero, bg=ORBIT["hero"])
     copy.pack(side="left", fill="x", expand=True)
@@ -189,7 +176,7 @@ def _hero(parent):
     _label(copy, "媒体下载工作台", size="display", weight="bold", color=ORBIT["hero_text"], bg=ORBIT["hero"]).pack(anchor="w", pady=(3, 1))
     _label(copy, "粘贴链接，选好画质，再保存到本机。", size="body_sm", color=ORBIT["hero_quiet"], bg=ORBIT["hero"]).pack(anchor="w")
     # A static orbit motif supports the brand without running an idle animation.
-    art = tk.Canvas(hero, width=145, height=86, bg=ORBIT["hero"], bd=0, highlightthickness=0)
+    art = tk.Canvas(hero, width=145, height=72, bg=ORBIT["hero"], bd=0, highlightthickness=0)
     art.pack(side="right", padx=(14, 0))
     for inset in (0, 10, 20):
         art.create_oval(41 + inset, -17 + inset, 147 - inset, 91 - inset, outline=ORBIT["hero_line"], width=1)
@@ -227,7 +214,7 @@ def _build_quick_panel_v17(window, engine_module):
             window._quick_state_var.set("粘贴商品页链接后按 Enter 下载原图。" if index else "粘贴链接后按 Enter 解析。")
 
     tabs = ModeTabs(panel, window._orbit_reduced, switch_mode)
-    tabs.pack(fill="x", pady=(0, 13))
+    tabs.pack(fill="x", pady=(0, 9))
     window._orbit_tabs = tabs
     hint = tk.StringVar(value="视频或音频链接")
     _label(panel, variable=hint, size="body_sm", weight="bold").pack(anchor="w", pady=(0, 6))
@@ -237,7 +224,7 @@ def _build_quick_panel_v17(window, engine_module):
     window._quick_url_var = tk.StringVar()
     entry = tk.Entry(url_row, textvariable=window._quick_url_var, font=font("body"), bg=ORBIT["inset"], fg=ui.TEXT,
                      insertbackground=ui.TEXT, selectbackground=ui.ACCENT, selectforeground=COLOR["on_accent"],
-                     relief="flat", bd=0, highlightthickness=1, highlightbackground=ui.BORDER, highlightcolor=ui.FOCUS)
+                     relief="flat", bd=0, highlightthickness=1, highlightbackground=ORBIT["line"], highlightcolor=ui.FOCUS)
     entry.grid(row=0, column=0, sticky="ew", ipady=10)
     window._quick_url_entry = entry
     button(url_row, "粘贴", lambda: quick._paste_quick_url(window)).grid(row=0, column=1, padx=(8, 0))
@@ -334,7 +321,7 @@ def _make_nav(window, sidebar):
 
     _label(sidebar, "工作区", size="caption", color=ORBIT["nav_quiet"], bg=ORBIT["nav"]).pack(anchor="w", padx=11, pady=(15, 7))
     nav("下载工作台", "download", focus_composer, active=True)
-    nav("下载队列", "queue", lambda: invoke("_queue_manager_button"))
+    window._orbit_queue_nav = nav("下载队列", "queue", lambda: invoke("_queue_manager_button"))
     nav("历史记录", "history", lambda: invoke("_history_button"))
     nav("媒体库", "library", lambda: invoke("_media_library_button"))
     bottom = tk.Frame(sidebar, bg=ORBIT["nav"])
@@ -403,7 +390,7 @@ def install_native_desktop_v17(engine_module, ui_module):
         header = tk.Frame(stage, bg=ORBIT["shell"])
         header.pack(fill="x", pady=(8, 9))
         _label(header, "工作区  /  下载", size="body_sm", weight="bold", bg=ORBIT["shell"], color=ui.MUTED).pack(side="left")
-        window.folder_button = button(header, "下载目录", window.open_folder, icon="library")
+        window.folder_button = button(header, "下载目录", window.open_folder, kind="Header", icon="library")
         window.folder_button.pack(side="right")
         # Existing extensions still register the same actions. Orbit routes them
         # through the navigation/menu instead of packing them into the title bar.
@@ -421,7 +408,7 @@ def install_native_desktop_v17(engine_module, ui_module):
         body.grid_columnconfigure(0, weight=1)
         body.grid_columnconfigure(1, weight=0, minsize=270)
         body.grid_rowconfigure(0, weight=1)
-        _, main = _scrollable_workbench(body, window)
+        main_outer, main = _scrollable_workbench(body, window)
         rail_outer, rail = _scrollable_workbench(body, window, column=1)
         window._orbit_main = main
         window._orbit_hero = _hero(main)
@@ -432,21 +419,20 @@ def install_native_desktop_v17(engine_module, ui_module):
         current_head.pack(fill="x")
         _label(current_head, "当前传输", size="title_sm", weight="bold").pack(side="left")
         window._queue_summary_var = tk.StringVar(value="等待 0 项")
-        _label(current_head, variable=window._queue_summary_var, size="caption", color=ui.MUTED).pack(side="right")
         transfer_state = tk.StringVar()
         def sync_status(*_args):
             status = window.status_var.get()
             transfer_state.set("等待下载" if status == "Ready" else status)
         window.status_var.trace_add("write", sync_status)
         sync_status()
-        _label(current, variable=transfer_state, size="body_sm", color=ui.MUTED).pack(anchor="w", pady=(6, 5))
+        _label(current_head, variable=transfer_state, size="caption", color=ui.MUTED).pack(side="right")
         detail_text = tk.StringVar()
         def sync_detail(*_args):
             value = window.detail_var.get()
             detail_text.set("解析链接后可在此查看传输进度。" if value == "Waiting for a download job" else value)
         window.detail_var.trace_add("write", sync_detail)
         sync_detail()
-        _text_wrap(_label(current, variable=detail_text, size="caption", color=ui.SUBTLE, justify="left"), current, inset=34).pack(anchor="w", pady=(0, 9))
+        _text_wrap(_label(current, variable=detail_text, size="caption", color=ui.SUBTLE, justify="left"), current, inset=34).pack(anchor="w", pady=(6, 9))
         meter = ProgressMeter(current, window.percent_var, window._orbit_reduced)
         meter.pack(fill="x")
         window._orbit_meter = meter
@@ -460,10 +446,17 @@ def install_native_desktop_v17(engine_module, ui_module):
             _label(cell, name, size="caption", color=ui.SUBTLE).pack(anchor="w")
             _label(cell, variable=value, size="body_sm", weight="bold").pack(anchor="w", pady=(2, 0))
         actions = tk.Frame(current, bg=ui.PANEL)
-        actions.pack(fill="x", pady=(6, 0))
         window.cancel_button = button(actions, "取消任务", window.cancel, kind="Danger")
         window.cancel_button.pack(side="left")
         window.cancel_button.state(["disabled"])
+
+        def sync_actions(*_args):
+            if getattr(window, "job", None) is not None or getattr(window, "running", False):
+                actions.pack(fill="x", pady=(6, 0))
+            else:
+                actions.pack_forget()
+        window.status_var.trace_add("write", sync_actions)
+        sync_actions()
 
         advanced = _card(main, padx=12, pady=5)
         advanced.pack(fill="x", pady=(0, 14))
@@ -528,9 +521,11 @@ def install_native_desktop_v17(engine_module, ui_module):
             if wide and not rail_outer.winfo_manager():
                 body.grid_columnconfigure(1, minsize=270)
                 rail_outer.grid()
+                main_outer.grid_configure(padx=(0, 14))
             elif not wide and rail_outer.winfo_manager():
                 rail_outer.grid_remove()
                 body.grid_columnconfigure(1, minsize=0)
+                main_outer.grid_configure(padx=0)
         body.bind("<Configure>", responsive, add="+")
 
         def reduce_changed(*_args):
