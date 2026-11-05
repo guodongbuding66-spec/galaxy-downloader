@@ -55,6 +55,8 @@ def _responsive_header(window: tk.Misc) -> None:
     1000–1100px work areas. Re-flowing the existing native controls preserves
     every command and keyboard target without creating a second toolbar API.
     """
+    if getattr(window, "_orbit_shell", False):
+        return
     copy_button = getattr(window, "_copy_diag_button", None)
     if copy_button is None:
         return

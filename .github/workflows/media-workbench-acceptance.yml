@@ -53,12 +53,14 @@ jobs:
         run: |
           python scripts/test-final-media-completion.py
           python scripts/test-local-document-policy.py
+          python scripts/test-local-desktop-quick-download.py
+          python scripts/test-design-system-docs.py
           python local-engine/image_resolution.py
           python local-engine/desktop_design_tokens.py
           python local-engine/desktop_ui.py
           python local-engine/desktop_native_v17.py
           python local-engine/entrypoint.py --self-test
-      - name: Real native window screenshot
+      - name: Native window interaction and capture
         run: python scripts/capture-native-workbench.py qa
       - name: Freeze Windows application
         shell: pwsh

@@ -197,7 +197,7 @@ def _preview_clipboard_candidate(window, engine_module) -> None:
 
 
 def _install_clipboard_controls(window, engine_module) -> None:
-    panel = getattr(window, "_quick_download_panel", None)
+    panel = getattr(window, "_orbit_clipboard_slot", None) or getattr(window, "_quick_download_panel", None)
     if panel is None:
         return
 
@@ -224,15 +224,21 @@ def _install_clipboard_controls(window, engine_module) -> None:
         variable=window._clipboard_monitor_var,
         command=lambda: _toggle_monitor(window, engine_module),
     ).pack(side="left")
-    ui._label(
-        row,
+    orbit = getattr(window, "_orbit_shell", False)
+    hint = ui._label(
+        panel if orbit else row,
         variable=window._clipboard_status_var,
         size=7,
         color=ui.SUBTLE,
         bg=ui.PANEL_2,
         wraplength=440,
         justify="left",
-    ).pack(side="left", padx=(10, 8), fill="x", expand=True)
+    )
+    if orbit:
+        hint.pack(fill="x", anchor="w")
+        panel.bind("<Configure>", lambda event: hint.configure(wraplength=max(120, event.width - 10)), add="+")
+    else:
+        hint.pack(side="left", padx=(10, 8), fill="x", expand=True)
     window._clipboard_preview_button = ui.ActionButton(
         row,
         text="预览剪贴板链接",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import tkinter as tk
 import webbrowser
 from tkinter import ttk
@@ -7,8 +8,10 @@ from tkinter import ttk
 from desktop_design_tokens import COLOR, LAYOUT, TYPE, font
 from desktop_hooks import run_after_build_ui_hooks
 from media_policy import aria2c_available
+from desktop_workbench_motion import ModeTabs, ProgressMeter, system_reduces_motion
+from desktop_workbench_style import ORBIT, button, configure_orbit, icon_image
 
-NATIVE_UI_REVISION = "1.7.0"
+NATIVE_UI_REVISION = "1.8.0"
 ui = None
 
 
@@ -104,235 +107,254 @@ def _configure_styles(window) -> None:
     )
 
 
-def _status_item(master, label: str, ready: bool, *, optional: bool = False) -> tk.Frame:
-    row = tk.Frame(master, bg=ui.PANEL, pady=3)
-    dot = tk.Canvas(row, width=12, height=12, bg=ui.PANEL, bd=0, highlightthickness=0)
-    color = ui.SUCCESS if ready else (ui.SUBTLE if optional else ui.DANGER)
-    dot.create_oval(2, 2, 10, 10, fill=color, outline="")
-    dot.pack(side="left")
-    _label(row, label, size="body_sm", color=ui.MUTED).pack(side="left", padx=(8, 0))
-    return row
+def _text_wrap(label, container, *, inset=0):
+    def resize(event):
+        label.configure(wraplength=max(70, event.width - inset))
+    container.bind("<Configure>", resize, add="+")
+    return label
 
 
-def _metric(master, title: str, variable: tk.Variable) -> tk.Frame:
-    cell = tk.Frame(master, bg=ui.PANEL_2, padx=14, pady=10, highlightthickness=1, highlightbackground=ui.BORDER_SOFT)
-    _label(cell, title, size="caption", color=ui.SUBTLE, bg=ui.PANEL_2).pack(anchor="w")
-    _label(cell, variable=variable, size="title_sm", weight="bold", bg=ui.PANEL_2).pack(anchor="w", pady=(3, 0))
-    return cell
-
-
-def _scrollable_workbench(parent, window, *, column: int = 0) -> tk.Frame:
-    """Keep preview and advanced controls reachable at every supported window size."""
-    outer = tk.Frame(parent, bg=ui.PANEL, highlightthickness=1, highlightbackground=ui.BORDER_SOFT)
-    outer.grid(row=0, column=column, sticky="nsew", padx=(0, 16) if column == 0 else 0)
-    canvas = tk.Canvas(outer, bg=ui.PANEL, bd=0, highlightthickness=0)
-    scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
-    canvas.configure(yscrollcommand=scrollbar.set)
-    scrollbar.pack(side="right", fill="y")
-    canvas.pack(side="left", fill="both", expand=True)
-    content = tk.Frame(canvas, bg=ui.PANEL, padx=20 if column == 0 else 18, pady=20 if column == 0 else 18)
+def _scrollable_workbench(parent, window, *, column=0):
+    outer = tk.Frame(parent, bg=ORBIT["shell"])
+    outer.grid(row=0, column=column, sticky="nsew", padx=(0, 14) if column == 0 else 0)
+    outer.grid_rowconfigure(0, weight=1)
+    outer.grid_columnconfigure(0, weight=1)
+    canvas = tk.Canvas(outer, bg=ORBIT["shell"], highlightthickness=0, bd=0, yscrollincrement=16)
+    canvas.grid(row=0, column=0, sticky="nsew")
+    scroll = ttk.Scrollbar(outer, orient="vertical", style="Orbit.Vertical.TScrollbar", command=canvas.yview)
+    canvas.configure(yscrollcommand=scroll.set)
+    content = tk.Frame(canvas, bg=ORBIT["shell"])
     content_id = canvas.create_window((0, 0), window=content, anchor="nw")
-    content.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.bind("<Configure>", lambda event: canvas.itemconfigure(content_id, width=event.width))
 
-    def scroll(event):
-        # Toplevel bindings cover child controls without capturing other windows.
-        widget = window.winfo_containing(event.x_root, event.y_root)
-        while widget is not None and widget is not outer:
+    def size_changed(_event=None):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        if content.winfo_reqheight() > canvas.winfo_height() + 2:
+            scroll.grid(row=0, column=1, sticky="ns", padx=(3, 0))
+        else:
+            scroll.grid_remove()
+            canvas.yview_moveto(0)
+
+    def fit(event):
+        canvas.itemconfigure(content_id, width=event.width)
+        size_changed()
+
+    def owns(widget, boundary):
+        while widget is not None and widget is not boundary:
             widget = getattr(widget, "master", None)
-        if widget is not outer or content.winfo_reqheight() <= canvas.winfo_height():
-            return None
-        delta = getattr(event, "delta", 0)
-        steps = -1 if getattr(event, "num", 0) == 4 or delta > 0 else 1
-        canvas.yview_scroll(steps * max(1, abs(int(delta / 120))), "units")
-        return "break"
+        return widget is boundary
 
-    def reveal_focus(event):
-        widget = event.widget
-        ancestor = widget
-        while ancestor is not None and ancestor is not content:
-            ancestor = getattr(ancestor, "master", None)
-        if ancestor is not content:
+    def wheel(event):
+        target = window.winfo_containing(event.x_root, event.y_root)
+        if owns(target, outer) and content.winfo_reqheight() > canvas.winfo_height():
+            # Do not steal a combobox list or text widget's own scrolling.
+            if target and target.winfo_class() in ("TCombobox", "Listbox", "Text", "Treeview"):
+                return None
+            delta = getattr(event, "delta", 0)
+            sign = -1 if getattr(event, "num", 0) == 4 or delta > 0 else 1
+            canvas.yview_scroll(sign * max(1, abs(delta) // 120) * 3, "units")
+            return "break"
+        return None
+
+    def reveal(event):
+        child = event.widget
+        if not owns(child, content):
             return
-        top = widget.winfo_rooty() - canvas.winfo_rooty()
-        bottom = top + widget.winfo_height()
-        visible_height = canvas.winfo_height()
-        total_height = max(1, content.winfo_reqheight())
-        if top < 0 or bottom > visible_height:
-            offset = widget.winfo_rooty() - content.winfo_rooty()
-            if bottom > visible_height:
-                offset -= visible_height - widget.winfo_height() - LAYOUT["inline"]
-            canvas.yview_moveto(max(0, offset) / total_height)
+        top = child.winfo_rooty() - canvas.winfo_rooty()
+        height = canvas.winfo_height()
+        bottom = top + child.winfo_height()
+        if top < 0 or bottom > height:
+            offset = child.winfo_rooty() - content.winfo_rooty()
+            offset -= (height - child.winfo_height() - 12) if bottom > height else 12
+            canvas.yview_moveto(max(0, offset) / max(1, content.winfo_reqheight()))
 
+    content.bind("<Configure>", size_changed)
+    canvas.bind("<Configure>", fit)
     for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-        window.bind(sequence, scroll, add="+")
-    window.bind("<FocusIn>", reveal_focus, add="+")
+        window.bind(sequence, wheel, add="+")
+    window.bind("<FocusIn>", reveal, add="+")
     setattr(window, "_workbench_canvas" if column == 0 else "_rail_canvas", canvas)
-    return content
+    return outer, content
 
 
-def _build_quick_panel_v17(window, engine_module) -> None:
+def _card(parent, *, padx=18, pady=15):
+    return tk.Frame(parent, bg=ORBIT["white"], padx=padx, pady=pady, highlightthickness=1, highlightbackground=ORBIT["line"])
+
+
+def _hero(parent):
+    hero = tk.Frame(parent, bg=ORBIT["hero"], padx=20, pady=15)
+    hero.pack(fill="x", pady=(0, 14))
+    copy = tk.Frame(hero, bg=ORBIT["hero"])
+    copy.pack(side="left", fill="x", expand=True)
+    tk.Label(copy, text="G A L A X Y   /   L O C A L", bg=ORBIT["hero"], fg=ORBIT["hero_quiet"], font=("Segoe UI", 9, "bold"), anchor="w", bd=0).pack(fill="x")
+    _label(copy, "媒体下载工作台", size="display", weight="bold", color=ORBIT["hero_text"], bg=ORBIT["hero"]).pack(anchor="w", pady=(3, 1))
+    _label(copy, "粘贴链接，选好画质，再保存到本机。", size="body_sm", color=ORBIT["hero_quiet"], bg=ORBIT["hero"]).pack(anchor="w")
+    # A static orbit motif supports the brand without running an idle animation.
+    art = tk.Canvas(hero, width=145, height=86, bg=ORBIT["hero"], bd=0, highlightthickness=0)
+    art.pack(side="right", padx=(14, 0))
+    for inset in (0, 10, 20):
+        art.create_oval(41 + inset, -17 + inset, 147 - inset, 91 - inset, outline=ORBIT["hero_line"], width=1)
+    art.create_line(15, 67, 145, 30, fill=ORBIT["hero_line"], width=1)
+    art.create_oval(91, 32, 100, 41, fill="#AFC6FF", outline="")
+    art.create_oval(43, 58, 48, 63, fill="#82A6F7", outline="")
+    art.create_oval(121, 11, 126, 16, fill="#82A6F7", outline="")
+    return hero
+
+
+def _build_quick_panel_v17(window, engine_module):
     import desktop_quick_download as quick
 
-    main = window.cancel_button.master.master
-    first_child = main.winfo_children()[0] if main.winfo_children() else None
-    panel = tk.Frame(
-        main,
-        bg=ui.PANEL_2,
-        padx=18,
-        pady=16,
-        highlightthickness=1,
-        highlightbackground=ui.BORDER_SOFT,
-    )
-    if first_child is not None:
-        panel.pack(fill="x", before=first_child, pady=(0, 18))
-    else:
-        panel.pack(fill="x", pady=(0, 18))
+    panel = _card(window._orbit_main, padx=16, pady=13)
+    panel.pack(fill="x", after=window._orbit_hero, pady=(0, 14))
     window._quick_download_panel = panel
+    head = tk.Frame(panel, bg=ui.PANEL)
+    head.pack(fill="x", pady=(0, 7))
+    _label(head, "新建下载", size="title_sm", weight="bold").pack(side="left")
+    _label(head, "Ctrl + L 定位链接", size="caption", color=ui.SUBTLE).pack(side="right")
 
-    head = tk.Frame(panel, bg=ui.PANEL_2)
-    head.pack(fill="x")
-    title_block = tk.Frame(head, bg=ui.PANEL_2)
-    title_block.pack(side="left", fill="x", expand=True)
-    _label(title_block, "添加下载", size="title_sm", weight="bold", bg=ui.PANEL_2).pack(anchor="w")
-    _label(
-        title_block,
-        "粘贴视频或音频链接，预览可用画质，再加入下载队列",
-        size="body_sm",
-        color=ui.MUTED,
-        bg=ui.PANEL_2,
-    ).pack(anchor="w", pady=(3, 0))
-    badge = tk.Label(
-        head,
-        text="最佳可用画质",
-        font=font("caption", bold=True),
-        bg=ui.PANEL_3,
-        fg=ui.ACCENT,
-        padx=9,
-        pady=5,
-    )
-    badge.pack(side="right", anchor="n")
+    def switch_mode(index):
+        window._orbit_video_controls.pack_forget()
+        window._orbit_image_details.pack_forget()
+        window._orbit_profile_field.grid_remove()
+        window._orbit_advanced_container.pack_forget()
+        if index == 0:
+            window._orbit_profile_field.grid()
+            window._orbit_video_controls.pack(fill="x", before=state, pady=(9, 0))
+            window._orbit_advanced_container.pack(fill="x", pady=(0, 14))
+        else:
+            window._orbit_image_details.pack(fill="x", before=state, pady=(9, 0))
+        hint.set("商品页或图片页面链接" if index else "视频或音频链接")
+        if not window._quick_url_var.get().strip():
+            window._quick_state_var.set("粘贴商品页链接后按 Enter 下载原图。" if index else "粘贴链接后按 Enter 解析。")
 
-    _label(panel, "媒体链接", size="body_sm", weight="bold", bg=ui.PANEL_2).pack(anchor="w", pady=(14, 6))
-    url_row = tk.Frame(panel, bg=ui.PANEL_2)
+    tabs = ModeTabs(panel, window._orbit_reduced, switch_mode)
+    tabs.pack(fill="x", pady=(0, 13))
+    window._orbit_tabs = tabs
+    hint = tk.StringVar(value="视频或音频链接")
+    _label(panel, variable=hint, size="body_sm", weight="bold").pack(anchor="w", pady=(0, 6))
+    url_row = tk.Frame(panel, bg=ui.PANEL)
     url_row.pack(fill="x")
     url_row.grid_columnconfigure(0, weight=1)
     window._quick_url_var = tk.StringVar()
-    entry = tk.Entry(
-        url_row,
-        textvariable=window._quick_url_var,
-        font=font("body"),
-        bg=ui.PANEL_3,
-        fg=ui.TEXT,
-        insertbackground=ui.TEXT,
-        selectbackground=ui.ACCENT,
-        selectforeground=COLOR["on_accent"],
-        relief="flat",
-        bd=0,
-        highlightthickness=2,
-        highlightbackground=ui.BORDER,
-        highlightcolor=ui.FOCUS,
-    )
-    entry.grid(row=0, column=0, sticky="ew", ipady=11)
+    entry = tk.Entry(url_row, textvariable=window._quick_url_var, font=font("body"), bg=ORBIT["inset"], fg=ui.TEXT,
+                     insertbackground=ui.TEXT, selectbackground=ui.ACCENT, selectforeground=COLOR["on_accent"],
+                     relief="flat", bd=0, highlightthickness=1, highlightbackground=ui.BORDER, highlightcolor=ui.FOCUS)
+    entry.grid(row=0, column=0, sticky="ew", ipady=10)
     window._quick_url_entry = entry
-    ui.ActionButton(url_row, text="粘贴", command=lambda: quick._paste_quick_url(window), kind="secondary").grid(row=0, column=1, padx=(10, 0))
-    window._quick_parse_button = ui.ActionButton(
-        url_row,
-        text="解析并预览",
-        command=lambda: quick._parse_quick_url(window, engine_module),
-        kind="primary",
-    )
-    window._quick_parse_button.grid(row=0, column=2, padx=(10, 0))
-    entry.bind("<Return>", lambda _event: quick._parse_quick_url(window, engine_module))
+    button(url_row, "粘贴", lambda: quick._paste_quick_url(window)).grid(row=0, column=1, padx=(8, 0))
 
-    controls = tk.Frame(panel, bg=ui.PANEL_2)
-    controls.pack(fill="x", pady=(12, 0))
-    left = tk.Frame(controls, bg=ui.PANEL_2)
-    left.pack(side="left")
-    _label(left, "浏览器登录", size="caption", color=ui.SUBTLE, bg=ui.PANEL_2).pack(side="left")
+    options = tk.Frame(panel, bg=ui.PANEL)
+    options.pack(fill="x", pady=(10, 0))
+    for i in (0, 1):
+        options.grid_columnconfigure(i, weight=1, uniform="options")
+    browser_field = tk.Frame(options, bg=ui.PANEL)
+    browser_field.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+    _label(browser_field, "浏览器登录", size="caption", color=ui.MUTED).pack(anchor="w", pady=(0, 4))
     window._quick_browser_var = tk.StringVar(value=quick._BROWSER_BY_KEY["none"])
-    ttk.Combobox(
-        left,
-        textvariable=window._quick_browser_var,
-        values=tuple(quick._BROWSER_LABELS),
-        state="readonly",
-        width=18,
-        style="Galaxy.TCombobox",
-    ).pack(side="left", padx=(8, 16))
-    _label(left, "下载预设", size="caption", color=ui.SUBTLE, bg=ui.PANEL_2).pack(side="left")
+    ttk.Combobox(browser_field, textvariable=window._quick_browser_var, values=tuple(quick._BROWSER_LABELS), state="readonly", width=12, style="Galaxy.TCombobox").pack(fill="x")
+    profile = tk.Frame(options, bg=ui.PANEL)
+    profile.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+    window._orbit_profile_field = profile
+    profile_head = tk.Frame(profile, bg=ui.PANEL)
+    profile_head.pack(fill="x", pady=(0, 4))
+    _label(profile_head, "下载预设", size="caption", color=ui.MUTED).pack(side="left")
     window._quick_profile_var = tk.StringVar(value=quick._AUTO_PROFILE_LABEL)
     window._quick_profile_ids = {quick._AUTO_PROFILE_LABEL: ""}
-    window._quick_profile_combo = ttk.Combobox(
-        left,
-        textvariable=window._quick_profile_var,
-        values=(quick._AUTO_PROFILE_LABEL,),
-        state="readonly",
-        width=19,
-        style="Galaxy.TCombobox",
-    )
-    window._quick_profile_combo.pack(side="left", padx=(8, 8))
-    ui.ActionButton(
-        left,
-        text="刷新",
-        command=lambda: quick._refresh_quick_profiles(window, engine_module),
-        kind="ghost",
-        compact=True,
-    ).pack(side="left")
+    window._quick_profile_combo = ttk.Combobox(profile, textvariable=window._quick_profile_var, values=(quick._AUTO_PROFILE_LABEL,), state="readonly", width=12, style="Galaxy.TCombobox")
+    window._quick_profile_combo.pack(fill="x")
+    window._quick_profile_combo.bind("<ButtonPress-1>", lambda _event: quick._refresh_quick_profiles(window, engine_module), add="+")
+    window._quick_profile_combo.bind("<FocusIn>", lambda _event: quick._refresh_quick_profiles(window, engine_module), add="+")
 
-    window._quick_state_var = tk.StringVar(value="粘贴链接后按 Enter 解析。默认选择最佳可用画质与音质。")
-    _label(
-        panel,
-        variable=window._quick_state_var,
-        size="body_sm",
-        color=ui.CYAN,
-        bg=ui.PANEL_2,
-        wraplength=820,
-        justify="left",
-    ).pack(anchor="w", pady=(11, 0))
+    video = tk.Frame(panel, bg=ui.PANEL)
+    video.pack(fill="x", pady=(9, 0))
+    window._orbit_video_controls = video
+    actions = tk.Frame(video, bg=ui.PANEL)
+    actions.pack(fill="x")
+    _label(actions, "最佳可用画质", size="caption", weight="bold", bg=ORBIT["inset"], color=ui.CYAN, padx=8, pady=5).pack(side="left")
+    window._quick_parse_button = button(actions, "解析并预览", lambda: quick._parse_quick_url(window, engine_module), kind="Primary", icon="arrow")
+    window._quick_parse_button.pack(side="right")
 
-    preview_panel = tk.Frame(panel, bg=ui.PANEL_3, padx=15, pady=13, highlightthickness=1, highlightbackground=ui.BORDER)
-    window._quick_preview_panel = preview_panel
+    preview = tk.Frame(video, bg=ui.PANEL_3, padx=12, pady=11)
+    window._quick_preview_panel = preview
     window._quick_title_var = tk.StringVar()
     window._quick_meta_var = tk.StringVar()
-    _label(preview_panel, variable=window._quick_title_var, size="title_sm", weight="bold", bg=ui.PANEL_3, wraplength=760, justify="left").pack(anchor="w")
-    _label(preview_panel, variable=window._quick_meta_var, size="body_sm", color=ui.MUTED, bg=ui.PANEL_3).pack(anchor="w", pady=(4, 10))
-
-    format_row = tk.Frame(preview_panel, bg=ui.PANEL_3)
-    format_row.pack(fill="x")
-    format_row.grid_columnconfigure(1, weight=1)
-    format_row.grid_columnconfigure(3, weight=1)
-    _label(format_row, "视频", size="caption", color=ui.SUBTLE, bg=ui.PANEL_3).grid(row=0, column=0, sticky="w")
-    window._quick_video_var = tk.StringVar()
-    window._quick_video_combo = ttk.Combobox(format_row, textvariable=window._quick_video_var, state="disabled", style="Galaxy.TCombobox")
-    window._quick_video_combo.grid(row=0, column=1, sticky="ew", padx=(8, 16))
-    _label(format_row, "音频", size="caption", color=ui.SUBTLE, bg=ui.PANEL_3).grid(row=0, column=2, sticky="w")
-    window._quick_audio_var = tk.StringVar()
-    window._quick_audio_combo = ttk.Combobox(format_row, textvariable=window._quick_audio_var, state="disabled", style="Galaxy.TCombobox")
-    window._quick_audio_combo.grid(row=0, column=3, sticky="ew", padx=(8, 0))
-
-    footer = tk.Frame(preview_panel, bg=ui.PANEL_3)
-    footer.pack(fill="x", pady=(12, 0))
-    _label(
-        footer,
-        "已选择源站可用格式，可在上方更换画质与音轨。",
-        size="caption",
-        color=ui.SUBTLE,
-        bg=ui.PANEL_3,
-    ).pack(side="left")
-    window._quick_download_button = ui.ActionButton(
-        footer,
-        text="下载所选内容",
-        command=lambda: quick._submit_quick_download(window, engine_module),
-        kind="primary",
-    )
+    _text_wrap(_label(preview, variable=window._quick_title_var, size="title_sm", weight="bold", bg=ui.PANEL_3, justify="left"), preview, inset=26).pack(anchor="w")
+    _label(preview, variable=window._quick_meta_var, size="caption", color=ui.MUTED, bg=ui.PANEL_3).pack(anchor="w", pady=(3, 8))
+    formats = tk.Frame(preview, bg=ui.PANEL_3)
+    formats.pack(fill="x")
+    for i, kind in enumerate(("video", "audio")):
+        formats.grid_columnconfigure(i, weight=1, uniform="formats")
+        field = tk.Frame(formats, bg=ui.PANEL_3)
+        field.grid(row=0, column=i, sticky="ew", padx=(0, 6) if i == 0 else (6, 0))
+        _label(field, "视频" if i == 0 else "音频", size="caption", color=ui.MUTED, bg=ui.PANEL_3).pack(anchor="w")
+        variable = tk.StringVar()
+        combo = ttk.Combobox(field, textvariable=variable, state="disabled", width=12, style="Galaxy.TCombobox")
+        combo.pack(fill="x", pady=(4, 0))
+        setattr(window, f"_quick_{kind}_var", variable)
+        setattr(window, f"_quick_{kind}_combo", combo)
+    footer = tk.Frame(preview, bg=ui.PANEL_3)
+    footer.pack(fill="x", pady=(9, 0))
+    window._quick_download_button = button(footer, "下载 / 加入队列", lambda: quick._submit_quick_download(window, engine_module), kind="Primary", icon="download")
     window._quick_download_button.pack(side="right")
     window._quick_download_button.state(["disabled"])
 
+    window._orbit_image_details = tk.Frame(panel, bg=ui.PANEL)
+    window._quick_state_var = tk.StringVar(value="粘贴链接后按 Enter 解析。")
+    state = _text_wrap(_label(panel, variable=window._quick_state_var, size="caption", color=ui.MUTED, justify="left", anchor="w"), panel, inset=34)
+    state.pack(fill="x", pady=(6, 0))
     window._quick_preview = None
     window._quick_video_display = {}
     window._quick_audio_display = {}
     window._quick_parse_generation = 0
     quick._refresh_quick_profiles(window, engine_module)
+
+
+def _system_row(parent, name, status, color):
+    row = tk.Frame(parent, bg=ui.PANEL)
+    row.pack(fill="x", pady=(5, 0))
+    _label(row, name, size="body_sm").pack(side="left")
+    _label(row, status, size="caption", color=color).pack(side="right")
+
+
+def _make_nav(window, sidebar):
+    def invoke(name):
+        control = getattr(window, name, None)
+        if control is not None:
+            control.invoke()
+
+    def nav(label, icon, action, *, active=False, parent=sidebar):
+        control = button(parent, label, action, kind="Nav", icon=icon)
+        control.pack(fill="x", pady=(0, 3))
+        if active:
+            control.state(["selected"])
+        return control
+
+    def focus_composer():
+        window._workbench_canvas.yview_moveto(0)
+        window._quick_url_entry.focus_set()
+
+    _label(sidebar, "工作区", size="caption", color=ORBIT["nav_quiet"], bg=ORBIT["nav"]).pack(anchor="w", padx=11, pady=(15, 7))
+    nav("下载工作台", "download", focus_composer, active=True)
+    nav("下载队列", "queue", lambda: invoke("_queue_manager_button"))
+    nav("历史记录", "history", lambda: invoke("_history_button"))
+    nav("媒体库", "library", lambda: invoke("_media_library_button"))
+    bottom = tk.Frame(sidebar, bg=ORBIT["nav"])
+    bottom.pack(side="bottom", fill="x")
+    menu = tk.Menu(window, tearoff=False, font=font("body_sm"))
+    for label, name in (("媒体工具", "_tools_button"), ("转录", "_transcript_button"), ("订阅", "_subscriptions_button"), ("去水印工作台", "_media_cleanup_button"), ("诊断日志", "_diagnostic_log_button"), ("复制诊断", "_copy_diag_button"), ("检查稳定版更新", "_update_button")):
+        if getattr(window, name, None) is not None:
+            menu.add_command(label=label, command=lambda value=name: invoke(value))
+    menu.add_command(label="打开网页工作台", command=lambda: webbrowser.open(ui.WEBSITE_URL))
+    menu.add_separator()
+    menu.add_checkbutton(label="减少动效", variable=window._orbit_reduce_motion)
+
+    def show_menu():
+        menu.tk_popup(more.winfo_rootx(), more.winfo_rooty(), 0)
+        menu.grab_release()
+
+    more = nav("更多工具", "tools", show_menu, parent=bottom)
+    nav("设置", "settings", lambda: invoke("_settings_button"), parent=bottom)
+    _label(bottom, "LOCAL ENGINE", size="caption", color=ORBIT["nav_quiet"], bg=ORBIT["nav"]).pack(anchor="w", padx=11, pady=(9, 0))
+    window._orbit_tools_menu = menu
 
 
 def install_native_desktop_v17(engine_module, ui_module):
@@ -347,173 +369,175 @@ def install_native_desktop_v17(engine_module, ui_module):
     import desktop_quick_download as quick
     quick._build_quick_panel = _build_quick_panel_v17
 
-    def build_ui(window) -> None:
-        window.configure(bg=ui.BG)
-        window.geometry("1320x880")
-        window.minsize(1000, 650)
+    def build_ui(window):
+        window._orbit_shell = True
+        window._galaxy_queue_header_stable = True  # This shell owns the queue toolbar layout.
+        window.title("Galaxy · 媒体下载工作台")
+        window.configure(bg=ORBIT["shell"])
+        window.geometry("1280x800")
+        window.minsize(960, 640)
         window.option_add("*Font", "{Segoe UI} 11")
-        # Keep the platform's DPI-derived Tk scaling. V1.6 forced 1.0, which
-        # made the native UI physically too small on common 125–200% displays.
-
         _configure_styles(window)
-        icon = _make_titlebar_icon(window, 32)
+        configure_orbit(window)
+        window._orbit_reduce_motion = tk.BooleanVar(value=system_reduces_motion())
+        window._orbit_reduced = lambda: bool(window._orbit_reduce_motion.get())
+        icon = _make_titlebar_icon(window)
         window._galaxy_icon = icon
-        try:
-            window.iconphoto(True, icon)
-        except tk.TclError:
-            pass
+        window.iconphoto(True, icon)
 
-        shell = tk.Frame(window, bg=ui.BG)
+        shell = tk.Frame(window, bg=ORBIT["shell"])
         shell.pack(fill="both", expand=True)
+        sidebar = tk.Frame(shell, bg=ORBIT["nav"], width=157, padx=11, pady=16)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        logo = tk.Frame(sidebar, bg=ORBIT["nav"])
+        logo.pack(fill="x", padx=7)
+        mark = tk.Label(logo, bg=ORBIT["nav_selected"], bd=0, padx=7, pady=6)
+        mark._orbit_icon = icon_image(mark, "download", "#C7D7FF", size=19, pad=0)
+        mark.configure(image=mark._orbit_icon)
+        mark.pack(side="left", padx=(0, 8))
+        _label(logo, "Galaxy", size="title_sm", weight="bold", bg=ORBIT["nav"], color=ORBIT["hero_text"]).pack(side="left")
 
-        header = tk.Frame(shell, bg=ui.BG, padx=28, pady=18)
-        header.pack(fill="x")
-        identity = tk.Frame(header, bg=ui.BG)
-        identity.pack(side="left", fill="x", expand=True)
-        mark = tk.Canvas(identity, width=48, height=48, bg=ui.BG, bd=0, highlightthickness=0)
-        mark.pack(side="left", padx=(0, 14))
-        _brand_mark(mark)
-        copy = tk.Frame(identity, bg=ui.BG)
-        copy.pack(side="left", anchor="w")
-        _label(copy, "Galaxy Local Engine", size="brand", weight="bold", bg=ui.BG).pack(anchor="w")
-        _label(
-            copy,
-            f"媒体下载工作台  ·  v{engine_module.VERSION}",
-            size="body_sm",
-            color=ui.MUTED,
-            bg=ui.BG,
-        ).pack(anchor="w", pady=(3, 0))
+        stage = tk.Frame(shell, bg=ORBIT["shell"], padx=18)
+        stage.pack(side="left", fill="both", expand=True)
+        header = tk.Frame(stage, bg=ORBIT["shell"])
+        header.pack(fill="x", pady=(8, 9))
+        _label(header, "工作区  /  下载", size="body_sm", weight="bold", bg=ORBIT["shell"], color=ui.MUTED).pack(side="left")
+        window.folder_button = button(header, "下载目录", window.open_folder, icon="library")
+        window.folder_button.pack(side="right")
+        # Existing extensions still register the same actions. Orbit routes them
+        # through the navigation/menu instead of packing them into the title bar.
+        header_actions = tk.Frame(stage)
+        window._copy_diag_button = ui.ActionButton(header_actions, text="复制诊断", command=lambda: ui._copy_diagnostics(window, engine_module), kind="ghost", compact=True)
+        window._copy_diag_button.pack()
 
-        header_actions = tk.Frame(header, bg=ui.BG)
-        header_actions.pack(side="right", anchor="center")
-        ui.ActionButton(
-            header_actions,
-            text="图片与原图工作台",
-            command=lambda: webbrowser.open(ui.WEBSITE_URL),
-            kind="secondary",
-            compact=True,
-        ).pack(side="left", padx=(0, 8))
-        window._copy_diag_button = ui.ActionButton(
-            header_actions,
-            text="复制诊断",
-            command=lambda: ui._copy_diagnostics(window, engine_module),
-            kind="ghost",
-            compact=True,
-        )
-        window._copy_diag_button.pack(side="left")
+        statusbar = tk.Frame(stage, bg=ORBIT["shell"])
+        statusbar.pack(fill="x", side="bottom", pady=(7, 9))
+        _label(statusbar, f"本机引擎  ·  v{engine_module.VERSION}", size="caption", bg=ORBIT["shell"], color=ui.MUTED).pack(side="left")
+        _label(statusbar, "文件保存在此设备", size="caption", bg=ORBIT["shell"], color=ui.SUBTLE).pack(side="right")
 
-        body = tk.Frame(shell, bg=ui.BG, padx=28)
-        body.pack(fill="both", expand=True, pady=(0, 26))
-        body.grid_columnconfigure(0, weight=1, minsize=620)
-        body.grid_columnconfigure(1, weight=0, minsize=300)
+        body = tk.Frame(stage, bg=ORBIT["shell"])
+        body.pack(fill="both", expand=True)
+        body.grid_columnconfigure(0, weight=1)
+        body.grid_columnconfigure(1, weight=0, minsize=270)
         body.grid_rowconfigure(0, weight=1)
+        _, main = _scrollable_workbench(body, window)
+        rail_outer, rail = _scrollable_workbench(body, window, column=1)
+        window._orbit_main = main
+        window._orbit_hero = _hero(main)
 
-        main = _scrollable_workbench(body, window)
-        rail = _scrollable_workbench(body, window, column=1)
-
-        section_head = tk.Frame(main, bg=ui.PANEL)
-        section_head.pack(fill="x")
-        _label(section_head, "传输状态", size="title_sm", weight="bold").pack(side="left")
-        _label(section_head, "文件保存至本机下载目录", size="body_sm", color=ui.MUTED).pack(side="right", anchor="s")
-
-        current = tk.Frame(main, bg=ui.PANEL)
-        current.pack(fill="x", pady=(18, 0))
+        current = _card(main, padx=16, pady=12)
+        current.pack(fill="x", pady=(0, 14))
         current_head = tk.Frame(current, bg=ui.PANEL)
         current_head.pack(fill="x")
-        _label(current_head, "当前任务", size="title_sm", weight="bold").pack(side="left")
+        _label(current_head, "当前传输", size="title_sm", weight="bold").pack(side="left")
         window._queue_summary_var = tk.StringVar(value="等待 0 项")
-        _label(current_head, variable=window._queue_summary_var, size="body_sm", color=ui.MUTED).pack(side="right")
-        _label(current, variable=window.status_var, size="title", weight="bold").pack(anchor="w", pady=(12, 0))
-        _label(
-            current,
-            variable=window.detail_var,
-            size="body",
-            color=ui.MUTED,
-            justify="left",
-            anchor="w",
-            wraplength=820,
-        ).pack(fill="x", pady=(4, 12))
-
-        progress = tk.Frame(current, bg=ui.PANEL)
-        progress.pack(fill="x")
-        ttk.Progressbar(progress, variable=window.percent_var, maximum=100, style="Galaxy.Horizontal.TProgressbar").pack(fill="x")
+        _label(current_head, variable=window._queue_summary_var, size="caption", color=ui.MUTED).pack(side="right")
+        transfer_state = tk.StringVar()
+        def sync_status(*_args):
+            status = window.status_var.get()
+            transfer_state.set("等待下载" if status == "Ready" else status)
+        window.status_var.trace_add("write", sync_status)
+        sync_status()
+        _label(current, variable=transfer_state, size="body_sm", color=ui.MUTED).pack(anchor="w", pady=(6, 5))
+        detail_text = tk.StringVar()
+        def sync_detail(*_args):
+            value = window.detail_var.get()
+            detail_text.set("解析链接后可在此查看传输进度。" if value == "Waiting for a download job" else value)
+        window.detail_var.trace_add("write", sync_detail)
+        sync_detail()
+        _text_wrap(_label(current, variable=detail_text, size="caption", color=ui.SUBTLE, justify="left"), current, inset=34).pack(anchor="w", pady=(0, 9))
+        meter = ProgressMeter(current, window.percent_var, window._orbit_reduced)
+        meter.pack(fill="x")
+        window._orbit_meter = meter
         window._percent_text_var = tk.StringVar(value="0%")
-        _label(progress, variable=window._percent_text_var, size="body_sm", weight="bold", color=ui.MUTED).pack(anchor="e", pady=(5, 0))
-
         metrics = tk.Frame(current, bg=ui.PANEL)
-        metrics.pack(fill="x", pady=(12, 0))
-        for index, (title, variable) in enumerate((("速度", window.speed_var), ("剩余时间", window.eta_var), ("已下载", window.size_var))):
-            metrics.grid_columnconfigure(index, weight=1)
-            _metric(metrics, title, variable).grid(row=0, column=index, sticky="nsew", padx=(0 if index == 0 else 8, 0))
-
-        _hairline(main).pack(fill="x", pady=(18, 14))
-        advanced = tk.Frame(main, bg=ui.PANEL)
-        advanced.pack(fill="x")
-        window._advanced_open = False
-        toggle_row = tk.Frame(advanced, bg=ui.PANEL)
-        toggle_row.pack(fill="x")
-        window._advanced_toggle_var = tk.StringVar(value="高级下载设置  ›")
-        toggle = tk.Button(
-            toggle_row,
-            textvariable=window._advanced_toggle_var,
-            command=lambda: ui._toggle_advanced(window),
-            font=font("body", bold=True),
-            bg=ui.PANEL,
-            fg=ui.TEXT,
-            activebackground=ui.PANEL,
-            activeforeground=ui.ACCENT_HOVER,
-            relief="flat",
-            bd=0,
-            highlightthickness=2,
-            highlightbackground=ui.PANEL,
-            highlightcolor=ui.FOCUS,
-            cursor="hand2",
-            padx=0,
-            pady=8,
-            takefocus=True,
-        )
-        toggle.pack(side="left")
-        window._advanced_summary_var = tk.StringVar(value="片段 · 章节 · 字幕/音轨 · SponsorBlock · aria2c")
-        _label(toggle_row, variable=window._advanced_summary_var, size="body_sm", color=ui.SUBTLE).pack(side="right")
-        window._advanced_panel = tk.Frame(advanced, bg=ui.PANEL_2, padx=16, pady=16, highlightthickness=1, highlightbackground=ui.BORDER_SOFT)
-        ui._build_advanced_panel(window, engine_module)
-
-        actions = tk.Frame(main, bg=ui.PANEL)
-        actions.pack(fill="x", side="bottom", pady=(14, 0))
-        window.cancel_button = ui.ActionButton(actions, text="取消任务", command=window.cancel, kind="danger")
+        metrics.pack(fill="x", pady=(8, 0))
+        for index, (name, value) in enumerate((("速度", window.speed_var), ("剩余", window.eta_var), ("已下载", window.size_var), ("进度", window._percent_text_var))):
+            metrics.grid_columnconfigure(index, weight=1, uniform="metrics")
+            cell = tk.Frame(metrics, bg=ui.PANEL)
+            cell.grid(row=0, column=index, sticky="ew", padx=(0, 5))
+            _label(cell, name, size="caption", color=ui.SUBTLE).pack(anchor="w")
+            _label(cell, variable=value, size="body_sm", weight="bold").pack(anchor="w", pady=(2, 0))
+        actions = tk.Frame(current, bg=ui.PANEL)
+        actions.pack(fill="x", pady=(6, 0))
+        window.cancel_button = button(actions, "取消任务", window.cancel, kind="Danger")
         window.cancel_button.pack(side="left")
         window.cancel_button.state(["disabled"])
-        window.folder_button = ui.ActionButton(actions, text="打开下载目录", command=window.open_folder, kind="secondary")
-        window.folder_button.pack(side="right")
 
-        queue_head = tk.Frame(rail, bg=ui.PANEL)
-        queue_head.pack(fill="x")
-        queue_copy = tk.Frame(queue_head, bg=ui.PANEL)
-        queue_copy.pack(side="left", fill="x", expand=True)
-        _label(queue_copy, "下载队列", size="title_sm", weight="bold").pack(anchor="w")
+        advanced = _card(main, padx=12, pady=5)
+        advanced.pack(fill="x", pady=(0, 14))
+        window._orbit_advanced_container = advanced
+        window._advanced_open = False
+        window._advanced_toggle_var = tk.StringVar(value="高级下载设置  ›")
+        window._advanced_summary_var = tk.StringVar(value="片段、字幕、音轨与加速")
+        advanced_head = tk.Frame(advanced, bg=ui.PANEL)
+        advanced_head.pack(fill="x")
+        window._orbit_advanced_button = button(advanced_head, "", lambda: ui._toggle_advanced(window), kind="Quiet", textvariable=window._advanced_toggle_var)
+        window._orbit_advanced_button.pack(side="left")
+        _label(advanced_head, variable=window._advanced_summary_var, size="caption", color=ui.SUBTLE).pack(side="right")
+        window._advanced_panel = tk.Frame(advanced, bg=ui.PANEL_2, padx=10, pady=10)
+        ui._build_advanced_panel(window, engine_module)
+        window._orbit_clipboard_slot = tk.Frame(window._advanced_panel, bg=ui.PANEL_2)
+        window._orbit_clipboard_slot.pack(fill="x")
+
+        queue_card = _card(rail, padx=13, pady=13)
+        queue_card.pack(fill="x", pady=(0, 14))
+        _label(queue_card, "下载队列", size="title_sm", weight="bold").pack(anchor="w")
         window._queue_count_var = tk.StringVar(value="当前 0 · 等待 0")
-        _label(queue_copy, variable=window._queue_count_var, size="body_sm", color=ui.MUTED).pack(anchor="w", pady=(3, 0))
-        window._queue_clear_button = ui.ActionButton(queue_head, text="清空", command=lambda: ui._clear_queue_from_ui(window), kind="ghost", compact=True)
-        window._queue_clear_button.pack(side="right", anchor="n")
+        _label(queue_card, variable=window._queue_count_var, size="caption", color=ui.MUTED).pack(anchor="w", pady=(3, 8))
+        window._queue_panel = tk.Frame(queue_card, bg=ui.PANEL)
+        window._queue_panel.pack(fill="x")
+        queue_head = tk.Frame(queue_card, bg=ui.PANEL)
+        queue_head.pack(fill="x", pady=(7, 0))
+        window._queue_clear_button = button(queue_head, "清空", lambda: ui._clear_queue_from_ui(window), kind="Quiet")
+        window._queue_clear_button.pack(side="right")
         window._queue_clear_button.state(["disabled"])
-        window._queue_panel = tk.Frame(rail, bg=ui.PANEL)
-        window._queue_panel.pack(fill="both", expand=True, pady=(14, 0))
 
-        runtime_box = tk.Frame(rail, bg=ui.PANEL)
-        runtime_box.pack(fill="x", side="bottom", pady=(18, 0))
-        _hairline(runtime_box).pack(fill="x", pady=(0, 14))
-        _label(runtime_box, "本机组件", size="title_sm", weight="bold").pack(anchor="w")
-        component_rows = tk.Frame(runtime_box, bg=ui.PANEL)
-        component_rows.pack(fill="x", pady=(8, 12))
-        _status_item(component_rows, "FFmpeg", engine_module.ffmpeg_dir() is not None).pack(anchor="w")
-        _status_item(component_rows, "yt-dlp", engine_module.external_ytdlp_path(engine_module.app_dir()) is not None).pack(anchor="w")
-        _status_item(component_rows, "aria2（可选）", aria2c_available(engine_module), optional=True).pack(anchor="w")
-        window._latest_var = tk.StringVar(value=f"Engine {engine_module.VERSION} · UI {NATIVE_UI_REVISION}")
-        _label(runtime_box, variable=window._latest_var, size="caption", color=ui.SUBTLE).pack(anchor="w", pady=(0, 8))
-        window._update_button = ui.ActionButton(runtime_box, text="检查稳定版更新", command=lambda: ui._check_update(window, engine_module), kind="ghost", compact=True)
-        window._update_button.pack(fill="x")
+        runtime = _card(rail, padx=13, pady=13)
+        runtime.pack(fill="x")
+        _label(runtime, "引擎组件", size="title_sm", weight="bold").pack(anchor="w", pady=(0, 4))
+        ffmpeg = engine_module.ffmpeg_dir() is not None
+        external = engine_module.external_ytdlp_path(engine_module.app_dir()) is not None
+        bundled = importlib.util.find_spec("yt_dlp") is not None
+        _system_row(runtime, "FFmpeg", "已就绪" if ffmpeg else "待配置", ui.SUCCESS if ffmpeg else ui.WARNING)
+        _system_row(runtime, "yt-dlp", "已就绪" if external else "内置" if bundled else "待配置", ui.SUCCESS if external or bundled else ui.WARNING)
+        _system_row(runtime, "aria2", "已就绪" if aria2c_available(engine_module) else "可选", ui.SUBTLE)
+        window._latest_var = tk.StringVar(value=f"界面 {NATIVE_UI_REVISION}")
+        _label(runtime, variable=window._latest_var, size="caption", color=ui.SUBTLE).pack(anchor="w", pady=(8, 3))
+        window._update_button = button(runtime, "检查更新", lambda: ui._check_update(window, engine_module), kind="Quiet")
+        window._update_button.pack(anchor="w")
 
         run_after_build_ui_hooks(window)
+        for child in queue_head.winfo_children():
+            child.pack_forget()
+        pause = getattr(window, "_queue_pause_button", None)
+        if pause is not None:
+            pause.pack(side="left")
+        window._queue_clear_button.pack(side="right")
+        _make_nav(window, sidebar)
+
+        def submit_link(_event):
+            target = window._original_images_button if window._orbit_tabs.index else window._quick_parse_button
+            target.invoke()
+            return "break"
+        window._quick_url_entry.bind("<Return>", submit_link)
+
+        def responsive(event):
+            wide = event.width >= 770
+            if wide and not rail_outer.winfo_manager():
+                body.grid_columnconfigure(1, minsize=270)
+                rail_outer.grid()
+            elif not wide and rail_outer.winfo_manager():
+                rail_outer.grid_remove()
+                body.grid_columnconfigure(1, minsize=0)
+        body.bind("<Configure>", responsive, add="+")
+
+        def reduce_changed(*_args):
+            if window._orbit_reduced():
+                window._orbit_tabs.tween.finish()
+                meter.tween.finish()
+        window._orbit_reduce_motion.trace_add("write", reduce_changed)
         window._galaxy_ui_tick()
         window._galaxy_queue_tick()
 
@@ -522,13 +546,12 @@ def install_native_desktop_v17(engine_module, ui_module):
     return window_cls
 
 
-def run_native_desktop_v17_self_test() -> None:
-    assert NATIVE_UI_REVISION == "1.7.0"
-    assert TYPE["body"] >= 11
-    assert TYPE["caption"] >= 9
+def run_native_desktop_v17_self_test():
+    assert NATIVE_UI_REVISION == "1.8.0"
+    assert TYPE["body"] >= 11 and TYPE["caption"] >= 9
     assert callable(install_native_desktop_v17)
 
 
 if __name__ == "__main__":
     run_native_desktop_v17_self_test()
-    print("Native desktop V1.7 self-test passed")
+    print("Native Orbit workbench self-test passed")

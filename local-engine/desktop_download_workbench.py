@@ -210,7 +210,7 @@ def _install_preview_summary(window) -> None:
     window._workbench_format_summary_var = ui.tk.StringVar(
         value="解析后会显示真实 format_id 对应的清晰度、编码和音频组合。"
     )
-    ui._label(
+    format_label = ui._label(
         summary,
         variable=window._workbench_format_summary_var,
         size=7,
@@ -218,9 +218,10 @@ def _install_preview_summary(window) -> None:
         bg=ui.PANEL_3,
         wraplength=610,
         justify="left",
-    ).pack(anchor="w")
+    )
+    format_label.pack(anchor="w")
     window._workbench_audio_hint_var = ui.tk.StringVar(value="选择视频格式后会自动判断是否需要独立音轨。")
-    ui._label(
+    audio_label = ui._label(
         summary,
         variable=window._workbench_audio_hint_var,
         size=7,
@@ -228,19 +229,25 @@ def _install_preview_summary(window) -> None:
         bg=ui.PANEL_3,
         wraplength=610,
         justify="left",
-    ).pack(anchor="w", pady=(2, 0))
+    )
+    audio_label.pack(anchor="w", pady=(2, 0))
+
+    def resize(event):
+        for label in (format_label, audio_label):
+            label.configure(wraplength=max(100, event.width))
+    summary.bind("<Configure>", resize, add="+")
 
 
 def _enhance_quick_panel(window, engine_module) -> None:
     if not hasattr(window, "_quick_download_panel"):
         return
     panel = window._quick_download_panel
-    panel.configure(padx=16, pady=14, highlightbackground=ui.BORDER)
-    window._quick_url_entry.configure(font=("Segoe UI", 10))
-    window._quick_parse_button.configure(text="解析并预览")
-    window._quick_download_button.configure(text="下载 / 加入队列")
-
-    _install_flow_bar(window)
+    if not getattr(window, "_orbit_shell", False):
+        panel.configure(padx=16, pady=14, highlightbackground=ui.BORDER)
+        window._quick_url_entry.configure(font=("Segoe UI", 10))
+        window._quick_parse_button.configure(text="解析并预览")
+        window._quick_download_button.configure(text="下载 / 加入队列")
+        _install_flow_bar(window)
     _install_preview_summary(window)
 
     window._quick_parse_button.configure(command=lambda: _parse_quick_url_async(window, engine_module))

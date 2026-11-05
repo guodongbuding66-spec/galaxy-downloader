@@ -55,3 +55,9 @@ Where reduced-motion preference is detectable, disable nonessential transitions.
 - Avoid high-frequency Tk timers when a state event can update the UI directly.
 - Batch list/table updates where practical.
 - Do not animate expensive image resizing or full-window redraws.
+
+## Orbit native workbench
+
+The media/originals selection marker travels for 250 ms with cubic ease in/out (Motion Prompt #057). The selected label and actual controls update immediately. A rapid second click starts at the current marker position, so the indicator reverses without jumping. The 150 ms transfer meter only interpolates to a value already reported by the engine; a reset is immediate. The Windows animation preference supplies the default. The "减少动效" menu setting settles in-flight animations immediately and uses static state for subsequent updates.
+
+Source reference: https://showheyohtaki.github.io/motion-prompt/#057 · MIT © 2026 Shohei Ohtaki. The desktop port uses the underline and timing, not the example's simulated cursor, cycling, or delayed pane transitions.

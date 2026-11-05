@@ -415,6 +415,10 @@ def _invalidate_quick_preview(window, *_args) -> None:
     window._quick_download_button.state(["disabled"])
     window._quick_parse_button.state(["!disabled"])
     window._quick_preview_panel.pack_forget()
+    tabs = getattr(window, "_orbit_tabs", None)
+    if tabs is not None and tabs.index == 1:
+        window._quick_state_var.set("粘贴商品页或图片链接，按 Enter 下载原图。")
+        return
     message = (
         "链接或登录环境已更新，按 Enter 重新解析。默认选择最佳可用画质。"
         if _text(window._quick_url_var.get())

@@ -52,16 +52,11 @@ def _download_original_images(window, engine_module) -> None:
     if not source_url:
         window._quick_state_var.set("请先粘贴商品页或图片页面链接。")
         return
-    try:
-        source_url = engine_module._validated_source_url(source_url)
-    except ValueError as exc:
-        window._quick_state_var.set(str(exc))
-        return
-
     browser = quick._browser_key(window._quick_browser_var.get())
     button = window._original_images_button
     button.state(["disabled"])
-    window._quick_parse_button.state(["disabled"])
+    if not getattr(window, "_orbit_shell", False):
+        window._quick_parse_button.state(["disabled"])
     window._quick_state_var.set("正在解析网页图片，并探测最大公开分辨率…")
 
     def worker() -> None:
@@ -69,7 +64,8 @@ def _download_original_images(window, engine_module) -> None:
         message = ""
         count = 0
         try:
-            result = bridge.parse_with_bundled_ytdlp(source_url, browser)
+            validated_url = engine_module._validated_source_url(source_url)
+            result = bridge.parse_with_bundled_ytdlp(validated_url, browser)
             data, images = _image_urls(result)
             count = len(images)
             payload = {
@@ -90,7 +86,10 @@ def _download_original_images(window, engine_module) -> None:
         def finish() -> None:
             try:
                 button.state(["!disabled"])
-                window._quick_parse_button.state(["!disabled"])
+                if not getattr(window, "_orbit_shell", False):
+                    window._quick_parse_button.state(["!disabled"])
+                if quick._text(window._quick_url_var.get()) != source_url:
+                    return
                 if accepted:
                     suffix = "；会优先尝试原尺寸/高分辨率 CDN 变体" if _is_home_depot_source(source_url) else ""
                     window._quick_state_var.set(f"已提交 {count} 张图片到本机原图下载{suffix}。")
@@ -110,7 +109,7 @@ def _download_original_images(window, engine_module) -> None:
 
 
 def _build_original_images_strip(window, engine_module) -> None:
-    panel = getattr(window, "_quick_download_panel", None)
+    panel = getattr(window, "_orbit_image_details", None) or getattr(window, "_quick_download_panel", None)
     if panel is None or not panel.winfo_exists():
         return
     strip = tk.Frame(panel, bg=ui.PANEL_2)
@@ -122,23 +121,25 @@ def _build_original_images_strip(window, engine_module) -> None:
     actions = tk.Frame(head, bg=ui.PANEL_2)
     actions.pack(side="right", anchor="e")
 
-    window._original_images_button = ui.ActionButton(
-        actions,
-        text="下载页面原图",
-        command=lambda: _download_original_images(window, engine_module),
-        kind="secondary",
-    )
+    download = lambda: _download_original_images(window, engine_module)
+    if getattr(window, "_orbit_shell", False):
+        from desktop_workbench_style import button
+        window._original_images_button = button(actions, "下载原图", download, kind="Primary", icon="download")
+    else:
+        window._original_images_button = ui.ActionButton(actions, text="下载页面原图", command=download, kind="secondary")
     window._original_images_button.pack(side="right")
 
-    ui._label(
+    detail = ui._label(
         strip,
-        "Home Depot 等商品页会自动去重缩略图，并按实际像素验证最大公开 CDN 尺寸后向下回退。",
+        "优先保存页面提供的高分辨率图片，按实际像素核验并保留原始格式。",
         size="caption",
         color=ui.SUBTLE,
         bg=ui.PANEL_2,
         wraplength=720,
         justify="left",
-    ).pack(anchor="w", pady=(4, 0))
+    )
+    detail.pack(anchor="w", pady=(4, 0))
+    strip.bind("<Configure>", lambda event: detail.configure(wraplength=max(120, event.width - 10)), add="+")
 
     window._original_images_strip = strip
     window._original_images_actions = actions

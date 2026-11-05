@@ -426,7 +426,7 @@ def _output_entry(master, *, variable: tk.StringVar) -> tuple[tk.Frame, tk.Entry
 
 
 def _install_gallery_fallback(window, engine_module) -> None:
-    panel = getattr(window, "_quick_download_panel", None)
+    panel = getattr(window, "_orbit_image_details", None) or getattr(window, "_quick_download_panel", None)
     if panel is None or getattr(window, "_galaxy_gallery_dl_fallback_built", False):
         return
 

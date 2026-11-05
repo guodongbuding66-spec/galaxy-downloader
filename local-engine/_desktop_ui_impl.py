@@ -512,6 +512,10 @@ def install_desktop_ui(engine_module):
 
 def _render_queue(window, pending: list[Any]) -> None:
     panel = window._queue_panel
+    if getattr(window, "_orbit_shell", False):
+        signature = tuple((getattr(job, "job_id", None), getattr(job, "label", None), getattr(job, "source_host", None)) for job in pending)
+        if getattr(window, "_orbit_queue_signature", None) == signature:
+            return
     for child in panel.winfo_children():
         child.destroy()
     if not pending:
@@ -527,13 +531,15 @@ def _render_queue(window, pending: list[Any]) -> None:
         _label(empty, "队列为空", size=9, weight="bold", bg=PANEL_2).pack(anchor="w")
         _label(
             empty,
-            "网页忙碌时继续提交即可排队，无需启动第二个 Engine。",
+            "解析链接后即可加入队列。" if getattr(window, "_orbit_shell", False) else "网页忙碌时继续提交即可排队，无需启动第二个 Engine。",
             size=8,
             color=MUTED,
             bg=PANEL_2,
             wraplength=245,
             justify="left",
         ).pack(anchor="w", pady=(LAYOUT["micro"], LAYOUT["none"]))
+        if getattr(window, "_orbit_shell", False):
+            window._orbit_queue_signature = signature
         return
 
     for index, queued in enumerate(pending[:8], start=1):
@@ -582,6 +588,9 @@ def _render_queue(window, pending: list[Any]) -> None:
         _label(panel, f"另有 {len(pending) - 8} 项等待", size=8, color=MUTED).pack(
             anchor="w", padx=LAYOUT["micro"], pady=(LAYOUT["micro"], LAYOUT["none"])
         )
+
+    if getattr(window, "_orbit_shell", False):
+        window._orbit_queue_signature = signature
 
 
 def _cancel_queued_from_ui(window, job_id: str) -> None:
@@ -658,6 +667,14 @@ def _build_advanced_panel(window, engine_module) -> None:
     left.grid(row=0, column=0, sticky="new", padx=(LAYOUT["none"], LAYOUT["content"]))
     right = tk.Frame(columns, bg=PANEL_2)
     right.grid(row=0, column=1, sticky="new", padx=(LAYOUT["content"], LAYOUT["none"]))
+    if getattr(window, "_orbit_shell", False):
+        def reflow(event):
+            stacked = event.width < 610
+            columns.grid_columnconfigure(1, weight=0 if stacked else 1, uniform="" if stacked else "advanced")
+            left.grid_configure(columnspan=2 if stacked else 1, padx=0 if stacked else (0, 12))
+            right.grid_configure(row=1 if stacked else 0, column=0 if stacked else 1,
+                                 columnspan=2 if stacked else 1, padx=0 if stacked else (12, 0), pady=(14, 0) if stacked else 0)
+        columns.bind("<Configure>", reflow, add="+")
 
     _label(left, "片段与章节", size=8, weight="bold", bg=PANEL_2).pack(anchor="w")
     segment = tk.Frame(left, bg=PANEL_2)
@@ -788,12 +805,13 @@ def _check(master, text: str, variable: tk.BooleanVar) -> tk.Checkbutton:
 
 def _toggle_advanced(window) -> None:
     window._advanced_open = not bool(getattr(window, "_advanced_open", False))
+    title = "高级下载设置" if getattr(window, "_orbit_shell", False) else "高级下载工作台"
     if window._advanced_open:
         window._advanced_panel.pack(fill="x", pady=(LAYOUT["inline"], LAYOUT["none"]))
-        window._advanced_toggle_var.set("高级下载工作台  ⌄")
+        window._advanced_toggle_var.set(f"{title}  ⌄")
     else:
         window._advanced_panel.pack_forget()
-        window._advanced_toggle_var.set("高级下载工作台  ›")
+        window._advanced_toggle_var.set(f"{title}  ›")
 
 
 def _apply_preset(window, engine_module, preset: str) -> None:
