@@ -51,6 +51,7 @@ jobs:
       - run: python -m pip install -r local-engine/requirements.txt
       - name: Source acceptance
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           python scripts/test-final-media-completion.py
           python scripts/test-local-document-policy.py
           python scripts/test-local-desktop-quick-download.py

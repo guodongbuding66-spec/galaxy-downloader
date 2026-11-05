@@ -67,6 +67,7 @@ def main(exe: Path, out: Path) -> None:
         # The expected large near-black client surface rejects a blank frame or unrelated overlay.
         colors = screenshot.resize((100, 70)).getdata()
         assert sum(max(pixel) < 60 for pixel in colors) > 4200, "Captured client was not the dark workspace"
+        assert sum(pixel == (79, 125, 255) for pixel in screenshot.getdata()) > 300, "Primary action not painted"
         out.mkdir(exist_ok=True, parents=True)
         screenshot.save(out / "native-exe.png")
         (out / "native-exe-runtime.json").write_text(json.dumps({

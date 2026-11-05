@@ -91,24 +91,43 @@ def _scrollable_workbench(parent, window, *, column=0):
     outer.grid(row=0, column=column, sticky="nsew", padx=(0, 14) if column == 0 else 0)
     outer.grid_rowconfigure(0, weight=1)
     outer.grid_columnconfigure(0, weight=1)
-    canvas = tk.Canvas(outer, width=1, height=1, bg=ORBIT["shell"], highlightthickness=0, bd=0, yscrollincrement=16)
+    # A native child frame clips against its viewport. On Windows a Tk canvas
+    # window could remain visually blank when its short content did not scroll.
+    canvas = tk.Frame(outer, width=1, height=1, bg=ui.BG)
     canvas.grid(row=0, column=0, sticky="nsew")
-    scroll = ttk.Scrollbar(outer, orient="vertical", style="Orbit.Vertical.TScrollbar", command=canvas.yview)
-    canvas.configure(yscrollcommand=scroll.set)
-    content = tk.Frame(canvas, bg=ORBIT["shell"])
-    content_id = canvas.create_window((0, 0), window=content, anchor="nw")
+    content = tk.Frame(canvas, bg=ui.BG)
+    content.place(x=0, y=0, relwidth=1)
+    offset = 0
 
-    def size_changed(_event=None):
-        canvas.configure(scrollregion=canvas.bbox("all"))
-        if content.winfo_reqheight() > canvas.winfo_height() + 2:
-            scroll.grid(row=0, column=1, sticky="ns", padx=(3, 0))
-        else:
+    def redraw(requested):
+        nonlocal offset
+        height = max(1, canvas.winfo_height())
+        extent = max(height, content.winfo_reqheight())
+        offset = min(max(0, round(requested)), extent - height)
+        if content.winfo_y() != -offset:
+            content.place_configure(y=-offset)
+        scroll.set(offset / extent, min(1, (offset + height) / extent))
+        shown = bool(scroll.winfo_manager())
+        if extent > height and not shown:
+            scroll.grid(row=0, column=1, sticky="ns", padx=(4, 0))
+        elif extent == height and shown:
             scroll.grid_remove()
-            canvas.yview_moveto(0)
 
-    def fit(event):
-        canvas.itemconfigure(content_id, width=event.width)
-        size_changed()
+    def moveto(fraction):
+        redraw(float(fraction) * max(1, content.winfo_reqheight()))
+
+    def scroll_units(count, unit):
+        redraw(offset + int(count) * (16 if unit == "units" else max(16, canvas.winfo_height() - 24)))
+
+    def yview(operation, *args):
+        if operation == "moveto":
+            moveto(*args)
+        elif operation == "scroll":
+            scroll_units(*args)
+
+    canvas.yview_moveto = moveto
+    canvas.yview_scroll = scroll_units
+    scroll = ttk.Scrollbar(outer, orient="vertical", style="Orbit.Vertical.TScrollbar", command=yview)
 
     def owns(widget, boundary):
         while widget is not None and widget is not boundary:
@@ -139,8 +158,8 @@ def _scrollable_workbench(parent, window, *, column=0):
             offset -= (height - child.winfo_height() - 12) if bottom > height else 12
             canvas.yview_moveto(max(0, offset) / max(1, content.winfo_reqheight()))
 
-    content.bind("<Configure>", size_changed)
-    canvas.bind("<Configure>", fit)
+    content.bind("<Configure>", lambda _event: redraw(offset))
+    canvas.bind("<Configure>", lambda _event: redraw(offset))
     for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
         window.bind(sequence, wheel, add="+")
     window.bind("<FocusIn>", reveal, add="+")
@@ -523,7 +542,6 @@ def install_native_desktop_v17(engine_module, ui_module):
         window._orbit_reduce_motion.trace_add("write", reduce_changed)
         window._galaxy_ui_tick()
         window._galaxy_queue_tick()
-        window.after_idle(window._quick_url_entry.focus_set)
 
     window_cls._build_ui = build_ui
     window_cls._galaxy_native_v17_installed = True
@@ -531,7 +549,7 @@ def install_native_desktop_v17(engine_module, ui_module):
 
 
 def run_native_desktop_v17_self_test():
-    assert NATIVE_UI_REVISION == "1.8.0"
+    assert NATIVE_UI_REVISION == "1.9.0"
     assert TYPE["body"] >= 11 and TYPE["caption"] >= 9
     assert callable(install_native_desktop_v17)
 

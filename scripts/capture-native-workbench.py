@@ -45,11 +45,14 @@ def main():
         app.geometry(f"{width}x{height}+4+4")
         app.deiconify()
         app.lift()
+        app.attributes("-topmost", True)
         settle(app, 0.45)
         assert app._orbit_shell
         assert visible_in(app._quick_parse_button, app._workbench_canvas), "parse action clipped"
         assert visible_in(app._quick_url_entry, app._workbench_canvas), "link input clipped"
         snapshot(app).save(out / "native-workbench.png")
+        action_pixels = snapshot(app._quick_parse_button).convert("RGB").getdata()
+        assert sum(pixel == (79, 125, 255) for pixel in action_pixels) > 300, "primary action not painted"
         rail_visible = bool(app._rail_canvas.winfo_ismapped())
         rail_width = app._rail_canvas.winfo_width()
         print(f"Window={app.winfo_width()}x{app.winfo_height()} rail={rail_width} mapped={rail_visible} main={app._workbench_canvas.winfo_width()}", flush=True)
@@ -91,7 +94,9 @@ def main():
         app._orbit_reduce_motion.set(saved_reduced)
         tabs.buttons[0].focus_force()
         settle(app)
-        tabs.buttons[0].event_generate("<KeyPress-Right>")
+        assert app.focus_get() is tabs.buttons[0], "tab did not receive keyboard focus"
+        tabs.buttons[0].event_generate("<KeyPress-Right>", when="tail")
+        settle(app)
         assert tabs.index == 1, "arrow key did not switch modes"
         tabs.buttons[1].event_generate("<Control-KeyPress-l>")
         settle(app)
